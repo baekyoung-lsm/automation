@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, gitkit, life, manuscript, sheet
+from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -881,11 +881,131 @@ def cmd_sheet_convert(a) -> int:
     return 0
 
 
+# =================================================================== keys
+
+def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
+    header = ["기능", "분류"] + [a["name"] for a in group.apps] + ["횟수"]
+    body = []
+    for item in items:
+        hits = state.hits.get(item.uid, 0)
+        mark = "★" if item.uid in state.pins else ""
+        body.append([mark + item.name, item.cat]
+                    + [item.shortcut(a["id"]) for a in group.apps]
+                    + [str(hits) if hits else ""])
+    return header, body
+
+
+def cmd_keys(a) -> int:
+    try:
+        groups, sources = keys.load_groups()
+    except keys.KeysError as e:
+        _p(str(e))
+        return 1
+    state = keys.State.load()
+
+    if a.html:
+        from . import keyhtml
+
+        out = keyhtml.write(Path(a.html), groups, sources)
+        _p(f"저장: {out}")
+        _p("브라우저로 열면 탭 전환·검색·정렬이 되고, 조회 횟수는 그 브라우저에 남습니다.")
+        return 0
+
+    if a.list:
+        _p(f"단축키 {sum(len(g.items) for g in groups)}개\n")
+        for g in groups:
+            _p(f"  {_pad(g.id, 8)}{_pad(g.name, 14)}{g.desc}  ({len(g.items)}개)")
+        _p(f"\n사용자 파일: {keys.USER_DATA}")
+        _p(f"조회 기록:   {keys.STATE_FILE}")
+        _p("\n출처")
+        for name, url in sources.items():
+            _p(f"  {name}: {url}")
+        return 0
+
+    if a.edit:
+        return _keys_edit(groups)
+
+    try:
+        chosen = [keys.find_group(groups, a.group)] if a.group else groups
+    except keys.KeysError as e:
+        _p(str(e))
+        return 1
+
+    query = " ".join(a.query)
+    interactive = not query and not a.no_tui and sys.stdin.isatty() and sys.stdout.isatty()
+    if interactive:
+        try:
+            from . import keytui
+
+            keytui.run(chosen if a.group else groups, state, sort=a.sort,
+                       group_index=groups.index(chosen[0]) if a.group else 0)
+            return 0
+        except ImportError:
+            _p("curses 를 쓸 수 없어 표로 출력합니다.\n")
+
+    shown = 0
+    matched: list = []
+    for g in chosen:
+        items = keys.sort_items(g, state, a.sort, keys.search(g, query))
+        if not items:
+            continue
+        matched += [(g, i) for i in items]
+        _p(f"[{g.name}] {g.desc}")
+        header, body = _keys_rows(g, items[:a.limit], state)
+        _grid(header, body, limit=a.width)
+        if len(items) > a.limit:
+            _p(f"  ... {len(items) - a.limit}개 더 (--limit 로 조절)")
+        _p("")
+        shown += len(items)
+
+    if not shown:
+        _p(f"'{query}' 에 맞는 단축키가 없습니다.")
+        return 1
+
+    # 하나만 걸린 검색은 실제로 찾아본 것으로 보고 기록한다
+    if query and len(matched) == 1:
+        state.hit(matched[0][1].uid)
+        state.save()
+
+    _p(f"{shown}개  ·  정렬: {keys.SORTS[a.sort]}")
+    if not query:
+        _p("터미널에서 그냥 `at keys` 만 치면 탭으로 넘겨 보는 화면이 열립니다.")
+    return 0
+
+
+def _keys_edit(groups) -> int:
+    """사용자 단축키 파일 틀을 만들어 준다."""
+    import json as _json
+
+    path = keys.USER_DATA
+    if path.exists():
+        _p(f"이미 있습니다: {path}")
+        _p("이 파일의 항목이 기본 데이터를 덮어씁니다. 같은 이름이면 사용자 값이 이깁니다.")
+        return 0
+
+    sample = {
+        "groups": [{
+            "id": groups[0].id,
+            "items": [{"name": "내가 자주 쓰는 기능", "cat": "편집", "freq": 5,
+                       "keys": {a["id"]: "Ctrl+Shift+예" for a in groups[0].apps}}],
+        }],
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(sample, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    _p(f"틀을 만들었습니다: {path}")
+    _p(f"그룹 id: {', '.join(g.id for g in groups)}")
+    for g in groups:
+        _p(f"  {g.id} 의 앱 id: {', '.join(a['id'] for a in g.apps)}")
+    _p("\n새 그룹을 통째로 추가하려면 apps 와 items 를 함께 적으면 됩니다.")
+    return 0
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="at", description="파일 정리 / 개발 / git / 엑셀 실무 / 일상 계산 / 소설 집필 자동화 도구")
+        prog="at", description="파일 정리 / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 집필 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
     sub = ap.add_subparsers(dest="group", required=True)
 
@@ -1103,6 +1223,20 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--name", default="", metavar="시트명")
     cv.add_argument("--no-bom", action="store_true", help="CSV 에 BOM 을 넣지 않는다")
     cv.set_defaults(func=cmd_sheet_convert)
+
+    # ---- keys
+    ky = sub.add_parser("keys", help="단축키 찾기 (한글·Word·엑셀·PPT·구글)")
+    ky.add_argument("query", nargs="*", metavar="검색어",
+                    help="기능 이름이나 키 조합 (예: 붙여넣기, ctrl+shift+v)")
+    ky.add_argument("-g", "--group", metavar="그룹", help="doc / slide / calc / os")
+    ky.add_argument("-s", "--sort", default="freq", choices=list(keys.SORTS))
+    ky.add_argument("--limit", type=int, default=40)
+    ky.add_argument("--width", type=int, default=18, metavar="칸")
+    ky.add_argument("--html", metavar="경로", help="브라우저용 HTML 로 저장")
+    ky.add_argument("-l", "--list", action="store_true", help="그룹·앱 목록과 출처")
+    ky.add_argument("--edit", action="store_true", help="사용자 단축키 파일 틀 만들기")
+    ky.add_argument("--no-tui", action="store_true", help="화면 대신 표로 출력")
+    ky.set_defaults(func=cmd_keys)
 
     # ---- novel
     np_ = sub.add_parser("novel", help="소설 원고").add_subparsers(dest="cmd", required=True)

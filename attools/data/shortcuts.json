@@ -1,0 +1,1111 @@
+{
+  "version": 1,
+  "note": "직접 고쳐 쓰라고 만든 파일입니다. keys 값이 null 이면 기본 단축키가 없거나 확인되지 않은 항목입니다.",
+  "sources": {
+    "한글": "https://help.hancom.com/hoffice/multi/ko_kr/hwp/view/toolbar/shortcut(table).htm",
+    "Word · Excel · PowerPoint": "https://support.microsoft.com/ko-kr/office",
+    "Google 문서 · 시트 · 슬라이드": "https://support.google.com/docs/answer/179738"
+  },
+  "groups": [
+    {
+      "id": "doc",
+      "name": "문서",
+      "desc": "한글 · Word · Google 문서",
+      "apps": [
+        {
+          "id": "hwp",
+          "name": "한글",
+          "platform": "Windows"
+        },
+        {
+          "id": "word",
+          "name": "Word",
+          "platform": "Windows"
+        },
+        {
+          "id": "gdocs",
+          "name": "Google 문서",
+          "platform": "브라우저"
+        }
+      ],
+      "items": [
+        {
+          "name": "저장",
+          "cat": "파일",
+          "freq": 5,
+          "keys": {
+            "hwp": "Alt+S",
+            "word": "Ctrl+S",
+            "gdocs": "자동 저장"
+          }
+        },
+        {
+          "name": "다른 이름으로 저장",
+          "cat": "파일",
+          "freq": 3,
+          "keys": {
+            "hwp": "Alt+V",
+            "word": "F12",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "새 문서",
+          "cat": "파일",
+          "freq": 3,
+          "keys": {
+            "hwp": "Alt+N",
+            "word": "Ctrl+N",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "불러오기",
+          "cat": "파일",
+          "freq": 3,
+          "keys": {
+            "hwp": "Alt+O",
+            "word": "Ctrl+O",
+            "gdocs": "Ctrl+O"
+          }
+        },
+        {
+          "name": "인쇄",
+          "cat": "파일",
+          "freq": 4,
+          "keys": {
+            "hwp": "Alt+P",
+            "word": "Ctrl+P",
+            "gdocs": "Ctrl+P"
+          }
+        },
+        {
+          "name": "되돌리기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+Z",
+            "word": "Ctrl+Z",
+            "gdocs": "Ctrl+Z"
+          }
+        },
+        {
+          "name": "다시 실행",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+Shift+Z",
+            "word": "Ctrl+Y",
+            "gdocs": "Ctrl+Shift+Z"
+          }
+        },
+        {
+          "name": "복사",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+C",
+            "word": "Ctrl+C",
+            "gdocs": "Ctrl+C"
+          }
+        },
+        {
+          "name": "잘라내기",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+X",
+            "word": "Ctrl+X",
+            "gdocs": "Ctrl+X"
+          }
+        },
+        {
+          "name": "붙여넣기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+V",
+            "word": "Ctrl+V",
+            "gdocs": "Ctrl+V"
+          }
+        },
+        {
+          "name": "서식 없이 붙여넣기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+Alt+V",
+            "word": "Ctrl+Alt+V",
+            "gdocs": "Ctrl+Shift+V"
+          }
+        },
+        {
+          "name": "모두 선택",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+A",
+            "word": "Ctrl+A",
+            "gdocs": "Ctrl+A"
+          }
+        },
+        {
+          "name": "찾기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+F",
+            "word": "Ctrl+F",
+            "gdocs": "Ctrl+F"
+          }
+        },
+        {
+          "name": "찾아 바꾸기",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+H",
+            "word": "Ctrl+H",
+            "gdocs": "Ctrl+H"
+          }
+        },
+        {
+          "name": "블록 설정",
+          "cat": "편집",
+          "freq": 3,
+          "keys": {
+            "hwp": "F3",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "진하게",
+          "cat": "서식",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+B",
+            "word": "Ctrl+B",
+            "gdocs": "Ctrl+B"
+          }
+        },
+        {
+          "name": "기울임",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+I",
+            "word": "Ctrl+I",
+            "gdocs": "Ctrl+I"
+          }
+        },
+        {
+          "name": "밑줄",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+U",
+            "word": "Ctrl+U",
+            "gdocs": "Ctrl+U"
+          }
+        },
+        {
+          "name": "글자 모양",
+          "cat": "서식",
+          "freq": 5,
+          "keys": {
+            "hwp": "Alt+L",
+            "word": "Ctrl+D",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "문단 모양",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": "Alt+T",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "스타일",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "F6",
+            "word": "Ctrl+Shift+S",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "글자 크게",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+]",
+            "word": "Ctrl+]",
+            "gdocs": "Ctrl+Shift+."
+          }
+        },
+        {
+          "name": "글자 작게",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+[",
+            "word": "Ctrl+[",
+            "gdocs": "Ctrl+Shift+,"
+          }
+        },
+        {
+          "name": "왼쪽 정렬",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+Shift+L",
+            "word": "Ctrl+L",
+            "gdocs": "Ctrl+Shift+L"
+          }
+        },
+        {
+          "name": "가운데 정렬",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+Shift+C",
+            "word": "Ctrl+E",
+            "gdocs": "Ctrl+Shift+E"
+          }
+        },
+        {
+          "name": "오른쪽 정렬",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+Shift+R",
+            "word": "Ctrl+R",
+            "gdocs": "Ctrl+Shift+R"
+          }
+        },
+        {
+          "name": "양쪽 정렬",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+Shift+M",
+            "word": "Ctrl+J",
+            "gdocs": "Ctrl+Shift+J"
+          }
+        },
+        {
+          "name": "표 만들기",
+          "cat": "삽입",
+          "freq": 5,
+          "keys": {
+            "hwp": "Ctrl+N,T",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "하이퍼링크",
+          "cat": "삽입",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+K",
+            "word": "Ctrl+K",
+            "gdocs": "Ctrl+K"
+          }
+        },
+        {
+          "name": "각주",
+          "cat": "삽입",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+N,N",
+            "word": "Ctrl+Alt+F",
+            "gdocs": "Ctrl+Alt+F"
+          }
+        },
+        {
+          "name": "쪽 나눔",
+          "cat": "삽입",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+Enter",
+            "word": "Ctrl+Enter",
+            "gdocs": "Ctrl+Enter"
+          }
+        },
+        {
+          "name": "문자표 · 특수문자",
+          "cat": "삽입",
+          "freq": 4,
+          "keys": {
+            "hwp": "Ctrl+F10",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "한자 변환",
+          "cat": "입력",
+          "freq": 4,
+          "keys": {
+            "hwp": "F9",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "맞춤법 검사",
+          "cat": "검토",
+          "freq": 3,
+          "keys": {
+            "hwp": "F8",
+            "word": "F7",
+            "gdocs": "Ctrl+Alt+X"
+          }
+        },
+        {
+          "name": "댓글 달기",
+          "cat": "검토",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Alt+M",
+            "gdocs": "Ctrl+Alt+M"
+          }
+        },
+        {
+          "name": "편집 용지",
+          "cat": "설정",
+          "freq": 3,
+          "keys": {
+            "hwp": "F7",
+            "word": null,
+            "gdocs": null
+          }
+        },
+        {
+          "name": "문서 처음으로",
+          "cat": "이동",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+Home",
+            "word": "Ctrl+Home",
+            "gdocs": "Ctrl+Home"
+          }
+        },
+        {
+          "name": "문서 끝으로",
+          "cat": "이동",
+          "freq": 3,
+          "keys": {
+            "hwp": "Ctrl+End",
+            "word": "Ctrl+End",
+            "gdocs": "Ctrl+End"
+          }
+        }
+      ]
+    },
+    {
+      "id": "slide",
+      "name": "슬라이드",
+      "desc": "PowerPoint · Google 슬라이드",
+      "apps": [
+        {
+          "id": "ppt",
+          "name": "PowerPoint",
+          "platform": "Windows"
+        },
+        {
+          "id": "gslides",
+          "name": "Google 슬라이드",
+          "platform": "브라우저"
+        }
+      ],
+      "items": [
+        {
+          "name": "저장",
+          "cat": "파일",
+          "freq": 5,
+          "keys": {
+            "ppt": "Ctrl+S",
+            "gslides": "자동 저장"
+          }
+        },
+        {
+          "name": "인쇄",
+          "cat": "파일",
+          "freq": 3,
+          "keys": {
+            "ppt": "Ctrl+P",
+            "gslides": "Ctrl+P"
+          }
+        },
+        {
+          "name": "새 슬라이드",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "ppt": "Ctrl+M",
+            "gslides": "Ctrl+M"
+          }
+        },
+        {
+          "name": "복제",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "ppt": "Ctrl+D",
+            "gslides": "Ctrl+D"
+          }
+        },
+        {
+          "name": "되돌리기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "ppt": "Ctrl+Z",
+            "gslides": "Ctrl+Z"
+          }
+        },
+        {
+          "name": "서식 없이 붙여넣기",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+V",
+            "gslides": "Ctrl+Shift+V"
+          }
+        },
+        {
+          "name": "서식 복사",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+C",
+            "gslides": "Ctrl+Alt+C"
+          }
+        },
+        {
+          "name": "서식 붙여넣기",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+V",
+            "gslides": "Ctrl+Alt+V"
+          }
+        },
+        {
+          "name": "그룹 묶기",
+          "cat": "개체",
+          "freq": 5,
+          "keys": {
+            "ppt": "Ctrl+G",
+            "gslides": "Ctrl+Alt+G"
+          }
+        },
+        {
+          "name": "그룹 풀기",
+          "cat": "개체",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+G",
+            "gslides": "Ctrl+Alt+Shift+G"
+          }
+        },
+        {
+          "name": "맨 앞으로 가져오기",
+          "cat": "개체",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+]",
+            "gslides": "Ctrl+Shift+↑"
+          }
+        },
+        {
+          "name": "맨 뒤로 보내기",
+          "cat": "개체",
+          "freq": 4,
+          "keys": {
+            "ppt": "Ctrl+Shift+[",
+            "gslides": "Ctrl+Shift+↓"
+          }
+        },
+        {
+          "name": "개체 복제하며 이동",
+          "cat": "개체",
+          "freq": 3,
+          "keys": {
+            "ppt": "Ctrl+드래그",
+            "gslides": "Ctrl+드래그"
+          }
+        },
+        {
+          "name": "직선·정비율로 그리기",
+          "cat": "개체",
+          "freq": 3,
+          "keys": {
+            "ppt": "Shift+드래그",
+            "gslides": "Shift+드래그"
+          }
+        },
+        {
+          "name": "슬라이드쇼 시작",
+          "cat": "발표",
+          "freq": 5,
+          "keys": {
+            "ppt": "F5",
+            "gslides": "Ctrl+F5"
+          }
+        },
+        {
+          "name": "현재 슬라이드부터 시작",
+          "cat": "발표",
+          "freq": 4,
+          "keys": {
+            "ppt": "Shift+F5",
+            "gslides": null
+          }
+        },
+        {
+          "name": "발표자 보기",
+          "cat": "발표",
+          "freq": 3,
+          "keys": {
+            "ppt": "Alt+F5",
+            "gslides": null
+          }
+        },
+        {
+          "name": "쇼 끝내기",
+          "cat": "발표",
+          "freq": 4,
+          "keys": {
+            "ppt": "Esc",
+            "gslides": "Esc"
+          }
+        },
+        {
+          "name": "화면 검게",
+          "cat": "발표",
+          "freq": 3,
+          "keys": {
+            "ppt": "B",
+            "gslides": "B"
+          }
+        },
+        {
+          "name": "화면 희게",
+          "cat": "발표",
+          "freq": 3,
+          "keys": {
+            "ppt": "W",
+            "gslides": "W"
+          }
+        },
+        {
+          "name": "특정 슬라이드로",
+          "cat": "발표",
+          "freq": 3,
+          "keys": {
+            "ppt": "숫자 + Enter",
+            "gslides": "숫자 + Enter"
+          }
+        },
+        {
+          "name": "하이퍼링크",
+          "cat": "삽입",
+          "freq": 3,
+          "keys": {
+            "ppt": "Ctrl+K",
+            "gslides": "Ctrl+K"
+          }
+        },
+        {
+          "name": "확대 · 축소",
+          "cat": "보기",
+          "freq": 3,
+          "keys": {
+            "ppt": "Ctrl+휠",
+            "gslides": "Ctrl+휠"
+          }
+        }
+      ]
+    },
+    {
+      "id": "calc",
+      "name": "스프레드시트",
+      "desc": "Excel · Google 스프레드시트",
+      "apps": [
+        {
+          "id": "excel",
+          "name": "Excel",
+          "platform": "Windows"
+        },
+        {
+          "id": "gsheets",
+          "name": "Google 시트",
+          "platform": "브라우저"
+        }
+      ],
+      "items": [
+        {
+          "name": "저장",
+          "cat": "파일",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+S",
+            "gsheets": "자동 저장"
+          }
+        },
+        {
+          "name": "셀 편집",
+          "cat": "입력",
+          "freq": 5,
+          "keys": {
+            "excel": "F2",
+            "gsheets": "F2 또는 Enter"
+          }
+        },
+        {
+          "name": "줄 바꿈(셀 안)",
+          "cat": "입력",
+          "freq": 5,
+          "keys": {
+            "excel": "Alt+Enter",
+            "gsheets": "Alt+Enter"
+          }
+        },
+        {
+          "name": "오늘 날짜",
+          "cat": "입력",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+;",
+            "gsheets": "Ctrl+;"
+          }
+        },
+        {
+          "name": "현재 시각",
+          "cat": "입력",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+Shift+;",
+            "gsheets": "Ctrl+Shift+;"
+          }
+        },
+        {
+          "name": "아래로 채우기",
+          "cat": "입력",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+D",
+            "gsheets": "Ctrl+D"
+          }
+        },
+        {
+          "name": "오른쪽으로 채우기",
+          "cat": "입력",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+R",
+            "gsheets": "Ctrl+R"
+          }
+        },
+        {
+          "name": "값만 붙여넣기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+Alt+V",
+            "gsheets": "Ctrl+Shift+V"
+          }
+        },
+        {
+          "name": "행·열 삽입",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+Shift++",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "행·열 삭제",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+-",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "찾기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+F",
+            "gsheets": "Ctrl+F"
+          }
+        },
+        {
+          "name": "찾아 바꾸기",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+H",
+            "gsheets": "Ctrl+H"
+          }
+        },
+        {
+          "name": "자동 합계",
+          "cat": "수식",
+          "freq": 5,
+          "keys": {
+            "excel": "Alt+=",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "절대 참조 전환",
+          "cat": "수식",
+          "freq": 5,
+          "keys": {
+            "excel": "F4",
+            "gsheets": "F4"
+          }
+        },
+        {
+          "name": "수식 표시",
+          "cat": "수식",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+`",
+            "gsheets": "Ctrl+`"
+          }
+        },
+        {
+          "name": "데이터 끝으로 이동",
+          "cat": "이동",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+방향키",
+            "gsheets": "Ctrl+방향키"
+          }
+        },
+        {
+          "name": "데이터 범위 선택",
+          "cat": "이동",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+Shift+방향키",
+            "gsheets": "Ctrl+Shift+방향키"
+          }
+        },
+        {
+          "name": "전체 선택",
+          "cat": "이동",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+A",
+            "gsheets": "Ctrl+A"
+          }
+        },
+        {
+          "name": "A1으로 이동",
+          "cat": "이동",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+Home",
+            "gsheets": "Ctrl+Home"
+          }
+        },
+        {
+          "name": "시트 이동",
+          "cat": "이동",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+PageUp / PageDown",
+            "gsheets": "Alt+↑ / ↓"
+          }
+        },
+        {
+          "name": "새 시트",
+          "cat": "시트",
+          "freq": 3,
+          "keys": {
+            "excel": "Shift+F11",
+            "gsheets": "Shift+F11"
+          }
+        },
+        {
+          "name": "셀 서식",
+          "cat": "서식",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+1",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "통화 서식",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+Shift+4",
+            "gsheets": "Ctrl+Shift+4"
+          }
+        },
+        {
+          "name": "백분율 서식",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+Shift+5",
+            "gsheets": "Ctrl+Shift+5"
+          }
+        },
+        {
+          "name": "날짜 서식",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+Shift+3",
+            "gsheets": "Ctrl+Shift+3"
+          }
+        },
+        {
+          "name": "필터",
+          "cat": "데이터",
+          "freq": 5,
+          "keys": {
+            "excel": "Ctrl+Shift+L",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "표로 만들기",
+          "cat": "데이터",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+T",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "하이퍼링크",
+          "cat": "삽입",
+          "freq": 3,
+          "keys": {
+            "excel": "Ctrl+K",
+            "gsheets": "Ctrl+K"
+          }
+        },
+        {
+          "name": "메모 · 댓글",
+          "cat": "검토",
+          "freq": 3,
+          "keys": {
+            "excel": "Shift+F2",
+            "gsheets": "Ctrl+Alt+M"
+          }
+        }
+      ]
+    },
+    {
+      "id": "os",
+      "name": "공통",
+      "desc": "Windows · macOS 공통 조작",
+      "apps": [
+        {
+          "id": "win",
+          "name": "Windows",
+          "platform": "Windows"
+        },
+        {
+          "id": "mac",
+          "name": "macOS",
+          "platform": "macOS"
+        }
+      ],
+      "items": [
+        {
+          "name": "복사 · 붙여넣기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "win": "Ctrl+C / Ctrl+V",
+            "mac": "Cmd+C / Cmd+V"
+          }
+        },
+        {
+          "name": "되돌리기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "win": "Ctrl+Z",
+            "mac": "Cmd+Z"
+          }
+        },
+        {
+          "name": "모두 선택",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "win": "Ctrl+A",
+            "mac": "Cmd+A"
+          }
+        },
+        {
+          "name": "저장",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "win": "Ctrl+S",
+            "mac": "Cmd+S"
+          }
+        },
+        {
+          "name": "찾기",
+          "cat": "편집",
+          "freq": 5,
+          "keys": {
+            "win": "Ctrl+F",
+            "mac": "Cmd+F"
+          }
+        },
+        {
+          "name": "창 전환",
+          "cat": "창",
+          "freq": 5,
+          "keys": {
+            "win": "Alt+Tab",
+            "mac": "Cmd+Tab"
+          }
+        },
+        {
+          "name": "창 닫기 · 종료",
+          "cat": "창",
+          "freq": 4,
+          "keys": {
+            "win": "Alt+F4",
+            "mac": "Cmd+Q"
+          }
+        },
+        {
+          "name": "탭 닫기",
+          "cat": "창",
+          "freq": 4,
+          "keys": {
+            "win": "Ctrl+W",
+            "mac": "Cmd+W"
+          }
+        },
+        {
+          "name": "닫은 탭 되살리기",
+          "cat": "창",
+          "freq": 5,
+          "keys": {
+            "win": "Ctrl+Shift+T",
+            "mac": "Cmd+Shift+T"
+          }
+        },
+        {
+          "name": "새로고침",
+          "cat": "창",
+          "freq": 4,
+          "keys": {
+            "win": "F5 또는 Ctrl+R",
+            "mac": "Cmd+R"
+          }
+        },
+        {
+          "name": "확대 · 축소 · 원래대로",
+          "cat": "창",
+          "freq": 3,
+          "keys": {
+            "win": "Ctrl+= / Ctrl+- / Ctrl+0",
+            "mac": "Cmd+= / Cmd+- / Cmd+0"
+          }
+        },
+        {
+          "name": "영역 스크린샷",
+          "cat": "화면",
+          "freq": 5,
+          "keys": {
+            "win": "Win+Shift+S",
+            "mac": "Cmd+Shift+4"
+          }
+        },
+        {
+          "name": "전체 스크린샷",
+          "cat": "화면",
+          "freq": 3,
+          "keys": {
+            "win": "Win+PrintScreen",
+            "mac": "Cmd+Shift+3"
+          }
+        },
+        {
+          "name": "화면 잠금",
+          "cat": "시스템",
+          "freq": 3,
+          "keys": {
+            "win": "Win+L",
+            "mac": "Ctrl+Cmd+Q"
+          }
+        },
+        {
+          "name": "파일 탐색기 · Finder",
+          "cat": "시스템",
+          "freq": 4,
+          "keys": {
+            "win": "Win+E",
+            "mac": "Cmd+Option+Space"
+          }
+        },
+        {
+          "name": "작업 관리자 · 강제 종료",
+          "cat": "시스템",
+          "freq": 4,
+          "keys": {
+            "win": "Ctrl+Shift+Esc",
+            "mac": "Cmd+Option+Esc"
+          }
+        },
+        {
+          "name": "이모지 입력",
+          "cat": "입력",
+          "freq": 3,
+          "keys": {
+            "win": "Win+.",
+            "mac": "Ctrl+Cmd+Space"
+          }
+        },
+        {
+          "name": "가상 데스크톱 전환",
+          "cat": "창",
+          "freq": 3,
+          "keys": {
+            "win": "Win+Ctrl+← / →",
+            "mac": "Ctrl+← / →"
+          }
+        },
+        {
+          "name": "클립보드 기록",
+          "cat": "편집",
+          "freq": 4,
+          "keys": {
+            "win": "Win+V",
+            "mac": null
+          }
+        }
+      ]
+    }
+  ]
+}
