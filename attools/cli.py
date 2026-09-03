@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet
+from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet, text
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -1017,6 +1017,99 @@ def _keys_edit(groups) -> int:
     return 0
 
 
+# =================================================================== text
+
+def _text_targets(a):
+    paths = [Path(p) for p in (a.paths or ["."])]
+    missing = [p for p in paths if not p.exists()]
+    if missing:
+        _p(f"경로가 없습니다: {', '.join(str(m) for m in missing)}")
+        return None
+    return list(text.iter_files(paths, glob=a.glob, hidden=a.hidden))
+
+
+def _text_report(a, changes, headline: str) -> int:
+    if not changes:
+        _p("바꿀 것이 없습니다.")
+        return 0
+
+    total = sum(c.hits for c in changes)
+    _p(f"{headline}  파일 {len(changes)}개, {total}곳\n")
+
+    for c in changes[:a.limit]:
+        note = f"  ({c.note})" if c.note else f"  {c.hits}곳"
+        _p(f"{c.path}{note}")
+        if not a.quiet:
+            for line in c.diff(limit=a.context):
+                mark = line[:1]
+                prefix = "  " if mark not in "+-" else ("  " + mark)
+                _p(f"{prefix if mark in '+-' else '   '}{line[1:] if mark in '+-' else line}")
+        _p("")
+    if len(changes) > a.limit:
+        _p(f"... 파일 {len(changes) - a.limit}개 더 (--limit 로 조절)\n")
+
+    if not a.apply:
+        _p("실제로 고치려면 --apply 를 붙이세요. (원본은 백업합니다)")
+        return 0
+
+    target = getattr(a, "to", None) if getattr(a, "recode", False) else None
+    journal = text.apply_changes(changes, target_encoding=target)
+    _p(f"파일 {len(changes)}개를 고쳤습니다.")
+    _p(f"되돌리기: at text undo {journal}")
+    return 0
+
+
+def cmd_text_replace(a) -> int:
+    files = _text_targets(a)
+    if files is None:
+        return 1
+    try:
+        pattern = text.build_pattern(a.find, regex=a.regex, ignore_case=a.ignore_case,
+                                     whole_word=a.word)
+        changes = text.plan_replace(files, pattern, a.replace, regex=a.regex)
+    except text.TextError as e:
+        _p(str(e))
+        return 1
+    return _text_report(a, changes, f"'{a.find}' -> '{a.replace}'")
+
+
+def cmd_text_encoding(a) -> int:
+    files = _text_targets(a)
+    if files is None:
+        return 1
+    a.recode = True
+    changes = text.plan_encoding(files, a.to)
+    return _text_report(a, changes, f"인코딩 -> {a.to}")
+
+
+def cmd_text_eol(a) -> int:
+    files = _text_targets(a)
+    if files is None:
+        return 1
+    return _text_report(a, text.plan_eol(files, a.to), f"줄바꿈 -> {a.to.upper()}")
+
+
+def cmd_text_trim(a) -> int:
+    files = _text_targets(a)
+    if files is None:
+        return 1
+    return _text_report(a, text.plan_trim(files, tabs=a.tabs), "공백 정리")
+
+
+def cmd_text_undo(a) -> int:
+    journal = Path(a.journal) if a.journal else text.latest_journal()
+    if journal is None or not journal.is_file():
+        _p("되돌릴 저널이 없습니다.")
+        return 1
+    if not a.journal:
+        _p(f"최근 저널을 사용합니다: {journal}")
+    restored, errors = text.undo(journal)
+    _p(f"{restored}개 파일을 되돌렸습니다.")
+    for e in errors:
+        _p(f"  건너뜀: {e}")
+    return 0 if not errors else 1
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1239,6 +1332,51 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("--name", default="", metavar="시트명")
     cv.add_argument("--no-bom", action="store_true", help="CSV 에 BOM 을 넣지 않는다")
     cv.set_defaults(func=cmd_sheet_convert)
+
+    # ---- text
+    tp = sub.add_parser("text", help="여러 파일 텍스트 일괄 처리").add_subparsers(
+        dest="cmd", required=True)
+
+    def text_paths(parser):
+        parser.add_argument("paths", nargs="*", default=["."], metavar="경로")
+        return parser
+
+    def text_common(parser):
+        parser.add_argument("-g", "--glob", action="append", metavar="패턴",
+                            help="예: -g '*.py' -g '*.md' (기본 전체)")
+        parser.add_argument("--hidden", action="store_true")
+        parser.add_argument("--apply", action="store_true", help="실제로 고친다")
+        parser.add_argument("--limit", type=int, default=20, metavar="개")
+        parser.add_argument("--context", type=int, default=8, metavar="줄",
+                            help="미리보기 줄 수")
+        parser.add_argument("-q", "--quiet", action="store_true", help="차이 미리보기 생략")
+        return parser
+
+    rp = tp.add_parser("replace", help="여러 파일에서 찾아 바꾸기")
+    rp.add_argument("find", metavar="찾을것")
+    rp.add_argument("replace", metavar="바꿀것")
+    text_common(text_paths(rp))
+    rp.add_argument("-e", "--regex", action="store_true", help="정규식으로")
+    rp.add_argument("-i", "--ignore-case", action="store_true")
+    rp.add_argument("-w", "--word", action="store_true", help="단어 단위로만")
+    rp.set_defaults(func=cmd_text_replace)
+
+    ep = text_common(text_paths(tp.add_parser("encoding", help="cp949 등을 utf-8 로 통일")))
+    ep.add_argument("--to", default="utf-8", metavar="인코딩")
+    ep.set_defaults(func=cmd_text_encoding)
+
+    lp2 = text_common(text_paths(tp.add_parser("eol", help="줄바꿈을 LF/CRLF 로 통일")))
+    lp2.add_argument("--to", default="lf", choices=["lf", "crlf"])
+    lp2.set_defaults(func=cmd_text_eol)
+
+    tr = text_common(text_paths(tp.add_parser("trim", help="줄 끝 공백·파일 끝 개행 정리")))
+    tr.add_argument("--tabs", type=int, default=0, metavar="칸",
+                    help="탭을 이만큼의 공백으로 (기본: 그대로)")
+    tr.set_defaults(func=cmd_text_trim)
+
+    tu = tp.add_parser("undo", help="text 명령 되돌리기")
+    tu.add_argument("journal", nargs="?")
+    tu.set_defaults(func=cmd_text_undo)
 
     # ---- keys
     ky = sub.add_parser("keys", help="단축키 찾기 (한글·Word·엑셀·PPT·구글)")

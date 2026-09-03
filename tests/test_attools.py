@@ -8,7 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import devkit, files, gitkit, hangul, keyhtml, keys, life, manuscript, sheet, xlsx
+from attools import (devkit, files, gitkit, hangul, keyhtml, keys, life, manuscript,
+                     sheet, text, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -569,6 +570,124 @@ class KeysTest(unittest.TestCase):
         # 탭은 JS 가 그리므로 이름은 심어 둔 JSON 안에 있어야 한다
         for g in self.groups:
             self.assertIn(g.name, html)
+
+
+class TextTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, name, content, encoding="utf-8"):
+        p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(content.encode(encoding) if isinstance(content, str) else content)
+        return p
+
+    def files(self, **kw):
+        return list(text.iter_files([self.root], **kw))
+
+    def test_reads_cp949_and_keeps_bom_state(self):
+        plain = self.make("a.txt", "한글")
+        self.assertEqual(text.read_text_any(plain), ("한글", "utf-8"))
+
+        bom = self.make("b.csv", b"\xef\xbb\xbf\xed\x95\x9c")
+        self.assertEqual(text.read_text_any(bom), ("한", "utf-8-sig"))
+
+        legacy = self.make("c.txt", "한글", encoding="cp949")
+        self.assertEqual(text.read_text_any(legacy), ("한글", "cp949"))
+
+    def test_rejects_binary(self):
+        binary = self.make("x.dat", b"abc\0def")
+        with self.assertRaises(text.TextError):
+            text.read_text_any(binary)
+
+    def test_iter_skips_binary_and_ignored_dirs(self):
+        self.make("keep.py", "x")
+        self.make("node_modules/skip.py", "x")
+        self.make("image.png", b"\x89PNG")
+        self.make(".hidden/also.py", "x")
+        self.assertEqual([p.name for p in self.files()], ["keep.py"])
+
+    def test_glob_filter(self):
+        self.make("a.py", "x")
+        self.make("b.md", "x")
+        self.assertEqual([p.name for p in self.files(glob=["*.md"])], ["b.md"])
+
+    def test_replace_treats_plain_text_literally(self):
+        self.make("a.txt", "a.b and axb")
+        pattern = text.build_pattern("a.b", regex=False, ignore_case=False, whole_word=False)
+        changes = text.plan_replace(self.files(), pattern, "Z")
+        self.assertEqual(changes[0].after, "Z and axb")   # 정규식이 아니면 . 은 문자 그대로
+        self.assertEqual(changes[0].hits, 1)
+
+    def test_replace_regex_with_group(self):
+        self.make("a.txt", "버전 1.2.3")
+        pattern = text.build_pattern(r"(\d+)\.(\d+)\.(\d+)", regex=True,
+                                     ignore_case=False, whole_word=False)
+        changes = text.plan_replace(self.files(), pattern, r"v\1.\2", regex=True)
+        self.assertEqual(changes[0].after, "버전 v1.2")
+
+    def test_replace_backslash_is_literal_in_plain_mode(self):
+        self.make("a.txt", "경로")
+        pattern = text.build_pattern("경로", regex=False, ignore_case=False, whole_word=False)
+        changes = text.plan_replace(self.files(), pattern, r"C:\\새폴더")
+        self.assertEqual(changes[0].after, r"C:\\새폴더")
+
+    def test_whole_word_option(self):
+        self.make("a.txt", "id and idx")
+        pattern = text.build_pattern("id", regex=False, ignore_case=False, whole_word=True)
+        self.assertEqual(text.plan_replace(self.files(), pattern, "KEY")[0].after,
+                         "KEY and idx")
+
+    def test_bad_regex_raises(self):
+        with self.assertRaises(text.TextError):
+            text.build_pattern("(unclosed", regex=True, ignore_case=False, whole_word=False)
+
+    def test_eol_and_trim(self):
+        self.make("a.txt", "one\r\ntwo\r\n")
+        self.assertEqual(text.plan_eol(self.files(), "lf")[0].after, "one\ntwo\n")
+
+        self.make("b.txt", "line   \n\ttab\t\n")
+        change = text.plan_trim(self.files(glob=["b.txt"]))[0]
+        self.assertEqual(change.after, "line\n\ttab\n")
+
+    def test_trim_expands_tabs_when_asked(self):
+        self.make("a.txt", "\tx\n")
+        self.assertEqual(text.plan_trim(self.files(), tabs=2)[0].after, "  x\n")
+
+    def test_encoding_plan_skips_already_utf8(self):
+        self.make("utf.txt", "한글")
+        self.make("legacy.txt", "한글", encoding="cp949")
+        changes = text.plan_encoding(self.files())
+        self.assertEqual([c.path.name for c in changes], ["legacy.txt"])
+
+    def test_apply_and_undo_roundtrip(self):
+        target = self.make("a.txt", "before")
+        journal = self.root / "j" / "journal.jsonl"
+        pattern = text.build_pattern("before", regex=False, ignore_case=False,
+                                     whole_word=False)
+        changes = text.plan_replace(self.files(glob=["a.txt"]), pattern, "after")
+        text.apply_changes(changes, journal=journal)
+        self.assertEqual(target.read_text(encoding="utf-8"), "after")
+
+        restored, errors = text.undo(journal)
+        self.assertEqual((restored, errors), (1, []))
+        self.assertEqual(target.read_text(encoding="utf-8"), "before")
+
+    def test_apply_recodes_to_utf8(self):
+        target = self.make("a.txt", "한글", encoding="cp949")
+        changes = text.plan_encoding(self.files())
+        text.apply_changes(changes, target_encoding="utf-8",
+                           journal=self.root / "j" / "journal.jsonl")
+        self.assertEqual(target.read_bytes(), "한글".encode("utf-8"))
+
+    def test_diff_preview(self):
+        change = text.Change(Path("a.txt"), "a\nb\n", "a\nc\n", "utf-8", 1)
+        lines = change.diff()
+        self.assertTrue(any(l.startswith("-b") for l in lines))
+        self.assertTrue(any(l.startswith("+c") for l in lines))
 
 
 if __name__ == "__main__":

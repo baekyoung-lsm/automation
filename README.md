@@ -7,6 +7,7 @@
 - `file` 파일 분류·이름 정리·중복 탐지·변경 감시
 - `dev` .env 대조, 포트, JWT, 시각 변환, 로그 마스킹, 헬스체크 대기, cron 해석, 키 생성
 - `git` 병합된 브랜치 정리, 커밋 전 시크릿 검사
+- `text` 여러 파일 찾아 바꾸기, 인코딩·줄바꿈 통일, 공백 정리
 - `sheet` 엑셀·CSV 훑어보기, 검증, 정리, 병합, 비교, 집계, 변환
 - `keys` 한글·Word·엑셀·PPT·구글 문서 단축키를 탭으로 넘겨 보고 검색
 - `life` D-day, 더치페이 정산, 대출 계산, 단위 변환
@@ -73,6 +74,32 @@ at dev enc "SGVsbG8gd29ybGQ="
 ```
 
 `at dev env` 는 문제가 있으면 종료 코드 1을 돌려주므로 CI나 배포 스크립트에 그대로 넣을 수 있다.
+
+## text — 여러 파일 텍스트 일괄 처리
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `at text replace <찾을것> <바꿀것> [경로]` | 여러 파일에서 찾아 바꾸기. `-e` 정규식, `-i` 대소문자 무시, `-w` 단어 단위 |
+| `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
+| `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
+| `at text trim [경로]` | 줄 끝 공백 제거, 파일 끝 개행 보정, 탭 → 공백 |
+| `at text undo [저널]` | 직전 작업 되돌리기 |
+
+```bash
+at text replace old.example.com api.example.com src/          # 미리보기 (차이까지)
+at text replace old.example.com api.example.com src/ --apply
+at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply
+at text encoding 인수인계자료/ --apply     # 예전 파일 무더기 utf-8 로
+at text trim . -g '*.py' --apply
+at text undo
+```
+
+기본은 미리보기다. 바뀌는 줄을 diff 로 먼저 보여 주고, `--apply` 를 붙여야 실제로 쓴다.
+원본은 `~/.attools/text/<시각>/` 에 통째로 백업하므로 `at text undo` 로 되돌릴 수 있다.
+
+정규식이 아니면 `.` 이나 `\` 도 문자 그대로 다룬다. BOM 이 있던 파일은 BOM 을 유지하고,
+없던 파일에 BOM 을 붙이지 않는다. 이진 파일과 `node_modules`, `.git` 같은 디렉터리는
+건너뛴다.
 
 ## git — 저장소 정리와 검사
 
