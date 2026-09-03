@@ -107,6 +107,7 @@ at text undo
 | --- | --- |
 | `at git sweep [경로]` | 기준 브랜치에 병합이 끝난 로컬 브랜치, 원격이 사라진 추적 브랜치를 찾아 지운다 |
 | `at git scan [경로]` | 코드에 하드코딩된 API 키·토큰·개인 키·접속 문자열 비밀번호·주민등록번호를 찾는다 |
+| `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 
 ```bash
 at git sweep --fetch              # 미리보기
@@ -114,7 +115,14 @@ at git sweep --fetch --apply
 at git scan                       # 추적 중인 파일 전체
 at git scan --staged --quiet      # 커밋 직전 검사, 발견되면 exit 1
 at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
+at git todo                       # 오래 방치된 순
+at git todo -m FIXME -m BUG -s severity
+at git todo --no-blame -g '*.py'  # 작성자 조회 없이 빠르게
 ```
+
+`at git todo` 는 표시가 **주석 안에 있을 때만** 센다. 문자열 리터럴의 `"TODO"` 까지 잡으면
+쓸모가 없기 때문이다. `TODO(이름)` 이나 `TODO @이름` 으로 적힌 담당자가 있으면 그것을
+쓰고, 없으면 `git blame` 이 알려준 마지막 수정자를 보여준다. 방치 기간도 blame 기준이다.
 
 `your-key-here`, `${VAULT_SECRET}`, `os.environ[...]` 같은 플레이스홀더는 걸러 낸다.
 테스트 픽스처처럼 일부러 넣은 값은 그 줄에 `# attools: ignore` 를 달면 넘어간다.

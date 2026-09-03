@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet, text
+from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet, text, todo
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -535,6 +535,54 @@ def cmd_git_scan(a) -> int:
     _p("\n실제 시크릿이면 커밋하지 말고 값을 폐기·재발급하세요.")
     _p("이미 커밋했다면 히스토리에서도 지워야 합니다 (git filter-repo 등).")
     return 1
+
+
+def cmd_git_todo(a) -> int:
+    root = _repo(a)
+    if root is None:
+        root = Path(a.dir or ".").resolve()
+        if not root.is_dir():
+            _p(f"디렉터리가 아닙니다: {root}")
+            return 1
+
+    markers = [m.upper() for m in a.marker] if a.marker else None
+    if markers:
+        unknown = [m for m in markers if m not in todo.MARKERS]
+        if unknown:
+            _p(f"모르는 표시입니다: {', '.join(unknown)}")
+            _p(f"쓸 수 있는 것: {', '.join(todo.MARKERS)}")
+            return 1
+
+    found = todo.collect(root, tracked=not a.all, markers=markers, glob=a.glob)
+    if not found:
+        _p("TODO 가 없습니다.")
+        return 0
+
+    if not a.no_blame:
+        todo.add_blame(root, found)
+
+    counts = todo.summarize(found)
+    _p(f"{len(found)}건  ·  " + "  ".join(f"{k} {v}" for k, v in counts.items()))
+    aged = [t for t in found if t.age_days is not None]
+    if aged:
+        oldest = max(aged, key=lambda t: t.age_days)
+        _p(f"가장 오래된 것 {oldest.age_days}일  ·  "
+           f"평균 {sum(t.age_days for t in aged) // len(aged)}일\n")
+    else:
+        _p("")
+
+    rows = todo.sort_todos(found, a.sort)[:a.limit]
+    header = ["표시", "내용", "위치", "담당·작성자", "방치"]
+    body = []
+    for t in rows:
+        who = t.owner or t.author or "-"
+        age = f"{t.age_days}일" if t.age_days is not None else "-"
+        body.append([t.marker, t.text, f"{t.path}:{t.line}", who, age])
+    _grid(header, body, limit=a.width)
+
+    if len(found) > a.limit:
+        _p(f"\n... {len(found) - a.limit}건 더 (--limit 로 조절)")
+    return 0
 
 
 # =================================================================== life
@@ -1232,6 +1280,19 @@ def build_parser() -> argparse.ArgumentParser:
     sw.add_argument("--apply", action="store_true")
     sw.add_argument("--force", action="store_true", help="원격이 사라진 브랜치도 강제 삭제")
     sw.set_defaults(func=cmd_git_sweep)
+
+    td = gp.add_parser("todo", help="코드의 TODO·FIXME 를 작성자·방치 기간과 함께 모으기")
+    td.add_argument("dir", nargs="?", default=".")
+    td.add_argument("-m", "--marker", action="append", metavar="표시",
+                    help="예: -m FIXME -m BUG (기본 전체)")
+    td.add_argument("-g", "--glob", action="append", metavar="패턴")
+    td.add_argument("-s", "--sort", default="age",
+                    choices=["age", "severity", "file", "author"])
+    td.add_argument("--limit", type=int, default=30)
+    td.add_argument("--width", type=int, default=46, metavar="칸")
+    td.add_argument("--all", action="store_true", help="추적 안 되는 파일까지")
+    td.add_argument("--no-blame", action="store_true", help="git blame 생략 (빠름)")
+    td.set_defaults(func=cmd_git_todo)
 
     sc = gp.add_parser("scan", help="코드에 하드코딩된 시크릿·개인정보 찾기")
     sc.add_argument("dir", nargs="?", default=".")

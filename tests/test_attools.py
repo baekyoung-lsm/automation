@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import (devkit, files, gitkit, hangul, keyhtml, keys, life, manuscript,
-                     sheet, text, xlsx)
+                     sheet, text, todo, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -688,6 +688,63 @@ class TextTest(unittest.TestCase):
         lines = change.diff()
         self.assertTrue(any(l.startswith("-b") for l in lines))
         self.assertTrue(any(l.startswith("+c") for l in lines))
+
+
+class TodoTest(unittest.TestCase):
+    def test_finds_markers_in_comments(self):
+        src = ("# TODO(홍길동): 캐시 붙이기\n"
+               "    pass  # FIXME 예외 처리 없음\n"
+               "// XXX: 임시\n"
+               " * HACK - 나중에 지울 것\n"
+               "- TODO: 마크다운 목록\n")
+        found = todo.scan_text(src, "a.py")
+        self.assertEqual([t.marker for t in found],
+                         ["TODO", "FIXME", "XXX", "HACK", "TODO"])
+        self.assertEqual(found[0].owner, "홍길동")
+        self.assertEqual(found[0].text, "캐시 붙이기")
+
+    def test_ignores_markers_inside_strings(self):
+        src = ('_p("TODO 가 없습니다")\n'
+               'help="-m FIXME -m BUG"\n'
+               'x = "TODOLIST"\n'
+               'name = TODOS\n')
+        self.assertEqual(todo.scan_text(src, "a.py"), [])
+
+    def test_owner_forms(self):
+        found = todo.scan_text("# TODO @kim 로그 정리\n# TODO\n", "a.py")
+        self.assertEqual(found[0].owner, "kim")
+        self.assertEqual(found[0].text, "로그 정리")
+        self.assertEqual(found[1].text, "(내용 없음)")
+
+    def test_marker_filter(self):
+        src = "# TODO 하나\n# FIXME 둘\n"
+        self.assertEqual([t.marker for t in todo.scan_text(src, "a.py", markers=["FIXME"])],
+                         ["FIXME"])
+
+    def test_sort_by_severity_and_age(self):
+        from datetime import datetime, timedelta
+
+        old = todo.Todo("a.py", 1, "TODO", "오래됨", when=datetime.now() - timedelta(days=400))
+        new = todo.Todo("b.py", 1, "BUG", "새것", when=datetime.now())
+        self.assertEqual([t.marker for t in todo.sort_todos([new, old], "age")],
+                         ["TODO", "BUG"])
+        self.assertEqual([t.marker for t in todo.sort_todos([old, new], "severity")],
+                         ["BUG", "TODO"])
+        with self.assertRaises(ValueError):
+            todo.sort_todos([], "없는정렬")
+
+    def test_summarize_orders_by_severity(self):
+        items = [todo.Todo("a", 1, "TODO", "x"), todo.Todo("a", 2, "BUG", "y"),
+                 todo.Todo("a", 3, "TODO", "z")]
+        self.assertEqual(list(todo.summarize(items)), ["BUG", "TODO"])
+
+    def test_parse_blame_output(self):
+        blob = ("a" * 40 + " 1 3 1\n"
+                "author 홍길동\n"
+                "author-time 1700000000\n"
+                "\t# TODO 무언가\n")
+        parsed = todo._parse_blame(blob)
+        self.assertEqual(parsed[3][0], "홍길동")
 
 
 if __name__ == "__main__":
