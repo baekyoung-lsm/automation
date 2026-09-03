@@ -467,6 +467,45 @@ class KeysTest(unittest.TestCase):
                 self.assertLessEqual(set(item.keys), set(g.app_ids), item.name)
                 self.assertTrue(any(item.keys.values()), f"{item.name}: 단축키가 하나도 없음")
 
+    def test_three_cell_states(self):
+        item = keys.Item("테스트", "편집", 3,
+                         {"hwp": "Ctrl+K", "word": keys.NO_SHORTCUT, "gdocs": None},
+                         group="doc")
+        self.assertEqual(item.status("hwp"), "key")
+        self.assertEqual(item.status("word"), "none")
+        self.assertEqual(item.status("gdocs"), "unknown")
+        self.assertEqual(item.status("없는앱"), "unknown")
+        self.assertEqual(item.shortcut("hwp"), "Ctrl+K")
+        self.assertEqual(item.shortcut("word"), keys.MARK_NONE)
+        self.assertEqual(item.shortcut("gdocs"), keys.MARK_UNKNOWN)
+        self.assertEqual(item.unknown_apps(["hwp", "word", "gdocs"]), ["gdocs"])
+
+    def test_none_marker_is_not_searchable(self):
+        # '없음'은 표시용 값이지 단축키가 아니므로 검색에 걸리면 안 된다
+        group = keys.Group("t", "테스트", "", [{"id": "a", "name": "A"}])
+        group.items = [keys.Item("기능", "편집", 3, {"a": keys.NO_SHORTCUT}, group="t")]
+        self.assertEqual(keys.search(group, "없음"), [])
+        self.assertEqual(len(keys.search(group, "기능")), 1)
+
+    def test_gaps_lists_unknown_cells_only(self):
+        group = keys.Group("t", "테스트", "", [{"id": "a", "name": "A"},
+                                               {"id": "b", "name": "B"}])
+        group.items = [
+            keys.Item("있음", "편집", 3, {"a": "Ctrl+A", "b": keys.NO_SHORTCUT}, group="t"),
+            keys.Item("모름", "편집", 3, {"a": "Ctrl+B", "b": None}, group="t"),
+        ]
+        rows = keys.gaps([group])
+        self.assertEqual([(i.name, m) for _, i, m in rows], [("모름", ["b"])])
+
+    def test_data_cell_values_are_valid(self):
+        for g in self.groups:
+            for item in g.items:
+                for app, value in item.keys.items():
+                    self.assertTrue(value is None or isinstance(value, str),
+                                    f"{g.id}/{item.name}/{app}")
+                    if isinstance(value, str):
+                        self.assertTrue(value.strip(), f"{g.id}/{item.name}/{app} 빈 문자열")
+
     def test_search_by_function_name(self):
         found = [i.name for i in keys.search(self.doc, "붙여넣기")]
         self.assertIn("서식 없이 붙여넣기", found)

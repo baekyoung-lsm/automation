@@ -230,6 +230,8 @@ def _draw(stdscr, s: Screen, items, height: int, total: int, body_h: int) -> Non
 
     footer = ("[Tab] 그룹  [↑↓] 이동  [/] 검색  [Enter] 기록  [p] 고정  "
               "[K/J] 순서  [s] 정렬  [?] 도움말  [q] 종료")
+    if width(footer) + 30 < total:
+        footer += "   — 없음  ? 확인 못 함"
     put(height - 2, 0, cut(footer, total - 1), curses.color_pair(1))
     if s.message:
         put(height - 1, 0, s.message, curses.color_pair(3))

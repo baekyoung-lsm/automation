@@ -922,6 +922,21 @@ def cmd_keys(a) -> int:
             _p(f"  {name}: {url}")
         return 0
 
+    if a.gaps:
+        rows = keys.gaps(groups)
+        if not rows:
+            _p("확인하지 못한 칸이 없습니다.")
+            return 0
+        cells = sum(len(m) for _, _, m in rows)
+        _p(f"아직 확인하지 못한 칸 {cells}개 (항목 {len(rows)}개)\n")
+        for g, item, missing in rows:
+            names = ", ".join(g.app_name(a) for a in missing)
+            _p(f"  [{_pad(g.name, 8)}] {_pad(_cut(item.name, 24), 26)}{names}")
+        _p("\n확인하면 attools/data/shortcuts.json 을 고치거나,")
+        _p(f"내 것만 채우려면 {keys.USER_DATA} 에 적으면 됩니다.")
+        _p('기본 단축키가 없는 기능이면 "없음" 이라고 적어 두세요.')
+        return 0
+
     if a.edit:
         return _keys_edit(groups)
 
@@ -967,7 +982,8 @@ def cmd_keys(a) -> int:
         state.hit(matched[0][1].uid)
         state.save()
 
-    _p(f"{shown}개  ·  정렬: {keys.SORTS[a.sort]}")
+    _p(f"{shown}개  ·  정렬: {keys.SORTS[a.sort]}"
+       f"  ·  {keys.MARK_NONE} 기본 단축키 없음  {keys.MARK_UNKNOWN} 확인 못 함")
     if not query:
         _p("터미널에서 그냥 `at keys` 만 치면 탭으로 넘겨 보는 화면이 열립니다.")
     return 0
@@ -1234,6 +1250,7 @@ def build_parser() -> argparse.ArgumentParser:
     ky.add_argument("--width", type=int, default=18, metavar="칸")
     ky.add_argument("--html", metavar="경로", help="브라우저용 HTML 로 저장")
     ky.add_argument("-l", "--list", action="store_true", help="그룹·앱 목록과 출처")
+    ky.add_argument("--gaps", action="store_true", help="아직 확인하지 못한 칸 보기")
     ky.add_argument("--edit", action="store_true", help="사용자 단축키 파일 틀 만들기")
     ky.add_argument("--no-tui", action="store_true", help="화면 대신 표로 출력")
     ky.set_defaults(func=cmd_keys)

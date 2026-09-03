@@ -12,6 +12,12 @@ USER_DIR = Path.home() / ".attools"
 USER_DATA = USER_DIR / "shortcuts.json"   # 사용자가 추가·수정한 단축키
 STATE_FILE = USER_DIR / "keys.json"       # 조회 횟수, 사용자 순서, 고정
 
+# 값이 없는 칸은 두 가지다. 이 둘을 구분하지 않으면 "찾아봐야 할 것"을 알 수 없다.
+NO_SHORTCUT = "없음"      # 확인했고, 기본 단축키가 없는 기능
+UNKNOWN = None            # 아직 확인하지 못한 칸
+MARK_NONE = "—"
+MARK_UNKNOWN = "?"
+
 SORTS = {
     "freq": "자주 찾는 순",
     "abc": "가나다 순",
@@ -37,12 +43,27 @@ class Item:
     def uid(self) -> str:
         return f"{self.group}:{self.name}"
 
+    def status(self, app: str) -> str:
+        """key = 단축키 있음, none = 기본 단축키 없음, unknown = 확인 못 함"""
+        value = self.keys.get(app, UNKNOWN)
+        if value == NO_SHORTCUT:
+            return "none"
+        return "key" if value else "unknown"
+
     def shortcut(self, app: str) -> str:
-        return self.keys.get(app) or "—"
+        state = self.status(app)
+        if state == "key":
+            return self.keys[app]
+        return MARK_NONE if state == "none" else MARK_UNKNOWN
 
     def haystack(self, apps: list[str]) -> str:
-        parts = [self.name, self.cat] + [self.keys.get(a) or "" for a in apps]
+        # 표시용 기호와 '없음' 자체는 검색에 걸리지 않게 뺀다
+        parts = [self.name, self.cat] + [self.keys.get(a) or "" for a in apps
+                                         if self.keys.get(a) != NO_SHORTCUT]
         return normalize(" ".join(parts))
+
+    def unknown_apps(self, apps: list[str]) -> list[str]:
+        return [a for a in apps if self.status(a) == "unknown"]
 
 
 @dataclass
@@ -191,6 +212,17 @@ def find_group(groups: list[Group], name: str) -> Group:
             return g
     known = ", ".join(f"{g.id}({g.name})" for g in groups)
     raise KeysError(f"'{name}' 그룹이 없습니다. 있는 그룹: {known}")
+
+
+def gaps(groups: list[Group]) -> list[tuple[Group, Item, list[str]]]:
+    """아직 확인하지 못한 칸을 모은다."""
+    out = []
+    for g in groups:
+        for item in g.items:
+            missing = item.unknown_apps(g.app_ids)
+            if missing:
+                out.append((g, item, missing))
+    return out
 
 
 def search_all(groups: list[Group], query: str) -> list[tuple[Group, Item]]:

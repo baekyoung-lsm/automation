@@ -53,6 +53,8 @@ kbd { display:inline-block; font:13px/1.3 ui-monospace,SFMono-Regular,Menlo,Cons
   background:var(--bg); border:1px solid var(--line); border-bottom-width:2px;
   border-radius:5px; padding:2px 6px; white-space:nowrap; }
 .none { color:var(--dim); }
+.unknown { color:var(--dim); font-style:italic; cursor:help; }
+.legend { color:var(--dim); font-size:12px; margin-left:auto; }
 .tools { white-space:nowrap; text-align:right; }
 .tools button { border:0; background:none; cursor:pointer; color:var(--dim);
   font:inherit; padding:2px 4px; border-radius:4px; opacity:0; transition:opacity .12s; }
@@ -89,6 +91,7 @@ footer a { color:var(--accent); }
       <option value="cat">분류 순</option>
     </select>
     <span class="count" id="count"></span>
+    <span class="legend">— 기본 단축키 없음 · ? 확인 못 함</span>
     <button id="reset" title="이 묶음의 기록과 순서를 지웁니다">기록 지우기</button>
   </div>
 
@@ -100,6 +103,7 @@ footer a { color:var(--accent); }
 <script>
 const DATA = __DATA__;
 const KEY = "attools.keys.v1";
+const NONE = "없음";   // 확인했고 기본 단축키가 없는 기능
 let store = { hits:{}, order:{}, pins:[] };
 try { store = Object.assign(store, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
@@ -112,7 +116,10 @@ function visible() {
   const g = DATA.groups[gi];
   const needle = norm(query);
   let items = g.items.filter(it => !needle || norm(
-    [it.name, it.cat].concat(g.apps.map(a => it.keys[a.id] || "")).join(" ")).includes(needle));
+    [it.name, it.cat].concat(g.apps.map(a => {
+      const v = it.keys[a.id];
+      return !v || v === NONE ? "" : v;
+    })).join(" ")).includes(needle));
 
   const hits = it => store.hits[uid(g, it)] || 0;
   if (sortMode === "freq") {
@@ -165,8 +172,12 @@ function render() {
   document.getElementById("tbody").innerHTML = items.map(it => {
     const id = uid(g, it);
     const hits = store.hits[id] || 0;
-    const cells = g.apps.map(a => it.keys[a.id]
-      ? `<td><kbd>${it.keys[a.id]}</kbd></td>` : '<td class="none">—</td>').join("");
+    const cells = g.apps.map(a => {
+      const v = it.keys[a.id];
+      if (v === NONE) return '<td class="none" title="기본 단축키가 없는 기능">—</td>';
+      if (!v) return '<td class="unknown" title="아직 확인하지 못한 칸">?</td>';
+      return `<td><kbd>${v}</kbd></td>`;
+    }).join("");
     return `<tr class="row ${store.pins.includes(id) ? "pinned" : ""}" data-name="${it.name}">
       <td class="name">${it.name}</td><td class="cat">${it.cat}</td>${cells}
       <td class="tools"><span class="hits">${hits || ""}</span>
@@ -193,7 +204,7 @@ function render() {
   document.getElementById("foot").innerHTML =
     "출처: " + Object.entries(DATA.sources).map(([k, v]) =>
       `<a href="${v}" target="_blank" rel="noopener">${k}</a>`).join(" · ")
-    + "<br>확인되지 않았거나 기본 단축키가 없는 항목은 —로 표시했습니다. "
+    + "<br>—는 기본 단축키가 없는 기능, ?는 아직 확인하지 못한 칸입니다. "
     + "프로그램 버전과 설정에 따라 다를 수 있습니다.";
 }
 
