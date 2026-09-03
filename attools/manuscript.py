@@ -305,3 +305,53 @@ def tag_people(scenes: list[Scene], people: list[str]) -> None:
     for scene in scenes:
         scene.people = [p for p in ordered if p in scene.text]
         scene.people.sort(key=lambda p: -scene.text.count(p))
+
+
+# --------------------------------------------------------------------- 찾기
+
+@dataclass
+class Mention:
+    path: str
+    line: int
+    scene: int
+    before: str
+    hit: str
+    after: str
+
+    def context(self, mark: str = "**") -> str:
+        parts = [self.before, f"{mark}{self.hit}{mark}", self.after]
+        return " ".join(p for p in parts if p)
+
+
+def find_mentions(text: str, pattern: re.Pattern[str], *, path: str = "",
+                  context: int = 1, scenes: list[Scene] | None = None) -> list[Mention]:
+    """문장 단위로 찾고 앞뒤 문장을 문맥으로 붙인다."""
+    sentences = split_sentences(text)
+    # 문장이 원문 몇 번째 줄에서 시작하는지 미리 재둔다
+    offsets: list[int] = []
+    cursor = 0
+    for s in sentences:
+        found = text.find(s[:30], cursor)
+        cursor = found + 1 if found >= 0 else cursor
+        offsets.append(text.count("\n", 0, max(found, 0)) + 1)
+
+    scene_starts = [(s.line, s.number) for s in (scenes or [])]
+
+    def scene_of(line: int) -> int:
+        number = 0
+        for start, n in scene_starts:
+            if start <= line:
+                number = n
+            else:
+                break
+        return number
+
+    out: list[Mention] = []
+    for i, sentence in enumerate(sentences):
+        if not pattern.search(sentence):
+            continue
+        before = " ".join(sentences[max(0, i - context):i])
+        after = " ".join(sentences[i + 1:i + 1 + context])
+        out.append(Mention(path, offsets[i], scene_of(offsets[i]),
+                           before[-60:], sentence.strip(), after[:60]))
+    return out

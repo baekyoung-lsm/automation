@@ -1033,6 +1033,47 @@ def cmd_novel_outline(a) -> int:
     return 0
 
 
+def cmd_novel_find(a) -> int:
+    import re as _re
+
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    body = a.query if a.regex else _re.escape(a.query)
+    try:
+        pattern = _re.compile(body, _re.I if a.ignore_case else 0)
+    except _re.error as e:
+        _p(f"정규식이 잘못됐습니다: {e}")
+        return 1
+
+    found: list[manuscript.Mention] = []
+    for path in targets:
+        text = manuscript.strip_markup(manuscript.read_text(path))
+        scenes = manuscript.split_scenes(text, min_chars=a.min)
+        found += manuscript.find_mentions(text, pattern, path=path.name,
+                                          context=a.context, scenes=scenes)
+
+    if not found:
+        _p(f"'{a.query}' 를 찾지 못했습니다.")
+        return 1
+
+    _p(f"'{a.query}'  {len(found)}번  (파일 {len({m.path for m in found})}개)")
+    first, last = found[0], found[-1]
+    _p(f"처음 {first.path}:{first.line}행" + (f" 장면 {first.scene}" if first.scene else "")
+       + f"  ·  마지막 {last.path}:{last.line}행"
+       + (f" 장면 {last.scene}" if last.scene else "") + "\n")
+
+    for m in found[:a.limit]:
+        where = f"{m.path}:{m.line}행" + (f"  장면 {m.scene}" if m.scene else "")
+        _p(f"  {where}")
+        _p(f"    {_cut(m.context(), a.width)}")
+    if len(found) > a.limit:
+        _p(f"  ... {len(found) - a.limit}번 더 (--limit 로 조절)")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -2192,6 +2233,18 @@ def build_parser() -> argparse.ArgumentParser:
     ol.add_argument("--width", type=int, default=30, metavar="칸")
     ol.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
     ol.set_defaults(func=cmd_novel_outline)
+
+    fd = np_.add_parser("find", help="원고에서 문맥과 함께 찾기 (복선·소재 추적)")
+    fd.add_argument("query", metavar="찾을것")
+    fd.add_argument("paths", nargs="+")
+    fd.add_argument("-e", "--regex", action="store_true")
+    fd.add_argument("-i", "--ignore-case", action="store_true")
+    fd.add_argument("-c", "--context", type=int, default=1, metavar="문장",
+                    help="앞뒤로 붙일 문장 수")
+    fd.add_argument("--min", type=int, default=100, metavar="자", help="장면 최소 분량")
+    fd.add_argument("--limit", type=int, default=30)
+    fd.add_argument("--width", type=int, default=110, metavar="칸")
+    fd.set_defaults(func=cmd_novel_find)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

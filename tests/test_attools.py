@@ -242,6 +242,32 @@ class ManuscriptTest(unittest.TestCase):
         manuscript.tag_people(scenes, ["카일", "리안", "세드릭"])
         self.assertEqual(scenes[0].people, ["리안", "카일"])
 
+    def test_find_mentions_with_context(self):
+        import re
+
+        text = ("리안은 상자를 열었다. 안에는 붉은 열쇠가 있었다. 그는 넣었다.\n"
+                "다른 이야기였다. 붉은 열쇠는 잊혔다.\n")
+        found = manuscript.find_mentions(text, re.compile("붉은 열쇠"), path="1화.txt")
+        self.assertEqual(len(found), 2)
+        self.assertEqual(found[0].hit, "안에는 붉은 열쇠가 있었다.")
+        self.assertIn("리안은 상자를 열었다.", found[0].before)
+        self.assertIn("그는 넣었다.", found[0].after)
+        self.assertIn("**붉은 열쇠", found[0].context().replace("안에는 ", ""))
+
+    def test_find_mentions_tags_scene_number(self):
+        import re
+
+        text = ("# 1화\n\n" + "가" * 60 + " 열쇠가 있었다.\n\n***\n\n"
+                + "나" * 60 + " 열쇠를 꺼냈다.\n")
+        scenes = manuscript.split_scenes(text, min_chars=10)
+        found = manuscript.find_mentions(text, re.compile("열쇠"), scenes=scenes)
+        self.assertEqual([m.scene for m in found], [1, 2])
+
+    def test_find_mentions_none(self):
+        import re
+
+        self.assertEqual(manuscript.find_mentions("아무것도 없다.", re.compile("열쇠")), [])
+
     def test_snapshot_growth(self):
         (self.root / "1화.txt").write_text("가나다", encoding="utf-8")
         manuscript.snapshot(self.root, note="초고")
