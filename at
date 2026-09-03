@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""attools 실행 스크립트. PATH 에 심볼릭 링크를 걸어 쓰면 된다."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from attools.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())
