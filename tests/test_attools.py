@@ -72,6 +72,55 @@ class FilesTest(unittest.TestCase):
         self.assertTrue((self.root / "문서" / "보고서 (1).pdf").exists())
         self.assertEqual((self.root / "문서" / "보고서.pdf").read_text(encoding="utf-8"), "먼저")
 
+    def test_archive_selects_by_age_and_glob(self):
+        import os
+        import time
+
+        old = self.make("logs/old.log")
+        self.make("logs/new.log")
+        self.make("keep.txt")
+        os.utime(old, (time.time() - 400 * 86400,) * 2)
+
+        picked = files.plan_archive(self.root, glob=["*.log"], older_days=365)
+        self.assertEqual([p.name for p in picked], ["old.log"])
+
+    def test_archive_packs_and_removes_after_verifying(self):
+        self.make("a.log", "내용" * 500)
+        self.make("sub/b.log", "내용" * 500)
+        targets = files.plan_archive(self.root, glob=["*.log"])
+
+        result = files.make_archive(self.root, targets, self.root / "보관.zip",
+                                    remove=True)
+        self.assertEqual(len(result.stored), 2)
+        self.assertEqual(len(result.removed), 2)
+        self.assertEqual(result.failed, [])
+        self.assertFalse((self.root / "a.log").exists())
+        self.assertTrue((self.root / "보관.zip").exists())
+        self.assertLess(result.packed_size, result.raw_size)
+
+    def test_archive_keeps_originals_without_remove(self):
+        self.make("a.log")
+        targets = files.plan_archive(self.root, glob=["*.log"])
+        result = files.make_archive(self.root, targets, self.root / "z.zip")
+        self.assertEqual(result.removed, [])
+        self.assertTrue((self.root / "a.log").exists())
+
+    def test_archive_refuses_to_overwrite(self):
+        self.make("a.log")
+        targets = files.plan_archive(self.root, glob=["*.log"])
+        files.make_archive(self.root, targets, self.root / "z.zip")
+        with self.assertRaises(RuntimeError):
+            files.make_archive(self.root, targets, self.root / "z.zip")
+
+    def test_archive_preserves_relative_paths(self):
+        import zipfile
+
+        self.make("sub/deep/c.log")
+        targets = files.plan_archive(self.root, glob=["*.log"])
+        files.make_archive(self.root, targets, self.root / "z.zip")
+        with zipfile.ZipFile(self.root / "z.zip") as z:
+            self.assertEqual(z.namelist(), ["sub/deep/c.log"])
+
     def test_duplicates(self):
         self.make("a.txt", "같은 내용" * 100)
         self.make("sub/b.txt", "같은 내용" * 100)

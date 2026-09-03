@@ -404,6 +404,58 @@ def cmd_file_rename(a) -> int:
     return 0
 
 
+def cmd_file_archive(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    targets = files.plan_archive(root, glob=a.glob, older_days=a.older,
+                                 include_hidden=a.hidden, recursive=not a.no_recursive)
+    if not targets:
+        _p("보관할 파일이 없습니다.")
+        return 0
+
+    total = sum(p.stat().st_size for p in targets)
+    _p(f"파일 {len(targets)}개  ·  {files.human_size(total)}")
+    for p in targets[:a.limit]:
+        _p(f"  {p.relative_to(root)}  {files.human_size(p.stat().st_size)}")
+    if len(targets) > a.limit:
+        _p(f"  ... {len(targets) - a.limit}개 더")
+
+    default = root / f"{root.name}-{devkit.datetime.now():%Y%m%d}.zip"
+    archive = Path(a.out) if a.out else default
+    _p(f"\n보관 파일: {archive}")
+
+    if not a.apply:
+        _p("실제로 만들려면 --apply 를 붙이세요."
+           + ("  (--remove 를 함께 주면 원본을 지웁니다)" if not a.remove else ""))
+        return 0
+
+    if a.remove and not a.yes and not _confirm(
+            f"압축이 온전한지 확인한 뒤 원본 {len(targets)}개를 지웁니다. 계속할까요?"):
+        _p("취소했습니다. 압축만 하려면 --remove 없이 실행하세요.")
+        return 1
+
+    try:
+        result = files.make_archive(root, targets, archive, remove=a.remove)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"\n{len(result.stored)}개를 담았습니다."
+       f"  {files.human_size(result.raw_size)} -> {files.human_size(result.packed_size)}"
+       f" ({result.ratio:.0%})")
+    if result.removed:
+        _p(f"원본 {len(result.removed)}개를 지웠습니다.")
+    for message in result.failed:
+        _p(f"  문제: {message}")
+    if result.failed and a.remove:
+        _p("확인에 실패해서 원본은 그대로 뒀습니다.")
+        return 1
+    return 0
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -1837,6 +1889,21 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--depth", type=int, default=1)
     b.add_argument("--top", type=int, default=15)
     b.set_defaults(func=cmd_file_big)
+
+    ar = fp.add_parser("archive", help="오래된 파일을 zip 으로 보관")
+    ar.add_argument("dir")
+    ar.add_argument("-o", "--out", metavar="파일", help="기본: <디렉터리이름>-<날짜>.zip")
+    ar.add_argument("--older", type=float, default=0.0, metavar="일",
+                    help="이만큼 오래된 것만 (예: 365)")
+    ar.add_argument("-g", "--glob", action="append", metavar="패턴")
+    ar.add_argument("--hidden", action="store_true")
+    ar.add_argument("--no-recursive", action="store_true")
+    ar.add_argument("--remove", action="store_true",
+                    help="압축이 온전한지 확인한 뒤 원본을 지운다")
+    ar.add_argument("-y", "--yes", action="store_true", help="확인 없이 진행")
+    ar.add_argument("--limit", type=int, default=15)
+    ar.add_argument("--apply", action="store_true")
+    ar.set_defaults(func=cmd_file_archive)
 
     u = fp.add_parser("undo", help="organize/fixname 되돌리기")
     u.add_argument("journal", nargs="?", help="생략하면 가장 최근 저널")

@@ -7,7 +7,7 @@ import json
 import re
 import shutil
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -346,3 +346,83 @@ def plan_rename(root: Path, template: str, *, glob: list[str] | None = None,
         planned.add(dst)
         moves.append(Move(str(src), str(dst)))
     return moves
+
+
+@dataclass
+class ArchiveResult:
+    archive: Path
+    stored: list[Path] = field(default_factory=list)
+    removed: list[Path] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    raw_size: int = 0
+    packed_size: int = 0
+
+    @property
+    def ratio(self) -> float:
+        return self.packed_size / self.raw_size if self.raw_size else 0.0
+
+
+def plan_archive(root: Path, *, glob: list[str] | None = None,
+                 older_days: float = 0.0, include_hidden: bool = False,
+                 recursive: bool = True) -> list[Path]:
+    patterns = glob or ["*"]
+    cutoff = time.time() - older_days * 86400
+    found: list[Path] = []
+    for pattern in patterns:
+        walker = root.rglob(pattern) if recursive else root.glob(pattern)
+        for p in walker:
+            if not p.is_file() or p.is_symlink() or p in found:
+                continue
+            rel = p.relative_to(root).parts
+            if not include_hidden and any(part.startswith(".") for part in rel):
+                continue
+            if older_days and p.stat().st_mtime > cutoff:
+                continue
+            found.append(p)
+    return sorted(found)
+
+
+def make_archive(root: Path, targets: list[Path], archive: Path, *,
+                 remove: bool = False) -> ArchiveResult:
+    """압축한 뒤 내용이 온전한지 확인하고, 그때만 원본을 지운다."""
+    import zipfile
+
+    result = ArchiveResult(archive)
+    if not targets:
+        return result
+
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    if archive.exists():
+        raise RuntimeError(f"이미 있는 파일입니다: {archive}")
+
+    sizes: dict[str, int] = {}
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+        for path in targets:
+            name = str(path.relative_to(root))
+            z.write(path, name)
+            sizes[name] = path.stat().st_size
+            result.stored.append(path)
+            result.raw_size += sizes[name]
+    result.packed_size = archive.stat().st_size
+
+    # 지우기 전에 정말 다 들어갔는지 본다
+    with zipfile.ZipFile(archive) as z:
+        broken = z.testzip()
+        if broken:
+            result.failed.append(f"압축이 깨졌습니다: {broken}")
+            return result
+        inside = {info.filename: info.file_size for info in z.infolist()}
+        for name, size in sizes.items():
+            if inside.get(name) != size:
+                result.failed.append(f"압축에 빠졌거나 크기가 다릅니다: {name}")
+
+    if result.failed or not remove:
+        return result
+
+    for path in result.stored:
+        try:
+            path.unlink()
+            result.removed.append(path)
+        except OSError as e:
+            result.failed.append(f"지우지 못했습니다: {path} ({e})")
+    return result
