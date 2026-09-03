@@ -56,6 +56,7 @@ at file undo
 | `at dev port <포트>` | 포트를 잡고 있는 프로세스를 찾고 `--kill` 로 종료한다 |
 | `at dev jwt <토큰>` | JWT 헤더·페이로드를 디코드하고 `exp`/`iat` 를 KST로 보여준다 (서명 검증 안 함) |
 | `at dev time [값]` | epoch(초/밀리초)·ISO 문자열·`now` 를 KST/UTC/epoch 로 상호 변환한다 |
+| `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -72,7 +73,15 @@ at dev wait localhost:5432 -t 60 && ./migrate.sh
 at dev cron "30 2 * * 6"
 at dev gen password -l 20 --readable
 at dev enc "SGVsbG8gd29ybGQ="
+at dev log app.log                      # 전체 요약
+at dev log app.log -l ERROR -b 10m      # 에러만 10분 단위로
+kubectl logs pod | at dev log -
 ```
+
+`at dev log` 는 숫자·UUID·IP·경로·따옴표 문자열을 `<n>`, `<uuid>` 같은 자리표시자로 바꿔서
+같은 사고끼리 묶는다. `결제 실패 order=8821` 과 `order=8822` 가 한 줄로 합쳐지므로
+"무엇이 몇 번 터졌는지"가 바로 보인다. 스택 트레이스 줄은 앞 항목에 붙이고,
+평소 건수의 3배 이상 튄 구간은 급증으로 따로 알려 준다.
 
 `at dev env` 는 문제가 있으면 종료 코드 1을 돌려주므로 CI나 배포 스크립트에 그대로 넣을 수 있다.
 

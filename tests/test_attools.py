@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import (devkit, files, gitkit, hangul, jsonkit, keyhtml, keys, life,
-                     manuscript, names, sheet, text, todo, xlsx)
+                     logkit, manuscript, names, sheet, text, todo, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -885,6 +885,79 @@ class JsonkitTest(unittest.TestCase):
 
     def test_preview_truncates(self):
         self.assertTrue(jsonkit.preview("가" * 100, 10).endswith("…"))
+
+
+class LogkitTest(unittest.TestCase):
+    SAMPLE = [
+        "2026-09-03 10:00:01 INFO  요청 시작 user=1234",
+        "2026-09-03 10:00:02 ERROR 결제 실패 order=8821 amount=15,000",
+        "  at com.app.Pay.run(Pay.java:42)",
+        "2026-09-03 10:00:05 ERROR 결제 실패 order=8822 amount=7,500",
+        "2026-09-03 11:30:00 WARNING 응답 지연 1200ms",
+        "2026-09-03 11:30:10 ERROR DB 연결 실패 10.0.0.5:5432",
+    ]
+
+    def test_parse_attaches_stack_traces(self):
+        entries = logkit.parse(self.SAMPLE)
+        self.assertEqual(len(entries), 5)          # 트레이스 줄은 앞 항목에 붙는다
+        self.assertIn("Pay.java", entries[1].raw)
+
+    def test_level_and_time_parsing(self):
+        entries = logkit.parse(self.SAMPLE)
+        self.assertEqual(entries[0].level, "INFO")
+        self.assertEqual(entries[3].level, "WARN")   # WARNING 은 WARN 으로 통일
+        self.assertEqual(entries[0].when.hour, 10)
+
+    def test_level_counts_ordered_by_severity(self):
+        counts = logkit.level_counts(logkit.parse(self.SAMPLE))
+        self.assertEqual(list(counts), ["ERROR", "WARN", "INFO"])
+        self.assertEqual(counts["ERROR"], 3)
+
+    def test_normalize_collapses_varying_values(self):
+        a = logkit.normalize("결제 실패 order=8821 amount=15,000")
+        b = logkit.normalize("결제 실패 order=8822 amount=7,500")
+        self.assertEqual(a, b)
+        self.assertIn("<ip>", logkit.normalize("연결 실패 10.0.0.5:5432"))
+        self.assertIn("<uuid>", logkit.normalize(
+            "id=550e8400-e29b-41d4-a716-446655440000"))
+
+    def test_group_messages_merges_same_incident(self):
+        groups = logkit.group_messages(logkit.parse(self.SAMPLE), levels={"ERROR"})
+        self.assertEqual(groups[0].count, 2)
+        self.assertEqual(groups[0].lines, [2, 4])
+        self.assertEqual(groups[0].level, "ERROR")
+
+    def test_histogram_buckets(self):
+        series = logkit.histogram(logkit.parse(self.SAMPLE), bucket="1h")
+        self.assertEqual([c for _, c in series], [3, 2])
+        with self.assertRaises(ValueError):
+            logkit.histogram([], bucket="7초")
+
+    def test_histogram_respects_level_filter(self):
+        series = logkit.histogram(logkit.parse(self.SAMPLE), bucket="1h",
+                                  levels={"ERROR"})
+        self.assertEqual([c for _, c in series], [2, 1])
+
+    def test_spikes_need_a_real_jump(self):
+        from datetime import datetime, timedelta
+
+        base = datetime(2026, 9, 3, 8)
+        flat = [(base + timedelta(hours=i), 2) for i in range(6)]
+        self.assertEqual(logkit.spikes(flat), [])
+
+        flat[3] = (flat[3][0], 40)
+        found = logkit.spikes(flat)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0][1], 40)
+
+    def test_strip_prefix_leaves_message(self):
+        self.assertEqual(
+            logkit.strip_prefix("2026-09-03 10:00:02 ERROR 결제 실패"), "결제 실패")
+
+    def test_span(self):
+        first, last = logkit.span(logkit.parse(self.SAMPLE))
+        self.assertEqual((first.hour, last.hour), (10, 11))
+        self.assertEqual(logkit.span([]), (None, None))
 
 
 if __name__ == "__main__":

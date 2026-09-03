@@ -6,8 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, manuscript,
-               names, sheet, text, todo)
+from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
+               manuscript, names, sheet, text, todo)
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -1210,6 +1210,72 @@ def cmd_novel_names(a) -> int:
     return 1
 
 
+def cmd_dev_log(a) -> int:
+    lines: list[str] = []
+    for source in a.files:
+        if source == "-":
+            lines += sys.stdin.read().splitlines()
+            continue
+        path = Path(source)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        lines += manuscript.read_text(path).splitlines()
+
+    if not lines:
+        _p("읽을 내용이 없습니다.")
+        return 1
+
+    entries = logkit.parse(lines)
+    levels = {l.upper() for l in a.level} if a.level else None
+    if levels:
+        unknown = levels - set(logkit.LEVELS) - {"WARN", "FATAL"}
+        if unknown:
+            _p(f"모르는 레벨입니다: {', '.join(unknown)}")
+            return 1
+
+    counts = logkit.level_counts(entries)
+    first, last = logkit.span(entries)
+    _p(f"{len(entries):,}줄" + (f"  ·  {first:%m-%d %H:%M} ~ {last:%m-%d %H:%M}"
+                                if first and last else "  ·  시각 없음"))
+    if counts:
+        _p("  " + "  ".join(f"{k} {v:,}" for k, v in counts.items()))
+    severe = sum(v for k, v in counts.items() if k in logkit.SEVERE)
+    if severe and len(entries):
+        _p(f"  심각 {severe:,}건 ({severe / len(entries):.1%})")
+    _p("")
+
+    series = logkit.histogram(entries, bucket=a.bucket, levels=levels)
+    if series:
+        peak = max(v for _, v in series)
+        title = f"{a.bucket} 단위 분포" + (f" ({'/'.join(sorted(levels))})" if levels else "")
+        _p(title)
+        for when, count in series[-a.rows:]:
+            bar = "█" * max(1, round(count / peak * 32))
+            _p(f"  {when:%m-%d %H:%M}  {count:>6,}  {bar}")
+        _p("")
+
+        for when, count, ratio in logkit.spikes(series):
+            _p(f"  급증: {when:%m-%d %H:%M} 에 {count:,}건 (평소의 {ratio:.1f}배)")
+        _p("")
+
+    groups = logkit.group_messages(entries, levels=levels or logkit.SEVERE, top=a.top)
+    if not groups:
+        _p("묶을 메시지가 없습니다.")
+        return 0
+
+    label = "/".join(sorted(levels)) if levels else "심각한 것"
+    _p(f"반복되는 메시지 ({label}) 상위 {len(groups)}개")
+    for g in groups:
+        when = f"  {g.first:%m-%d %H:%M}~{g.last:%H:%M}" if g.first and g.last else ""
+        _p(f"  {g.count:>5,}회  [{g.level or '-'}]{when}")
+        _p(f"         {_cut(g.sample, a.width)}")
+        if a.lines:
+            _p(f"         줄 {', '.join(str(n) for n in g.lines)}")
+    _p("\n숫자·UUID·IP·경로 같은 값은 <n>, <uuid> 처럼 바꿔서 같은 사고끼리 묶었습니다.")
+    return 0
+
+
 # =================================================================== json
 
 def _json_load(a, source):
@@ -1429,6 +1495,18 @@ def build_parser() -> argparse.ArgumentParser:
     en = dp.add_parser("enc", help="base64/hex/URL 인코딩·디코딩 한 번에")
     en.add_argument("value", nargs="?", default="-")
     en.set_defaults(func=cmd_dev_enc)
+
+    lg = dp.add_parser("log", help="로그 레벨 집계·시간대 분포·반복 에러 묶기")
+    lg.add_argument("files", nargs="+", metavar="파일")
+    lg.add_argument("-l", "--level", action="append", metavar="레벨",
+                    help="예: -l ERROR -l WARN")
+    lg.add_argument("-b", "--bucket", default="1h", choices=list(logkit.BUCKETS))
+    lg.add_argument("--top", type=int, default=10)
+    lg.add_argument("--rows", type=int, default=24, metavar="개",
+                help="분포는 최근 이만큼만 보여준다")
+    lg.add_argument("--width", type=int, default=90, metavar="칸")
+    lg.add_argument("--lines", action="store_true", help="해당 줄 번호도 표시")
+    lg.set_defaults(func=cmd_dev_log)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")
