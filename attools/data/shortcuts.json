@@ -434,7 +434,7 @@
           "cat": "서식",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "Alt+Shift+P",
             "word": "Ctrl+Shift+=",
             "gdocs": "Ctrl+."
           }
@@ -444,7 +444,7 @@
           "cat": "서식",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "Alt+Shift+S",
             "word": "Ctrl+=",
             "gdocs": "Ctrl+,"
           }
@@ -872,7 +872,7 @@
           "freq": 4,
           "keys": {
             "excel": "Ctrl+Shift++",
-            "gsheets": null
+            "gsheets": "Ctrl+Alt+="
           }
         },
         {
@@ -881,7 +881,7 @@
           "freq": 4,
           "keys": {
             "excel": "Ctrl+-",
-            "gsheets": null
+            "gsheets": "Ctrl+Alt+-"
           }
         },
         {
@@ -1053,6 +1053,33 @@
           "keys": {
             "excel": "Shift+F2",
             "gsheets": "Ctrl+Alt+M"
+          }
+        },
+        {
+          "name": "취소선",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "excel": "Ctrl+5",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "셀 병합",
+          "cat": "서식",
+          "freq": 5,
+          "keys": {
+            "excel": "Alt → H → M → M",
+            "gsheets": null
+          }
+        },
+        {
+          "name": "틀 고정",
+          "cat": "보기",
+          "freq": 5,
+          "keys": {
+            "excel": "Alt → W → F → F",
+            "gsheets": null
           }
         }
       ]
