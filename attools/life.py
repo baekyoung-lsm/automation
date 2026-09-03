@@ -263,3 +263,116 @@ def convert(text: str) -> tuple[str, float, str, list[tuple[str, float]]]:
 
     known = ", ".join(sorted({u for t in UNIT_GROUPS.values() for u in t}))
     raise ValueError(f"모르는 단위입니다: {unit}\n쓸 수 있는 단위: {known}")
+
+
+# ------------------------------------------------------------- 공휴일·영업일
+
+USER_HOLIDAYS = None  # 실행 시 ~/.attools/holidays.txt 로 채운다
+
+# 날짜가 해마다 같은 양력 공휴일. (월, 일, 이름)
+FIXED_HOLIDAYS = [
+    (1, 1, "신정"), (3, 1, "삼일절"), (5, 5, "어린이날"), (6, 6, "현충일"),
+    (8, 15, "광복절"), (10, 3, "개천절"), (10, 9, "한글날"), (12, 25, "성탄절"),
+]
+# 주말과 겹치면 대체공휴일이 붙는 것들. 현충일·신정·성탄절은 대상이 아니다.
+SUBSTITUTE_TARGETS = {"삼일절", "어린이날", "광복절", "개천절", "한글날"}
+
+# 음력이라 계산해 주지 못하는 것들. 사용자가 직접 넣어야 한다.
+LUNAR_HOLIDAYS = ["설날 연휴", "추석 연휴", "부처님오신날"]
+
+
+def holiday_file() -> "Path":
+    from pathlib import Path
+
+    return Path.home() / ".attools" / "holidays.txt"
+
+
+def load_user_holidays(path=None) -> dict[date, str]:
+    """'2026-02-17 설날' 형식의 파일을 읽는다."""
+    from pathlib import Path
+
+    path = Path(path) if path else holiday_file()
+    if not path.is_file():
+        return {}
+
+    out: dict[date, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        try:
+            out[parse_date(parts[0])] = parts[1].strip() if len(parts) > 1 else "휴일"
+        except ValueError:
+            continue
+    return out
+
+
+def solar_holidays(year: int) -> dict[date, str]:
+    """양력 고정 공휴일과 대체공휴일."""
+    base: dict[date, str] = {}
+    for month, day, name in FIXED_HOLIDAYS:
+        try:
+            base[date(year, month, day)] = name
+        except ValueError:
+            continue
+
+    out = dict(base)
+    for when, name in sorted(base.items()):
+        if name not in SUBSTITUTE_TARGETS or when.weekday() < 5:
+            continue
+        candidate = when + timedelta(days=1)
+        while candidate.weekday() >= 5 or candidate in out:
+            candidate += timedelta(days=1)
+        out[candidate] = f"{name} 대체공휴일"
+    return out
+
+
+def holidays_for(year: int, extra: dict[date, str] | None = None) -> dict[date, str]:
+    merged = solar_holidays(year)
+    for when, name in (extra or {}).items():
+        if when.year == year:
+            merged[when] = name
+    return dict(sorted(merged.items()))
+
+
+def is_workday(day: date, holidays: dict[date, str]) -> bool:
+    return day.weekday() < 5 and day not in holidays
+
+
+def count_workdays(start: date, end: date, holidays: dict[date, str],
+                   *, include_start: bool = True) -> int:
+    if end < start:
+        start, end = end, start
+    day = start if include_start else start + timedelta(days=1)
+    count = 0
+    while day <= end:
+        if is_workday(day, holidays):
+            count += 1
+        day += timedelta(days=1)
+    return count
+
+
+def add_workdays(start: date, days: int, holidays: dict[date, str]) -> date:
+    """영업일 기준으로 앞뒤로 옮긴다. days 가 0 이면 시작일 그대로."""
+    if days == 0:
+        return start
+    step = 1 if days > 0 else -1
+    remaining = abs(days)
+    day = start
+    while remaining:
+        day += timedelta(days=step)
+        if is_workday(day, holidays):
+            remaining -= 1
+    return day
+
+
+def missing_lunar_warning(holidays: dict[date, str], years: list[int]) -> list[str]:
+    """음력 명절이 빠져 있으면 알려 준다. 조용히 틀린 답을 내면 안 된다."""
+    names = " ".join(holidays.values())
+    missing = [n for n in LUNAR_HOLIDAYS if n.split()[0] not in names]
+    if not missing:
+        return []
+    return [f"{', '.join(missing)} 은(는) 음력이라 자동으로 넣지 못했습니다.",
+            f"{holiday_file()} 에 '2026-02-17 설날' 처럼 적어 두면 반영됩니다.",
+            f"확인한 해: {', '.join(str(y) for y in years)}"]

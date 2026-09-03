@@ -666,6 +666,66 @@ class LifeTest(unittest.TestCase):
         self.assertEqual([r.principal for r in rows[:3]], [0.0, 0.0, 0.0])
         self.assertAlmostEqual(rows[-1].balance, 0.0, places=6)
 
+    def test_solar_holidays_and_substitutes(self):
+        from datetime import date
+
+        table = life.solar_holidays(2026)
+        # 2026년: 삼일절(일)·광복절(토)·개천절(토)이 주말과 겹쳐 대체공휴일이 붙는다
+        self.assertEqual(table[date(2026, 3, 2)], "삼일절 대체공휴일")
+        self.assertEqual(table[date(2026, 8, 17)], "광복절 대체공휴일")
+        self.assertEqual(table[date(2026, 10, 5)], "개천절 대체공휴일")
+        # 현충일은 토요일이어도 대체공휴일이 없다
+        self.assertEqual(table[date(2026, 6, 6)], "현충일")
+        self.assertNotIn(date(2026, 6, 8), table)
+
+    def test_count_and_add_workdays(self):
+        from datetime import date
+
+        holidays = life.solar_holidays(2026)
+        # 2026-08-14(금) + 5영업일: 17일은 광복절 대체공휴일이라 건너뛴다
+        self.assertEqual(life.add_workdays(date(2026, 8, 14), 5, holidays),
+                         date(2026, 8, 24))
+        self.assertEqual(life.add_workdays(date(2026, 8, 14), 0, holidays),
+                         date(2026, 8, 14))
+        self.assertEqual(life.count_workdays(date(2026, 3, 1), date(2026, 3, 31),
+                                             holidays), 21)
+
+    def test_add_workdays_backwards(self):
+        from datetime import date
+
+        holidays = life.solar_holidays(2026)
+        self.assertEqual(life.add_workdays(date(2026, 8, 18), -1, holidays),
+                         date(2026, 8, 14))   # 17일이 대체공휴일이라 금요일로
+
+    def test_is_workday(self):
+        from datetime import date
+
+        holidays = life.solar_holidays(2026)
+        self.assertFalse(life.is_workday(date(2026, 8, 15), holidays))  # 광복절(토)
+        self.assertFalse(life.is_workday(date(2026, 8, 16), holidays))  # 일요일
+        self.assertTrue(life.is_workday(date(2026, 8, 18), holidays))
+
+    def test_user_holidays_merge_and_warning(self):
+        from datetime import date
+
+        root = Path(tempfile.mkdtemp())
+        try:
+            path = root / "holidays.txt"
+            path.write_text("# 주석\n2026-02-17 설날\n2026-09-25 추석\n"
+                            "2026-05-24 부처님오신날\n엉터리줄\n", encoding="utf-8")
+            extra = life.load_user_holidays(path)
+            self.assertEqual(extra[date(2026, 2, 17)], "설날")
+            self.assertEqual(len(extra), 3)
+
+            merged = life.holidays_for(2026, extra)
+            self.assertIn(date(2026, 2, 17), merged)
+            self.assertEqual(life.missing_lunar_warning(merged, [2026]), [])
+
+            # 음력 명절이 없으면 반드시 경고한다
+            self.assertTrue(life.missing_lunar_warning(life.solar_holidays(2026), [2026]))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
     def test_unit_convert(self):
         group, value, unit, results = life.convert("84㎡")
         self.assertEqual(group, "넓이")

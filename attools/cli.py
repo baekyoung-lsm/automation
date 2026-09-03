@@ -1866,6 +1866,73 @@ def cmd_sheet_fill(a) -> int:
     return 0
 
 
+def cmd_life_workday(a) -> int:
+    from datetime import date as _date
+
+    extra = life.load_user_holidays(a.holidays)
+
+    if a.list:
+        year = int(a.list)
+        table = life.holidays_for(year, extra)
+        _p(f"{year}년 공휴일 {len(table)}일")
+        for when, name in table.items():
+            mark = "  (주말)" if when.weekday() >= 5 else ""
+            _p(f"  {when:%Y-%m-%d}({life.weekday_ko(when)})  {name}{mark}")
+        warning = life.missing_lunar_warning(table, [year])
+        if warning:
+            _p("")
+            for line in warning:
+                _p(line)
+        return 0
+
+    if not a.start:
+        _p("시작일을 주세요. 예: at life workday 2026-08-14 +5")
+        return 1
+
+    try:
+        start = life.parse_date(a.start)
+    except ValueError:
+        _p(f"날짜를 해석하지 못했습니다: {a.start}")
+        return 1
+
+    target = (a.target or "").strip()
+    years = {start.year}
+    if target and (target[0] in "+-" and target[1:].isdigit()):
+        days = int(target)
+        years.add((start + life.timedelta(days=days * 2 + 14)).year)
+        holidays = {}
+        for y in sorted(years) + [max(years) + 1]:
+            holidays.update(life.holidays_for(y, extra))
+        end = life.add_workdays(start, days, holidays)
+        _p(f"{start:%Y-%m-%d}({life.weekday_ko(start)}) 에서 "
+           f"{abs(days)}영업일 {'뒤' if days > 0 else '앞'}")
+        _p(f"  -> {end:%Y-%m-%d}({life.weekday_ko(end)})")
+        _p(f"  달력으로는 {abs((end - start).days)}일")
+    else:
+        try:
+            end = life.parse_date(target) if target else _date.today()
+        except ValueError:
+            _p(f"날짜나 +N/-N 형태로 주세요: {target}")
+            return 1
+        years.add(end.year)
+        holidays = {}
+        for y in range(min(years), max(years) + 1):
+            holidays.update(life.holidays_for(y, extra))
+        count = life.count_workdays(start, end, holidays, include_start=not a.exclusive)
+        first, last = min(start, end), max(start, end)
+        _p(f"{first:%Y-%m-%d}({life.weekday_ko(first)}) ~ "
+           f"{last:%Y-%m-%d}({life.weekday_ko(last)})")
+        _p(f"  영업일 {count}일  ·  달력 {(last - first).days + 1}일")
+        blocked = [f"{d:%m-%d} {n}" for d, n in sorted(holidays.items())
+                   if first <= d <= last and d.weekday() < 5]
+        if blocked:
+            _p(f"  낀 공휴일: {', '.join(blocked)}")
+
+    for line in life.missing_lunar_warning(holidays, sorted(years)):
+        _p(f"  {line}")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -2397,6 +2464,16 @@ def build_parser() -> argparse.ArgumentParser:
     ln.add_argument("--table", type=int, default=0, metavar="회차",
                     help="상환표 출력 (-1 이면 전체)")
     ln.set_defaults(func=cmd_life_loan)
+
+    wd = lp.add_parser("workday", help="영업일 계산과 공휴일 목록")
+    wd.add_argument("start", nargs="?", metavar="시작일")
+    wd.add_argument("target", nargs="?", metavar="끝날짜|+N|-N",
+                    help="날짜면 그 사이 영업일 수, +5 면 5영업일 뒤")
+    wd.add_argument("--list", metavar="연도", help="그 해 공휴일 목록")
+    wd.add_argument("--holidays", metavar="파일",
+                    help="음력 명절 등을 적어 둔 파일 (기본 ~/.attools/holidays.txt)")
+    wd.add_argument("--exclusive", action="store_true", help="시작일을 세지 않는다")
+    wd.set_defaults(func=cmd_life_workday)
 
     un = lp.add_parser("unit", help="단위 변환 (평/㎡, 근/돈, 마일, 화씨…)")
     un.add_argument("value", nargs="+", metavar="값+단위", help="예: 84㎡, 30평, 1근, 100F")
