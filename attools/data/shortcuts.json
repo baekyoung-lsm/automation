@@ -175,7 +175,7 @@
           "freq": 3,
           "keys": {
             "hwp": "F3",
-            "word": null,
+            "word": "F8",
             "gdocs": null
           }
         },
@@ -407,6 +407,146 @@
             "hwp": "Ctrl+End",
             "word": "Ctrl+End",
             "gdocs": "Ctrl+End"
+          }
+        },
+        {
+          "name": "제목 스타일 적용",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Alt+1~3",
+            "gdocs": "Ctrl+Alt+1~6"
+          }
+        },
+        {
+          "name": "본문 스타일로",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Shift+N",
+            "gdocs": "Ctrl+Alt+0"
+          }
+        },
+        {
+          "name": "위 첨자",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Shift+=",
+            "gdocs": "Ctrl+."
+          }
+        },
+        {
+          "name": "아래 첨자",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+=",
+            "gdocs": "Ctrl+,"
+          }
+        },
+        {
+          "name": "서식 지우기",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Space",
+            "gdocs": "Ctrl+\\"
+          }
+        },
+        {
+          "name": "취소선",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": null,
+            "gdocs": "Alt+Shift+5"
+          }
+        },
+        {
+          "name": "서식 복사",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Shift+C",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "서식 붙여넣기",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": "Ctrl+Shift+V",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "대소문자 전환",
+          "cat": "서식",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Shift+F3",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "글머리 기호 목록",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": null,
+            "gdocs": "Ctrl+Shift+8"
+          }
+        },
+        {
+          "name": "번호 매기기 목록",
+          "cat": "서식",
+          "freq": 4,
+          "keys": {
+            "hwp": null,
+            "word": null,
+            "gdocs": "Ctrl+Shift+7"
+          }
+        },
+        {
+          "name": "단어 수 세기",
+          "cat": "검토",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": null,
+            "gdocs": "Ctrl+Shift+C"
+          }
+        },
+        {
+          "name": "유니코드 코드 → 문자",
+          "cat": "입력",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": "Alt+X",
+            "gdocs": null
+          }
+        },
+        {
+          "name": "단축키 목록 열기",
+          "cat": "도움",
+          "freq": 3,
+          "keys": {
+            "hwp": null,
+            "word": null,
+            "gdocs": "Ctrl+/"
           }
         }
       ]
