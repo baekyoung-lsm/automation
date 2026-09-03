@@ -147,6 +147,28 @@ def cmd_file_undo(a) -> int:
 
 def cmd_dev_env(a) -> int:
     example, actual = Path(a.example), Path(a.actual)
+
+    if a.sync:
+        if not actual.is_file():
+            _p(f"파일이 없습니다: {actual}")
+            return 1
+        text, added = devkit.build_example(
+            actual, existing=example if example.is_file() else None,
+            keep_values=a.keep_values)
+
+        if not a.apply:
+            _p(f"{actual} -> {example} (미리보기)\n")
+            _p(text)
+            if added:
+                _p(f"새로 들어갈 키 {len(added)}개: {', '.join(added)}")
+            _p("\n실제로 쓰려면 --apply 를 붙이세요.")
+            return 0
+
+        example.write_text(text, encoding="utf-8")
+        _p(f"{example} 를 갱신했습니다." + (f"  새 키 {len(added)}개" if added else ""))
+        _p("비밀값은 <이름> 자리표시자로 바꿨습니다. 커밋 전에 한 번 확인하세요.")
+        return 0
+
     for p in (example, actual):
         if not p.is_file():
             _p(f"파일이 없습니다: {p}")
@@ -2181,6 +2203,11 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("actual", nargs="?", default=".env")
     e.add_argument("--show-extra", action="store_true")
     e.add_argument("--show-values", action="store_true", help="값을 마스킹해 출력")
+    e.add_argument("--sync", action="store_true",
+                   help=".env 에서 .env.example 을 만든다 (비밀값은 자리표시자로)")
+    e.add_argument("--keep-values", action="store_true",
+                   help="--sync 에서 비밀이 아닌 값은 그대로 둔다")
+    e.add_argument("--apply", action="store_true", help="--sync 결과를 실제로 쓴다")
     e.set_defaults(func=cmd_dev_env)
 
     pt = dp.add_parser("port", help="포트 점유 프로세스 확인/종료")

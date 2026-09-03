@@ -103,6 +103,8 @@ zip 파일에는 덮어쓰지 않는다.
 
 ```bash
 at dev env                       # 배포 전 .env 점검, 문제 있으면 exit 1
+at dev env --sync                # .env 에서 .env.example 을 만든다 (미리보기)
+at dev env --sync --apply
 at dev port 8080 --kill
 at dev time 1750000000
 kubectl logs pod | at dev mask > 공유용.log
@@ -128,6 +130,10 @@ kubectl logs pod | at dev log -
 평소 건수의 3배 이상 튄 구간은 급증으로 따로 알려 준다.
 
 `at dev env` 는 문제가 있으면 종료 코드 1을 돌려주므로 CI나 배포 스크립트에 그대로 넣을 수 있다.
+
+`--sync` 는 `.env` 에서 `.env.example` 을 만든다. 비밀값은 항상 `<이름>` 자리표시자로 바꾸고,
+포트 번호나 `true/false` 처럼 감출 것 없는 값은 그대로 둔다. 기존 example 이 있으면 주석과
+순서를 살리고, 사라진 키는 주석 처리, 새 키는 아래에 덧붙인다.
 
 ## text — 여러 파일 텍스트 일괄 처리
 

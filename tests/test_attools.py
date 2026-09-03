@@ -244,6 +244,38 @@ class DevkitTest(unittest.TestCase):
         self.assertEqual(devkit.parse_env(self.root / ".env"),
                          {"A": "1", "B": "두 단어", "C": "3"})
 
+    def test_build_example_never_leaks_secrets(self):
+        (self.root / ".env").write_text(
+            "DB_HOST=10.0.0.5\nDB_PASSWORD=s3cr3t!\nAPI_KEY=sk_live_x\n"
+            "DB_PORT=5432\nDEBUG=true\n", encoding="utf-8")
+
+        text, added = devkit.build_example(self.root / ".env")
+        self.assertNotIn("s3cr3t", text)
+        self.assertNotIn("sk_live", text)
+        self.assertIn("DB_PASSWORD=<db_password>", text)
+        self.assertIn("DB_PORT=5432", text)      # 숫자·불리언은 그대로 둔다
+        self.assertIn("DEBUG=true", text)
+        self.assertEqual(len(added), 5)
+
+    def test_build_example_keeps_comments_and_marks_removed(self):
+        (self.root / ".env").write_text("A=1\nNEW=x\n", encoding="utf-8")
+        (self.root / ".env.example").write_text(
+            "# 주석\nA=<a>\nOLD=<old>\n", encoding="utf-8")
+
+        text, added = devkit.build_example(self.root / ".env",
+                                           existing=self.root / ".env.example")
+        self.assertIn("# 주석", text)
+        self.assertIn("# (지워진 키) OLD=<old>", text)
+        self.assertIn("NEW=<new>", text)
+        self.assertEqual(added, ["NEW"])
+
+    def test_build_example_keep_values_still_hides_secrets(self):
+        (self.root / ".env").write_text("URL=https://a.b\nTOKEN=abcdef\n",
+                                        encoding="utf-8")
+        text, _ = devkit.build_example(self.root / ".env", keep_values=True)
+        self.assertIn("URL=https://a.b", text)
+        self.assertNotIn("abcdef", text)
+
     def test_time_roundtrip(self):
         dt = devkit.parse_when("1700000000")
         self.assertEqual(devkit.when_report(dt)["epoch"], "1700000000")

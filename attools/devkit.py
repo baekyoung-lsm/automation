@@ -414,3 +414,51 @@ def format_seconds(value: float) -> str:
     if value < 60:
         return f"{value:.2f}초"
     return f"{int(value // 60)}분 {value % 60:.1f}초"
+
+
+def build_example(actual: Path, *, existing: Path | None = None,
+                  keep_values: bool = False) -> tuple[str, list[str]]:
+    """.env 에서 .env.example 을 만든다. 값은 지우거나 자리표시자로 바꾼다.
+
+    (내용, 새로 들어간 키). 기존 example 이 있으면 주석과 순서를 살린다.
+    """
+    values = parse_env(actual)
+    previous = parse_env(existing) if existing and existing.is_file() else {}
+    added = [k for k in values if k not in previous]
+
+    def placeholder(key: str, value: str) -> str:
+        if keep_values and not SECRET_HINT.search(key):
+            return value
+        if not value:
+            return ""
+        if SECRET_HINT.search(key):
+            return f"<{key.lower()}>"
+        if re.fullmatch(r"\d+", value):
+            return value            # 포트·타임아웃 같은 숫자는 그대로 두는 편이 낫다
+        if value.lower() in ("true", "false"):
+            return value
+        return f"<{key.lower()}>"
+
+    lines: list[str] = []
+    if existing and existing.is_file():
+        # 기존 파일의 주석·빈 줄·순서를 그대로 두고 값만 손본다
+        for raw in existing.read_text(encoding="utf-8").splitlines():
+            m = _ENV_LINE.match(raw)
+            if not m:
+                lines.append(raw)
+                continue
+            key = m.group(1)
+            if key in values:
+                lines.append(f"{key}={placeholder(key, values[key])}")
+            else:
+                lines.append(f"# (지워진 키) {raw}")
+        if added:
+            lines.append("")
+            lines.append("# 새로 생긴 키")
+    else:
+        lines.append("# .env 에서 만든 예시입니다. 값은 실제 값으로 바꿔 쓰세요.")
+
+    for key in added:
+        lines.append(f"{key}={placeholder(key, values[key])}")
+
+    return "\n".join(lines).rstrip() + "\n", added
