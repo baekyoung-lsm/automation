@@ -688,6 +688,32 @@ class SheetTest(unittest.TestCase):
         t = sheet.Table(["a", "b"], [["", 1], [None, 2]])
         self.assertEqual(list(sheet.split_by(t, "a")), ["(빈칸)"])
 
+    def test_placeholders_and_render(self):
+        tpl = "{이름} 님 {부서} {번호:03d} {{그대로}} {없는열}"
+        self.assertEqual(sheet.placeholders(tpl), ["이름", "부서", "번호", "없는열"])
+
+        missing = set()
+        out = sheet.render(tpl, {"이름": "홍길동", "부서": "영업", "번호": 7},
+                           missing=missing)
+        self.assertEqual(out, "홍길동 님 영업 007 {그대로} ")
+        self.assertEqual(missing, {"없는열"})
+
+    def test_render_falls_back_on_bad_format_spec(self):
+        self.assertEqual(sheet.render("{이름:03d}", {"이름": "홍길동"}), "홍길동")
+
+    def test_fill_makes_one_result_per_row(self):
+        t = sheet.Table(["사번", "이름"], [["E1", "홍길동"], ["E2", "김철수"]])
+        results, missing = sheet.fill(t, "{이름}({사번})",
+                                      name_template="{번호:03d}-{사번}.txt")
+        self.assertEqual(missing, set())
+        self.assertEqual([r.text for r in results], ["홍길동(E1)", "김철수(E2)"])
+        self.assertEqual([r.name for r in results], ["001-E1.txt", "002-E2.txt"])
+
+    def test_fill_reports_missing_columns(self):
+        t = sheet.Table(["이름"], [["홍길동"]])
+        _, missing = sheet.fill(t, "{이름} {연차}")
+        self.assertEqual(missing, {"연차"})
+
     def test_save_csv_has_bom_for_excel(self):
         p = self.csv("a.csv", "이름\n홍길동\n")
         out = sheet.save(sheet.load(p), self.root / "out.csv")

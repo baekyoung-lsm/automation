@@ -239,6 +239,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
+| `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
 ```bash
@@ -254,7 +255,13 @@ at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
+at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
+at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`fill` 은 틀 안의 `{열이름}` 을 행 값으로 바꾼다. `{번호:03d}` 처럼 형식도 쓸 수 있고
+`{{` 와 `}}` 는 중괄호 자체를 뜻한다. 표에 없는 자리표시자가 있으면 **먼저 알려 주고 멈춘다** —
+오타 하나로 수백 개 파일에 빈칸이 들어가는 걸 막기 위해서다(`--force` 로 강행 가능).
 
 `where` 의 값은 열 타입에 맞춰 비교한다. 숫자 열이면 `--gte 연봉=6000만` 처럼 한글 단위도
 숫자로 읽고, 날짜 열이면 `--gte 입사일=2024-01-01` 로 날짜끼리 비교한다. 조건 여러 개는

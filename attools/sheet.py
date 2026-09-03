@@ -690,3 +690,68 @@ def split_by(table: Table, column: str) -> dict[str, Table]:
         groups[key].append(row)
     return {k: Table(table.headers, v, source=table.source, sheet=k)
             for k, v in sorted(groups.items())}
+
+
+# ------------------------------------------------------------- 채워 넣기
+
+PLACEHOLDER = re.compile(r"\{\{|\}\}|\{([^{}]+)\}")
+
+
+@dataclass
+class Filled:
+    name: str
+    text: str
+    row: int
+
+
+def placeholders(template: str) -> list[str]:
+    """틀에 쓰인 자리표시자 이름을 순서대로 모은다."""
+    out: list[str] = []
+    for m in PLACEHOLDER.finditer(template):
+        key = m.group(1)
+        if key:
+            name = key.split(":", 1)[0].strip()
+            if name and name not in out:
+                out.append(name)
+    return out
+
+
+def render(template: str, values: dict[str, object], *,
+           missing: set[str] | None = None) -> str:
+    """{열이름} 자리를 값으로 바꾼다. {{ 와 }} 는 중괄호 자체를 뜻한다."""
+    def swap(m: re.Match) -> str:
+        if m.group(0) == "{{":
+            return "{"
+        if m.group(0) == "}}":
+            return "}"
+        key, _, spec = m.group(1).partition(":")   # {번호:03d} 같은 형식도 받는다
+        key = key.strip()
+        if key not in values:
+            if missing is not None:
+                missing.add(key)
+            return ""
+        value = values[key]
+        if spec:
+            try:
+                return format(value, spec.strip())
+            except (ValueError, TypeError):
+                pass
+        return to_text(value)
+
+    return PLACEHOLDER.sub(swap, template)
+
+
+def fill(table: Table, template: str, *, name_template: str = "",
+         start: int = 1) -> tuple[list[Filled], set[str]]:
+    """행마다 틀을 채운다. (결과들, 틀에 있는데 표에 없는 열 이름)"""
+    missing: set[str] = set()
+    out: list[Filled] = []
+
+    for n, row in enumerate(table.rows, start):
+        values: dict[str, object] = {
+            h: row[i] if i < len(row) else None for i, h in enumerate(table.headers)}
+        values["번호"] = n
+        text = render(template, values, missing=missing)
+        name = render(name_template, values, missing=missing) if name_template else ""
+        out.append(Filled(name.strip(), text, n))
+    return out, missing

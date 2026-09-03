@@ -1590,6 +1590,70 @@ def cmd_sheet_split(a) -> int:
     return 0
 
 
+def cmd_sheet_fill(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+
+    template_path = Path(a.template)
+    if not template_path.is_file():
+        _p(f"틀 파일이 없습니다: {template_path}")
+        return 1
+    template = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+
+    used = sheet.placeholders(template)
+    if not used:
+        _p(f"{template_path} 에 {{열이름}} 자리표시자가 없습니다.")
+        _p(f"쓸 수 있는 열: {', '.join(t.headers)}, 번호")
+        return 1
+
+    default_name = a.name or f"{{번호:03d}}{template_path.suffix or '.txt'}"
+    results, missing = sheet.fill(t, template, name_template=default_name)
+
+    if missing:
+        _p(f"표에 없는 자리표시자 {len(missing)}개: {', '.join(sorted(missing))}")
+        _p(f"  있는 열: {', '.join(t.headers)}, 번호")
+        if not a.force:
+            _p("  그래도 진행하려면 --force 를 붙이세요. 빈칸으로 채웁니다.")
+            return 1
+        _p("")
+
+    if a.single or a.stdout:
+        joined = ("\n" + a.separator + "\n").join(r.text for r in results)
+        if a.stdout:
+            sys.stdout.write(joined)
+            return 0
+        target = Path(a.out or f"합본{template_path.suffix or '.txt'}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(joined, encoding="utf-8")
+        _p(f"{len(results)}건을 한 파일로 저장: {target}")
+        return 0
+
+    out_dir = Path(a.out or "채운문서")
+    _p(f"{len(results)}건  ·  틀 {template_path.name}  ·  {out_dir}/")
+    for r in results[:a.limit]:
+        name = hangul.sanitize_filename(r.name)
+        if not a.apply:
+            _p(f"  [미리보기] {name}")
+            continue
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / name).write_text(r.text, encoding="utf-8")
+        _p(f"  {name}")
+    if len(results) > a.limit and not a.apply:
+        _p(f"  ... {len(results) - a.limit}건 더")
+    elif a.apply and len(results) > a.limit:
+        for r in results[a.limit:]:
+            (out_dir / hangul.sanitize_filename(r.name)).write_text(r.text, encoding="utf-8")
+        _p(f"  ... 그 밖에 {len(results) - a.limit}건")
+
+    if not a.apply:
+        _p(f"\n첫 건 미리보기\n{'-' * 40}")
+        _p(_cut(results[0].text, 600))
+        _p("-" * 40)
+        _p("실제로 만들려면 --apply 를 붙이세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -2190,6 +2254,21 @@ def build_parser() -> argparse.ArgumentParser:
     sl.add_argument("--format", metavar="확장자", help="csv 또는 xlsx")
     sl.add_argument("--apply", action="store_true")
     sl.set_defaults(func=cmd_sheet_split)
+
+    fl = common(sh.add_parser("fill", help="명단 + 틀 -> 개인별 문서 (메일 머지)"))
+    fl.add_argument("file", metavar="명단파일")
+    fl.add_argument("-t", "--template", required=True, metavar="틀파일")
+    fl.add_argument("-o", "--out", metavar="디렉터리/파일")
+    fl.add_argument("--name", metavar="틀", help="파일명 틀 (예: '{사번}_{이름}.txt')")
+    fl.add_argument("--single", action="store_true", help="한 파일에 이어 붙인다")
+    fl.add_argument("--separator", default="\f", metavar="구분",
+                    help="--single 일 때 사이에 넣을 것 (기본: 페이지 나눔). "
+                         "-로 시작하는 값은 --separator=--- 처럼 붙여 쓴다")
+    fl.add_argument("--stdout", action="store_true", help="파일 대신 화면으로")
+    fl.add_argument("--force", action="store_true", help="없는 자리표시자를 빈칸으로 두고 진행")
+    fl.add_argument("--limit", type=int, default=10)
+    fl.add_argument("--apply", action="store_true")
+    fl.set_defaults(func=cmd_sheet_fill)
 
     cv = common(sh.add_parser("convert", help="csv <-> xlsx 변환 (인코딩 정리)"))
     cv.add_argument("file")
