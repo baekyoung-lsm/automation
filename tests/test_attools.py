@@ -165,6 +165,35 @@ class ManuscriptTest(unittest.TestCase):
         self.assertIn(("미소를 지었다", 1), f.cliches)
         self.assertEqual(len(f.long_sentences), 1)
 
+    def test_split_scenes_by_breaks_and_headings(self):
+        text = ("# 1화\n\n" + "가" * 60 + "\n\n***\n\n" + "나" * 60 + "\n\n"
+                "## 2화\n\n" + "다" * 60 + "\n")
+        scenes = manuscript.split_scenes(text, min_chars=10)
+        self.assertEqual(len(scenes), 3)
+        self.assertEqual([s.title for s in scenes], ["1화", "", "2화"])
+        self.assertEqual(scenes[0].number, 1)
+
+    def test_split_scenes_drops_short_fragments(self):
+        text = "짧음\n\n***\n\n" + "가" * 60
+        scenes = manuscript.split_scenes(text, min_chars=30)
+        self.assertEqual(len(scenes), 1)
+
+    def test_split_scenes_on_blank_run(self):
+        text = "가" * 40 + "\n\n\n\n" + "나" * 40
+        self.assertEqual(len(manuscript.split_scenes(text, min_chars=10)), 2)
+
+    def test_scene_metrics(self):
+        scene = manuscript.Scene(1, "", 1, '리안이 웃었다.\n"안녕." 카일이 답했다.')
+        self.assertEqual(scene.opening, "리안이 웃었다.")
+        self.assertGreater(scene.dialogue_ratio, 0)
+        # 공백만 뺀 글자 수라 따옴표도 센다
+        self.assertEqual(scene.chars, len('리안이웃었다."안녕."카일이답했다.'))
+
+    def test_tag_people_orders_by_frequency(self):
+        scenes = [manuscript.Scene(1, "", 1, "리안 리안 카일")]
+        manuscript.tag_people(scenes, ["카일", "리안", "세드릭"])
+        self.assertEqual(scenes[0].people, ["리안", "카일"])
+
     def test_snapshot_growth(self):
         (self.root / "1화.txt").write_text("가나다", encoding="utf-8")
         manuscript.snapshot(self.root, note="초고")

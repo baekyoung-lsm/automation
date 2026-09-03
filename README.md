@@ -317,17 +317,23 @@ at life unit 100F        # 37.78℃
 | --- | --- |
 | `at novel stats <파일/디렉터리…>` | 공백 포함·제외 글자수, 200자 원고지 매수, 문장·문단 수, 평균 문장 길이, 대사 비율, 읽는 시간, 단행본 환산 |
 | `at novel check <파일>` | 상투 표현, 군더더기 부사, 반복 어구, 같은 종결 어미 연속, 같은 말로 시작하는 문장 연속, 너무 긴 문장 |
+| `at novel outline <경로…>` | 장면 목록 — 분량, 대사 비율, 등장인물, 첫 문장 (`-o` 로 xlsx 저장) |
 | `at novel names <경로…>` | 인물·지명 후보를 뽑아 표기 흔들림과 이름 뒤 조사 오류를 찾는다 |
 | `at novel snap <디렉터리>` | 원고 전체를 스냅샷으로 복사하고 분량 변화를 기록한다. `-l` 로 목록 |
 
 ```bash
 at novel stats 원고/ --each
 at novel check 원고/12화.txt --run 3 --long 80
+at novel outline 원고/ -o 장면목록.xlsx
 at novel names 원고/ --min 3
 at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직접 지정
 at novel snap 원고/ --note "3부 초고 완료"
 at novel snap 원고/ -l
 ```
+
+`at novel outline` 은 마크다운 제목, `***`·`---` 같은 구분선, 빈 줄 세 개를 장면 경계로
+본다. 장편에서 어느 장면이 늘어졌는지, 대사만 있는 장면이 어디인지, 누가 오래 안 나왔는지
+한눈에 볼 때 쓴다.
 
 `at novel names` 는 조사가 여러 종류 붙어 반복 등장하는 말을 고유명사로 본다.
 표기 흔들림은 **드물게 나오는 쪽이 오타**라는 전제로, 확정된 이름과 편집 거리 1인

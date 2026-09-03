@@ -930,6 +930,52 @@ def cmd_sheet_convert(a) -> int:
     return 0
 
 
+def cmd_novel_outline(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    scenes: list[manuscript.Scene] = []
+    for path in targets:
+        body = manuscript.strip_markup(manuscript.read_text(path)) \
+            if a.no_headings else manuscript.read_text(path)
+        found = manuscript.split_scenes(body, min_chars=a.min)
+        for scene in found:
+            scene.number = len(scenes) + 1
+            scene.title = scene.title or (path.stem if len(targets) > 1 else "")
+            scenes.append(scene)
+
+    if not scenes:
+        _p(f"{a.min}자 이상인 장면이 없습니다. --min 을 낮춰 보세요.")
+        return 1
+
+    whole = "\n".join(s.text for s in scenes)
+    people = list(a.name or []) or [n.text for n in names.extract(whole, min_count=a.people)]
+    manuscript.tag_people(scenes, people)
+
+    lengths = [s.chars for s in scenes]
+    total = sum(lengths)
+    _p(f"장면 {len(scenes)}개  ·  {total:,}자  ·  평균 {total // len(scenes):,}자"
+       f"  ·  원고지 {total / manuscript.WONGOJI_CHARS:,.0f}매")
+    longest, shortest = max(scenes, key=lambda s: s.chars), min(scenes, key=lambda s: s.chars)
+    _p(f"가장 긴 장면 {longest.number}번 {longest.chars:,}자  ·  "
+       f"가장 짧은 장면 {shortest.number}번 {shortest.chars:,}자\n")
+
+    header = ["번호", "제목", "행", "분량", "대사", "인물", "첫 문장"]
+    body_rows = [[str(s.number), s.title or "-", str(s.line), f"{s.chars:,}",
+                  f"{s.dialogue_ratio:.0%}", ", ".join(s.people[:3]) or "-", s.opening]
+                 for s in scenes]
+    _grid(header, body_rows[:a.limit], limit=a.width)
+    if len(scenes) > a.limit:
+        _p(f"  ... {len(scenes) - a.limit}개 더 (--limit 로 조절)")
+
+    if a.out:
+        table = sheet.Table(header, body_rows)
+        _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name='장면')}")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -1887,6 +1933,20 @@ def build_parser() -> argparse.ArgumentParser:
     nm.add_argument("--width", type=int, default=20, metavar="칸")
     nm.add_argument("--no-josa", action="store_true", help="조사 검사 생략")
     nm.set_defaults(func=cmd_novel_names)
+
+    ol = np_.add_parser("outline", help="장면 목록 - 분량·대사 비율·등장인물·첫 문장")
+    ol.add_argument("paths", nargs="+")
+    ol.add_argument("--min", type=int, default=100, metavar="자",
+                    help="이보다 짧은 덩어리는 장면으로 세지 않는다")
+    ol.add_argument("--people", type=int, default=3, metavar="회",
+                    help="인물로 볼 최소 등장 횟수")
+    ol.add_argument("--name", action="append", metavar="이름", help="인물을 직접 지정")
+    ol.add_argument("--no-headings", action="store_true",
+                    help="마크다운 제목을 장면 제목으로 쓰지 않는다")
+    ol.add_argument("--limit", type=int, default=50)
+    ol.add_argument("--width", type=int, default=30, metavar="칸")
+    ol.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    ol.set_defaults(func=cmd_novel_outline)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

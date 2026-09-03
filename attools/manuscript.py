@@ -220,3 +220,88 @@ def list_snapshots(root: Path) -> list[dict]:
             data["id"] = d.name
             out.append(data)
     return out
+
+
+# --------------------------------------------------------------------- 장면
+
+# 장면을 가르는 표시. 마크다운 제목과 흔히 쓰는 구분선을 본다.
+SCENE_BREAK = re.compile(
+    r"^\s*(?:\*\s*\*\s*\*|-{3,}|={3,}|#{1,6}\s+.*|◇+|◆+|＊+|※+|⁂|~{3,})\s*$")
+HEADING_LINE = re.compile(r"^\s*(#{1,6})\s+(.+?)\s*#*\s*$")
+
+
+@dataclass
+class Scene:
+    number: int
+    title: str
+    line: int
+    text: str = ""
+    people: list[str] = field(default_factory=list)
+
+    @property
+    def chars(self) -> int:
+        return len(re.sub(r"\s", "", self.text))
+
+    @property
+    def dialogue_ratio(self) -> float:
+        if not self.chars:
+            return 0.0
+        spoken = sum(len(m.group(1) or m.group(2) or "") for m in QUOTE.finditer(self.text))
+        return spoken / self.chars
+
+    @property
+    def opening(self) -> str:
+        for line in self.text.splitlines():
+            if line.strip():
+                return line.strip()
+        return ""
+
+
+def split_scenes(text: str, *, min_chars: int = 30,
+                 blank_run: int = 3) -> list[Scene]:
+    """제목·구분선·긴 빈 줄을 기준으로 장면을 나눈다."""
+    lines = text.splitlines()
+    scenes: list[Scene] = []
+    buffer: list[str] = []
+    title = ""
+    start = 1
+    blanks = 0
+
+    def flush(next_title: str, next_line: int) -> None:
+        nonlocal buffer, title, start
+        body = "\n".join(buffer).strip()
+        if len(re.sub(r"\s", "", body)) >= min_chars:
+            scenes.append(Scene(len(scenes) + 1, title, start, body))
+        buffer = []
+        title = next_title
+        start = next_line
+
+    for n, line in enumerate(lines, 1):
+        if SCENE_BREAK.match(line):
+            heading = HEADING_LINE.match(line)
+            flush(heading.group(2).strip() if heading else "", n + 1)
+            blanks = 0
+            continue
+
+        if not line.strip():
+            blanks += 1
+            if blanks >= blank_run and buffer:
+                flush("", n + 1)
+                blanks = 0
+                continue
+        else:
+            blanks = 0
+        buffer.append(line)
+
+    flush("", len(lines))
+    return scenes
+
+
+def tag_people(scenes: list[Scene], people: list[str]) -> None:
+    """장면마다 등장하는 이름을 채운다."""
+    if not people:
+        return
+    ordered = sorted(people, key=len, reverse=True)
+    for scene in scenes:
+        scene.people = [p for p in ordered if p in scene.text]
+        scene.people.sort(key=lambda p: -scene.text.count(p))
