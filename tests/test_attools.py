@@ -80,6 +80,54 @@ class FilesTest(unittest.TestCase):
         self.assertEqual(len(groups), 1)
         self.assertEqual({p.name for p in groups[0]}, {"a.txt", "b.txt"})
 
+    def test_rename_template_fields(self):
+        self.make("b.txt")
+        self.make("a.txt")
+        moves = files.plan_rename(self.root, "{seq:03d}-{stem}{ext}")
+        self.assertEqual([Path(m.dst).name for m in moves],
+                         ["001-a.txt", "002-b.txt"])   # 기본은 이름 순
+
+    def test_rename_sorts_by_date(self):
+        import os
+        import time
+
+        old = self.make("z.txt")
+        new = self.make("a.txt")
+        os.utime(old, (time.time() - 9999, time.time() - 9999))
+        moves = files.plan_rename(self.root, "{seq}{ext}", sort="date")
+        self.assertEqual(Path(moves[0].src).name, "z.txt")
+
+    def test_rename_unknown_field_raises(self):
+        self.make("a.txt")
+        with self.assertRaises(ValueError) as cm:
+            files.plan_rename(self.root, "{없는것}")
+        self.assertIn("쓸 수 있는 것", str(cm.exception))
+
+    def test_rename_replacements_and_case(self):
+        self.make("보고서 최종(수정).TXT")
+        moves = files.plan_rename(self.root, "{name}",
+                                  replacements=[("최종(수정)", "v2")])
+        self.assertEqual(Path(moves[0].dst).name, "보고서 v2.txt")
+
+    def test_rename_regex_replacement(self):
+        self.make("IMG_0021.jpg")
+        moves = files.plan_rename(self.root, "{name}", regex=True,
+                                  replacements=[(r"IMG_0*(\d+)", r"사진\1")])
+        self.assertEqual(Path(moves[0].dst).name, "사진21.jpg")
+
+    def test_rename_glob_filter(self):
+        self.make("a.jpg")
+        self.make("b.txt")
+        moves = files.plan_rename(self.root, "x-{name}", glob=["*.jpg"])
+        self.assertEqual([Path(m.src).name for m in moves], ["a.jpg"])
+
+    def test_rename_avoids_collisions(self):
+        self.make("a.txt")
+        self.make("b.txt")
+        moves = files.plan_rename(self.root, "같은이름.txt")
+        self.assertEqual(sorted(Path(m.dst).name for m in moves),
+                         ["같은이름 (1).txt", "같은이름.txt"])
+
     def test_fixname_plan(self):
         self.make(unicodedata.normalize("NFD", "한글.txt"))
         moves = files.plan_fixname(self.root)

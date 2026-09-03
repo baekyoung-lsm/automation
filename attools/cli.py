@@ -348,6 +348,62 @@ def cmd_novel_snap(a) -> int:
 
 
 
+def cmd_file_rename(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    template = a.template
+    if not template:
+        # 빠른 옵션들을 조합해 템플릿을 만든다
+        parts = []
+        if a.date:
+            parts.append("{date}")
+        if a.seq:
+            parts.append(f"{{seq:0{a.digits}d}}")
+        parts.append("{stem}")
+        template = (a.prefix or "") + a.join.join(parts) + (a.suffix or "") + "{ext}"
+
+    replacements = []
+    for spec in a.replace or []:
+        old, sep, new_text = spec.partition("=")
+        if not sep:
+            _p(f"'옛것=새것' 형태로 적으세요: {spec}")
+            return 1
+        replacements.append((old, new_text))
+
+    try:
+        moves = files.plan_rename(
+            root, template, glob=a.glob, recursive=a.recursive,
+            include_hidden=a.hidden, sort=a.sort, start=a.start,
+            date_format=a.date_format, replacements=replacements,
+            regex=a.regex, case=a.case)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    if not moves:
+        _p("바꿀 이름이 없습니다.")
+        return 0
+
+    _p(f"템플릿: {template}\n")
+    for mv in moves[:a.limit]:
+        _p(f"  {Path(mv.src).name}")
+        _p(f"    -> {Path(mv.dst).name}")
+    if len(moves) > a.limit:
+        _p(f"  ... {len(moves) - a.limit}개 더")
+
+    if not a.apply:
+        _p(f"\n총 {len(moves)}개. 실제로 바꾸려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves(moves)
+    _p(f"\n{len(moves)}개 이름을 바꿨습니다.")
+    _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -1691,6 +1747,32 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--hidden", action="store_true")
     n.add_argument("--space", default="keep", choices=["keep", "underscore"])
     n.set_defaults(func=cmd_file_fixname)
+
+    rn = fp.add_parser("rename", help="규칙에 맞춰 이름 일괄 변경")
+    rn.add_argument("dir")
+    rn.add_argument("-t", "--template", metavar="틀",
+                    help="예: '{date}-{seq:03d}{ext}'  "
+                         "쓸 수 있는 항목: {seq} {date} {time} {stem} {ext} {name} "
+                         "{parent} {size}")
+    rn.add_argument("--date", action="store_true", help="수정 날짜를 앞에 붙인다")
+    rn.add_argument("--seq", action="store_true", help="번호를 붙인다")
+    rn.add_argument("--digits", type=int, default=3, metavar="자리")
+    rn.add_argument("--start", type=int, default=1, metavar="번호")
+    rn.add_argument("--join", default="_", metavar="글자", help="항목 사이 구분자")
+    rn.add_argument("--prefix", metavar="문자열")
+    rn.add_argument("--suffix", metavar="문자열", help="확장자 앞에 붙인다")
+    rn.add_argument("--replace", action="append", metavar="옛것=새것")
+    rn.add_argument("-e", "--regex", action="store_true", help="--replace 를 정규식으로")
+    rn.add_argument("--case", default="keep", choices=["keep", "lower", "upper"])
+    rn.add_argument("--date-format", default="%Y%m%d", metavar="형식")
+    rn.add_argument("--sort", default="name", choices=["name", "date", "size"],
+                    help="번호를 매기는 순서")
+    rn.add_argument("-g", "--glob", action="append", metavar="패턴")
+    rn.add_argument("-r", "--recursive", action="store_true")
+    rn.add_argument("--hidden", action="store_true")
+    rn.add_argument("--limit", type=int, default=20)
+    rn.add_argument("--apply", action="store_true")
+    rn.set_defaults(func=cmd_file_rename)
 
     d = fp.add_parser("dupes", help="내용이 같은 중복 파일 찾기")
     d.add_argument("dir")

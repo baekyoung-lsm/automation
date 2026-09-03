@@ -47,6 +47,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | --- | --- |
 | `at file organize <디렉터리>` | 확장자 종류(문서/이미지/영상/압축/코드…)나 날짜별로 분류해 옮긴다 |
 | `at file fixname <디렉터리>` | macOS에서 넘어온 한글 자모 분리(NFD) 파일명을 완성형으로 고치고, 윈도우 금지문자·중복 공백을 정리한다 |
+| `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사) |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
@@ -56,11 +57,18 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 at file organize ~/Downloads --by ext-date --min-age 7 -v   # 미리보기
 at file organize ~/Downloads --by ext-date --min-age 7 --apply
 at file fixname ~/Documents -r --apply
+at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply
+at file rename ~/문서 --prefix '기획팀_' --replace '최종(수정)=v2' --apply
+at file rename ~/스캔 -t '{parent}_{seq:03d}{ext}' --apply
 at file dupes ~/Pictures --script > 삭제후보.sh
 at file watch src -p '*.py' -- pytest -q
 at file big ~/Downloads --depth 2
 at file undo
 ```
+
+`rename` 의 템플릿에는 `{seq}` `{date}` `{time}` `{stem}` `{ext}` `{name}` `{parent}` `{size}`
+를 쓸 수 있고, `{seq:03d}` 처럼 자리수도 지정된다. 번호를 매기는 순서는 `--sort name|date|size`
+로 고른다. 이름이 겹치면 ` (1)` 을 붙이고, `at file undo` 로 통째로 되돌린다.
 
 분류 카테고리는 `attools/files.py` 의 `CATEGORIES` 에 있다. `hwp`, `hwpx`, `alz`, `egg` 처럼
 한국에서 자주 쓰는 확장자를 포함한다.

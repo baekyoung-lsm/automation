@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass
@@ -268,3 +269,80 @@ def human_size(n: float) -> str:
             return f"{n:,.1f} {unit}" if unit != "B" else f"{int(n)} B"
         n /= 1024
     return f"{n:.1f} TiB"
+
+
+RENAME_FIELDS = ("seq", "date", "time", "stem", "ext", "name", "parent", "size")
+
+
+def rename_sort_key(path: Path, mode: str):
+    stat = path.stat()
+    if mode == "date":
+        return (stat.st_mtime, str(path))
+    if mode == "size":
+        return (-stat.st_size, str(path))
+    return (str(path).lower(),)
+
+
+def render_name(path: Path, template: str, *, seq: int,
+                date_format: str = "%Y%m%d") -> str:
+    """템플릿의 {seq} {date} {stem} 같은 자리를 채운다."""
+    stat = path.stat()
+    when = datetime.fromtimestamp(stat.st_mtime)
+    values = {
+        "seq": seq,
+        "date": when.strftime(date_format),
+        "time": when.strftime("%H%M%S"),
+        "stem": path.stem,
+        "ext": path.suffix,
+        "name": path.name,
+        "parent": path.parent.name,
+        "size": stat.st_size,
+    }
+    try:
+        return template.format(**values)
+    except KeyError as e:
+        raise ValueError(
+            f"모르는 항목 {e}. 쓸 수 있는 것: {', '.join('{' + f + '}' for f in RENAME_FIELDS)}"
+        ) from None
+    except (IndexError, ValueError) as e:
+        raise ValueError(f"템플릿이 잘못됐습니다: {e}") from None
+
+
+def plan_rename(root: Path, template: str, *, glob: list[str] | None = None,
+                recursive: bool = False, include_hidden: bool = False,
+                sort: str = "name", start: int = 1, date_format: str = "%Y%m%d",
+                replacements: list[tuple[str, str]] | None = None,
+                regex: bool = False, case: str = "keep") -> list[Move]:
+    """이름 바꾸기 계획. 파일 시스템은 건드리지 않는다."""
+    patterns = glob or ["*"]
+    found: list[Path] = []
+    for pattern in patterns:
+        walker = root.rglob(pattern) if recursive else root.glob(pattern)
+        for p in walker:
+            if not p.is_file() or p.is_symlink() or p in found:
+                continue
+            rel = p.relative_to(root).parts
+            if not include_hidden and any(part.startswith(".") for part in rel):
+                continue
+            found.append(p)
+
+    found.sort(key=lambda p: rename_sort_key(p, sort))
+
+    planned: set[Path] = set()
+    moves: list[Move] = []
+    for i, src in enumerate(found, start):
+        name = render_name(src, template, seq=i, date_format=date_format)
+        for old, new in replacements or []:
+            name = re.sub(old, new, name) if regex else name.replace(old, new)
+        if case == "lower":
+            name = name.lower()
+        elif case == "upper":
+            name = name.upper()
+
+        name = sanitize_filename(name)
+        dst = unique_path(src.with_name(name), planned)
+        if dst == src:
+            continue
+        planned.add(dst)
+        moves.append(Move(str(src), str(dst)))
+    return moves
