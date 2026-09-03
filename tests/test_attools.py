@@ -351,6 +351,48 @@ class ManuscriptTest(unittest.TestCase):
 
         self.assertEqual(manuscript.find_mentions("아무것도 없다.", re.compile("열쇠")), [])
 
+    def test_strip_headings_keeps_scene_breaks(self):
+        text = "# 1화\n\n본문\n\n***\n\n다음\n"
+        stripped = manuscript.strip_headings(text)
+        self.assertNotIn("1화", stripped)
+        self.assertIn("***", stripped)          # 장면 구분선은 남아야 한다
+        self.assertEqual(text.count("\n"), stripped.count("\n"))   # 행 번호 유지
+
+        self.assertNotIn("***", manuscript.strip_markup(text))
+
+    def test_find_context_skips_separator_lines(self):
+        import re
+
+        text = "***\n열쇠가 있었다.\n***\n"
+        found = manuscript.find_mentions(text, re.compile("열쇠"))
+        self.assertEqual(found[0].before, "")
+        self.assertEqual(found[0].after, "")
+
+    def test_time_marks_extract_kinds(self):
+        text = "2026년 3월 5일 아침, 봄이었다. 사흘 뒤 오후 3시에 다시 왔다."
+        kinds = {m.kind for m in manuscript.find_time_marks(text)}
+        self.assertEqual(kinds, {"날짜", "시간대", "계절", "기간", "시각"})
+
+    def test_time_marks_prefer_longest_overlap(self):
+        marks = manuscript.find_time_marks("2026년 3월 5일에 만났다.")
+        self.assertEqual([m.text for m in marks if m.kind == "날짜"], ["2026년 3월 5일"])
+
+    def test_time_conflict_within_one_scene(self):
+        text = ("# 1화\n\n" + "가" * 50 + " 아침이었다. " + "나" * 50 + " 한밤중이었다.\n"
+                "\n***\n\n" + "다" * 50 + " 저녁이었다.\n")
+        scenes = manuscript.split_scenes(text, min_chars=10)
+        marks = manuscript.find_time_marks(manuscript.strip_headings(text), scenes=scenes)
+        conflicts = manuscript.time_conflicts(marks)
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0].scene, 1)
+        self.assertEqual(sorted(conflicts[0].values), ["밤", "아침"])
+
+    def test_no_conflict_across_scenes(self):
+        text = ("아침이었다. " + "가" * 60 + "\n\n***\n\n한밤중이었다. " + "나" * 60 + "\n")
+        scenes = manuscript.split_scenes(text, min_chars=10)
+        marks = manuscript.find_time_marks(text, scenes=scenes)
+        self.assertEqual(manuscript.time_conflicts(marks), [])
+
     def test_snapshot_growth(self):
         (self.root / "1화.txt").write_text("가나다", encoding="utf-8")
         manuscript.snapshot(self.root, note="초고")

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -76,9 +76,17 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace")
 
 
+def strip_headings(text: str) -> str:
+    """제목 줄만 비운다. 줄 수는 그대로라 행 번호가 어긋나지 않는다.
+
+    구분선(***, ---)은 남긴다. 장면 경계로 써야 하기 때문이다.
+    """
+    return re.sub(r"^\s*#{1,6}\s.*$", "", text, flags=re.M)
+
+
 def strip_markup(text: str) -> str:
     """마크다운 제목·구분선은 본문 분량에서 뺀다."""
-    text = re.sub(r"^\s*#{1,6}\s.*$", "", text, flags=re.M)
+    text = strip_headings(text)
     return re.sub(r"^\s*(?:-{3,}|\*{3,}|={3,})\s*$", "", text, flags=re.M)
 
 
@@ -309,6 +317,10 @@ def tag_people(scenes: list[Scene], people: list[str]) -> None:
 
 # --------------------------------------------------------------------- 찾기
 
+# 구분선만 있는 줄은 문맥으로 보여줄 값이 없다
+SEPARATOR_ONLY = re.compile(r"^[\s*\-=~◇◆＊※⁂_]+$")
+
+
 @dataclass
 class Mention:
     path: str
@@ -350,8 +362,117 @@ def find_mentions(text: str, pattern: re.Pattern[str], *, path: str = "",
     for i, sentence in enumerate(sentences):
         if not pattern.search(sentence):
             continue
-        before = " ".join(sentences[max(0, i - context):i])
-        after = " ".join(sentences[i + 1:i + 1 + context])
+        before = " ".join(s for s in sentences[max(0, i - context):i]
+                          if not SEPARATOR_ONLY.match(s))
+        after = " ".join(s for s in sentences[i + 1:i + 1 + context]
+                         if not SEPARATOR_ONLY.match(s))
         out.append(Mention(path, offsets[i], scene_of(offsets[i]),
                            before[-60:], sentence.strip(), after[:60]))
+    return out
+
+
+# ------------------------------------------------------------------ 시간선
+
+TIME_OF_DAY = {
+    "새벽": "새벽", "동틀": "새벽", "먼동": "새벽",
+    "아침": "아침", "오전": "아침", "해가 뜨": "아침",
+    "정오": "낮", "한낮": "낮", "대낮": "낮", "낮": "낮",
+    "오후": "오후", "해 질": "저녁", "해질": "저녁", "노을": "저녁",
+    "저녁": "저녁", "황혼": "저녁",
+    "밤": "밤", "한밤": "밤", "자정": "밤", "새벽녘": "새벽", "야밤": "밤",
+}
+SEASONS = {"봄": "봄", "여름": "여름", "가을": "가을", "겨울": "겨울"}
+
+TIME_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
+    ("날짜", re.compile(r"\d{1,4}\s*년(?:\s*\d{1,2}\s*월)?(?:\s*\d{1,2}\s*일)?")),
+    ("날짜", re.compile(r"\d{1,2}\s*월\s*\d{1,2}\s*일")),
+    ("시각", re.compile(r"(?:오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?")),
+    ("요일", re.compile(r"[월화수목금토일]요일")),
+    ("상대", re.compile(
+        r"(?:그저께|그제|어제|오늘|내일|모레|글피|이튿날|다음\s*날|그날|그해|이듬해|"
+        r"작년|지난해|올해|내년|훗날|그때|그 무렵|얼마 뒤|얼마 후)")),
+    ("기간", re.compile(
+        r"(?:하루|이틀|사흘|나흘|닷새|엿새|이레|여드레|아흐레|열흘|보름|"
+        r"\d+\s*(?:분|시간|일|주|달|개월|년|해))\s*(?:뒤|후|만에|전|째|간|동안)")),
+    ("시간대", re.compile("|".join(sorted(TIME_OF_DAY, key=len, reverse=True)))),
+    ("계절", re.compile("|".join(SEASONS))),
+]
+
+
+@dataclass
+class TimeMark:
+    kind: str
+    text: str
+    line: int
+    scene: int
+    sentence: str
+    bucket: str = ""      # 시간대·계절은 같은 것끼리 묶는 이름
+
+
+@dataclass
+class TimeConflict:
+    scene: int
+    kind: str
+    values: list[str]
+    lines: list[int]
+
+
+def find_time_marks(text: str, *, scenes: list[Scene] | None = None) -> list[TimeMark]:
+    """원고에서 시간을 가리키는 표현을 뽑는다."""
+    sentences = split_sentences(text)
+    offsets: list[int] = []
+    cursor = 0
+    for s in sentences:
+        found = text.find(s[:30], cursor)
+        cursor = found + 1 if found >= 0 else cursor
+        offsets.append(text.count("\n", 0, max(found, 0)) + 1)
+
+    starts = [(s.line, s.number) for s in (scenes or [])]
+
+    def scene_of(line: int) -> int:
+        number = 0
+        for start, n in starts:
+            if start <= line:
+                number = n
+            else:
+                break
+        return number
+
+    marks: list[TimeMark] = []
+    for i, sentence in enumerate(sentences):
+        seen: set[tuple[str, str]] = set()
+        spans: list[tuple[int, int]] = []
+        for kind, pattern in TIME_PATTERNS:
+            for m in pattern.finditer(sentence):
+                # "2026년 3월 5일" 안의 "3월 5일" 처럼 겹치는 것은 긴 쪽만 남긴다
+                if any(a <= m.start() and m.end() <= b for a, b in spans):
+                    continue
+                raw = m.group(0).strip()
+                bucket = ""
+                if kind == "시간대":
+                    bucket = next((v for k, v in TIME_OF_DAY.items() if raw.startswith(k)), raw)
+                elif kind == "계절":
+                    bucket = SEASONS.get(raw, raw)
+                if (kind, bucket or raw) in seen:
+                    continue
+                seen.add((kind, bucket or raw))
+                spans.append((m.start(), m.end()))
+                marks.append(TimeMark(kind, raw, offsets[i], scene_of(offsets[i]),
+                                      sentence.strip(), bucket))
+    return marks
+
+
+def time_conflicts(marks: list[TimeMark]) -> list[TimeConflict]:
+    """한 장면 안에서 시간대나 계절이 서로 다르게 나오는 곳."""
+    grouped: dict[tuple[int, str], list[TimeMark]] = defaultdict(list)
+    for m in marks:
+        if m.kind in ("시간대", "계절") and m.scene:
+            grouped[(m.scene, m.kind)].append(m)
+
+    out: list[TimeConflict] = []
+    for (scene, kind), items in sorted(grouped.items()):
+        buckets = {m.bucket for m in items}
+        if len(buckets) > 1:
+            out.append(TimeConflict(scene, kind, sorted(buckets),
+                                    sorted({m.line for m in items})))
     return out

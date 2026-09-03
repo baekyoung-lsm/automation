@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
@@ -1103,7 +1104,7 @@ def cmd_novel_outline(a) -> int:
 
     scenes: list[manuscript.Scene] = []
     for path in targets:
-        body = manuscript.strip_markup(manuscript.read_text(path)) \
+        body = manuscript.strip_headings(manuscript.read_text(path)) \
             if a.no_headings else manuscript.read_text(path)
         found = manuscript.split_scenes(body, min_chars=a.min)
         for scene in found:
@@ -1158,10 +1159,13 @@ def cmd_novel_find(a) -> int:
 
     found: list[manuscript.Mention] = []
     for path in targets:
-        text = manuscript.strip_markup(manuscript.read_text(path))
-        scenes = manuscript.split_scenes(text, min_chars=a.min)
-        found += manuscript.find_mentions(text, pattern, path=path.name,
-                                          context=a.context, scenes=scenes)
+        raw = manuscript.read_text(path)
+        # 장면 경계는 원문에서 잡고(구분선이 살아 있어야 한다),
+        # 찾기는 제목만 지운 본문에서 한다. 줄 수가 같아 행 번호가 맞는다.
+        scenes = manuscript.split_scenes(raw, min_chars=a.min)
+        found += manuscript.find_mentions(manuscript.strip_headings(raw), pattern,
+                                          path=path.name, context=a.context,
+                                          scenes=scenes)
 
     if not found:
         _p(f"'{a.query}' 를 찾지 못했습니다.")
@@ -1180,6 +1184,53 @@ def cmd_novel_find(a) -> int:
     if len(found) > a.limit:
         _p(f"  ... {len(found) - a.limit}번 더 (--limit 로 조절)")
     return 0
+
+
+def cmd_novel_timeline(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    marks: list[manuscript.TimeMark] = []
+    conflicts: list[tuple[str, manuscript.TimeConflict]] = []
+    for path in targets:
+        raw = manuscript.read_text(path)
+        scenes = manuscript.split_scenes(raw, min_chars=a.min)
+        found = manuscript.find_time_marks(manuscript.strip_headings(raw), scenes=scenes)
+        for m in found:
+            m.sentence = f"{path.name}|{m.sentence}"
+        marks += found
+        conflicts += [(path.name, c) for c in manuscript.time_conflicts(found)]
+
+    if not marks:
+        _p("시간을 가리키는 표현을 찾지 못했습니다.")
+        return 0
+
+    kinds = Counter(m.kind for m in marks)
+    _p(f"시간 표현 {len(marks)}개  ·  "
+       + "  ".join(f"{k} {v}" for k, v in kinds.most_common()) + "\n")
+
+    shown = [m for m in marks if not a.kind or m.kind in a.kind]
+    for m in shown[:a.limit]:
+        name, _, sentence = m.sentence.partition("|")
+        where = f"{name}:{m.line}행" + (f" 장면 {m.scene}" if m.scene else "")
+        _p(f"  {_pad(m.text, 16)}[{m.kind}]  {where}")
+        if a.context:
+            _p(f"      {_cut(sentence, a.width)}")
+    if len(shown) > a.limit:
+        _p(f"  ... {len(shown) - a.limit}개 더")
+
+    if not conflicts:
+        _p("\n한 장면 안에서 시간대·계절이 어긋난 곳은 없습니다.")
+        return 0
+
+    _p(f"\n같은 장면에서 어긋난 곳 {len(conflicts)}건")
+    for name, c in conflicts:
+        _p(f"  {name} 장면 {c.scene}: {c.kind} 이 {', '.join(c.values)} 로 섞였습니다"
+           f"  ({', '.join(str(n) for n in c.lines)}행)")
+    _p("\n회상이나 시간 경과를 일부러 넣은 것일 수 있으니 눈으로 확인하세요.")
+    return 1
 
 
 # =================================================================== keys
@@ -2516,6 +2567,16 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("--limit", type=int, default=30)
     fd.add_argument("--width", type=int, default=110, metavar="칸")
     fd.set_defaults(func=cmd_novel_find)
+
+    tl = np_.add_parser("timeline", help="시간 표현 모아 보기와 장면 안 시간 충돌")
+    tl.add_argument("paths", nargs="+")
+    tl.add_argument("-k", "--kind", action="append", metavar="종류",
+                    choices=["날짜", "시각", "요일", "상대", "기간", "시간대", "계절"])
+    tl.add_argument("--context", action="store_true", help="문장도 함께")
+    tl.add_argument("--min", type=int, default=100, metavar="자", help="장면 최소 분량")
+    tl.add_argument("--limit", type=int, default=60)
+    tl.add_argument("--width", type=int, default=100, metavar="칸")
+    tl.set_defaults(func=cmd_novel_timeline)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")
