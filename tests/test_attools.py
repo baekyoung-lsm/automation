@@ -458,6 +458,79 @@ class SheetTest(unittest.TestCase):
         self.assertEqual(cross.headers, ["부서", "1Q", "2Q", "합계"])
         self.assertEqual(cross.rows, [["개발", 300, None, 300], ["영업", 100, 50, 150]])
 
+    def table(self):
+        return sheet.Table(
+            ["사번", "이름", "부서", "연봉"],
+            [["E1", "홍길동", "영업", 52000000],
+             ["E2", "김철수", "개발", 47000000],
+             ["E3", "이영희", "개발", 61000000],
+             ["E4", "최수진", "영업", None]])
+
+    def test_cut_picks_and_orders_columns(self):
+        result = sheet.cut(self.table(), ["연봉", "이름"])
+        self.assertEqual(result.headers, ["연봉", "이름"])
+        self.assertEqual(result.rows[0], [52000000, "홍길동"])
+        with self.assertRaises(sheet.SheetError):
+            sheet.cut(self.table(), ["없는열"])
+
+    def test_cut_drop_mode(self):
+        result = sheet.cut(self.table(), ["사번", "부서"], drop=True)
+        self.assertEqual(result.headers, ["이름", "연봉"])
+
+    def test_where_and_or(self):
+        t = self.table()
+        eq = [sheet.Condition("부서", "eq", "개발")]
+        self.assertEqual(len(sheet.where(t, eq).rows), 2)
+
+        both = eq + [sheet.Condition("연봉", "gte", "5000만")]
+        self.assertEqual([r[1] for r in sheet.where(t, both).rows], ["이영희"])
+        self.assertEqual(len(sheet.where(t, both, any_match=True).rows), 3)
+
+    def test_where_compares_numbers_as_numbers(self):
+        t = self.table()
+        rows = sheet.where(t, [sheet.Condition("연봉", "gt", "50,000,000")]).rows
+        self.assertEqual({r[1] for r in rows}, {"홍길동", "이영희"})
+
+    def test_where_has_is_case_insensitive_substring(self):
+        rows = sheet.where(self.table(), [sheet.Condition("이름", "has", "영")]).rows
+        self.assertEqual([r[1] for r in rows], ["이영희"])
+
+    def test_condition_parse_requires_equals(self):
+        self.assertEqual(sheet.Condition.parse("eq", "부서=영업").value, "영업")
+        with self.assertRaises(sheet.SheetError):
+            sheet.Condition.parse("eq", "부서")
+
+    def test_sort_puts_blanks_last(self):
+        result = sheet.sort_rows(self.table(), ["연봉"])
+        self.assertEqual([r[1] for r in result.rows],
+                         ["김철수", "홍길동", "이영희", "최수진"])
+        desc = sheet.sort_rows(self.table(), ["연봉"], descending=True)
+        self.assertEqual(desc.rows[0][1], "최수진")   # 내림차순이면 빈 칸이 먼저
+
+    def test_sample_is_reproducible_with_seed(self):
+        t = self.table()
+        a = sheet.sample(t, 2, seed=7)
+        b = sheet.sample(t, 2, seed=7)
+        self.assertEqual(a.rows, b.rows)
+        self.assertEqual(sheet.sample(t, 2, head=True).rows, t.rows[:2])
+        self.assertEqual(len(sheet.sample(t, 99).rows), 4)
+
+    def test_split_rows_and_by_column(self):
+        t = self.table()
+        parts = sheet.split_rows(t, 3)
+        self.assertEqual([len(p.rows) for p in parts], [3, 1])
+        with self.assertRaises(sheet.SheetError):
+            sheet.split_rows(t, 0)
+
+        groups = sheet.split_by(t, "부서")
+        self.assertEqual(sorted(groups), ["개발", "영업"])
+        self.assertEqual(len(groups["개발"].rows), 2)
+        self.assertEqual(groups["개발"].sheet, "개발")
+
+    def test_split_by_labels_blank_values(self):
+        t = sheet.Table(["a", "b"], [["", 1], [None, 2]])
+        self.assertEqual(list(sheet.split_by(t, "a")), ["(빈칸)"])
+
     def test_save_csv_has_bom_for_excel(self):
         p = self.csv("a.csv", "이름\n홍길동\n")
         out = sheet.save(sheet.load(p), self.root / "out.csv")

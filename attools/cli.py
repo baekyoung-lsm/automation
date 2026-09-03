@@ -9,6 +9,7 @@ from pathlib import Path
 from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
                manuscript, mdkit, names, sheet, text, todo)
 from .schedule import Cron, CronError
+from . import hangul
 from .hangul import is_decomposed
 
 DRY = "[미리보기]"
@@ -1322,6 +1323,124 @@ def cmd_dev_log(a) -> int:
     return 0
 
 
+def _sheet_result(a, table, headline: str) -> int:
+    _p(f"{headline}  {len(table.rows):,}행 x {table.width}열")
+    if not table.rows:
+        _p("맞는 행이 없습니다.")
+        return 1
+
+    _grid(table.headers,
+          [[sheet.to_text(v) for v in r] for r in table.rows[:a.rows]],
+          limit=a.width)
+    if len(table.rows) > a.rows:
+        _p(f"  ... {len(table.rows) - a.rows:,}행 더")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(table, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
+def cmd_sheet_cut(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result = sheet.cut(t, a.col, drop=a.drop)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    return _sheet_result(a, result, "열 " + ("빼기" if a.drop else "고르기"))
+
+
+def cmd_sheet_where(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+
+    conditions = []
+    try:
+        for op in ("eq", "ne", "gt", "gte", "lt", "lte", "has"):
+            for spec in getattr(a, op) or []:
+                conditions.append(sheet.Condition.parse(op, spec))
+        if not conditions:
+            _p("조건을 하나 이상 주세요. 예: --eq 부서=영업  --gte 연봉=5000만")
+            return 1
+        result = sheet.where(t, conditions, any_match=a.any)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    words = {"eq": "=", "ne": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤",
+             "has": "포함"}
+    joined = (" 또는 " if a.any else " 그리고 ").join(
+        f"{c.column} {words[c.op]} {c.value}" for c in conditions)
+    return _sheet_result(a, result, f"{len(t.rows):,}행 중  {joined}  ->")
+
+
+def cmd_sheet_sort(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result = sheet.sort_rows(t, a.by, descending=a.desc)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    order = "내림차순" if a.desc else "오름차순"
+    return _sheet_result(a, result, f"{', '.join(a.by)} {order} 정렬")
+
+
+def cmd_sheet_sample(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    result = sheet.sample(t, a.number, seed=a.seed, head=a.head)
+    how = "앞에서" if a.head else "무작위로"
+    return _sheet_result(a, result, f"{len(t.rows):,}행에서 {how} {len(result.rows):,}행")
+
+
+def cmd_sheet_split(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    if bool(a.rows_per) == bool(a.by):
+        _p("--rows 나 --by 중 하나만 주세요.")
+        return 1
+
+    source = Path(a.file)
+    out_dir = Path(a.out) if a.out else source.parent
+    suffix = a.format or (source.suffix.lower() if source.suffix.lower() in
+                          (sheet.CSV_SUFFIXES | sheet.XLSX_SUFFIXES) else ".csv")
+    if not suffix.startswith("."):
+        suffix = "." + suffix
+
+    try:
+        pieces = ({f"{source.stem}-{i:03d}": part
+                   for i, part in enumerate(sheet.split_rows(t, a.rows_per), 1)}
+                  if a.rows_per else
+                  {f"{source.stem}-{k}": part
+                   for k, part in sheet.split_by(t, a.by).items()})
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{len(t.rows):,}행 -> 파일 {len(pieces)}개")
+    for name, part in pieces.items():
+        safe = hangul.sanitize_filename(f"{name}{suffix}")
+        target = out_dir / safe
+        if not a.apply:
+            _p(f"  [미리보기] {target.name}  {len(part.rows):,}행")
+            continue
+        sheet.save(part, target, sheet_name=part.sheet or "Sheet1")
+        _p(f"  {target}  {len(part.rows):,}행")
+
+    if not a.apply:
+        _p("\n실제로 저장하려면 --apply 를 붙이세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -1782,6 +1901,50 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
     pv.add_argument("-o", "--out")
     pv.set_defaults(func=cmd_sheet_pivot)
+
+    def sheet_out(parser):
+        parser.add_argument("-o", "--out", metavar="파일")
+        parser.add_argument("--rows", type=int, default=10, metavar="개",
+                            dest="rows", help="미리보기 행 수")
+        parser.add_argument("--width", type=int, default=20, metavar="칸")
+        return parser
+
+    ct = sheet_out(common(sh.add_parser("cut", help="열 고르기 · 빼기")))
+    ct.add_argument("file")
+    ct.add_argument("-c", "--col", action="append", required=True, metavar="열")
+    ct.add_argument("--drop", action="store_true", help="고른 열을 빼고 나머지를 남긴다")
+    ct.set_defaults(func=cmd_sheet_cut)
+
+    wh = sheet_out(common(sh.add_parser("where", help="조건에 맞는 행만")))
+    wh.add_argument("file")
+    for op, help_text in (("eq", "같다"), ("ne", "다르다"), ("gt", "크다"), ("gte", "크거나 같다"),
+                          ("lt", "작다"), ("lte", "작거나 같다"), ("has", "포함한다")):
+        wh.add_argument(f"--{op}", action="append", metavar="열=값", help=help_text)
+    wh.add_argument("--any", action="store_true", help="하나만 맞아도 통과 (기본은 전부)")
+    wh.set_defaults(func=cmd_sheet_where)
+
+    so = sheet_out(common(sh.add_parser("sort", help="정렬")))
+    so.add_argument("file")
+    so.add_argument("--by", action="append", required=True, metavar="열")
+    so.add_argument("--desc", action="store_true", help="내림차순")
+    so.set_defaults(func=cmd_sheet_sort)
+
+    sp2 = sheet_out(common(sh.add_parser("sample", help="표본 뽑기")))
+    sp2.add_argument("file")
+    sp2.add_argument("-n", "--number", type=int, default=20, metavar="행")
+    sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
+    sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
+    sp2.set_defaults(func=cmd_sheet_sample)
+
+    sl = common(sh.add_parser("split", help="여러 파일로 나누기"))
+    sl.add_argument("file")
+    sl.add_argument("--rows", type=int, dest="rows_per", metavar="행",
+                    help="이만큼씩 잘라서")
+    sl.add_argument("--by", metavar="열", help="이 열의 값마다 (부서별·월별)")
+    sl.add_argument("-o", "--out", metavar="디렉터리")
+    sl.add_argument("--format", metavar="확장자", help="csv 또는 xlsx")
+    sl.add_argument("--apply", action="store_true")
+    sl.set_defaults(func=cmd_sheet_split)
 
     cv = common(sh.add_parser("convert", help="csv <-> xlsx 변환 (인코딩 정리)"))
     cv.add_argument("file")

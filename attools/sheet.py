@@ -554,3 +554,139 @@ def pivot(table: Table, *, rows: list[str], values: str | None = None,
         out_rows.append(line)
 
     return Table(headers, out_rows, source=table.source)
+
+
+# ------------------------------------------------------- 열·행 고르기
+
+def cut(table: Table, columns: list[str], *, drop: bool = False) -> Table:
+    """열을 골라 그 순서로 남긴다. drop 이면 지정한 열만 뺀다."""
+    if drop:
+        keep = [i for i, h in enumerate(table.headers) if h not in columns]
+        missing = [c for c in columns if c not in table.headers]
+        if missing:
+            raise SheetError(f"없는 열: {', '.join(missing)}")
+    else:
+        keep = [table.index_of(c) for c in columns]
+
+    headers = [table.headers[i] for i in keep]
+    rows = [[r[i] if i < len(r) else None for i in keep] for r in table.rows]
+    return Table(headers, rows, source=table.source, sheet=table.sheet)
+
+
+OPERATORS = {
+    "eq": lambda a, b: a == b,
+    "ne": lambda a, b: a != b,
+    "gt": lambda a, b: a > b,
+    "gte": lambda a, b: a >= b,
+    "lt": lambda a, b: a < b,
+    "lte": lambda a, b: a <= b,
+}
+
+
+@dataclass
+class Condition:
+    column: str
+    op: str
+    value: str
+
+    @classmethod
+    def parse(cls, op: str, spec: str) -> Condition:
+        column, sep, value = spec.partition("=")
+        if not sep:
+            raise SheetError(f"'열=값' 형태로 적으세요: {spec}")
+        return cls(column.strip(), op, value.strip())
+
+
+def _comparable(cell, wanted: str):
+    """숫자·날짜 열은 숫자·날짜로, 아니면 문자열로 비교한다."""
+    if isinstance(cell, bool):
+        return to_text(cell), wanted.upper()
+    if isinstance(cell, (int, float)):
+        parsed = parse_number(wanted)
+        return (cell, parsed) if parsed is not None else (to_text(cell), wanted)
+    if isinstance(cell, (datetime, date)):
+        parsed = parse_date(wanted)
+        target = cell.date() if isinstance(cell, datetime) else cell
+        return (target, parsed) if parsed is not None else (to_text(cell), wanted)
+    return to_text(cell), wanted
+
+
+def where(table: Table, conditions: list[Condition], *, contains: list[Condition] | None = None,
+          any_match: bool = False) -> Table:
+    """조건에 맞는 행만 남긴다. 기본은 모든 조건을 만족(AND)."""
+    checks = list(conditions) + list(contains or [])
+    indexes = {c.column: table.index_of(c.column) for c in checks}
+
+    def passes(row: list) -> bool:
+        results = []
+        for c in checks:
+            i = indexes[c.column]
+            cell = row[i] if i < len(row) else None
+            if c.op == "has":
+                results.append(c.value.lower() in to_text(cell).lower())
+                continue
+            left, right = _comparable(cell, c.value)
+            try:
+                results.append(OPERATORS[c.op](left, right))
+            except TypeError:
+                results.append(False)
+        return any(results) if any_match else all(results)
+
+    return Table(table.headers, [r for r in table.rows if passes(r)],
+                 source=table.source, sheet=table.sheet)
+
+
+def sort_rows(table: Table, columns: list[str], *, descending: bool = False) -> Table:
+    indexes = [table.index_of(c) for c in columns]
+
+    def key(row: list):
+        out = []
+        for i in indexes:
+            cell = row[i] if i < len(row) else None
+            # 빈 칸은 항상 뒤로 보낸다
+            if cell is None or cell == "":
+                out.append((2, 0.0, ""))
+            elif isinstance(cell, bool):
+                out.append((1, 0.0, to_text(cell)))
+            elif isinstance(cell, (int, float)):
+                out.append((0, float(cell), ""))
+            elif isinstance(cell, (datetime, date)):
+                stamp = cell if isinstance(cell, datetime) else datetime(
+                    cell.year, cell.month, cell.day)
+                out.append((0, stamp.timestamp(), ""))
+            else:
+                out.append((1, 0.0, to_text(cell)))
+        return out
+
+    return Table(table.headers, sorted(table.rows, key=key, reverse=descending),
+                 source=table.source, sheet=table.sheet)
+
+
+def sample(table: Table, count: int, *, seed: int | None = None,
+           head: bool = False) -> Table:
+    import random
+
+    if head or count >= len(table.rows):
+        rows = table.rows[:count]
+    else:
+        rows = random.Random(seed).sample(table.rows, count)
+    return Table(table.headers, rows, source=table.source, sheet=table.sheet)
+
+
+def split_rows(table: Table, size: int) -> list[Table]:
+    if size < 1:
+        raise SheetError("나눌 행 수는 1 이상이어야 합니다.")
+    return [Table(table.headers, table.rows[i:i + size],
+                  source=table.source, sheet=table.sheet)
+            for i in range(0, len(table.rows), size)]
+
+
+def split_by(table: Table, column: str) -> dict[str, Table]:
+    """열 값마다 따로 나눈다. 부서별·월별로 파일을 쪼갤 때."""
+    i = table.index_of(column)
+    groups: dict[str, list[list]] = defaultdict(list)
+    for row in table.rows:
+        key = to_text(row[i] if i < len(row) else None) or "(빈칸)"
+        groups[key].append(row)
+    return {k: Table(table.headers, v, source=table.source, sheet=k)
+            for k, v in sorted(groups.items())}

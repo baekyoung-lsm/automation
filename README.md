@@ -212,6 +212,11 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet diff <이전> <이후> --key <열>` | 키 기준으로 추가·삭제·변경된 값을 찾는다 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
+| `at sheet cut <파일> -c <열>` | 열 고르기·순서 바꾸기 (`--drop` 이면 빼기) |
+| `at sheet where <파일> --eq <열=값>` | 조건에 맞는 행만. `--gte`, `--lt`, `--has` 등 |
+| `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
+| `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
+| `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
 ```bash
@@ -222,7 +227,16 @@ at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
 at sheet convert 깨진파일.csv -o 정상.xlsx
+at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
+at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
+at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
+at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
+at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
 ```
+
+`where` 의 값은 열 타입에 맞춰 비교한다. 숫자 열이면 `--gte 연봉=6000만` 처럼 한글 단위도
+숫자로 읽고, 날짜 열이면 `--gte 입사일=2024-01-01` 로 날짜끼리 비교한다. 조건 여러 개는
+기본이 AND 이고 `--any` 를 주면 OR 이다.
 
 `check` 가 잡아 주는 것 중 실무에서 제일 자주 사고 나는 건 **문자로 저장된 숫자**다.
 `SUM` 이 0으로 나오거나 정렬이 `1, 10, 2` 순으로 되는 원인이고, `clean` 을 돌리면
