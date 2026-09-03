@@ -9,6 +9,7 @@
 - `git` 병합된 브랜치 정리, 커밋 전 시크릿 검사
 - `text` 여러 파일 찾아 바꾸기, 인코딩·줄바꿈 통일, 공백 정리
 - `json` API 응답 구조 요약, 두 응답 비교, 평탄화
+- `doc` 마크다운 목차 갱신, 깨진 링크·앵커 검사
 - `sheet` 엑셀·CSV 훑어보기, 검증, 정리, 병합, 비교, 집계, 변환
 - `keys` 한글·Word·엑셀·PPT·구글 문서 단축키를 탭으로 넘겨 보고 검색
 - `life` D-day, 더치페이 정산, 대출 계산, 단위 변환
@@ -20,6 +21,22 @@ git clone <repo> && cd automation
 ln -s "$PWD/at" ~/.local/bin/at   # 또는 PATH 에 링크
 pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 ```
+
+<!-- toc -->
+
+- [file — 파일 정리](#file--파일-정리)
+- [dev — 백엔드 개발](#dev--백엔드-개발)
+- [text — 여러 파일 텍스트 일괄 처리](#text--여러-파일-텍스트-일괄-처리)
+- [json — API 응답 훑기와 비교](#json--api-응답-훑기와-비교)
+- [doc — 마크다운 유지보수](#doc--마크다운-유지보수)
+- [git — 저장소 정리와 검사](#git--저장소-정리와-검사)
+- [sheet — 엑셀·CSV 실무](#sheet--엑셀csv-실무)
+- [keys — 단축키 찾기](#keys--단축키-찾기)
+- [life — 일상 계산](#life--일상-계산)
+- [novel — 소설 집필](#novel--소설-집필)
+- [테스트](#테스트)
+
+<!-- /toc -->
 
 파일을 옮기거나 이름을 바꾸는 명령은 **기본이 미리보기**다. `--apply` 를 붙여야 실제로 실행되고,
 실행 내역은 `~/.attools/journal/` 에 남아 `at file undo` 로 통째로 되돌릴 수 있다.
@@ -132,6 +149,27 @@ at json flat 응답.json --grep 'error|실패'
 하나라도 있으면 종료 코드 1을 돌려주므로 계약 회귀 검사로 CI 에 넣을 수 있다.
 
 파일이 JSON 으로 안 읽히면 JSON Lines 로 한 번 더 시도한다.
+
+## doc — 마크다운 유지보수
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `at doc toc <경로…>` | 제목에서 목차를 만들어 `<!-- toc -->` 사이를 갈아 끼운다 |
+| `at doc links <경로…>` | 깨진 상대 경로 링크와 없는 앵커(`#제목`)를 찾는다 |
+| `at doc check <경로…>` | 제목 단계 건너뜀(H2 → H4), 같은 제목 반복, H1 중복 |
+
+```bash
+at doc toc README.md              # 미리보기
+at doc toc docs/ --apply --depth 2
+at doc links docs/                # 깨진 게 있으면 exit 1
+at doc check README.md --outline
+```
+
+앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
+같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
+제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+이 README 의 목차도 `at doc toc README.md --apply` 로 만든 것이다.
 
 ## git — 저장소 정리와 검사
 

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
-               manuscript, names, sheet, text, todo)
+               manuscript, mdkit, names, sheet, text, todo)
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -1276,6 +1276,113 @@ def cmd_dev_log(a) -> int:
     return 0
 
 
+# ==================================================================== doc
+
+MD_SUFFIXES = {".md", ".markdown"}
+
+
+def _md_files(paths) -> list[Path]:
+    out: list[Path] = []
+    for name in paths:
+        p = Path(name)
+        if p.is_dir():
+            out += [q for q in sorted(p.rglob("*"))
+                    if q.suffix.lower() in MD_SUFFIXES
+                    and not any(d in q.parts for d in files.IGNORE_DIRS)]
+        elif p.is_file():
+            out.append(p)
+    return out
+
+
+def cmd_doc_toc(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    touched = 0
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        toc = mdkit.build_toc(mdkit.headings(body), depth=a.depth,
+                              skip_first_h1=not a.keep_h1)
+        if not toc:
+            continue
+
+        if not a.apply:
+            _p(f"{path}")
+            _p(toc + "\n")
+            continue
+
+        new_body, changed = mdkit.update_toc(body, toc)
+        if not changed:
+            marker = mdkit.TOC_START in body
+            _p(f"{path}: " + ("이미 최신입니다." if marker
+                              else f"표시가 없습니다. 넣을 자리에 {mdkit.TOC_START} 와 "
+                                   f"{mdkit.TOC_END} 를 적어 두세요."))
+            continue
+        path.write_text(new_body, encoding="utf-8")
+        _p(f"{path}: 목차를 갱신했습니다.")
+        touched += 1
+
+    if not a.apply:
+        _p(f"{mdkit.TOC_START} 와 {mdkit.TOC_END} 사이에 넣으려면 --apply 를 붙이세요.")
+    return 0
+
+
+def cmd_doc_links(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    total = 0
+    for path in targets:
+        issues = mdkit.check_links(path)
+        if not issues:
+            continue
+        total += len(issues)
+        _p(f"{path}  {len(issues)}건")
+        for i in issues[:a.limit]:
+            _p(f"  {i.line}행  [{i.kind}] {i.detail}")
+        _p("")
+
+    if not total:
+        _p(f"파일 {len(targets)}개, 깨진 링크 없습니다.")
+        return 0
+    _p(f"모두 {total}건. 외부 URL 은 확인하지 않았습니다.")
+    return 1
+
+
+def cmd_doc_check(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    total = 0
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        issues = mdkit.check_headings(body)
+        items = mdkit.headings(body)
+        if a.outline:
+            _p(f"{path}  제목 {len(items)}개")
+            for h in items[:a.limit]:
+                _p(f"  {'  ' * (h.level - 1)}H{h.level} {h.title}")
+            _p("")
+        if not issues:
+            continue
+        total += len(issues)
+        _p(f"{path}  {len(issues)}건")
+        for i in issues:
+            _p(f"  {i.line}행  [{i.kind}] {i.detail}")
+        _p("")
+
+    if not total:
+        _p(f"파일 {len(targets)}개, 제목 구조에 문제 없습니다.")
+        return 0
+    return 1
+
+
 # =================================================================== json
 
 def _json_load(a, source):
@@ -1681,6 +1788,28 @@ def build_parser() -> argparse.ArgumentParser:
     tu = tp.add_parser("undo", help="text 명령 되돌리기")
     tu.add_argument("journal", nargs="?")
     tu.set_defaults(func=cmd_text_undo)
+
+    # ---- doc
+    dc = sub.add_parser("doc", help="마크다운 목차·링크 관리").add_subparsers(
+        dest="cmd", required=True)
+
+    dt = dc.add_parser("toc", help="제목에서 목차 만들기·갱신")
+    dt.add_argument("paths", nargs="+", metavar="경로")
+    dt.add_argument("--depth", type=int, default=3, metavar="단계")
+    dt.add_argument("--keep-h1", action="store_true", help="맨 앞 H1 도 목차에 넣는다")
+    dt.add_argument("--apply", action="store_true")
+    dt.set_defaults(func=cmd_doc_toc)
+
+    dl = dc.add_parser("links", help="깨진 상대 링크·앵커 찾기")
+    dl.add_argument("paths", nargs="+", metavar="경로")
+    dl.add_argument("--limit", type=int, default=20)
+    dl.set_defaults(func=cmd_doc_links)
+
+    dh = dc.add_parser("check", help="제목 단계 건너뜀·중복 점검")
+    dh.add_argument("paths", nargs="+", metavar="경로")
+    dh.add_argument("--outline", action="store_true", help="제목 구조도 출력")
+    dh.add_argument("--limit", type=int, default=40)
+    dh.set_defaults(func=cmd_doc_check)
 
     # ---- json
     jp = sub.add_parser("json", help="JSON 훑기·비교").add_subparsers(dest="cmd", required=True)
