@@ -1293,6 +1293,51 @@ def cmd_novel_timeline(a) -> int:
     return 1
 
 
+def cmd_novel_style(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    rows: list[manuscript.Style] = []
+    if a.by == "scene":
+        for path in targets:
+            raw = manuscript.read_text(path)
+            for scene in manuscript.split_scenes(raw, min_chars=a.min):
+                label = f"{path.stem}#{scene.number}"
+                rows.append(manuscript.style_metrics(scene.text, label,
+                                                     long_limit=a.long))
+    else:
+        for path in targets:
+            rows.append(manuscript.style_metrics(manuscript.read_text(path),
+                                                 path.stem, long_limit=a.long))
+
+    rows = [r for r in rows if r.sentences]
+    if not rows:
+        _p("잴 만한 내용이 없습니다.")
+        return 1
+
+    _grid(manuscript.STYLE_COLUMNS, [r.as_row() for r in rows[:a.limit]], limit=14)
+    if len(rows) > a.limit:
+        _p(f"  ... {len(rows) - a.limit}개 더")
+
+    _p("\n평균/중앙 = 문장 길이(자)  ·  긴문장 = "
+       f"{a.long}자 초과 비율  ·  어미쏠림 = 종결 어미 상위 3개 비중")
+    _p("어휘 = 고유 어절 / 전체 어절. 낮을수록 같은 말이 반복된다는 뜻입니다.")
+
+    outliers = manuscript.style_outliers(rows, sigma=a.sigma)
+    if not outliers:
+        _p("\n다른 것들과 크게 다른 곳은 없습니다."
+           if len(rows) >= 3 else "\n비교하려면 대상이 셋 이상 있어야 합니다.")
+        return 0
+
+    _p(f"\n튀는 곳 {len(outliers)}개")
+    for name, reasons in outliers.items():
+        _p(f"  {_pad(name, 16)}{', '.join(reasons)}")
+    _p("\n의도한 것일 수 있습니다. 어느 화가 다른지 짚어 줄 뿐입니다.")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -2652,6 +2697,17 @@ def build_parser() -> argparse.ArgumentParser:
     tl.add_argument("--limit", type=int, default=60)
     tl.add_argument("--width", type=int, default=100, metavar="칸")
     tl.set_defaults(func=cmd_novel_timeline)
+
+    sy = np_.add_parser("style", help="화별 문체 지표 비교 - 튀는 화 찾기")
+    sy.add_argument("paths", nargs="+")
+    sy.add_argument("--by", default="file", choices=["file", "scene"])
+    sy.add_argument("--long", type=int, default=80, metavar="자",
+                    help="긴 문장으로 볼 기준")
+    sy.add_argument("--sigma", type=float, default=1.5, metavar="배",
+                    help="표준편차 이만큼 벗어나면 튀는 것으로 본다")
+    sy.add_argument("--min", type=int, default=100, metavar="자", help="장면 최소 분량")
+    sy.add_argument("--limit", type=int, default=40)
+    sy.set_defaults(func=cmd_novel_style)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

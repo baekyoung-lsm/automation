@@ -458,6 +458,41 @@ class ManuscriptTest(unittest.TestCase):
         marks = manuscript.find_time_marks(text, scenes=scenes)
         self.assertEqual(manuscript.time_conflicts(marks), [])
 
+    def test_style_metrics(self):
+        text = '짧다. 이것은 조금 더 긴 문장이다. "대사." 그가 말했다.'
+        st = manuscript.style_metrics(text, "1화")
+        self.assertEqual(st.name, "1화")
+        self.assertEqual(st.sentences, 4)
+        self.assertGreater(st.avg_sentence, 0)
+        self.assertGreater(st.dialogue_ratio, 0)
+        self.assertGreater(st.vocabulary, 0)
+        self.assertLessEqual(st.vocabulary, 1)
+
+    def test_style_metrics_empty(self):
+        st = manuscript.style_metrics("", "빈것")
+        self.assertEqual(st.sentences, 0)
+        self.assertEqual(st.avg_sentence, 0.0)
+
+    def test_style_long_ratio(self):
+        text = "짧다. " + "가" * 100 + "."
+        st = manuscript.style_metrics(text, long_limit=50)
+        self.assertAlmostEqual(st.long_ratio, 0.5)
+
+    def test_style_outliers_needs_three(self):
+        rows = [manuscript.style_metrics("가나다. 라마바.", f"{i}") for i in range(2)]
+        self.assertEqual(manuscript.style_outliers(rows), {})
+
+    def test_style_outliers_flags_the_odd_one(self):
+        rows = []
+        for i in range(5):
+            body = ("그는 걸었다. " * 10 if i != 2
+                    else "그는 오래도록 걸었고 그 길은 끝없이 이어졌으며 결국 아무 데도 "
+                         "닿지 못했다. " * 10)
+            rows.append(manuscript.style_metrics(body, f"{i}화"))
+        found = manuscript.style_outliers(rows)
+        self.assertIn("2화", found)
+        self.assertTrue(any("평균 문장 길이" in r for r in found["2화"]))
+
     def test_snapshot_growth(self):
         (self.root / "1화.txt").write_text("가나다", encoding="utf-8")
         manuscript.snapshot(self.root, note="초고")

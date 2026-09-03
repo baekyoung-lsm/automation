@@ -476,3 +476,89 @@ def time_conflicts(marks: list[TimeMark]) -> list[TimeConflict]:
             out.append(TimeConflict(scene, kind, sorted(buckets),
                                     sorted({m.line for m in items})))
     return out
+
+
+# --------------------------------------------------------------------- 문체
+
+@dataclass
+class Style:
+    name: str
+    sentences: int = 0
+    chars: int = 0
+    avg_sentence: float = 0.0
+    median_sentence: float = 0.0
+    long_ratio: float = 0.0        # 긴 문장 비율
+    dialogue_ratio: float = 0.0
+    paragraph_avg: float = 0.0
+    ending_top3: float = 0.0       # 상위 3개 종결 어미가 차지하는 비율
+    vocabulary: float = 0.0        # 고유 어절 / 전체 어절
+
+    def as_row(self) -> list[str]:
+        return [self.name, f"{self.chars:,}", f"{self.sentences:,}",
+                f"{self.avg_sentence:.0f}", f"{self.median_sentence:.0f}",
+                f"{self.long_ratio:.0%}", f"{self.dialogue_ratio:.0%}",
+                f"{self.paragraph_avg:.0f}", f"{self.ending_top3:.0%}",
+                f"{self.vocabulary:.2f}"]
+
+
+STYLE_COLUMNS = ["대상", "분량", "문장", "평균", "중앙", "긴문장", "대사",
+                 "문단", "어미쏠림", "어휘"]
+
+
+def style_metrics(text: str, name: str = "", *, long_limit: int = 80) -> Style:
+    body = strip_markup(text)
+    sentences = [s for s in split_sentences(body) if not SEPARATOR_ONLY.match(s)]
+    st = Style(name)
+    st.chars = len(re.sub(r"\s", "", body))
+    if not sentences:
+        return st
+
+    lengths = sorted(len(re.sub(r"\s", "", s)) for s in sentences)
+    st.sentences = len(sentences)
+    st.avg_sentence = sum(lengths) / len(lengths)
+    mid = len(lengths) // 2
+    st.median_sentence = (lengths[mid] if len(lengths) % 2
+                          else (lengths[mid - 1] + lengths[mid]) / 2)
+    st.long_ratio = sum(1 for n in lengths if n > long_limit) / len(lengths)
+
+    spoken = sum(len(m.group(1) or m.group(2) or "") for m in QUOTE.finditer(body))
+    st.dialogue_ratio = spoken / st.chars if st.chars else 0.0
+
+    paragraphs = [p for p in re.split(r"\n\s*\n", body) if p.strip()]
+    if paragraphs:
+        st.paragraph_avg = sum(len(re.sub(r"\s", "", p)) for p in paragraphs) / len(paragraphs)
+
+    endings = Counter(m.group(1) for s in sentences if (m := ENDING_RE.search(s)))
+    if endings:
+        st.ending_top3 = sum(n for _, n in endings.most_common(3)) / sum(endings.values())
+
+    words = body.split()
+    if words:
+        st.vocabulary = len(set(words)) / len(words)
+    return st
+
+
+def style_outliers(rows: list[Style], *, sigma: float = 1.5) -> dict[str, list[str]]:
+    """평균에서 크게 벗어난 항목. {대상 이름: [벗어난 지표…]}"""
+    fields = ["avg_sentence", "long_ratio", "dialogue_ratio",
+              "paragraph_avg", "ending_top3", "vocabulary"]
+    labels = {"avg_sentence": "평균 문장 길이", "long_ratio": "긴 문장 비율",
+              "dialogue_ratio": "대사 비율", "paragraph_avg": "문단 길이",
+              "ending_top3": "어미 쏠림", "vocabulary": "어휘 다양성"}
+
+    out: dict[str, list[str]] = defaultdict(list)
+    if len(rows) < 3:
+        return {}
+
+    for field_name in fields:
+        values = [getattr(r, field_name) for r in rows]
+        mean = sum(values) / len(values)
+        variance = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+        stdev = variance ** 0.5
+        if stdev == 0:
+            continue
+        for row, value in zip(rows, values):
+            if abs(value - mean) > sigma * stdev:
+                direction = "높음" if value > mean else "낮음"
+                out[row.name].append(f"{labels[field_name]} {direction}")
+    return dict(out)

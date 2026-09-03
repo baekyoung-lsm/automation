@@ -378,6 +378,7 @@ at life unit 100F        # 37.78℃
 | `at novel stats <파일/디렉터리…>` | 공백 포함·제외 글자수, 200자 원고지 매수, 문장·문단 수, 평균 문장 길이, 대사 비율, 읽는 시간, 단행본 환산 |
 | `at novel check <파일>` | 상투 표현, 군더더기 부사, 반복 어구, 같은 종결 어미 연속, 같은 말로 시작하는 문장 연속, 너무 긴 문장 |
 | `at novel outline <경로…>` | 장면 목록 — 분량, 대사 비율, 등장인물, 첫 문장 (`-o` 로 xlsx 저장) |
+| `at novel style <경로…>` | 화별 문체 지표를 나란히 놓고 유난히 다른 화를 짚는다 |
 | `at novel timeline <경로…>` | 시간 표현을 모아 보고, 한 장면 안에서 시간대·계절이 어긋난 곳을 짚는다 |
 | `at novel find <찾을것> <경로…>` | 앞뒤 문장과 함께 찾고 처음·마지막 등장 위치를 알려준다 |
 | `at novel names <경로…>` | 인물·지명 후보를 뽑아 표기 흔들림과 이름 뒤 조사 오류를 찾는다 |
@@ -387,6 +388,8 @@ at life unit 100F        # 37.78℃
 at novel stats 원고/ --each
 at novel check 원고/12화.txt --run 3 --long 80
 at novel outline 원고/ -o 장면목록.xlsx
+at novel style 원고/               # 화별 비교
+at novel style 원고/12화.txt --by scene
 at novel timeline 원고/ --context
 at novel find "붉은 열쇠" 원고/          # 복선이 언제 깔리고 언제 회수됐는지
 at novel names 원고/ --min 3
@@ -394,6 +397,11 @@ at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직
 at novel snap 원고/ --note "3부 초고 완료"
 at novel snap 원고/ -l
 ```
+
+`at novel style` 은 문장 길이(평균·중앙·긴 문장 비율), 대사 비율, 문단 길이,
+종결 어미 상위 3개가 차지하는 비중(어미 쏠림), 어휘 다양성을 화마다 재서 표로 놓는다.
+표준편차 1.5배를 벗어난 화는 따로 짚어 준다 — "12화만 유난히 문장이 길다"를 눈이 아니라
+숫자로 확인할 때 쓴다. 의도한 변주일 수 있으니 판단은 사람이 한다.
 
 `at novel timeline` 은 날짜·시각·요일·상대 표현(이듬해, 사흘 뒤)·시간대·계절을 뽑아 순서대로
 늘어놓고, **한 장면 안에서** 아침과 한밤중이 함께 나오는 것처럼 어긋난 곳을 표시한다.
