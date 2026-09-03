@@ -343,3 +343,74 @@ def encodings(value: str) -> dict[str, str]:
         except (UnicodeDecodeError, ValueError):
             pass
     return out
+
+
+# ----------------------------------------------------------------- 측정
+
+@dataclass
+class BenchResult:
+    label: str
+    times: list[float] = field(default_factory=list)
+    failures: int = 0
+
+    @property
+    def runs(self) -> int:
+        return len(self.times)
+
+    @property
+    def mean(self) -> float:
+        return sum(self.times) / len(self.times) if self.times else 0.0
+
+    @property
+    def median(self) -> float:
+        if not self.times:
+            return 0.0
+        ordered = sorted(self.times)
+        mid = len(ordered) // 2
+        return (ordered[mid] if len(ordered) % 2
+                else (ordered[mid - 1] + ordered[mid]) / 2)
+
+    @property
+    def stdev(self) -> float:
+        if len(self.times) < 2:
+            return 0.0
+        avg = self.mean
+        return (sum((t - avg) ** 2 for t in self.times) / (len(self.times) - 1)) ** 0.5
+
+    @property
+    def fastest(self) -> float:
+        return min(self.times) if self.times else 0.0
+
+    @property
+    def slowest(self) -> float:
+        return max(self.times) if self.times else 0.0
+
+
+def run_bench(command, *, label: str = "", runs: int = 10, warmup: int = 1,
+              shell: bool = False, on_run=None) -> BenchResult:
+    """명령을 여러 번 돌려 걸린 시간을 잰다. 출력은 버린다."""
+    import time as _time
+
+    result = BenchResult(label or (command if isinstance(command, str)
+                                   else " ".join(command)))
+    for i in range(warmup + runs):
+        started = _time.perf_counter()
+        proc = subprocess.run(command, shell=shell, capture_output=True)
+        elapsed = _time.perf_counter() - started
+
+        if i < warmup:            # 첫 실행은 캐시가 비어 있어 느리다
+            continue
+        if proc.returncode != 0:
+            result.failures += 1
+        result.times.append(elapsed)
+        if on_run:
+            on_run(i - warmup + 1, elapsed, proc.returncode)
+    return result
+
+
+def format_seconds(value: float) -> str:
+    if value < 1:
+        return f"{value * 1000:.1f}ms"
+    if value < 60:
+        return f"{value:.2f}초"
+    return f"{int(value // 60)}분 {value % 60:.1f}초"

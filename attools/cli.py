@@ -1697,6 +1697,51 @@ def cmd_doc_check(a) -> int:
     return 1
 
 
+def cmd_dev_bench(a) -> int:
+    commands: list[tuple[object, bool, str]] = []
+    for text in a.cmd or []:
+        commands.append((text, True, text))
+    if a.command:
+        commands.append((a.command, False, " ".join(a.command)))
+    if not commands:
+        _p("측정할 명령을 주세요.")
+        _p('  at dev bench -n 10 -- python3 a.py')
+        _p('  at dev bench --cmd "python3 a.py" --cmd "python3 b.py"')
+        return 1
+
+    results = []
+    for command, shell, label in commands:
+        _p(f"측정 중: {label}  ({a.warmup}회 예열 + {a.runs}회)")
+        results.append(devkit.run_bench(command, label=label, runs=a.runs,
+                                        warmup=a.warmup, shell=shell))
+    _p("")
+
+    fmt = devkit.format_seconds
+    for n, r in enumerate(results, 1):
+        _p(f"{n}) {r.label}")
+        if not r.times:
+            _p("   실행하지 못했습니다.")
+            continue
+        _p(f"   평균 {fmt(r.mean)}  중앙 {fmt(r.median)}  "
+           f"최소 {fmt(r.fastest)}  최대 {fmt(r.slowest)}  편차 {fmt(r.stdev)}")
+        if r.failures:
+            _p(f"   실패 {r.failures}/{r.runs}회 - 시간을 믿기 어렵습니다.")
+
+    usable = [r for r in results if r.times]
+    if len(usable) > 1:
+        best = min(usable, key=lambda r: r.median)
+        _p(f"\n가장 빠름: {best.label}")
+        for r in usable:
+            if r is best:
+                continue
+            ratio = r.median / best.median if best.median else 0
+            spread = max(r.stdev, best.stdev)
+            note = "  (편차가 커서 차이가 뚜렷하지 않습니다)" if abs(
+                r.median - best.median) < spread else ""
+            _p(f"  {r.label}: {ratio:.2f}배 느림{note}")
+    return 0
+
+
 # =================================================================== json
 
 def _json_load(a, source):
@@ -1957,6 +2002,16 @@ def build_parser() -> argparse.ArgumentParser:
     en = dp.add_parser("enc", help="base64/hex/URL 인코딩·디코딩 한 번에")
     en.add_argument("value", nargs="?", default="-")
     en.set_defaults(func=cmd_dev_enc)
+
+    bn = dp.add_parser("bench", help="명령 실행 시간 측정·비교")
+    bn.add_argument("-n", "--runs", type=int, default=10, metavar="회")
+    bn.add_argument("-w", "--warmup", type=int, default=1, metavar="회",
+                    help="측정에 넣지 않고 먼저 돌릴 횟수")
+    bn.add_argument("--cmd", action="append", metavar="명령",
+                    help="셸로 실행. 여러 번 주면 서로 비교한다")
+    bn.epilog = ('예: at dev bench -n 20 -- pytest -q\n'
+                 '    at dev bench --cmd "sort a.txt" --cmd "sort -S1M a.txt"')
+    bn.set_defaults(func=cmd_dev_bench, command=[])
 
     lg = dp.add_parser("log", help="로그 레벨 집계·시간대 분포·반복 에러 묶기")
     lg.add_argument("files", nargs="+", metavar="파일")

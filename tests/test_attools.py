@@ -226,6 +226,37 @@ class DevkitTest(unittest.TestCase):
         self.assertTrue(info["expired"])
         self.assertTrue(info["signed"])
 
+    def test_bench_statistics(self):
+        r = devkit.BenchResult("x", times=[0.10, 0.20, 0.30, 0.40])
+        self.assertEqual(r.runs, 4)
+        self.assertAlmostEqual(r.mean, 0.25)
+        self.assertAlmostEqual(r.median, 0.25)
+        self.assertAlmostEqual(r.fastest, 0.10)
+        self.assertAlmostEqual(r.slowest, 0.40)
+        self.assertGreater(r.stdev, 0)
+
+    def test_bench_empty_and_single(self):
+        self.assertEqual(devkit.BenchResult("x").mean, 0.0)
+        self.assertEqual(devkit.BenchResult("x").median, 0.0)
+        self.assertEqual(devkit.BenchResult("x", times=[0.5]).stdev, 0.0)
+        self.assertEqual(devkit.BenchResult("x", times=[1, 2, 3]).median, 2)
+
+    def test_bench_runs_and_skips_warmup(self):
+        r = devkit.run_bench(["python3", "-c", "pass"], runs=3, warmup=1)
+        self.assertEqual(r.runs, 3)          # 예열은 결과에 넣지 않는다
+        self.assertEqual(r.failures, 0)
+        self.assertTrue(all(t > 0 for t in r.times))
+
+    def test_bench_counts_failures(self):
+        r = devkit.run_bench(["python3", "-c", "raise SystemExit(1)"],
+                             runs=2, warmup=0)
+        self.assertEqual(r.failures, 2)
+
+    def test_format_seconds(self):
+        self.assertEqual(devkit.format_seconds(0.0123), "12.3ms")
+        self.assertEqual(devkit.format_seconds(2.5), "2.50초")
+        self.assertTrue(devkit.format_seconds(75).startswith("1분"))
+
     def test_mask(self):
         text = "주민 900101-1234567 폰 010-1234-5678 pw=hunter22 메일 hong@ex.com"  # attools: ignore
         masked, counts = devkit.mask_text(text)
