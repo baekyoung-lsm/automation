@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, gitkit, life, manuscript
+from . import __version__, devkit, files, gitkit, life, manuscript, sheet
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -661,11 +661,231 @@ def cmd_life_unit(a) -> int:
     return 0
 
 
+# ================================================================== sheet
+
+def _width(text: str) -> int:
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def _cut(text: str, limit: int) -> str:
+    if _width(text) <= limit:
+        return text
+    out = ""
+    for ch in text:
+        if _width(out + ch) > limit - 1:
+            return out + "…"
+        out += ch
+    return out
+
+
+def _grid(headers: list[str], rows: list[list[str]], *, limit: int = 24) -> None:
+    """터미널에 표를 정렬해 찍는다."""
+    cells = [[_cut(h, limit) for h in headers]] + [[_cut(c, limit) for c in r] for r in rows]
+    widths = [max(_width(row[i]) for row in cells if i < len(row))
+              for i in range(len(headers))]
+    line = "  ".join(_pad(h, w) for h, w in zip(cells[0], widths))
+    _p("  " + line.rstrip())
+    _p("  " + "  ".join("-" * w for w in widths))
+    for row in cells[1:]:
+        _p("  " + "  ".join(_pad(c, w) for c, w in zip(row, widths)).rstrip())
+
+
+def _load(a, path: str | None = None) -> sheet.Table | None:
+    try:
+        return sheet.load(Path(path or a.file), sheet=getattr(a, "sheet", None),
+                          header_row=getattr(a, "header_row", 1) - 1)
+    except (sheet.SheetError, OSError) as e:
+        _p(f"읽지 못했습니다: {e}")
+        return None
+
+
+def cmd_sheet_peek(a) -> int:
+    path = Path(a.file)
+    if path.suffix.lower() in sheet.XLSX_SUFFIXES:
+        names = sheet.xlsx.sheet_names(path)
+        _p(f"시트 {len(names)}개: {', '.join(names)}")
+
+    t = _load(a)
+    if t is None:
+        return 1
+    _p(f"{path.name}" + (f" [{t.sheet}]" if t.sheet else "")
+       + f"  {len(t.rows):,}행 x {t.width}열\n")
+
+    header = ["열", "타입", "결측", "고유", "최소", "최대", "예시"]
+    body = []
+    for c in sheet.profile(t):
+        ratio = f"{c.missing / len(t.rows):.0%}" if t.rows else "-"
+        body.append([
+            c.name,
+            c.main_kind + ("(혼재)" if c.mixed else ""),
+            f"{c.missing}({ratio})" if c.missing else "-",
+            f"{c.unique:,}",
+            sheet.to_text(c.minimum) if c.minimum is not None else "-",
+            sheet.to_text(c.maximum) if c.maximum is not None else "-",
+            " | ".join(c.samples),
+        ])
+    _grid(header, body, limit=a.width)
+
+    if a.rows:
+        _p(f"\n앞 {a.rows}행")
+        _grid(t.headers, [[sheet.to_text(v) for v in r] for r in t.rows[:a.rows]],
+              limit=a.width)
+    return 0
+
+
+def cmd_sheet_check(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+
+    issues = sheet.validate(t, key=a.key, required=a.required)
+    if not issues:
+        _p(f"{Path(a.file).name}: 문제 없습니다. ({len(t.rows):,}행)")
+        return 0
+
+    _p(f"{Path(a.file).name}: {len(issues)}건\n")
+    for issue in issues:
+        where = f"  해당 행: {', '.join(str(n) for n in issue.rows)}" if issue.rows else ""
+        _p(f"  [{issue.kind}] {issue.column}")
+        _p(f"    {issue.detail}")
+        if where:
+            _p(f"  {where.strip()}")
+        _p("")
+    _p("행 번호는 헤더를 1행으로 센 엑셀 기준입니다.")
+    return 1
+
+
+def cmd_sheet_clean(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+
+    cleaned, rep = sheet.clean(t, drop_duplicates=a.dedupe)
+    _p(f"{Path(a.file).name}  {len(t.rows):,}행 -> {len(cleaned.rows):,}행")
+    facts = [
+        (rep.trimmed, "공백 정리"),
+        (rep.fullwidth, "전각 공백 치환"),
+        (rep.numbers, "문자 -> 숫자"),
+        (rep.dates, "문자 -> 날짜"),
+        (rep.dropped_rows, "빈 행 제거"),
+        (rep.duplicate_rows, "중복 행 제거"),
+    ]
+    for n, label in facts:
+        if n:
+            _p(f"  {label} {n:,}건")
+    if rep.dropped_cols:
+        _p(f"  빈 열 제거: {', '.join(rep.dropped_cols)}")
+
+    if not a.out:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+        return 0
+    out = sheet.save(cleaned, Path(a.out))
+    _p(f"\n저장: {out}")
+    return 0
+
+
+def cmd_sheet_merge(a) -> int:
+    tables = []
+    for name in a.files:
+        t = _load(a, name)
+        if t is None:
+            return 1
+        tables.append(t)
+
+    try:
+        merged, warnings = sheet.merge(tables, add_source=not a.no_source, strict=a.strict)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    for w in warnings:
+        _p(f"  주의 {w}")
+    _p(f"{len(tables)}개 파일 -> {len(merged.rows):,}행 x {merged.width}열")
+
+    if not a.out:
+        _grid(merged.headers, [[sheet.to_text(v) for v in r] for r in merged.rows[:5]])
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+        return 0
+    _p(f"저장: {sheet.save(merged, Path(a.out))}")
+    return 0
+
+
+def cmd_sheet_diff(a) -> int:
+    before, after = _load(a, a.before), _load(a, a.after)
+    if before is None or after is None:
+        return 1
+
+    try:
+        d = sheet.diff(before, after, a.key)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if d.empty:
+        _p("차이가 없습니다.")
+        return 0
+
+    if d.columns_added or d.columns_removed:
+        _p(f"열 변화  추가 {d.columns_added or '-'}  삭제 {d.columns_removed or '-'}\n")
+
+    key_i = after.index_of(a.key)
+    if d.added:
+        _p(f"추가된 행 {len(d.added)}건")
+        for row in d.added[:a.limit]:
+            _p(f"  + {sheet.to_text(row[key_i]) or '(빈 키)'}")
+        _p("")
+    if d.removed:
+        bkey = before.index_of(a.key)
+        _p(f"삭제된 행 {len(d.removed)}건")
+        for row in d.removed[:a.limit]:
+            _p(f"  - {sheet.to_text(row[bkey]) or '(빈 키)'}")
+        _p("")
+    if d.changed:
+        _p(f"바뀐 값 {len(d.changed)}건")
+        # 앞뒤 공백 차이도 눈에 보이도록 따옴표로 감싼다
+        _grid([a.key, "열", "이전", "이후"],
+              [[k, col, f'"{sheet.to_text(b)}"', f'"{sheet.to_text(x)}"']
+               for k, col, b, x in d.changed[:a.limit]])
+    return 1
+
+
+def cmd_sheet_pivot(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result = sheet.pivot(t, rows=a.rows, values=a.values, agg=a.agg, cols=a.cols)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _grid(result.headers,
+          [[sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}" for v in r]
+           for r in result.rows])
+    _p(f"\n{len(result.rows)}개 그룹")
+    if a.out:
+        _p(f"저장: {sheet.save(result, Path(a.out))}")
+    return 0
+
+
+def cmd_sheet_convert(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    out = sheet.save(t, Path(a.out), excel_bom=not a.no_bom, sheet_name=a.name)
+    _p(f"{Path(a.file).name} -> {out}  ({len(t.rows):,}행 x {t.width}열)")
+    if out.suffix.lower() == ".csv" and not a.no_bom:
+        _p("엑셀에서 한글이 깨지지 않도록 UTF-8 BOM 을 붙였습니다.")
+    return 0
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="at", description="파일 정리 / 백엔드 개발 / git / 일상 계산 / 소설 집필 자동화 도구")
+        prog="at", description="파일 정리 / 개발 / git / 엑셀 실무 / 일상 계산 / 소설 집필 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
     sub = ap.add_subparsers(dest="group", required=True)
 
@@ -826,6 +1046,63 @@ def build_parser() -> argparse.ArgumentParser:
     un = lp.add_parser("unit", help="단위 변환 (평/㎡, 근/돈, 마일, 화씨…)")
     un.add_argument("value", nargs="+", metavar="값+단위", help="예: 84㎡, 30평, 1근, 100F")
     un.set_defaults(func=cmd_life_unit)
+
+    # ---- sheet
+    sh = sub.add_parser("sheet", help="엑셀·CSV 실무 보조").add_subparsers(dest="cmd", required=True)
+
+    def common(parser):
+        parser.add_argument("--sheet", help="xlsx 시트 이름")
+        parser.add_argument("--header-row", type=int, default=1, metavar="행",
+                            help="헤더가 있는 행 번호 (기본 1)")
+        return parser
+
+    pk = common(sh.add_parser("peek", help="열 구성·타입·결측 훑어보기"))
+    pk.add_argument("file")
+    pk.add_argument("-n", "--rows", type=int, default=5, help="미리보기 행 수 (0이면 생략)")
+    pk.add_argument("--width", type=int, default=24, metavar="칸", help="열 표시 폭")
+    pk.set_defaults(func=cmd_sheet_peek)
+
+    ck = common(sh.add_parser("check", help="중복 키·결측·타입 혼재 검증"))
+    ck.add_argument("file")
+    ck.add_argument("--key", help="중복을 보면 안 되는 열 (사번, 주문번호 등)")
+    ck.add_argument("--required", action="append", metavar="열", help="비면 안 되는 열")
+    ck.set_defaults(func=cmd_sheet_check)
+
+    cl = common(sh.add_parser("clean", help="공백·숫자·날짜 정리"))
+    cl.add_argument("file")
+    cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
+    cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
+    cl.set_defaults(func=cmd_sheet_clean)
+
+    mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
+    mg.add_argument("files", nargs="+")
+    mg.add_argument("-o", "--out")
+    mg.add_argument("--no-source", action="store_true", help="출처 열을 넣지 않는다")
+    mg.add_argument("--strict", action="store_true", help="열 구성이 다르면 중단")
+    mg.set_defaults(func=cmd_sheet_merge)
+
+    df = common(sh.add_parser("diff", help="두 파일을 키 기준으로 비교"))
+    df.add_argument("before")
+    df.add_argument("after")
+    df.add_argument("--key", required=True, metavar="열")
+    df.add_argument("--limit", type=int, default=20)
+    df.set_defaults(func=cmd_sheet_diff)
+
+    pv = common(sh.add_parser("pivot", help="그룹별 집계·교차표"))
+    pv.add_argument("file")
+    pv.add_argument("--rows", action="append", required=True, metavar="열")
+    pv.add_argument("--cols", metavar="열", help="교차표 열 기준")
+    pv.add_argument("--values", metavar="열", help="집계할 값 (없으면 건수)")
+    pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
+    pv.add_argument("-o", "--out")
+    pv.set_defaults(func=cmd_sheet_pivot)
+
+    cv = common(sh.add_parser("convert", help="csv <-> xlsx 변환 (인코딩 정리)"))
+    cv.add_argument("file")
+    cv.add_argument("-o", "--out", required=True)
+    cv.add_argument("--name", default="", metavar="시트명")
+    cv.add_argument("--no-bom", action="store_true", help="CSV 에 BOM 을 넣지 않는다")
+    cv.set_defaults(func=cmd_sheet_convert)
 
     # ---- novel
     np_ = sub.add_parser("novel", help="소설 원고").add_subparsers(dest="cmd", required=True)

@@ -1,11 +1,13 @@
 # attools
 
-파일 정리, 백엔드 개발 잡일, git 관리, 일상 계산, 소설 원고 관리를 한 CLI로 묶은 도구.
+파일 정리, 백엔드 개발 잡일, git 관리, 엑셀 실무, 일상 계산, 소설 원고 관리를
+한 CLI로 묶은 도구.
 표준 라이브러리만 쓰고 외부 의존성은 없다. Python 3.10+.
 
 - `file` 파일 분류·이름 정리·중복 탐지·변경 감시
 - `dev` .env 대조, 포트, JWT, 시각 변환, 로그 마스킹, 헬스체크 대기, cron 해석, 키 생성
 - `git` 병합된 브랜치 정리, 커밋 전 시크릿 검사
+- `sheet` 엑셀·CSV 훑어보기, 검증, 정리, 병합, 비교, 집계, 변환
 - `life` D-day, 더치페이 정산, 대출 계산, 단위 변환
 - `novel` 원고 분량 집계, 반복·상투구 점검, 스냅샷
 
@@ -89,6 +91,41 @@ at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
 `your-key-here`, `${VAULT_SECRET}`, `os.environ[...]` 같은 플레이스홀더는 걸러 낸다.
 테스트 픽스처처럼 일부러 넣은 값은 그 줄에 `# attools: ignore` 를 달면 넘어간다.
 `--entropy 4.0` 을 주면 패턴에 안 걸리는 무작위 문자열도 함께 신고한다.
+
+## sheet — 엑셀·CSV 실무
+
+xlsx 는 XML 을 담은 zip 이라 **openpyxl 없이** 표준 라이브러리만으로 읽고 쓴다.
+CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장할 때는 엑셀에서
+한글이 깨지지 않도록 UTF-8 BOM 을 붙인다.
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시 |
+| `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
+| `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
+| `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
+| `at sheet diff <이전> <이후> --key <열>` | 키 기준으로 추가·삭제·변경된 값을 찾는다 |
+| `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
+| `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
+
+```bash
+at sheet peek 매출.xlsx --sheet 1분기 -n 10
+at sheet check 직원명부.xlsx --key 사번 --required 입사일
+at sheet clean 원본.csv --dedupe -o 정리본.xlsx
+at sheet merge 2026-*.csv -o 통합.xlsx
+at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
+at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
+at sheet convert 깨진파일.csv -o 정상.xlsx
+```
+
+`check` 가 잡아 주는 것 중 실무에서 제일 자주 사고 나는 건 **문자로 저장된 숫자**다.
+`SUM` 이 0으로 나오거나 정렬이 `1, 10, 2` 순으로 되는 원인이고, `clean` 을 돌리면
+숫자·날짜로 바뀐다. 행 번호는 헤더를 1행으로 센 엑셀 기준으로 알려 준다.
+
+값 해석 규칙: 앞에 0이 붙은 숫자(우편번호·사번)와 16자리 넘는 숫자(계좌번호)는
+문자로 남긴다. `20240105` 처럼 날짜로도 읽히는 8자리 숫자는 날짜로 본다 —
+그런 열이 코드값이라면 `--header-row` 로 읽은 뒤 `clean` 을 돌리지 말거나,
+`peek` 로 먼저 확인하면 된다.
 
 ## life — 일상 계산
 

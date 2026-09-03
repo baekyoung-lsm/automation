@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import devkit, files, gitkit, hangul, life, manuscript
+from attools import devkit, files, gitkit, hangul, life, manuscript, sheet, xlsx
 from attools.schedule import Cron, CronError
 
 
@@ -212,9 +212,9 @@ class CronTest(unittest.TestCase):
 class GitkitTest(unittest.TestCase):
     def test_detects_real_secrets(self):
         text = (
-            'gh = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"\n'
-            'db = "postgres://app:s3cret@db:5432/app"\n'
-            'password = "Real!Pass99"\n')
+            'gh = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"\n'      # attools: ignore
+            'db = "postgres://app:s3cret@db:5432/app"\n'              # attools: ignore
+            'password = "Real!Pass99"\n')                             # attools: ignore
         kinds = {f.kind for f in gitkit.scan_text(text, "a.py")}
         self.assertEqual(kinds, {"GitHub 토큰", "접속 문자열 비밀번호", "하드코딩된 비밀값"})
 
@@ -226,7 +226,7 @@ class GitkitTest(unittest.TestCase):
         self.assertEqual(gitkit.scan_text(text, "a.py"), [])
 
     def test_ignore_marker(self):
-        text = 'password = "Real!Pass99"  # attools: ignore\n'
+        text = 'password = "Real!Pass99"  # attools: ignore\n'  # noqa: secret
         self.assertEqual(gitkit.scan_text(text, "a.py"), [])
 
     def test_entropy(self):
@@ -293,6 +293,158 @@ class WatchTest(unittest.TestCase):
             self.assertEqual([Path(c).name for c in files.diff_mtimes(before, after)], ["b.py"])
         finally:
             shutil.rmtree(root, ignore_errors=True)
+
+
+class XlsxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_roundtrip_preserves_types(self):
+        from datetime import date, datetime
+
+        path = self.root / "x.xlsx"
+        rows = [["이름", "입사일", "시각", "연봉", "재직"],
+                ["홍길동", date(2021, 3, 2), datetime(2023, 7, 15, 9, 30), 52000000, True],
+                ["김 철수", None, None, 47500000.5, False]]
+        xlsx.write_sheets(path, {"직원": rows})
+
+        self.assertEqual(xlsx.sheet_names(path), ["직원"])
+        got = xlsx.read_sheet(path)
+        self.assertEqual(got[0], rows[0])
+        self.assertEqual(got[1], rows[1])
+        self.assertEqual(got[2], rows[2])
+
+    def test_multiple_sheets_and_name_sanitizing(self):
+        path = self.root / "x.xlsx"
+        xlsx.write_sheets(path, {"1분기[초안]": [["a", 1]], "2분기": [["b", 2]]})
+        self.assertEqual(xlsx.sheet_names(path), ["1분기_초안_", "2분기"])
+        self.assertEqual(xlsx.read_sheet(path, "2분기"), [["b", 2]])
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.read_sheet(path, "3분기")
+
+    def test_column_helpers(self):
+        self.assertEqual(xlsx.col_to_index("A1"), 0)
+        self.assertEqual(xlsx.col_to_index("AB7"), 27)
+        self.assertEqual(xlsx.index_to_col(0), "A")
+        self.assertEqual(xlsx.index_to_col(27), "AB")
+
+    def test_escapes_xml_and_control_chars(self):
+        path = self.root / "x.xlsx"
+        xlsx.write_sheets(path, {"s": [["a & b <c>", "탭\t유지"]]})
+        self.assertEqual(xlsx.read_sheet(path)[0][0], "a & b <c>")
+
+
+class SheetTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def csv(self, name, text, encoding="utf-8"):
+        p = self.root / name
+        p.write_bytes(text.encode(encoding))
+        return p
+
+    def test_parse_number_korean_formats(self):
+        self.assertEqual(sheet.parse_number("1,234원"), 1234)
+        self.assertEqual(sheet.parse_number("(1,234)"), -1234)
+        self.assertEqual(sheet.parse_number("12.5%"), 0.125)
+        self.assertIsNone(sheet.parse_number("06234"))          # 우편번호는 그대로
+        self.assertIsNone(sheet.parse_number("1234567890123456789"))
+        self.assertIsNone(sheet.parse_number("abc"))
+
+    def test_parse_date_formats(self):
+        from datetime import date
+
+        for text in ("2024-01-05", "2024.01.05", "2024/1/5", "20240105"):
+            self.assertEqual(sheet.parse_date(text), date(2024, 1, 5), text)
+        self.assertIsNone(sheet.parse_date("2024-13-05"))
+        self.assertIsNone(sheet.parse_date("010-1234-5678"))
+
+    def test_load_cp949_and_parse(self):
+        from datetime import date
+
+        p = self.csv("a.csv", "사번,이름,입사일,연봉\nE001, 홍길동 ,2021-03-02,\"52,000,000\"\n",
+                     encoding="cp949")
+        t = sheet.load(p)
+        self.assertEqual(t.headers, ["사번", "이름", "입사일", "연봉"])
+        self.assertEqual(t.rows[0][2], date(2021, 3, 2))
+        self.assertEqual(t.rows[0][3], 52000000)
+
+    def test_duplicate_headers_get_suffix(self):
+        p = self.csv("a.csv", "값,값,\n1,2,3\n")
+        self.assertEqual(sheet.load(p).headers, ["값", "값_2", "열3"])
+
+    def test_clean_removes_noise(self):
+        p = self.csv("a.csv", "이름,메모,빈열\n 홍길동 ,,\n김　철수,x,\n김　철수,x,\n,,\n")
+        t = sheet.load(p)
+        cleaned, rep = sheet.clean(t, drop_duplicates=True)
+        self.assertEqual(cleaned.headers, ["이름", "메모"])
+        self.assertEqual([r[0] for r in cleaned.rows], ["홍길동", "김 철수"])
+        self.assertEqual(rep.duplicate_rows, 1)
+        self.assertEqual(rep.dropped_cols, ["빈열"])
+
+    def test_validate_finds_duplicate_key(self):
+        p = self.csv("a.csv", "사번,이름\nE1,가\nE1,나\n,다\n")
+        issues = sheet.validate(sheet.load(p), key="사번")
+        kinds = {i.kind for i in issues}
+        self.assertIn("중복 키", kinds)
+        self.assertIn("키 결측", kinds)
+
+    def test_validate_flags_text_numbers(self):
+        # 숫자가 문자로 저장돼 있으면 엑셀에서 정렬·합계가 틀어진다
+        p = self.csv("a.csv", "금액\n100\n200\n")
+        t = sheet.load(p, raw=True)
+        self.assertTrue(any(i.kind == "문자로 저장된 숫자/날짜" for i in sheet.validate(t)))
+
+    def test_merge_aligns_columns(self):
+        a = self.csv("a.csv", "사번,이름\nE1,가\n")
+        b = self.csv("b.csv", "사번,부서\nE2,개발\n")
+        merged, warnings = sheet.merge([sheet.load(a), sheet.load(b)])
+        self.assertEqual(merged.headers, ["출처", "사번", "이름", "부서"])
+        self.assertEqual(merged.rows[0], ["a", "E1", "가", None])
+        self.assertEqual(merged.rows[1], ["b", "E2", None, "개발"])
+        self.assertTrue(warnings)
+
+    def test_diff_by_key(self):
+        a = self.csv("a.csv", "사번,연봉,부서\nE1,100,영업\nE2,200,개발\n")
+        b = self.csv("b.csv", "사번,연봉,부서\nE1,150,영업\nE3,300,인사\n")
+        d = sheet.diff(sheet.load(a), sheet.load(b), "사번")
+        self.assertEqual([r[0] for r in d.added], ["E3"])
+        self.assertEqual([r[0] for r in d.removed], ["E2"])
+        self.assertEqual(d.changed, [("E1", "연봉", 100, 150)])
+
+    def test_pivot_sum_and_cross(self):
+        p = self.csv("a.csv", "부서,분기,금액\n영업,1Q,100\n영업,2Q,50\n개발,1Q,300\n")
+        t = sheet.load(p)
+        flat = sheet.pivot(t, rows=["부서"], values="금액", agg="sum")
+        self.assertEqual(flat.rows, [["개발", 300], ["영업", 150]])
+
+        cross = sheet.pivot(t, rows=["부서"], cols="분기", values="금액", agg="sum")
+        self.assertEqual(cross.headers, ["부서", "1Q", "2Q", "합계"])
+        self.assertEqual(cross.rows, [["개발", 300, None, 300], ["영업", 100, 50, 150]])
+
+    def test_save_csv_has_bom_for_excel(self):
+        p = self.csv("a.csv", "이름\n홍길동\n")
+        out = sheet.save(sheet.load(p), self.root / "out.csv")
+        self.assertTrue(out.read_bytes().startswith(b"\xef\xbb\xbf"))
+
+    def test_save_xlsx_roundtrip(self):
+        p = self.csv("a.csv", "이름,입사일\n홍길동,2021-03-02\n")
+        out = sheet.save(sheet.load(p), self.root / "out.xlsx", sheet_name="직원")
+        back = sheet.load(out)
+        self.assertEqual(back.sheet, "직원")
+        self.assertEqual(back.rows[0][0], "홍길동")
+
+    def test_unsupported_format(self):
+        p = self.root / "a.pdf"
+        p.write_bytes(b"%PDF")
+        with self.assertRaises(sheet.SheetError):
+            sheet.load(p)
 
 
 if __name__ == "__main__":
