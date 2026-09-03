@@ -423,6 +423,71 @@ class GitkitTest(unittest.TestCase):
         self.assertGreater(high, 4.0)
 
 
+class GitStatsTest(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+
+        self.root = Path(tempfile.mkdtemp())
+        self.run = lambda *args: subprocess.run(
+            ["git", *args], cwd=self.root, capture_output=True, text=True)
+        self.run("init", "-q")
+        self.run("config", "user.email", "t@e.c")
+        self.run("config", "user.name", "테스터")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def commit(self, name, content, message, author="테스터"):
+        p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        self.run("add", "-A")
+        self.run("-c", f"user.name={author}", "commit", "-q", "-m", message)
+
+    def test_read_log_collects_numstat(self):
+        self.commit("a.py", "one\ntwo\n", "첫 커밋")
+        self.commit("a.py", "one\ntwo\nthree\n", "줄 추가")
+
+        commits = gitkit.read_log(self.root)
+        self.assertEqual(len(commits), 2)
+        self.assertEqual(commits[0].subject, "줄 추가")
+        self.assertEqual(commits[0].files["a.py"], (1, 0))
+        self.assertEqual(commits[0].added, 1)
+
+    def test_churn_ranks_frequently_touched_files(self):
+        self.commit("hot.py", "1\n", "a")
+        self.commit("hot.py", "1\n2\n", "b")
+        self.commit("cold.py", "1\n", "c")
+
+        churn = gitkit.churn_by_file(gitkit.read_log(self.root))
+        self.assertEqual(churn[0].path, "hot.py")
+        self.assertEqual(churn[0].commits, 2)
+        self.assertEqual(churn[0].authors, {"테스터"})
+
+    def test_by_author(self):
+        self.commit("a.py", "1\n", "a", author="가")
+        self.commit("a.py", "1\n2\n", "b", author="나")
+        self.commit("a.py", "1\n2\n3\n", "c", author="나")
+
+        rows = gitkit.by_author(gitkit.read_log(self.root))
+        self.assertEqual(rows[0][0], "나")
+        self.assertEqual(rows[0][1], 2)
+
+    def test_by_period_and_weekday(self):
+        self.commit("a.py", "1\n", "a")
+        commits = gitkit.read_log(self.root)
+
+        self.assertEqual(sum(n for _, n in gitkit.by_period(commits, unit="day")), 1)
+        self.assertEqual(len(gitkit.by_weekday(commits)), 7)
+        self.assertEqual(sum(n for _, n in gitkit.by_weekday(commits)), 1)
+        with self.assertRaises(ValueError):
+            gitkit.by_period(commits, unit="분기")
+
+    def test_read_log_on_empty_repo(self):
+        with self.assertRaises(RuntimeError):
+            gitkit.read_log(self.root)
+
+
 class LifeTest(unittest.TestCase):
     def test_parse_amount(self):
         self.assertEqual(life.parse_amount("3억5000만"), 350_000_000)

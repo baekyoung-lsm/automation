@@ -6,7 +6,8 @@ import math
 import re
 import subprocess
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 PROTECTED = {"main", "master", "develop", "dev", "release", "HEAD"}
@@ -212,3 +213,124 @@ def install_hook(root: Path, command: str) -> Path:
     hook.write_text(HOOK.format(cmd=command), encoding="utf-8")
     hook.chmod(0o755)
     return hook
+
+
+@dataclass
+class Commit:
+    sha: str
+    author: str
+    when: datetime
+    subject: str
+    files: dict[str, tuple[int, int]] = field(default_factory=dict)  # 경로 -> (추가, 삭제)
+
+    @property
+    def added(self) -> int:
+        return sum(a for a, _ in self.files.values())
+
+    @property
+    def deleted(self) -> int:
+        return sum(d for _, d in self.files.values())
+
+
+@dataclass
+class FileChurn:
+    path: str
+    commits: int = 0
+    added: int = 0
+    deleted: int = 0
+    authors: set[str] = field(default_factory=set)
+    last: datetime | None = None
+
+    @property
+    def churn(self) -> int:
+        return self.added + self.deleted
+
+
+LOG_FORMAT = "%x01%H%x02%an%x02%aI%x02%s"
+
+
+def read_log(root: Path, *, since: str = "", until: str = "",
+             paths: list[str] | None = None, limit: int = 0) -> list[Commit]:
+    """git log --numstat 을 읽어 커밋 목록으로."""
+    args = ["log", f"--pretty=format:{LOG_FORMAT}", "--numstat", "--no-merges"]
+    if since:
+        args.append(f"--since={since}")
+    if until:
+        args.append(f"--until={until}")
+    if limit:
+        args.append(f"-n{limit}")
+    if paths:
+        args += ["--", *paths]
+
+    out = run(args, root)
+    commits: list[Commit] = []
+    current: Commit | None = None
+
+    for chunk in out.split("\x01"):
+        if not chunk.strip():
+            continue
+        head, _, body = chunk.partition("\n")
+        parts = head.split("\x02")
+        if len(parts) < 4:
+            continue
+        sha, author, stamp, subject = parts[0], parts[1], parts[2], parts[3]
+        try:
+            when = datetime.fromisoformat(stamp)
+        except ValueError:
+            continue
+        current = Commit(sha[:9], author, when.replace(tzinfo=None), subject)
+        commits.append(current)
+
+        for line in body.splitlines():
+            cells = line.split("\t")
+            if len(cells) != 3:
+                continue
+            added, deleted, name = cells
+            if added == "-" or deleted == "-":   # 이진 파일
+                continue
+            try:
+                current.files[name] = (int(added), int(deleted))
+            except ValueError:
+                continue
+    return commits
+
+
+def churn_by_file(commits: list[Commit]) -> list[FileChurn]:
+    """파일마다 몇 번, 얼마나 바뀌었는지. 자주 바뀌는 파일은 대개 문제가 몰린 곳이다."""
+    table: dict[str, FileChurn] = {}
+    for c in commits:
+        for name, (added, deleted) in c.files.items():
+            f = table.setdefault(name, FileChurn(name))
+            f.commits += 1
+            f.added += added
+            f.deleted += deleted
+            f.authors.add(c.author)
+            f.last = c.when if f.last is None else max(f.last, c.when)
+    return sorted(table.values(), key=lambda f: (-f.commits, -f.churn))
+
+
+def by_author(commits: list[Commit]) -> list[tuple[str, int, int, int]]:
+    """(이름, 커밋 수, 추가 줄, 삭제 줄)"""
+    table: dict[str, list[int]] = {}
+    for c in commits:
+        row = table.setdefault(c.author, [0, 0, 0])
+        row[0] += 1
+        row[1] += c.added
+        row[2] += c.deleted
+    return sorted(((name, *row) for name, row in table.items()), key=lambda x: -x[1])
+
+
+def by_period(commits: list[Commit], *, unit: str = "day") -> list[tuple[str, int]]:
+    formats = {"day": "%Y-%m-%d", "week": "%Y-%W주", "month": "%Y-%m", "hour": "%H시"}
+    if unit not in formats:
+        raise ValueError(f"알 수 없는 단위: {unit} ({', '.join(formats)})")
+    counts: Counter = Counter(c.when.strftime(formats[unit]) for c in commits)
+    return sorted(counts.items())
+
+
+WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
+
+
+def by_weekday(commits: list[Commit]) -> list[tuple[str, int]]:
+    counts: Counter = Counter(c.when.weekday() for c in commits)
+    return [(WEEKDAYS_KO[i], counts.get(i, 0)) for i in range(7)]

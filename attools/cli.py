@@ -695,6 +695,62 @@ def cmd_git_todo(a) -> int:
     return 0
 
 
+def cmd_git_stats(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    try:
+        commits = gitkit.read_log(root, since=a.since, until=a.until,
+                                  paths=a.path, limit=a.max_commits)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if not commits:
+        _p("해당 기간에 커밋이 없습니다.")
+        return 0
+
+    first, last = commits[-1].when, commits[0].when
+    added = sum(c.added for c in commits)
+    deleted = sum(c.deleted for c in commits)
+    _p(f"커밋 {len(commits):,}개  ·  {first:%Y-%m-%d} ~ {last:%Y-%m-%d}"
+       f"  ·  +{added:,} -{deleted:,}줄\n")
+
+    _p("사람별")
+    _grid(["이름", "커밋", "추가", "삭제"],
+          [[name, f"{n:,}", f"+{a2:,}", f"-{d:,}"]
+           for name, n, a2, d in gitkit.by_author(commits)[:a.limit]], limit=20)
+    _p("")
+
+    churn = gitkit.churn_by_file(commits)
+    _p("자주 바뀐 파일 - 손이 많이 가는 곳이다")
+    _grid(["파일", "커밋", "변경 줄", "사람"],
+          [[f.path, f"{f.commits:,}", f"{f.churn:,}", str(len(f.authors))]
+           for f in churn[:a.limit]], limit=44)
+    _p("")
+
+    if a.weekday:
+        counts = gitkit.by_weekday(commits)
+        peak = max(n for _, n in counts) or 1
+        _p("요일별")
+        for day, n in counts:
+            _p(f"  {day}  {n:>5,}  {'█' * round(n / peak * 28)}")
+        _p("")
+
+    if a.by:
+        try:
+            series = gitkit.by_period(commits, unit=a.by)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        peak = max(n for _, n in series) or 1
+        _p(f"{a.by} 단위")
+        for label, n in series[-a.rows:]:
+            _p(f"  {label:>12}  {n:>5,}  {'█' * round(n / peak * 28)}")
+    return 0
+
+
 # =================================================================== life
 
 def cmd_life_dday(a) -> int:
@@ -2117,6 +2173,20 @@ def build_parser() -> argparse.ArgumentParser:
     td.add_argument("--all", action="store_true", help="추적 안 되는 파일까지")
     td.add_argument("--no-blame", action="store_true", help="git blame 생략 (빠름)")
     td.set_defaults(func=cmd_git_todo)
+
+    st = gp.add_parser("stats", help="커밋 통계와 자주 바뀌는 파일")
+    st.add_argument("dir", nargs="?", default=".")
+    st.add_argument("--since", default="", metavar="기간",
+                    help="예: '30 days ago', '2026-01-01'")
+    st.add_argument("--until", default="", metavar="기간")
+    st.add_argument("--path", action="append", metavar="경로", help="이 경로만")
+    st.add_argument("--by", choices=["day", "week", "month", "hour"],
+                    help="기간별 분포도 함께")
+    st.add_argument("--weekday", action="store_true", help="요일별 분포도 함께")
+    st.add_argument("--limit", type=int, default=15)
+    st.add_argument("--rows", type=int, default=20, metavar="개")
+    st.add_argument("--max-commits", type=int, default=0, metavar="개")
+    st.set_defaults(func=cmd_git_stats)
 
     sc = gp.add_parser("scan", help="코드에 하드코딩된 시크릿·개인정보 찾기")
     sc.add_argument("dir", nargs="?", default=".")

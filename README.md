@@ -199,6 +199,7 @@ at doc check README.md --outline
 | --- | --- |
 | `at git sweep [경로]` | 기준 브랜치에 병합이 끝난 로컬 브랜치, 원격이 사라진 추적 브랜치를 찾아 지운다 |
 | `at git scan [경로]` | 코드에 하드코딩된 API 키·토큰·개인 키·접속 문자열 비밀번호·주민등록번호를 찾는다 |
+| `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 
 ```bash
@@ -210,7 +211,12 @@ at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
 at git todo                       # 오래 방치된 순
 at git todo -m FIXME -m BUG -s severity
 at git todo --no-blame -g '*.py'  # 작성자 조회 없이 빠르게
+at git stats --since '30 days ago' --by week
+at git stats --path src/ --weekday
 ```
+
+`at git stats` 의 "자주 바뀐 파일"은 그냥 통계가 아니다. 같은 파일이 계속 고쳐진다면
+설계가 그 자리에 몰려 있거나 버그가 반복된다는 뜻이라, 리팩터링 대상을 고를 때 쓴다.
 
 `at git todo` 는 표시가 **주석 안에 있을 때만** 센다. 문자열 리터럴의 `"TODO"` 까지 잡으면
 쓸모가 없기 때문이다. `TODO(이름)` 이나 `TODO @이름` 으로 적힌 담당자가 있으면 그것을
