@@ -221,3 +221,125 @@ def mask_text(text: str, *, rules: list[str] | None = None) -> tuple[str, dict[s
         if n:
             counts[name] = n
     return text, counts
+
+
+# ----------------------------------------------------------------- 대기
+
+def wait_for(target: str, *, timeout: float = 60.0, interval: float = 1.0,
+             on_try=None) -> tuple[bool, float, str]:
+    """host:port 나 http(s) URL 이 응답할 때까지 기다린다. (성공, 걸린 초, 마지막 오류)"""
+    import socket
+    import time as _time
+    import urllib.error
+    import urllib.request
+
+    started = _time.monotonic()
+    attempt = 0
+    last = ""
+
+    while True:
+        attempt += 1
+        try:
+            if target.startswith(("http://", "https://")):
+                with urllib.request.urlopen(target, timeout=interval + 2) as r:
+                    if r.status < 500:
+                        return True, _time.monotonic() - started, ""
+                    last = f"HTTP {r.status}"
+            else:
+                host, _, port = target.rpartition(":")
+                if not port.isdigit():
+                    raise ValueError("host:port 형식이 필요합니다.")
+                with socket.create_connection((host or "127.0.0.1", int(port)),
+                                              timeout=interval + 2):
+                    return True, _time.monotonic() - started, ""
+        except urllib.error.HTTPError as e:
+            if e.code < 500:  # 401/404 도 서버가 살아 있다는 뜻
+                return True, _time.monotonic() - started, ""
+            last = f"HTTP {e.code}"
+        except ValueError:
+            raise
+        except Exception as e:  # 연결 거부, DNS 실패, 타임아웃
+            last = f"{type(e).__name__}: {e}"
+
+        elapsed = _time.monotonic() - started
+        if on_try:
+            on_try(attempt, elapsed, last)
+        if elapsed + interval > timeout:
+            return False, elapsed, last
+        _time.sleep(interval)
+
+
+# --------------------------------------------------------------- 생성기
+
+AMBIGUOUS = "0OoIl1"
+
+
+def gen_secret(kind: str = "token", length: int = 32, *, count: int = 1,
+               readable: bool = False) -> list[str]:
+    """비밀번호·토큰·UUID·hex 키를 CSPRNG 로 만든다."""
+    import secrets
+    import string
+    import uuid
+
+    out = []
+    for _ in range(count):
+        if kind == "uuid":
+            out.append(str(uuid.uuid4()))
+        elif kind == "hex":
+            out.append(secrets.token_hex(max(1, length // 2)))
+        elif kind == "token":
+            out.append(secrets.token_urlsafe(length)[:length])
+        elif kind == "pin":
+            out.append("".join(secrets.choice(string.digits) for _ in range(length)))
+        elif kind == "password":
+            pool = string.ascii_letters + string.digits + "!@#$%^&*-_=+"
+            if readable:
+                pool = "".join(c for c in pool if c not in AMBIGUOUS)
+            while True:
+                cand = "".join(secrets.choice(pool) for _ in range(length))
+                if (any(c.islower() for c in cand) and any(c.isupper() for c in cand)
+                        and any(c.isdigit() for c in cand)
+                        and any(not c.isalnum() for c in cand)):
+                    out.append(cand)
+                    break
+        else:
+            raise ValueError(f"알 수 없는 종류: {kind}")
+    return out
+
+
+# ------------------------------------------------------- 인코딩 변환
+
+def encodings(value: str) -> dict[str, str]:
+    """문자열의 여러 표현을 한 번에 보여준다. 디코드 가능한 것은 디코드도 시도한다."""
+    import binascii
+    import hashlib
+    import urllib.parse
+
+    raw = value.encode("utf-8")
+    out = {
+        "원본": value,
+        "base64": base64.b64encode(raw).decode(),
+        "base64url": base64.urlsafe_b64encode(raw).decode().rstrip("="),
+        "hex": raw.hex(),
+        "URL 인코딩": urllib.parse.quote(value, safe=""),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "md5": hashlib.md5(raw).hexdigest(),
+    }
+
+    unquoted = urllib.parse.unquote(value)
+    if unquoted != value:
+        out["URL 디코딩"] = unquoted
+
+    stripped = value.strip()
+    if re.fullmatch(r"[A-Za-z0-9+/=_-]{4,}", stripped):
+        try:
+            decoded = base64.urlsafe_b64decode(stripped + "=" * (-len(stripped) % 4))
+            out["base64 디코딩"] = decoded.decode("utf-8")
+        except (binascii.Error, UnicodeDecodeError, ValueError):
+            pass
+    if re.fullmatch(r"(?:[0-9a-fA-F]{2})+", stripped):
+        try:
+            out["hex 디코딩"] = bytes.fromhex(stripped).decode("utf-8")
+        except (UnicodeDecodeError, ValueError):
+            pass
+    return out

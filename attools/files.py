@@ -213,3 +213,58 @@ def plan_fixname(root: Path, *, recursive: bool = False, include_hidden: bool = 
         planned.add(dst)
         moves.append(Move(str(p), str(dst)))
     return moves
+
+
+IGNORE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build",
+               ".next", ".mypy_cache", ".pytest_cache", ".idea", "target"}
+
+
+def snapshot_mtimes(root: Path, patterns: list[str]) -> dict[str, float]:
+    """감시 대상 파일의 수정 시각 표."""
+    out: dict[str, float] = {}
+    for pattern in patterns:
+        for p in root.rglob(pattern):
+            if not p.is_file() or any(part in IGNORE_DIRS for part in p.parts):
+                continue
+            try:
+                out[str(p)] = p.stat().st_mtime
+            except OSError:
+                continue
+    return out
+
+
+def diff_mtimes(before: dict[str, float], after: dict[str, float]) -> list[str]:
+    changed = [k for k, v in after.items() if before.get(k) != v]
+    changed += [k for k in before if k not in after]
+    return sorted(set(changed))
+
+
+def dir_sizes(root: Path, *, depth: int = 1) -> tuple[list[tuple[Path, int]], list[tuple[Path, int]], int]:
+    """(디렉터리별 합계, 큰 파일들, 전체 크기)."""
+    totals: dict[Path, int] = {}
+    biggest: list[tuple[Path, int]] = []
+    grand = 0
+
+    for p in root.rglob("*"):
+        if p.is_symlink() or not p.is_file():
+            continue
+        try:
+            size = p.stat().st_size
+        except OSError:
+            continue
+        grand += size
+        biggest.append((p, size))
+        rel = p.relative_to(root).parts
+        key = root.joinpath(*rel[:depth]) if len(rel) > depth else root.joinpath(*rel)
+        totals[key] = totals.get(key, 0) + size
+
+    biggest.sort(key=lambda x: -x[1])
+    return sorted(totals.items(), key=lambda x: -x[1]), biggest, grand
+
+
+def human_size(n: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if abs(n) < 1024 or unit == "TiB":
+            return f"{n:,.1f} {unit}" if unit != "B" else f"{int(n)} B"
+        n /= 1024
+    return f"{n:.1f} TiB"

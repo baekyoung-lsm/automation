@@ -6,7 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, manuscript
+from . import __version__, devkit, files, gitkit, life, manuscript
+from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
 DRY = "[미리보기]"
@@ -344,11 +345,327 @@ def cmd_novel_snap(a) -> int:
     return 0
 
 
+
+# ================================================================ file 추가
+
+def cmd_file_watch(a) -> int:
+    import subprocess
+    import time
+
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+    if not a.command:
+        _p("실행할 명령을 -- 뒤에 적으세요. 예: at file watch src -- pytest")
+        return 1
+
+    patterns = a.pattern or ["*"]
+    _p(f"{root} 감시 중 ({', '.join(patterns)}, {a.interval}초 간격). Ctrl-C 로 종료.")
+    before = files.snapshot_mtimes(root, patterns)
+    runs = 0
+
+    if a.now:
+        runs += 1
+        _p(f"\n[{time.strftime('%H:%M:%S')}] 첫 실행")
+        subprocess.run(a.command)
+
+    while True:
+        time.sleep(a.interval)
+        after = files.snapshot_mtimes(root, patterns)
+        changed = files.diff_mtimes(before, after)
+        if not changed:
+            continue
+        before = after
+        runs += 1
+        _p(f"\n[{time.strftime('%H:%M:%S')}] 변경 {len(changed)}건 "
+           f"({', '.join(Path(c).name for c in changed[:3])}{'…' if len(changed) > 3 else ''})"
+           f" -> 실행 #{runs}")
+        result = subprocess.run(a.command)
+        _p(f"[종료 코드 {result.returncode}]")
+
+
+def cmd_file_big(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    dirs, biggest, grand = files.dir_sizes(root, depth=a.depth)
+    _p(f"전체 {files.human_size(grand)}\n")
+    _p(f"용량 큰 항목 (깊이 {a.depth})")
+    for path, size in dirs[:a.top]:
+        share = size / grand * 100 if grand else 0
+        bar = "#" * int(share / 4)
+        _p(f"  {files.human_size(size):>11}  {share:5.1f}%  {bar:<25} {path.name}")
+
+    _p(f"\n큰 파일 {a.top}개")
+    for path, size in biggest[:a.top]:
+        _p(f"  {files.human_size(size):>11}  {path.relative_to(root)}")
+    return 0
+
+
+# ================================================================= dev 추가
+
+def cmd_dev_wait(a) -> int:
+    def progress(attempt, elapsed, last):
+        print(f"  {elapsed:5.1f}초 경과, {attempt}회 시도 ({last})", file=sys.stderr)
+
+    _p(f"{a.target} 기다리는 중 (최대 {a.timeout:.0f}초)")
+    try:
+        ok, elapsed, last = devkit.wait_for(
+            a.target, timeout=a.timeout, interval=a.interval,
+            on_try=None if a.quiet else progress)
+    except ValueError as e:
+        _p(str(e))
+        return 2
+
+    if ok:
+        _p(f"준비됨: {a.target} ({elapsed:.1f}초)")
+        return 0
+    _p(f"시간 초과: {a.target} ({elapsed:.1f}초) 마지막 오류 - {last}")
+    return 1
+
+
+def cmd_dev_cron(a) -> int:
+    try:
+        cron = Cron(a.expression)
+    except CronError as e:
+        _p(f"해석 실패: {e}")
+        return 1
+
+    now = devkit.datetime.now(devkit.KST)
+    _p(f"{cron.expression}")
+    _p(f"  뜻: {cron.describe()}")
+    _p(f"\n다음 실행 (KST)")
+    for dt in cron.next_runs(now.replace(tzinfo=None), a.count):
+        rel = devkit.humanize_delta(now.replace(tzinfo=None) - dt)
+        _p(f"  {dt:%Y-%m-%d}({life.weekday_ko(dt.date())}) {dt:%H:%M}  {rel}")
+    return 0
+
+
+def cmd_dev_gen(a) -> int:
+    try:
+        values = devkit.gen_secret(a.kind, a.length, count=a.count, readable=a.readable)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+    for v in values:
+        _p(v)
+    return 0
+
+
+def cmd_dev_enc(a) -> int:
+    value = sys.stdin.read().strip() if a.value == "-" else a.value
+    for k, v in devkit.encodings(value).items():
+        _p(f"{_pad(k, 16)}{v}")
+    return 0
+
+
+# ==================================================================== git
+
+def _repo(a) -> Path | None:
+    try:
+        return gitkit.repo_root(Path(getattr(a, "dir", ".") or "."))
+    except RuntimeError:
+        _p("git 저장소가 아닙니다.")
+        return None
+
+
+def cmd_git_sweep(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    if a.fetch:
+        _p("origin 에서 최신 정보를 가져오는 중...")
+        try:
+            gitkit.run(["fetch", "--prune", "origin"], root)
+        except RuntimeError as e:
+            _p(f"  fetch 실패(무시하고 진행): {e}")
+
+    sweep = gitkit.find_stale_branches(root, a.base)
+    _p(f"기준 브랜치: {sweep.base}   현재: {sweep.current}\n")
+
+    if sweep.merged:
+        _p(f"{sweep.base} 에 병합 완료 ({len(sweep.merged)}개)")
+        for b in sweep.merged:
+            _p(f"  {b}")
+    if sweep.gone:
+        _p(f"\n원격이 사라짐 ({len(sweep.gone)}개) - 삭제하려면 --force 필요")
+        for b in sweep.gone:
+            _p(f"  {b}")
+    if not sweep.merged and not sweep.gone:
+        _p("정리할 브랜치가 없습니다.")
+        return 0
+
+    targets = sweep.merged + (sweep.gone if a.force else [])
+    if not a.apply:
+        _p(f"\n{len(targets)}개를 지웁니다. 실제로 지우려면 --apply 를 붙이세요.")
+        return 0
+
+    _p("")
+    for name, result in gitkit.delete_branches(root, targets, force=a.force):
+        _p(f"  {name}: {result}")
+    return 0
+
+
+def cmd_git_scan(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    if a.install_hook:
+        hook = gitkit.install_hook(root, a.install_hook)
+        _p(f"pre-commit 훅을 설치했습니다: {hook}")
+        _p("커밋할 때마다 스테이징된 파일에서 시크릿을 검사합니다.")
+        return 0
+
+    findings = gitkit.scan_paths(root, staged=a.staged, tracked=not a.all,
+                                 entropy_threshold=a.entropy)
+    if not findings:
+        if not a.quiet:
+            _p("시크릿으로 보이는 값이 없습니다.")
+        return 0
+
+    _p(f"의심 항목 {len(findings)}건")
+    for f in findings:
+        _p(f"\n  {f.path}:{f.line}  [{f.kind}]")
+        _p(f"    {f.excerpt}")
+    _p("\n실제 시크릿이면 커밋하지 말고 값을 폐기·재발급하세요.")
+    _p("이미 커밋했다면 히스토리에서도 지워야 합니다 (git filter-repo 등).")
+    return 1
+
+
+# =================================================================== life
+
+def cmd_life_dday(a) -> int:
+    from datetime import date as _date
+
+    today = life.parse_date(a.today) if a.today else _date.today()
+    for text in a.dates:
+        try:
+            target = life.parse_date(text)
+        except ValueError:
+            _p(f"날짜를 해석하지 못했습니다: {text} (예: 2024-03-15, 20240315)")
+            return 1
+
+        d = life.DDay(target, today)
+        _p(f"{target:%Y-%m-%d}({life.weekday_ko(target)})")
+        if d.delta > 0:
+            _p(f"  D-{d.delta}  ({d.delta}일 남음)")
+        elif d.delta == 0:
+            _p("  D-Day  오늘입니다")
+        else:
+            _p(f"  D+{-d.delta}  (지난 지 {-d.delta}일, 당일 포함 {d.nth_day}일째)")
+            _p(f"  만 {life.korean_age(target, today)}년 경과 (생일이면 만 나이)")
+
+        if not a.no_milestones:
+            _p("  다가올 기념일")
+            for name, when, left in d.milestones()[:a.count]:
+                _p(f"    {name:>6}  {when:%Y-%m-%d}({life.weekday_ko(when)})  D-{left}")
+        _p("")
+    return 0
+
+
+def cmd_life_split(a) -> int:
+    paid: dict[str, float] = {}
+    for item in a.paid:
+        name, _, amount = item.partition("=")
+        if not amount:
+            _p(f"'이름=금액' 형태로 적으세요: {item}")
+            return 1
+        try:
+            paid[name] = paid.get(name, 0.0) + life.parse_amount(amount)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+
+    try:
+        share, balance, transfers = life.settle(paid, extra=a.extra)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    total = sum(paid.values())
+    _p(f"총액 {life.format_won(total)}, {len(balance)}명")
+    _p(f"1인당 {life.format_won(share)}\n")
+
+    for name in sorted(balance, key=lambda n: -balance[n]):
+        v = balance[name]
+        state = "받을 돈" if v > 0 else ("낼 돈" if v < 0 else "정산 완료")
+        _p(f"  {_pad(name, 12)}낸 돈 {paid.get(name, 0):>12,.0f}   "
+           f"{_pad(state, 8)}{abs(v):>10,.0f}")
+
+    _p("\n송금")
+    if not transfers:
+        _p("  주고받을 것이 없습니다.")
+    for t in transfers:
+        _p(f"  {t.payer} -> {t.payee}  {t.amount:,.0f}원")
+    return 0
+
+
+def cmd_life_loan(a) -> int:
+    try:
+        principal = life.parse_amount(a.principal)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    months = int(round(a.years * 12)) if a.years else a.months
+    if not months:
+        _p("기간을 --years 또는 --months 로 지정하세요.")
+        return 1
+
+    try:
+        rows = life.amortize(principal, a.rate, months, kind=a.kind, grace=a.grace)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    interest = sum(r.interest for r in rows)
+    _p(f"{life.format_won(principal)}  연 {a.rate}%  {months}개월({months / 12:.1f}년)  {a.kind}"
+       + (f"  거치 {a.grace}개월" if a.grace else ""))
+    _p("")
+    first, last = rows[a.grace], rows[-1]
+    if a.kind == "원리금균등":
+        _p(f"  매달 상환액   {life.format_won(first.payment)}")
+    else:
+        _p(f"  첫 달 상환액  {life.format_won(first.payment)}")
+        _p(f"  마지막 상환액 {life.format_won(last.payment)}")
+    _p(f"  총 이자       {life.format_won(interest)}")
+    _p(f"  총 상환액     {life.format_won(principal + interest)}")
+    _p(f"  이자 비율     {interest / principal:.1%}")
+
+    if a.table:
+        _p(f"\n  회차  {'상환액':>14}{'이자':>14}{'원금':>14}{'잔액':>16}")
+        shown = rows if a.table < 0 else rows[:a.table]
+        for r in shown:
+            _p(f"  {r.no:>4}  {r.payment:>14,.0f}{r.interest:>14,.0f}"
+               f"{r.principal:>14,.0f}{r.balance:>16,.0f}")
+        if len(shown) < len(rows):
+            _p(f"  ... 총 {len(rows)}회차 (--table -1 로 전체 출력)")
+    return 0
+
+
+def cmd_life_unit(a) -> int:
+    try:
+        group, value, unit, results = life.convert(" ".join(a.value))
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"[{group}] {value:g}{unit}")
+    for name, converted in results:
+        _p(f"  {_pad(name, 8)}{converted:,.4g}")
+    return 0
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="at", description="파일 정리 / 백엔드 개발 / 소설 집필 자동화 도구")
+        prog="at", description="파일 정리 / 백엔드 개발 / git / 일상 계산 / 소설 집필 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
     sub = ap.add_subparsers(dest="group", required=True)
 
@@ -383,6 +700,21 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--script", action="store_true", help="삭제 명령을 출력만 한다")
     d.set_defaults(func=cmd_file_dupes)
 
+    w = fp.add_parser("watch", help="파일이 바뀌면 명령을 실행")
+    w.add_argument("dir")
+    w.add_argument("-p", "--pattern", action="append", metavar="글롭",
+                   help="예: -p '*.py' -p '*.html' (기본 전체)")
+    w.add_argument("-i", "--interval", type=float, default=1.0, metavar="초")
+    w.add_argument("--now", action="store_true", help="시작하자마자 한 번 실행")
+    w.epilog = "실행할 명령은 -- 뒤에 적는다.  예: at file watch src -p '*.py' -- pytest -q"
+    w.set_defaults(func=cmd_file_watch, command=[])
+
+    b = fp.add_parser("big", help="용량 차지하는 디렉터리/파일 찾기")
+    b.add_argument("dir", nargs="?", default=".")
+    b.add_argument("--depth", type=int, default=1)
+    b.add_argument("--top", type=int, default=15)
+    b.set_defaults(func=cmd_file_big)
+
     u = fp.add_parser("undo", help="organize/fixname 되돌리기")
     u.add_argument("journal", nargs="?", help="생략하면 가장 최근 저널")
     u.set_defaults(func=cmd_file_undo)
@@ -412,10 +744,88 @@ def build_parser() -> argparse.ArgumentParser:
     t.add_argument("when", nargs="?", default="now", help="epoch, ISO 문자열, now")
     t.set_defaults(func=cmd_dev_time)
 
+    wt = dp.add_parser("wait", help="포트/URL 이 열릴 때까지 대기")
+    wt.add_argument("target", help="host:port 또는 http(s):// URL")
+    wt.add_argument("-t", "--timeout", type=float, default=60.0, metavar="초")
+    wt.add_argument("-i", "--interval", type=float, default=1.0, metavar="초")
+    wt.add_argument("-q", "--quiet", action="store_true")
+    wt.set_defaults(func=cmd_dev_wait)
+
+    cr = dp.add_parser("cron", help="cron 표현식 해석과 다음 실행 시각")
+    cr.add_argument("expression", help='예: "0 9 * * 1-5", @daily')
+    cr.add_argument("-n", "--count", type=int, default=5)
+    cr.set_defaults(func=cmd_dev_cron)
+
+    g = dp.add_parser("gen", help="비밀번호·토큰·UUID 생성")
+    g.add_argument("kind", nargs="?", default="password",
+                   choices=["password", "token", "hex", "uuid", "pin"])
+    g.add_argument("-l", "--length", type=int, default=20)
+    g.add_argument("-n", "--count", type=int, default=1)
+    g.add_argument("--readable", action="store_true", help="0/O/l/1 처럼 헷갈리는 문자 제외")
+    g.set_defaults(func=cmd_dev_gen)
+
+    en = dp.add_parser("enc", help="base64/hex/URL 인코딩·디코딩 한 번에")
+    en.add_argument("value", nargs="?", default="-")
+    en.set_defaults(func=cmd_dev_enc)
+
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")
     m.add_argument("--in-place", action="store_true")
     m.set_defaults(func=cmd_dev_mask)
+
+    # ---- git
+    gp = sub.add_parser("git", help="git 저장소 정리·검사").add_subparsers(dest="cmd", required=True)
+
+    sw = gp.add_parser("sweep", help="병합 끝난 브랜치, 원격 사라진 브랜치 정리")
+    sw.add_argument("dir", nargs="?", default=".")
+    sw.add_argument("--base", help="기준 브랜치 (기본: origin/HEAD)")
+    sw.add_argument("--fetch", action="store_true", help="먼저 fetch --prune")
+    sw.add_argument("--apply", action="store_true")
+    sw.add_argument("--force", action="store_true", help="원격이 사라진 브랜치도 강제 삭제")
+    sw.set_defaults(func=cmd_git_sweep)
+
+    sc = gp.add_parser("scan", help="코드에 하드코딩된 시크릿·개인정보 찾기")
+    sc.add_argument("dir", nargs="?", default=".")
+    sc.add_argument("--staged", action="store_true", help="스테이징된 파일만 (훅용)")
+    sc.add_argument("--all", action="store_true", help="추적 안 되는 파일까지")
+    sc.add_argument("--entropy", type=float, default=0.0, metavar="비트",
+                    help="무작위해 보이는 문자열도 신고 (예: 4.0)")
+    sc.add_argument("-q", "--quiet", action="store_true", help="문제 없으면 아무것도 출력 안 함")
+    sc.add_argument("--install-hook", nargs="?", const="at", metavar="명령경로",
+                    help="pre-commit 훅으로 설치")
+    sc.set_defaults(func=cmd_git_scan)
+
+    # ---- life
+    lp = sub.add_parser("life", help="일상 계산기").add_subparsers(dest="cmd", required=True)
+
+    dd = lp.add_parser("dday", help="D-day, 만 나이, 기념일")
+    dd.add_argument("dates", nargs="+", metavar="날짜")
+    dd.add_argument("--today", help="기준일 (기본 오늘)")
+    dd.add_argument("-n", "--count", type=int, default=4)
+    dd.add_argument("--no-milestones", action="store_true")
+    dd.set_defaults(func=cmd_life_dday)
+
+    sp = lp.add_parser("split", help="더치페이 정산")
+    sp.add_argument("paid", nargs="+", metavar="이름=금액")
+    sp.add_argument("--extra", action="append", metavar="이름",
+                    help="돈은 안 냈지만 나눠 낼 사람")
+    sp.set_defaults(func=cmd_life_split)
+
+    ln = lp.add_parser("loan", help="대출 상환액 계산")
+    ln.add_argument("principal", metavar="원금", help="예: 3억5000만, 250000000")
+    ln.add_argument("rate", type=float, metavar="연이율")
+    ln.add_argument("years", type=float, nargs="?", metavar="년")
+    ln.add_argument("--months", type=int, default=0)
+    ln.add_argument("--kind", default="원리금균등",
+                    choices=["원리금균등", "원금균등", "만기일시"])
+    ln.add_argument("--grace", type=int, default=0, metavar="개월", help="거치기간")
+    ln.add_argument("--table", type=int, default=0, metavar="회차",
+                    help="상환표 출력 (-1 이면 전체)")
+    ln.set_defaults(func=cmd_life_loan)
+
+    un = lp.add_parser("unit", help="단위 변환 (평/㎡, 근/돈, 마일, 화씨…)")
+    un.add_argument("value", nargs="+", metavar="값+단위", help="예: 84㎡, 30평, 1근, 100F")
+    un.set_defaults(func=cmd_life_unit)
 
     # ---- novel
     np_ = sub.add_parser("novel", help="소설 원고").add_subparsers(dest="cmd", required=True)
@@ -442,8 +852,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # '--' 뒤는 파싱하지 않고 그대로 하위 명령에 넘긴다 (at file watch ... -- pytest -q)
+    tail: list[str] = []
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, tail = argv[:cut], argv[cut + 1:]
+
     ap = build_parser()
     args = ap.parse_args(argv)
+    if tail:
+        args.command = tail
     try:
         return args.func(args)
     except KeyboardInterrupt:

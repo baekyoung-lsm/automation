@@ -8,7 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import devkit, files, hangul, manuscript
+from attools import devkit, files, gitkit, hangul, life, manuscript
+from attools.schedule import Cron, CronError
 
 
 class HangulTest(unittest.TestCase):
@@ -128,7 +129,7 @@ class DevkitTest(unittest.TestCase):
         self.assertTrue(info["signed"])
 
     def test_mask(self):
-        text = "주민 900101-1234567 폰 010-1234-5678 pw=hunter22 메일 hong@ex.com"
+        text = "주민 900101-1234567 폰 010-1234-5678 pw=hunter22 메일 hong@ex.com"  # attools: ignore
         masked, counts = devkit.mask_text(text)
         self.assertNotIn("1234567", masked)
         self.assertNotIn("hunter22", masked)
@@ -171,6 +172,127 @@ class ManuscriptTest(unittest.TestCase):
         snaps = manuscript.list_snapshots(self.root)
         self.assertEqual([s["total"] for s in snaps], [3, 5])
         self.assertEqual(snaps[0]["note"], "초고")
+
+
+class CronTest(unittest.TestCase):
+    def runs(self, expr, start, n=3):
+        from datetime import datetime
+        return [d.strftime("%Y-%m-%d %H:%M") for d in Cron(expr).next_runs(start, n)]
+
+    def test_weekday_schedule(self):
+        from datetime import datetime
+        self.assertEqual(
+            self.runs("0 9 * * 1-5", datetime(2026, 9, 4, 10, 0), 3),
+            ["2026-09-07 09:00", "2026-09-08 09:00", "2026-09-09 09:00"])
+
+    def test_step_and_macro(self):
+        from datetime import datetime
+        self.assertEqual(self.runs("*/15 * * * *", datetime(2026, 1, 1, 0, 1), 2),
+                         ["2026-01-01 00:15", "2026-01-01 00:30"])
+        self.assertEqual(self.runs("@monthly", datetime(2026, 1, 5, 0, 0), 1),
+                         ["2026-02-01 00:00"])
+
+    def test_dom_or_dow(self):
+        # 일/요일이 둘 다 지정되면 cron 은 OR 로 본다
+        from datetime import datetime
+        got = self.runs("0 0 13 * 5", datetime(2026, 3, 1, 0, 0), 3)
+        self.assertEqual(got, ["2026-03-06 00:00", "2026-03-13 00:00", "2026-03-20 00:00"])
+
+    def test_named_month_and_dow(self):
+        from datetime import datetime
+        self.assertEqual(self.runs("0 0 * JAN MON", datetime(2025, 12, 1), 1),
+                         ["2026-01-05 00:00"])
+
+    def test_invalid(self):
+        for bad in ("0 9 * *", "99 * * * *", "0 9 * * 9", "*/0 * * * *"):
+            with self.assertRaises(CronError):
+                Cron(bad)
+
+
+class GitkitTest(unittest.TestCase):
+    def test_detects_real_secrets(self):
+        text = (
+            'gh = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"\n'
+            'db = "postgres://app:s3cret@db:5432/app"\n'
+            'password = "Real!Pass99"\n')
+        kinds = {f.kind for f in gitkit.scan_text(text, "a.py")}
+        self.assertEqual(kinds, {"GitHub 토큰", "접속 문자열 비밀번호", "하드코딩된 비밀값"})
+
+    def test_ignores_placeholders(self):
+        text = ('API_KEY = "your-key-here"\n'
+                'SECRET = "${VAULT_SECRET}"\n'
+                'TOKEN = "changeme"\n'
+                'PW = os.environ["DB_PASSWORD"]\n')
+        self.assertEqual(gitkit.scan_text(text, "a.py"), [])
+
+    def test_ignore_marker(self):
+        text = 'password = "Real!Pass99"  # attools: ignore\n'
+        self.assertEqual(gitkit.scan_text(text, "a.py"), [])
+
+    def test_entropy(self):
+        low = gitkit.shannon_entropy("aaaaaaaaaaaaaaaaaaaaaaaa")
+        high = gitkit.shannon_entropy("kJ8sQ2mZ4vX9pL1nR7tB3wY6")
+        self.assertLess(low, 1.0)
+        self.assertGreater(high, 4.0)
+
+
+class LifeTest(unittest.TestCase):
+    def test_parse_amount(self):
+        self.assertEqual(life.parse_amount("3억5000만"), 350_000_000)
+        self.assertEqual(life.parse_amount("1.5억"), 150_000_000)
+        self.assertEqual(life.parse_amount("350,000,000원"), 350_000_000)
+        with self.assertRaises(ValueError):
+            life.parse_amount("삼억")
+
+    def test_dday_and_age(self):
+        from datetime import date
+        d = life.DDay(date(2024, 3, 15), date(2024, 6, 22))
+        self.assertEqual(d.delta, -99)
+        self.assertEqual(d.nth_day, 100)          # 당일을 1일로 세면 100일째
+        self.assertEqual(life.korean_age(date(1995, 12, 1), date(2026, 9, 3)), 30)
+        self.assertEqual(life.korean_age(date(1995, 9, 3), date(2026, 9, 3)), 31)
+
+    def test_settle_balances_to_zero(self):
+        share, balance, transfers = life.settle({"A": 45000, "B": 12000}, extra=["C"])
+        self.assertEqual(share, 19000)
+        self.assertEqual(sum(balance.values()), 0)
+        self.assertEqual(sum(t.amount for t in transfers), 26000)  # A가 받을 돈
+        self.assertEqual(len(transfers), 2)
+        self.assertTrue(all(t.payee == "A" for t in transfers))
+
+    def test_amortize_pays_off(self):
+        rows = life.amortize(100_000_000, 5.0, 120)
+        self.assertEqual(len(rows), 120)
+        self.assertAlmostEqual(rows[-1].balance, 0.0, places=6)
+        self.assertAlmostEqual(sum(r.principal for r in rows), 100_000_000, places=2)
+        self.assertAlmostEqual(rows[0].payment, rows[50].payment, places=2)
+
+    def test_amortize_grace(self):
+        rows = life.amortize(100_000_000, 6.0, 12, grace=3)
+        self.assertEqual([r.principal for r in rows[:3]], [0.0, 0.0, 0.0])
+        self.assertAlmostEqual(rows[-1].balance, 0.0, places=6)
+
+    def test_unit_convert(self):
+        group, value, unit, results = life.convert("84㎡")
+        self.assertEqual(group, "넓이")
+        self.assertAlmostEqual(dict(results)["평"], 25.41, places=2)
+        self.assertAlmostEqual(dict(life.convert("30평")[3])["㎡"], 99.17, places=2)
+        self.assertAlmostEqual(dict(life.convert("100F")[3])["℃"], 37.78, places=2)
+        with self.assertRaises(ValueError):
+            life.convert("5광년")
+
+
+class WatchTest(unittest.TestCase):
+    def test_mtime_diff(self):
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "a.py").write_text("1", encoding="utf-8")
+            before = files.snapshot_mtimes(root, ["*.py"])
+            (root / "b.py").write_text("2", encoding="utf-8")
+            after = files.snapshot_mtimes(root, ["*.py"])
+            self.assertEqual([Path(c).name for c in files.diff_mtimes(before, after)], ["b.py"])
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 if __name__ == "__main__":

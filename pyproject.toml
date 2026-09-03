@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attools"
-version = "0.1.0"
-description = "파일 정리 / 백엔드 개발 / 소설 집필 자동화 CLI"
+version = "0.2.0"
+description = "파일 정리 / 백엔드 개발 / git / 일상 계산 / 소설 집필 자동화 CLI"
 requires-python = ">=3.10"
 dependencies = []
 
