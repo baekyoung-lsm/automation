@@ -51,6 +51,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
+| `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
 | `at file undo [저널]` | 직전 organize/fixname 을 되돌린다 |
 
@@ -61,6 +62,7 @@ at file fixname ~/Documents -r --apply
 at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply
 at file rename ~/문서 --prefix '기획팀_' --replace '최종(수정)=v2' --apply
 at file rename ~/스캔 -t '{parent}_{seq:03d}{ext}' --apply
+at file diff 배포전/ 배포후/ -g '*.py'
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
 at file dupes ~/Pictures --script > 삭제후보.sh
@@ -68,6 +70,9 @@ at file watch src -p '*.py' -- pytest -q
 at file big ~/Downloads --depth 2
 at file undo
 ```
+
+`diff` 는 크기가 같아도 해시를 비교하므로 **크기가 같고 내용만 바뀐 파일**을 잡는다.
+`--quick` 은 크기만 봐서 빠르지만 그런 변경은 놓치고, 결과에 그 사실을 함께 알려 준다.
 
 `archive` 는 압축한 뒤 zip 을 다시 열어 **모든 파일이 같은 크기로 들어갔는지 확인한 다음에만**
 원본을 지운다. 확인에 실패하면 원본을 그대로 두고 무엇이 문제인지 알려 준다. 이미 있는

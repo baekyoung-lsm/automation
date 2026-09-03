@@ -457,6 +457,44 @@ def cmd_file_archive(a) -> int:
     return 0
 
 
+def cmd_file_diff(a) -> int:
+    left, right = Path(a.left), Path(a.right)
+    for path in (left, right):
+        if not path.is_dir():
+            _p(f"디렉터리가 아닙니다: {path}")
+            return 1
+
+    d = files.diff_dirs(left, right, include_hidden=a.hidden, glob=a.glob,
+                        quick=a.quick)
+    _p(f"{left}  vs  {right}")
+    _p(f"  같음 {d.same:,}  ·  왼쪽만 {len(d.only_left):,}  ·  "
+       f"오른쪽만 {len(d.only_right):,}  ·  다름 {len(d.changed):,}\n")
+
+    if d.empty:
+        _p("차이가 없습니다.")
+        return 0
+
+    def section(title: str, rows: list[str]) -> None:
+        if not rows:
+            return
+        _p(f"{title} {len(rows)}개")
+        for r in rows[:a.limit]:
+            _p(f"  {r}")
+        if len(rows) > a.limit:
+            _p(f"  ... {len(rows) - a.limit}개 더")
+        _p("")
+
+    section("왼쪽에만", [f"- {n}" for n in d.only_left])
+    section("오른쪽에만", [f"+ {n}" for n in d.only_right])
+    section("내용이 다름",
+            [f"! {n}  {files.human_size(x)} -> {files.human_size(y)}"
+             for n, x, y in d.changed])
+
+    if a.quick:
+        _p("--quick 이라 크기만 비교했습니다. 크기가 같고 내용만 다른 건 못 잡습니다.")
+    return 1
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -2120,6 +2158,16 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--limit", type=int, default=15)
     ar.add_argument("--apply", action="store_true")
     ar.set_defaults(func=cmd_file_archive)
+
+    fd2 = fp.add_parser("diff", help="두 디렉터리 비교 (배포·백업 검증)")
+    fd2.add_argument("left", metavar="왼쪽")
+    fd2.add_argument("right", metavar="오른쪽")
+    fd2.add_argument("-g", "--glob", action="append", metavar="패턴")
+    fd2.add_argument("--hidden", action="store_true")
+    fd2.add_argument("--quick", action="store_true",
+                     help="크기만 비교 (빠르지만 크기 같은 변경은 못 잡는다)")
+    fd2.add_argument("--limit", type=int, default=25)
+    fd2.set_defaults(func=cmd_file_diff)
 
     u = fp.add_parser("undo", help="organize/fixname 되돌리기")
     u.add_argument("journal", nargs="?", help="생략하면 가장 최근 저널")

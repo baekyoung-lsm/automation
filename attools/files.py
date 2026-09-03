@@ -426,3 +426,58 @@ def make_archive(root: Path, targets: list[Path], archive: Path, *,
         except OSError as e:
             result.failed.append(f"지우지 못했습니다: {path} ({e})")
     return result
+
+
+@dataclass
+class DirDiff:
+    only_left: list[str] = field(default_factory=list)
+    only_right: list[str] = field(default_factory=list)
+    changed: list[tuple[str, int, int]] = field(default_factory=list)  # 경로, 왼쪽, 오른쪽
+    same: int = 0
+
+    @property
+    def empty(self) -> bool:
+        return not (self.only_left or self.only_right or self.changed)
+
+    @property
+    def total(self) -> int:
+        return len(self.only_left) + len(self.only_right) + len(self.changed)
+
+
+def _relative_files(root: Path, *, include_hidden: bool, glob: list[str] | None) -> dict[str, Path]:
+    patterns = glob or ["*"]
+    out: dict[str, Path] = {}
+    for pattern in patterns:
+        for p in root.rglob(pattern):
+            if not p.is_file() or p.is_symlink():
+                continue
+            rel = p.relative_to(root)
+            if not include_hidden and any(part.startswith(".") for part in rel.parts):
+                continue
+            if any(part in IGNORE_DIRS for part in rel.parts[:-1]):
+                continue
+            out[str(rel)] = p
+    return out
+
+
+def diff_dirs(left: Path, right: Path, *, include_hidden: bool = False,
+              glob: list[str] | None = None, quick: bool = False) -> DirDiff:
+    """두 디렉터리를 비교한다. 크기가 같으면 해시까지 봐야 진짜 같은지 안다."""
+    a = _relative_files(left, include_hidden=include_hidden, glob=glob)
+    b = _relative_files(right, include_hidden=include_hidden, glob=glob)
+
+    result = DirDiff()
+    result.only_left = sorted(set(a) - set(b))
+    result.only_right = sorted(set(b) - set(a))
+
+    for name in sorted(set(a) & set(b)):
+        left_size = a[name].stat().st_size
+        right_size = b[name].stat().st_size
+        if left_size != right_size:
+            result.changed.append((name, left_size, right_size))
+            continue
+        if quick or file_hash(a[name]) == file_hash(b[name]):
+            result.same += 1
+        else:
+            result.changed.append((name, left_size, right_size))
+    return result

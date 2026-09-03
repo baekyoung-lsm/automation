@@ -124,6 +124,39 @@ class FilesTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "z.zip") as z:
             self.assertEqual(z.namelist(), ["sub/deep/c.log"])
 
+    def test_dir_diff_finds_all_three_kinds(self):
+        self.make("a/same.txt", "같음")
+        self.make("b/same.txt", "같음")
+        self.make("a/only-left.txt", "x")
+        self.make("b/only-right.txt", "y")
+        self.make("a/sub/changed.txt", "AAA")
+        self.make("b/sub/changed.txt", "BBB")     # 크기는 같고 내용만 다르다
+
+        d = files.diff_dirs(self.root / "a", self.root / "b")
+        self.assertEqual(d.only_left, ["only-left.txt"])
+        self.assertEqual(d.only_right, ["only-right.txt"])
+        self.assertEqual([n for n, _, _ in d.changed], ["sub/changed.txt"])
+        self.assertEqual(d.same, 1)
+        self.assertFalse(d.empty)
+
+    def test_dir_diff_quick_misses_same_size_changes(self):
+        self.make("a/x.txt", "AAA")
+        self.make("b/x.txt", "BBB")
+        quick = files.diff_dirs(self.root / "a", self.root / "b", quick=True)
+        self.assertEqual(quick.changed, [])       # 크기만 보면 같아 보인다
+        self.assertEqual(quick.same, 1)
+
+    def test_dir_diff_identical(self):
+        self.make("a/x.txt", "같음")
+        self.make("b/x.txt", "같음")
+        self.assertTrue(files.diff_dirs(self.root / "a", self.root / "b").empty)
+
+    def test_dir_diff_glob_filter(self):
+        self.make("a/x.py", "1")
+        self.make("a/x.txt", "1")
+        d = files.diff_dirs(self.root / "a", self.root / "b", glob=["*.py"])
+        self.assertEqual(d.only_left, ["x.py"])
+
     def test_duplicates(self):
         self.make("a.txt", "같은 내용" * 100)
         self.make("sub/b.txt", "같은 내용" * 100)
