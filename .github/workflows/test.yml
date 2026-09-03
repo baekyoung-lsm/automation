@@ -1,0 +1,38 @@
+name: 테스트
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: 테스트
+        run: python -m unittest discover -s tests -v
+
+      - name: 모든 명령의 --help 가 뜨는지
+        run: |
+          python at --version
+          python at --help > /dev/null
+          for group in file dev git life sheet text doc json keys novel; do
+            python at "$group" --help > /dev/null
+          done
+
+      - name: 시크릿 검사 (자기 자신에게)
+        run: python at git scan --quiet
+
+      - name: 문서 링크 검사
+        run: python at doc links README.md

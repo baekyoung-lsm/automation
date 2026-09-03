@@ -429,3 +429,7 @@ at novel snap 원고/ -l
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+푸시할 때마다 GitHub Actions 가 Python 3.10 과 3.13 에서 테스트를 돌리고,
+모든 그룹의 `--help`, 자기 저장소 시크릿 검사(`at git scan`), README 링크 검사
+(`at doc links`)까지 확인한다. 도구로 도구를 검사하는 셈이다.
