@@ -6,7 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import __version__, devkit, files, gitkit, keys, life, manuscript, sheet, text, todo
+from . import (__version__, devkit, files, gitkit, keys, life, manuscript, names,
+               sheet, text, todo)
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -1158,6 +1159,57 @@ def cmd_text_undo(a) -> int:
     return 0 if not errors else 1
 
 
+def cmd_novel_names(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    body = manuscript.strip_markup("\n".join(manuscript.read_text(p) for p in targets))
+    found = names.extract(body, min_count=a.min, min_variety=a.variety)
+    known = [n.text for n in found] + list(a.name or [])
+
+    if not found and not a.name:
+        _p(f"{a.min}회 이상 나오는 이름 후보가 없습니다. --min 을 낮춰 보세요.")
+        return 0
+
+    speakers = names.dialogue_speakers(body, known)
+    _p(f"이름 후보 {len(found)}개  (파일 {len(targets)}개)")
+    _grid(["이름", "등장", "붙은 조사", "대사 뒤"],
+          [[n.text, f"{n.count}회",
+            " ".join(f"{p}{c}" for p, c in n.particles.most_common(4)),
+            f"{speakers[n.text]}회" if speakers.get(n.text) else "-"]
+           for n in found[:a.limit]], limit=a.width)
+    if len(found) > a.limit:
+        _p(f"  ... {len(found) - a.limit}개 더")
+    _p("")
+
+    shaky = names.variants(found, names.all_stems(body), distance=a.distance)
+    if shaky:
+        _p(f"표기 흔들림 의심 {len(shaky)}건")
+        for confirmed, rare, dist in shaky[:a.limit]:
+            _p(f"  {confirmed.text}({confirmed.count}회)  vs  "
+               f"{rare.text}({rare.count}회)")
+        _p("  드물게 나오는 쪽이 오타일 가능성이 큽니다.\n")
+
+    if a.no_josa:
+        return 0
+
+    errors = names.check_josa(body, known)
+    if not errors:
+        _p("이름 뒤 조사는 문제 없습니다.")
+        return 0
+
+    _p(f"이름 뒤 조사 오류 {len(errors)}건")
+    for e in errors[:a.limit]:
+        _p(f"  {e.line}행  {e.name}{e.wrong} -> {e.name}{e.right}")
+        _p(f"        …{e.excerpt}…")
+    if len(errors) > a.limit:
+        _p(f"  ... {len(errors) - a.limit}건 더")
+    _p("\n행 번호는 파일을 이어 붙인 기준입니다.")
+    return 1
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1468,6 +1520,20 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--long", type=int, default=100, metavar="자")
     c.add_argument("--run", type=int, default=4, metavar="회")
     c.set_defaults(func=cmd_novel_check)
+
+    nm = np_.add_parser("names", help="인물·지명 표기 흔들림과 이름 뒤 조사 오류")
+    nm.add_argument("paths", nargs="+")
+    nm.add_argument("--min", type=int, default=3, metavar="회",
+                    help="이름으로 볼 최소 등장 횟수")
+    nm.add_argument("--variety", type=int, default=2, metavar="개",
+                    help="붙은 조사 종류가 이만큼 이상일 때만 이름으로 본다")
+    nm.add_argument("--name", action="append", metavar="이름",
+                    help="검사할 이름을 직접 지정 (여러 번)")
+    nm.add_argument("--distance", type=int, default=1, choices=[1, 2])
+    nm.add_argument("--limit", type=int, default=20)
+    nm.add_argument("--width", type=int, default=20, metavar="칸")
+    nm.add_argument("--no-josa", action="store_true", help="조사 검사 생략")
+    nm.set_defaults(func=cmd_novel_names)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

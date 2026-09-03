@@ -9,7 +9,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import (devkit, files, gitkit, hangul, keyhtml, keys, life, manuscript,
-                     sheet, text, todo, xlsx)
+                     names, sheet, text, todo, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -745,6 +745,69 @@ class TodoTest(unittest.TestCase):
                 "\t# TODO 무언가\n")
         parsed = todo._parse_blame(blob)
         self.assertEqual(parsed[3][0], "홍길동")
+
+
+class NamesTest(unittest.TestCase):
+    SAMPLE = ("리안은 문을 열었다. 카일이 뒤따랐다.\n"
+              "리안는 대답하지 않았다. 리언이 웃었다.\n"
+              "카일을 바라보던 리안이 고개를 저었다.\n"
+              "세드릭과 리안은 걸었다. 세드릭를 믿을 수 없었다.\n"
+              "카알이 문득 돌아보았다. 세드릭은 검을 뽑았다.\n")
+
+    def test_strip_particle_takes_longest(self):
+        self.assertEqual(names.strip_particle("리안에게서"), ("리안", "에게서"))
+        self.assertEqual(names.strip_particle("리안은"), ("리안", "은"))
+        self.assertEqual(names.strip_particle("문득"), ("문득", ""))
+
+    def test_extract_needs_repetition_and_variety(self):
+        found = names.extract(self.SAMPLE, min_count=2, min_variety=2)
+        # 횟수가 같으면 이름 순으로 고정된다
+        self.assertEqual([n.text for n in found], ["리안", "세드릭", "카일"])
+        self.assertEqual(found[0].count, 4)
+
+    def test_extract_skips_stopwords(self):
+        text = "그녀는 갔다. 그녀가 왔다. 그녀를 봤다. " * 3
+        self.assertEqual(names.extract(text, min_count=2), [])
+
+    def test_variants_flags_rare_lookalikes(self):
+        found = names.extract(self.SAMPLE, min_count=2, min_variety=2)
+        pairs = names.variants(found, names.all_stems(self.SAMPLE))
+        self.assertIn(("리안", "리언"), [(a.text, b.text) for a, b, _ in pairs])
+        self.assertIn(("카일", "카알"), [(a.text, b.text) for a, b, _ in pairs])
+        # 확정된 이름끼리는 흔들림으로 보지 않는다
+        self.assertNotIn("세드릭", [b.text for _, b, _ in pairs])
+
+    def test_edit_distance_cutoff(self):
+        self.assertEqual(names.edit_distance("리안", "리언"), 1)
+        self.assertEqual(names.edit_distance("리안", "리안"), 0)
+        self.assertGreater(names.edit_distance("리안", "세드릭", 1), 1)
+
+    def test_josa_batchim_rules(self):
+        errors = names.check_josa("카일가 왔다. 카일는 갔다.", ["카일"])
+        self.assertEqual([(e.wrong, e.right) for e in errors], [("가", "이"), ("는", "은")])
+
+        errors = names.check_josa("미아이 왔다. 미아으로 갔다.", ["미아"])
+        self.assertEqual([(e.wrong, e.right) for e in errors], [("이", "가"), ("으로", "로")])
+
+    def test_josa_riul_takes_ro(self):
+        # 받침이 ㄹ 이면 '서울로'가 맞고 '서울으로'는 틀리다
+        self.assertEqual(names.check_josa("서울로 갔다.", ["서울"]), [])
+        errors = names.check_josa("서울으로 갔다.", ["서울"])
+        self.assertEqual((errors[0].wrong, errors[0].right), ("으로", "로"))
+
+    def test_josa_ignores_longer_words(self):
+        # '리안나는'은 리안+는이 아니다
+        self.assertEqual(names.check_josa("리안나는 다른 사람이다.", ["리안"]), [])
+
+    def test_josa_correct_forms_pass(self):
+        clean = "리안이 웃었다. 리안은 갔다. 리안을 봤다. 리안과 함께."
+        self.assertEqual(names.check_josa(clean, ["리안"]), [])
+
+    def test_dialogue_speakers(self):
+        text = '"늦었어." 카일이 말했다.\n"응." 리안이 답했다.\n'
+        counts = names.dialogue_speakers(text, ["카일", "리안"])
+        self.assertEqual(counts["카일"], 1)
+        self.assertEqual(counts["리안"], 1)
 
 
 if __name__ == "__main__":
