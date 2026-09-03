@@ -8,8 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import (devkit, files, gitkit, hangul, keyhtml, keys, life, manuscript,
-                     names, sheet, text, todo, xlsx)
+from attools import (devkit, files, gitkit, hangul, jsonkit, keyhtml, keys, life,
+                     manuscript, names, sheet, text, todo, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -808,6 +808,83 @@ class NamesTest(unittest.TestCase):
         counts = names.dialogue_speakers(text, ["카일", "리안"])
         self.assertEqual(counts["카일"], 1)
         self.assertEqual(counts["리안"], 1)
+
+
+class JsonkitTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name, content):
+        p = self.root / name
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_load_reports_position_on_bad_json(self):
+        p = self.write("bad.json", '{"a": }')
+        with self.assertRaises(jsonkit.JsonError) as cm:
+            jsonkit.load(p)
+        self.assertIn("행", str(cm.exception))
+
+    def test_load_falls_back_to_json_lines(self):
+        p = self.write("a.jsonl", '{"a":1}\n{"a":2}\n')
+        self.assertEqual(jsonkit.load(p), [{"a": 1}, {"a": 2}])
+
+    def test_load_missing_file(self):
+        with self.assertRaises(jsonkit.JsonError):
+            jsonkit.load(self.root / "없음.json")
+
+    def test_walk_paths(self):
+        paths = [p for p, _ in jsonkit.walk({"a": {"b": [1, 2]}})]
+        self.assertEqual(paths, ["a.b[0]", "a.b[1]"])
+
+    def test_schema_collapses_arrays_and_marks_optional(self):
+        data = {"users": [{"id": 1, "name": "가"}, {"id": 2, "name": "나", "nick": "x"}]}
+        fields = {f.path: f for f in jsonkit.schema(data)}
+        self.assertEqual(fields["users[].id"].types, {"int"})
+        self.assertFalse(fields["users[].id"].optional)
+        self.assertTrue(fields["users[].nick"].optional)
+
+    def test_schema_records_mixed_types(self):
+        fields = {f.path: f for f in jsonkit.schema({"a": [1, "x"]})}
+        self.assertEqual(fields["a[]"].types, {"int", "string"})
+
+    def test_diff_categories(self):
+        d = jsonkit.diff({"keep": 1, "gone": 2, "t": 1, "v": "a"},
+                         {"keep": 1, "new": 3, "t": "1", "v": "b"})
+        self.assertEqual([p for p, _ in d.added], ["new"])
+        self.assertEqual([p for p, _ in d.removed], ["gone"])
+        self.assertEqual(d.type_changed, [("t", "int", "string")])
+        self.assertEqual(d.value_changed, [("v", "a", "b")])
+        self.assertFalse(d.empty)
+
+    def test_diff_identical_is_empty(self):
+        self.assertTrue(jsonkit.diff({"a": [1, {"b": 2}]}, {"a": [1, {"b": 2}]}).empty)
+
+    def test_diff_by_key_ignores_array_order(self):
+        before = {"u": [{"id": 1, "n": "가"}, {"id": 2, "n": "나"}]}
+        after = {"u": [{"id": 2, "n": "나"}, {"id": 1, "n": "가"}]}
+        self.assertFalse(jsonkit.diff(before, after).empty)          # 인덱스 기준이면 다르게 보이고
+        self.assertTrue(jsonkit.diff(before, after, key="id").empty)  # id 로 짝지으면 같다
+
+    def test_diff_by_key_finds_added_and_removed_items(self):
+        d = jsonkit.diff({"u": [{"id": 1}]}, {"u": [{"id": 2}]}, key="id")
+        self.assertEqual([p for p, _ in d.removed], ["u[id=1]"])
+        self.assertEqual([p for p, _ in d.added], ["u[id=2]"])
+
+    def test_breaking_covers_removed_and_type_changes(self):
+        d = jsonkit.diff({"gone": 1, "t": 1, "v": 1}, {"t": "1", "v": 2})
+        self.assertEqual(len(d.breaking), 2)
+
+    def test_type_names(self):
+        self.assertEqual(jsonkit.type_name(True), "bool")   # bool 이 int 로 잡히면 안 된다
+        self.assertEqual(jsonkit.type_name(1), "int")
+        self.assertEqual(jsonkit.type_name(None), "null")
+
+    def test_preview_truncates(self):
+        self.assertTrue(jsonkit.preview("가" * 100, 10).endswith("…"))
 
 
 if __name__ == "__main__":

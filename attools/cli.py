@@ -6,8 +6,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import (__version__, devkit, files, gitkit, keys, life, manuscript, names,
-               sheet, text, todo)
+from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, manuscript,
+               names, sheet, text, todo)
 from .schedule import Cron, CronError
 from .hangul import is_decomposed
 
@@ -1210,11 +1210,124 @@ def cmd_novel_names(a) -> int:
     return 1
 
 
+# =================================================================== json
+
+def _json_load(a, source):
+    try:
+        return jsonkit.load(source)
+    except jsonkit.JsonError as e:
+        _p(str(e))
+        return None
+
+
+def cmd_json_show(a) -> int:
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+    import json as _json
+
+    if a.compact:
+        _p(_json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=a.sort))
+    else:
+        _p(_json.dumps(data, ensure_ascii=False, indent=2, sort_keys=a.sort))
+    return 0
+
+
+def cmd_json_schema(a) -> int:
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+
+    fields = jsonkit.schema(data)
+    if not fields:
+        _p(f"단일 값입니다: {jsonkit.type_name(data)}")
+        return 0
+
+    _grid(["경로", "타입", "있음", "예시"],
+          [[f.path, "|".join(sorted(f.types)),
+            "선택" if f.optional else "필수",
+            ", ".join(jsonkit.preview(s, 20) for s in f.samples)]
+           for f in fields[:a.limit]], limit=a.width)
+    if len(fields) > a.limit:
+        _p(f"  ... {len(fields) - a.limit}개 더")
+    optional = sum(1 for f in fields if f.optional)
+    _p(f"\n키 {len(fields)}개  ·  가끔 없는 키 {optional}개")
+    return 0
+
+
+def cmd_json_diff(a) -> int:
+    before, after = _json_load(a, a.before), _json_load(a, a.after)
+    if before is None or after is None:
+        return 1
+
+    d = jsonkit.diff(before, after, key=a.key)
+    if d.empty:
+        _p("차이가 없습니다.")
+        return 0
+
+    if a.breaking:
+        rows = d.breaking
+        if not rows:
+            _p("깨질 만한 변화는 없습니다. (사라진 키, 타입 변경 없음)")
+            return 0
+        _p(f"깨질 만한 변화 {len(rows)}건")
+        for path, what in rows:
+            _p(f"  {path}  {jsonkit.preview(what)}")
+        return 1
+
+    def section(title: str, rows: list[str]) -> None:
+        if rows:
+            _p(f"{title} {len(rows)}건")
+            for r in rows[:a.limit]:
+                _p(f"  {r}")
+            if len(rows) > a.limit:
+                _p(f"  ... {len(rows) - a.limit}건 더")
+            _p("")
+
+    section("사라진 키", [f"- {p}  {jsonkit.preview(v)}" for p, v in d.removed])
+    section("타입 바뀜", [f"! {p}  {x} -> {y}" for p, x, y in d.type_changed])
+    section("새 키", [f"+ {p}  {jsonkit.preview(v)}" for p, v in d.added])
+    if not a.no_values:
+        section("값 바뀜",
+                [f"  {p}  {jsonkit.preview(x, 28)} -> {jsonkit.preview(y, 28)}"
+                 for p, x, y in d.value_changed])
+
+    if d.breaking:
+        _p(f"이 중 {len(d.breaking)}건은 쓰는 쪽이 깨질 수 있습니다 (사라진 키·타입 변경).")
+    return 1
+
+
+def cmd_json_flat(a) -> int:
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+
+    rows = jsonkit.flatten(data)
+    if a.grep:
+        import re as _re
+
+        try:
+            pattern = _re.compile(a.grep, _re.I)
+        except _re.error as e:
+            _p(f"정규식이 잘못됐습니다: {e}")
+            return 1
+        rows = [(p, v) for p, v in rows if pattern.search(p) or pattern.search(str(v))]
+
+    if not rows:
+        _p("맞는 항목이 없습니다.")
+        return 1
+    for path, value in rows[:a.limit]:
+        _p(f"{path}\t{jsonkit.preview(value, a.width)}")
+    if len(rows) > a.limit:
+        _p(f"... {len(rows) - a.limit}개 더")
+    return 0
+
+
 # ===================================================================== main
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        prog="at", description="파일 정리 / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 집필 자동화 도구")
+        prog="at", description="파일 / 텍스트 / JSON / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
     sub = ap.add_subparsers(dest="group", required=True)
 
@@ -1490,6 +1603,39 @@ def build_parser() -> argparse.ArgumentParser:
     tu = tp.add_parser("undo", help="text 명령 되돌리기")
     tu.add_argument("journal", nargs="?")
     tu.set_defaults(func=cmd_text_undo)
+
+    # ---- json
+    jp = sub.add_parser("json", help="JSON 훑기·비교").add_subparsers(dest="cmd", required=True)
+
+    js = jp.add_parser("show", help="한글 안 깨지게 예쁘게 출력")
+    js.add_argument("file", nargs="?", default="-")
+    js.add_argument("--sort", action="store_true", help="키 이름 순으로 정렬")
+    js.add_argument("--compact", action="store_true", help="한 줄로")
+    js.set_defaults(func=cmd_json_show)
+
+    jc = jp.add_parser("schema", help="키 경로·타입·선택 여부 요약")
+    jc.add_argument("file", nargs="?", default="-")
+    jc.add_argument("--limit", type=int, default=60)
+    jc.add_argument("--width", type=int, default=34, metavar="칸")
+    jc.set_defaults(func=cmd_json_schema)
+
+    jd = jp.add_parser("diff", help="두 JSON 을 경로 단위로 비교")
+    jd.add_argument("before")
+    jd.add_argument("after")
+    jd.add_argument("--key", metavar="필드",
+                    help="객체 배열을 이 필드 값으로 짝지어 비교 (예: --key id)")
+    jd.add_argument("--breaking", action="store_true",
+                    help="사라진 키와 타입 변경만 (CI 용, 있으면 exit 1)")
+    jd.add_argument("--no-values", action="store_true", help="값만 바뀐 것은 생략")
+    jd.add_argument("--limit", type=int, default=25)
+    jd.set_defaults(func=cmd_json_diff)
+
+    jf = jp.add_parser("flat", help="경로=값 한 줄씩 (grep 하기 좋게)")
+    jf.add_argument("file", nargs="?", default="-")
+    jf.add_argument("--grep", metavar="정규식")
+    jf.add_argument("--limit", type=int, default=200)
+    jf.add_argument("--width", type=int, default=60, metavar="칸")
+    jf.set_defaults(func=cmd_json_flat)
 
     # ---- keys
     ky = sub.add_parser("keys", help="단축키 찾기 (한글·Word·엑셀·PPT·구글)")

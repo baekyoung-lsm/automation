@@ -8,6 +8,7 @@
 - `dev` .env 대조, 포트, JWT, 시각 변환, 로그 마스킹, 헬스체크 대기, cron 해석, 키 생성
 - `git` 병합된 브랜치 정리, 커밋 전 시크릿 검사
 - `text` 여러 파일 찾아 바꾸기, 인코딩·줄바꿈 통일, 공백 정리
+- `json` API 응답 구조 요약, 두 응답 비교, 평탄화
 - `sheet` 엑셀·CSV 훑어보기, 검증, 정리, 병합, 비교, 집계, 변환
 - `keys` 한글·Word·엑셀·PPT·구글 문서 단축키를 탭으로 넘겨 보고 검색
 - `life` D-day, 더치페이 정산, 대출 계산, 단위 변환
@@ -100,6 +101,28 @@ at text undo
 정규식이 아니면 `.` 이나 `\` 도 문자 그대로 다룬다. BOM 이 있던 파일은 BOM 을 유지하고,
 없던 파일에 BOM 을 붙이지 않는다. 이진 파일과 `node_modules`, `.git` 같은 디렉터리는
 건너뛴다.
+
+## json — API 응답 훑기와 비교
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `at json show [파일]` | 한글이 깨지지 않게 예쁘게 출력 (`--sort`, `--compact`) |
+| `at json schema [파일]` | 키 경로·타입·가끔 없는 키·예시 값 요약 |
+| `at json diff <이전> <이후>` | 사라진 키, 타입 바뀜, 새 키, 값 바뀜을 경로 단위로 |
+| `at json flat [파일]` | `경로<탭>값` 한 줄씩 출력해서 grep 하기 좋게 |
+
+```bash
+curl -s ... | at json schema -
+at json diff 어제응답.json 오늘응답.json --key id
+at json diff v1.json v2.json --breaking      # 깨질 변화만, 있으면 exit 1
+at json flat 응답.json --grep 'error|실패'
+```
+
+`--key id` 를 주면 객체 배열을 그 필드 값으로 짝지어 비교한다. 순서만 바뀐 응답이
+전부 바뀐 것처럼 보이는 일을 막는다. `--breaking` 은 **사라진 키와 타입 변경**만 보고
+하나라도 있으면 종료 코드 1을 돌려주므로 계약 회귀 검사로 CI 에 넣을 수 있다.
+
+파일이 JSON 으로 안 읽히면 JSON Lines 로 한 번 더 시도한다.
 
 ## git — 저장소 정리와 검사
 
