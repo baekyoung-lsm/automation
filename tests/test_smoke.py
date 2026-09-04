@@ -179,6 +179,10 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("sheet", "sort", csv, "--by", "연봉", "--desc")
         self.run_cli("sheet", "sample", csv, "-n", "2", "--seed", "1")
         self.run_cli("sheet", "pivot", csv, "--rows", "부서", "--values", "연봉")
+        긴표 = self.path("긴표.csv")
+        self.assertIn("항목", self.run_cli("sheet", "melt", csv, "--keep", "사번",
+                                           "-o", 긴표))
+        self.assertIn("항목", self.run_cli("sheet", "transpose", csv))
         self.assertIn("지운 행", self.run_cli("sheet", "dedupe", csv, "-k", "사번",
                                               "--keep", "max", "--by", "입사일"))
         self.assertIn("짝 찾음", self.run_cli("sheet", "join", csv,

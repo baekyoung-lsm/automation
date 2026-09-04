@@ -1724,6 +1724,45 @@ class SheetTest(unittest.TestCase):
             sheet.load(p)
 
 
+    def test_melt_widens_rows_and_skips_blanks(self):
+        t = sheet.Table(["부서", "이름", "1월", "2월"],
+                        [["영업", "가", 10, None], ["개발", "나", 5, 7]])
+        m = sheet.melt(t, keep=["부서", "이름"])
+        self.assertEqual(m.headers, ["부서", "이름", "항목", "값"])
+        self.assertEqual(m.rows, [["영업", "가", "1월", 10],
+                                  ["개발", "나", "1월", 5],
+                                  ["개발", "나", "2월", 7]])
+
+    def test_melt_can_keep_blanks(self):
+        t = sheet.Table(["이름", "1월", "2월"], [["가", 10, None]])
+        self.assertEqual(len(sheet.melt(t, keep=["이름"], skip_blank=False).rows), 2)
+
+    def test_melt_picks_named_value_columns_only(self):
+        t = sheet.Table(["이름", "1월", "2월"], [["가", 1, 2]])
+        m = sheet.melt(t, keep=["이름"], value_cols=["2월"], name="달", value="매출")
+        self.assertEqual(m.headers, ["이름", "달", "매출"])
+        self.assertEqual(m.rows, [["가", "2월", 2]])
+
+    def test_melt_needs_a_column_to_unfold(self):
+        t = sheet.Table(["이름"], [["가"]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.melt(t, keep=["이름"])
+
+    def test_transpose_uses_first_column_as_headers(self):
+        t = sheet.Table(["부서", "1월", "2월"], [["영업", 10, 20], ["개발", 5, 7]])
+        r = sheet.transpose(t)
+        self.assertEqual(r.headers, ["항목", "영업", "개발"])
+        self.assertEqual(r.rows, [["1월", 10, 5], ["2월", 20, 7]])
+
+    def test_transpose_numbers_duplicate_headers(self):
+        t = sheet.Table(["부서", "값"], [["영업", 1], ["영업", 2]])
+        self.assertEqual(sheet.transpose(t).headers, ["항목", "영업", "영업-2"])
+
+    def test_transpose_needs_rows(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.transpose(sheet.Table(["가"], []))
+
+
 class KeysTest(unittest.TestCase):
     def setUp(self):
         self.groups, self.sources = keys.load_groups()

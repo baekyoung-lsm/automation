@@ -339,6 +339,8 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet diff <이전> <이후> --key <열>` | 키 기준으로 추가·삭제·변경된 값을 찾는다 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
+| `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
+| `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
 | `at sheet cut <파일> -c <열>` | 열 고르기·순서 바꾸기 (`--drop` 이면 빼기) |
 | `at sheet where <파일> --eq <열=값>` | 조건에 맞는 행만. `--gte`, `--lt`, `--has` 등 |
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
@@ -361,6 +363,8 @@ at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
+at sheet melt 월별매출.xlsx --keep 부서 --keep 이름 --name 월 --value 매출 -o 긴표.csv
+at sheet transpose 요약.csv
 at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
@@ -382,6 +386,13 @@ at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`melt` 는 피벗의 반대다. `1월 2월 3월`처럼 옆으로 늘어선 열을 `항목/값` 두 열로 눕혀서
+피벗테이블이나 `at sheet pivot` 에 그대로 넣을 수 있는 모양으로 만든다. 빈 칸은 행으로
+만들지 않는다 — 안 판 달과 0원 판 달이 섞이면 평균이 조용히 달라진다(`--keep-blank`).
+
+`transpose` 는 첫 열의 값을 새 머리글로 삼아 행과 열을 바꾼다. 같은 값이 겹치면 뒤에
+번호를 붙여 열 이름이 사라지지 않게 한다.
 
 `to-json` 은 그 반대다. `--nest` 를 주면 `meta.부서` 열을 다시 중첩 객체로 되돌리므로
 `from-json` → 엑셀에서 손질 → `to-json --nest --parse-json` 하면 원래 구조가 그대로

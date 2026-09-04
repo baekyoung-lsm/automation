@@ -1289,3 +1289,51 @@ def to_records(table: Table, *, nest: bool = False, skip_blank: bool = True,
             item[header] = value
         records.append(unflatten(item) if nest else item)
     return records
+
+
+def melt(table: Table, *, keep: list[str], value_cols: list[str] | None = None,
+         name: str = "항목", value: str = "값", skip_blank: bool = True) -> Table:
+    """넓은 표를 긴 표로 편다(pivot 의 반대).
+
+    부서·이름은 그대로 두고 1월~12월 열을 '항목/값' 두 열로 눕힌다.
+    피벗테이블이나 집계 함수는 대개 이 모양을 요구한다.
+    """
+    keep_idx = [table.index_of(k) for k in keep]
+    if value_cols:
+        val_idx = [table.index_of(c) for c in value_cols]
+    else:
+        val_idx = [i for i in range(table.width) if i not in keep_idx]
+    if not val_idx:
+        raise SheetError("펼 열이 없습니다. --keep 에 모든 열을 넣지 않았는지 보세요.")
+
+    headers = [table.headers[i] for i in keep_idx] + [name, value]
+    rows: list[list] = []
+    for row in table.rows:
+        base = [row[i] if i < len(row) else None for i in keep_idx]
+        for i in val_idx:
+            cell = row[i] if i < len(row) else None
+            if skip_blank and (cell is None or to_text(cell) == ""):
+                continue
+            rows.append([*base, table.headers[i], cell])
+    return Table(headers, rows, source=table.source, sheet=table.sheet)
+
+
+def transpose(table: Table, *, header: str = "항목") -> Table:
+    """행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다."""
+    if not table.rows:
+        raise SheetError("행이 없어 뒤집을 것이 없습니다.")
+
+    first = [to_text(r[0]) if r else "" for r in table.rows]
+    seen: dict[str, int] = {}
+    names: list[str] = []
+    for value in first:                       # 같은 이름이 겹치면 뒤에 번호를 붙인다
+        base = value or "(빈칸)"
+        seen[base] = seen.get(base, 0) + 1
+        names.append(base if seen[base] == 1 else f"{base}-{seen[base]}")
+
+    headers = [header, *names]
+    rows: list[list] = []
+    for i in range(1, table.width):
+        rows.append([table.headers[i]] +
+                    [r[i] if i < len(r) else None for r in table.rows])
+    return Table(headers, rows, source=table.source, sheet=table.sheet)

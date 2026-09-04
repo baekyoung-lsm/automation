@@ -1537,6 +1537,50 @@ def cmd_sheet_pivot(a) -> int:
     return 0
 
 
+def cmd_sheet_melt(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result = sheet.melt(t, keep=a.keep, value_cols=a.value_col,
+                            name=a.name, value=a.value, skip_blank=not a.keep_blank)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _grid(result.headers, [[sheet.to_text(v) for v in r]
+                           for r in result.rows[:a.limit]])
+    _p(f"\n{len(t.rows):,}행 x {t.width}열 -> {len(result.rows):,}행 x "
+       f"{result.width}열")
+    if not a.keep_blank:
+        _p("빈 칸은 행으로 만들지 않았습니다 (--keep-blank 로 남길 수 있습니다).")
+    if a.out:
+        _p(f"저장: {sheet.save(result, Path(a.out))}")
+    else:
+        _p("-o 로 저장하면 그대로 피벗테이블에 넣을 수 있습니다.")
+    return 0
+
+
+def cmd_sheet_transpose(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result = sheet.transpose(t, header=a.name)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _grid(result.headers, [[sheet.to_text(v) for v in r]
+                           for r in result.rows[:a.limit]])
+    _p(f"\n{len(t.rows):,}행 x {t.width}열 -> {len(result.rows):,}행 x "
+       f"{result.width}열")
+    _p(f"첫 열({t.headers[0]})의 값이 새 머리글이 됩니다.")
+    if a.out:
+        _p(f"저장: {sheet.save(result, Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_convert(a) -> int:
     t = _load(a)
     if t is None:
@@ -4087,6 +4131,27 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
     pv.add_argument("-o", "--out")
     pv.set_defaults(func=cmd_sheet_pivot)
+
+    ml = common(sh.add_parser("melt", help="넓은 표를 긴 표로 (pivot 의 반대)"))
+    ml.add_argument("file")
+    ml.add_argument("--keep", action="append", required=True, metavar="열",
+                    help="그대로 둘 열 (여러 번 쓸 수 있음)")
+    ml.add_argument("--value-col", action="append", metavar="열",
+                    help="펼 열을 직접 지정 (기본은 --keep 이 아닌 모든 열)")
+    ml.add_argument("--name", default="항목", metavar="열이름")
+    ml.add_argument("--value", default="값", metavar="열이름")
+    ml.add_argument("--keep-blank", action="store_true", help="빈 칸도 행으로 남긴다")
+    ml.add_argument("--limit", type=int, default=20)
+    ml.add_argument("-o", "--out")
+    ml.set_defaults(func=cmd_sheet_melt)
+
+    tp = common(sh.add_parser("transpose", help="행과 열 바꾸기"))
+    tp.add_argument("file")
+    tp.add_argument("--name", default="항목", metavar="열이름",
+                    help="새 표의 첫 열 이름")
+    tp.add_argument("--limit", type=int, default=20)
+    tp.add_argument("-o", "--out")
+    tp.set_defaults(func=cmd_sheet_transpose)
 
     def sheet_out(parser):
         parser.add_argument("-o", "--out", metavar="파일")
