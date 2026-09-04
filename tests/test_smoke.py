@@ -360,6 +360,9 @@ class SmokeTest(unittest.TestCase):
         made = sorted(q.name for q in Path(out).iterdir())
         self.assertTrue(made and made[0].startswith("01-"), made)
 
+        self.assertIn("표를 찾지 못했습니다",
+                      self.run_cli("doc", "tables", md, expect=1))
+
         표 = Path(self.path("표.md"))
         표.write_text("| 이름 | 값 |\n|---|---|\n| 가나다 | 1 |\n",
                       encoding="utf-8")
@@ -369,6 +372,9 @@ class SmokeTest(unittest.TestCase):
 
         줄 = 표.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
+        뽑기 = self.path("뽑은표.csv")
+        self.run_cli("doc", "tables", str(표), "-n", "1", "-o", 뽑기)
+        self.assertIn("가나다", Path(뽑기).read_text(encoding="utf-8"))
 
     # ------------------------------------------------------------ life
 

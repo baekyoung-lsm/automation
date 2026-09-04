@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import mdkit
+from attools import mdkit, sheet
 
 
 class MdkitTest(unittest.TestCase):
@@ -180,6 +180,29 @@ class MdkitTest(unittest.TestCase):
         new, _ = mdkit.format_tables(doc)
         self.assertEqual(len(new.splitlines()), 3)
         self.assertEqual({mdkit.display_width(l) for l in new.splitlines()}, {14})
+
+
+class TablesToSheetTest(unittest.TestCase):
+    """마크다운 표를 표 모델로 옮길 때 지켜야 하는 것들."""
+
+    DOC = ("# 문서\n\n| 이름 | 수량 |\n|---|---:|\n| 가 | 3 |\n| 나 | 12 |\n\n"
+           "글.\n\n| A | B | C |\n|---|---|---|\n| 1 | 2 |\n")
+
+    def test_finds_every_table(self):
+        blocks = mdkit.find_tables(self.DOC)
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(blocks[0].header, ["이름", "수량"])
+        self.assertEqual(blocks[1].columns, 3)
+
+    def test_short_row_is_padded_not_dropped(self):
+        block = mdkit.find_tables(self.DOC)[1]
+        self.assertEqual(len(block.rows[0]), 2)      # 원본은 두 칸뿐
+        self.assertEqual(block.columns, 3)           # 머리글 기준으로 세 칸
+
+    def test_numbers_are_recognised_for_later_math(self):
+        block = mdkit.find_tables(self.DOC)[0]
+        values = [sheet.parse_number(r[1]) for r in block.rows]
+        self.assertEqual(values, [3, 12])
 
 
 if __name__ == "__main__":

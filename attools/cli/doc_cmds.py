@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import files, mdkit, text
+from .. import files, mdkit, sheet, text
 from .common import _p, _grid, MD_SUFFIXES
 
 
@@ -78,6 +78,62 @@ def cmd_doc_links(a) -> int:
         return 0
     _p(f"모두 {total}건. 외부 URL 은 확인하지 않았습니다.")
     return 1
+
+
+def cmd_doc_tables(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = path.read_text(encoding="utf-8", errors="replace")
+    blocks = mdkit.find_tables(body)
+    if not blocks:
+        _p("표를 찾지 못했습니다. 머리글 줄과 --- 구분줄이 있어야 표로 봅니다.")
+        return 1
+
+    if not a.number and not a.out:
+        _grid(["번호", "줄", "열", "행", "머리글"],
+              [[str(i), str(b.start), str(b.columns), str(len(b.rows)),
+                ", ".join(b.header[:4])] for i, b in enumerate(blocks, 1)],
+              limit=40)
+        _p(f"\n표 {len(blocks)}개. -n 번호 로 하나를 보고, -o 로 저장합니다.")
+        return 0
+
+    picked = blocks
+    if a.number:
+        if not 1 <= a.number <= len(blocks):
+            _p(f"표는 1~{len(blocks)}번까지 있습니다.")
+            return 1
+        picked = [blocks[a.number - 1]]
+
+    tables = []
+    for block in picked:
+        width = block.columns
+        headers = (block.header + [""] * width)[:width]
+        headers = [h or f"열{i}" for i, h in enumerate(headers, 1)]
+        rows = [[sheet.parse_number(c) if sheet.parse_number(c) is not None else c
+                 for c in (r + [""] * width)[:width]] for r in block.rows]
+        tables.append(sheet.Table(headers, rows, source=str(path)))
+
+    if not a.out:
+        table = tables[0]
+        _grid(table.headers, [[sheet.to_text(v) for v in r]
+                              for r in table.rows[:a.limit]], limit=40)
+        _p(f"\n{len(table.rows)}행 x {table.width}열. -o 로 저장할 수 있습니다.")
+        return 0
+
+    out = Path(a.out)
+    if len(tables) == 1:
+        _p(f"저장: {sheet.save(tables[0], out)}")
+        return 0
+
+    out.mkdir(parents=True, exist_ok=True)
+    suffix = a.suffix if a.suffix.startswith(".") else f".{a.suffix}"
+    for i, table in enumerate(tables, 1):
+        _p(f"저장: {sheet.save(table, out / f'표{i}{suffix}')}")
+    _p(f"\n표 {len(tables)}개를 {out}/ 에 저장했습니다.")
+    return 0
 
 
 def cmd_doc_check(a) -> int:
@@ -231,3 +287,14 @@ def add_commands(sub) -> None:
                      help="미리보기에서 보여줄 차이 줄 수")
     dtb.add_argument("--apply", action="store_true")
     dtb.set_defaults(func=cmd_doc_table)
+
+    dg = dc.add_parser("tables", help="문서 안의 표를 csv·xlsx 로 뽑기")
+    dg.add_argument("file", metavar="파일")
+    dg.add_argument("-n", "--number", type=int, default=0, metavar="번호",
+                    help="몇 번째 표인지 (기본: 목록만)")
+    dg.add_argument("-o", "--out", metavar="파일|디렉터리",
+                    help="표가 여럿이면 디렉터리로 준다")
+    dg.add_argument("--suffix", default=".csv", metavar="확장자",
+                    help="여러 개 저장할 때 형식 (기본 .csv)")
+    dg.add_argument("--limit", type=int, default=20)
+    dg.set_defaults(func=cmd_doc_tables)
