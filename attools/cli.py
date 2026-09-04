@@ -335,6 +335,34 @@ def cmd_dev_slow(a) -> int:
     return 0
 
 
+def cmd_dev_retry(a) -> int:
+    commands = a.command or []
+    if not commands:
+        _p("돌릴 명령을 주세요. 예: at dev retry -n 5 -- curl -sf http://localhost:8080/health")
+        return 1
+
+    _p(f"{' '.join(commands)}  (최대 {a.tries}번, 처음 {a.delay:g}초 뒤부터 "
+       f"{a.backoff:g}배씩)")
+
+    def show(attempt) -> None:
+        wait = f"{attempt.waited:g}초 기다림 -> " if attempt.waited else ""
+        state = "성공" if attempt.code == 0 else f"실패(코드 {attempt.code})"
+        _p(f"  {wait}{attempt.number}번째  {state}  {attempt.seconds:.2f}초")
+
+    attempts = devkit.retry(commands, tries=a.tries, delay=a.delay,
+                            backoff=a.backoff, max_delay=a.max_delay,
+                            on_attempt=show)
+    last = attempts[-1]
+    spent = sum(x.seconds + x.waited for x in attempts)
+    if last.code == 0:
+        _p(f"\n{len(attempts)}번 만에 성공했습니다. 모두 {spent:.1f}초.")
+        return 0
+    code = hangul.josa(str(last.code), "을/를")
+    _p(f"\n{len(attempts)}번 다 실패했습니다. 모두 {spent:.1f}초. "
+       f"마지막 종료 코드 {code} 그대로 돌려줍니다.")
+    return last.code
+
+
 def cmd_dev_mask(a) -> int:
     text = _read_input(a.file)
     masked, counts = devkit.mask_text(text)
@@ -4189,6 +4217,17 @@ def build_parser() -> argparse.ArgumentParser:
     sl.add_argument("--limit", type=int, default=5, metavar="줄",
                     help="가장 느린 줄 N개")
     sl.set_defaults(func=cmd_dev_slow)
+
+    rt = dp.add_parser("retry", help="성공할 때까지 명령 다시 돌리기 (배로 늘려 기다림)")
+    rt.add_argument("-n", "--tries", type=int, default=5, metavar="번")
+    rt.add_argument("--delay", type=float, default=1.0, metavar="초",
+                    help="첫 실패 뒤 기다릴 시간 (기본 1)")
+    rt.add_argument("--backoff", type=float, default=2.0, metavar="배",
+                    help="실패할 때마다 곱할 배수 (기본 2)")
+    rt.add_argument("--max-delay", type=float, default=60.0, metavar="초")
+    rt.add_argument("command", nargs="*", metavar="명령",
+                    help="-- 뒤에 그대로 적는다")
+    rt.set_defaults(func=cmd_dev_retry, command=[])
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

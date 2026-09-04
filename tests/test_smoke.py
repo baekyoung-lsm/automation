@@ -267,6 +267,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("DB_PASSWORD=<db_password>", synced)
         self.assertNotIn("비밀", synced)          # 비밀값이 새어 나가면 안 된다
         self.assertIn("ERROR", self.run_cli("dev", "log", self.path("app.log")))
+        self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
         느림 = self.run_cli("dev", "slow", self.path("app.log"))
         self.assertIn("p95", 느림)
         self.assertIn("900", 느림)

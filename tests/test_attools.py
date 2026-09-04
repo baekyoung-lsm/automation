@@ -596,6 +596,32 @@ class DevkitTest(unittest.TestCase):
         self.assertEqual(counts["주민등록번호"], 1)
 
 
+    def test_retry_stops_at_first_success(self):
+        waited = []
+        attempts = devkit.retry(["sh", "-c", "exit 0"], tries=3,
+                                sleeper=waited.append)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0].code, 0)
+        self.assertEqual(waited, [])
+
+    def test_retry_backs_off_and_keeps_last_code(self):
+        waited = []
+        attempts = devkit.retry(["sh", "-c", "exit 7"], tries=4, delay=1,
+                                backoff=2, sleeper=waited.append)
+        self.assertEqual(len(attempts), 4)
+        self.assertEqual(attempts[-1].code, 7)
+        self.assertEqual(waited, [1, 2, 4])
+
+    def test_retry_caps_the_wait(self):
+        waited = []
+        devkit.retry(["sh", "-c", "exit 1"], tries=5, delay=10, backoff=10,
+                     max_delay=30, sleeper=waited.append)
+        self.assertEqual(waited, [10, 30, 30, 30])
+
+    def test_retry_runs_once_even_with_zero_tries(self):
+        self.assertEqual(len(devkit.retry(["true"], tries=0, sleeper=lambda s: None)), 1)
+
+
 class ManuscriptTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

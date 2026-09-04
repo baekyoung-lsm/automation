@@ -507,3 +507,42 @@ def listening_ports() -> list[OpenPort]:
         return sorted(found, key=lambda p: (p.port, p.pid))
 
     raise RuntimeError("lsof 또는 ss 가 필요합니다.")
+
+
+# ------------------------------------------------------------------ 재시도
+
+@dataclass
+class Attempt:
+    number: int
+    code: int
+    seconds: float
+    waited: float = 0.0     # 이 시도 전에 기다린 시간
+
+
+def retry(command, *, tries: int = 5, delay: float = 1.0, backoff: float = 2.0,
+          max_delay: float = 60.0, shell: bool = False,
+          on_attempt=None, sleeper=None) -> list[Attempt]:
+    """성공(종료 코드 0)할 때까지 다시 돌린다. 기다리는 시간은 배로 늘린다.
+
+    sleeper 를 주면 그것으로 기다린다(시험에서 실제로 자지 않으려고).
+    """
+    import time as _time
+
+    sleep = sleeper or _time.sleep
+    attempts: list[Attempt] = []
+    wait = 0.0
+
+    for n in range(1, max(1, tries) + 1):
+        if n > 1:
+            sleep(wait)
+        started = _time.perf_counter()
+        proc = subprocess.run(command, shell=shell)
+        elapsed = _time.perf_counter() - started
+        attempt = Attempt(n, proc.returncode, elapsed, wait if n > 1 else 0.0)
+        attempts.append(attempt)
+        if on_attempt:
+            on_attempt(attempt)
+        if proc.returncode == 0:
+            break
+        wait = min(max_delay, delay if n == 1 else wait * backoff)
+    return attempts
