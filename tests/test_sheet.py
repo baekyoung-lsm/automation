@@ -905,5 +905,33 @@ class RenameColumnTest(unittest.TestCase):
         self.assertEqual(new.rows, self.TABLE.rows)
 
 
+class SaveDocxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_table_becomes_a_word_table(self):
+        import xml.etree.ElementTree as ET
+        import zipfile
+
+        table = sheet.Table(["이름", "연봉"], [["가", 5000], ["나", None]])
+        path = sheet.save(table, self.root / "표.docx")
+        with zipfile.ZipFile(path) as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        ET.fromstring(body)
+        self.assertEqual(body.count("<w:tr>"), 3)      # 머리글 + 두 행
+        self.assertIn("이름", body)
+
+    def test_values_become_text(self):
+        import zipfile
+
+        table = sheet.Table(["값"], [[1234]])
+        path = sheet.save(table, self.root / "표.docx")
+        with zipfile.ZipFile(path) as z:
+            self.assertIn("1234", z.read("word/document.xml").decode("utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

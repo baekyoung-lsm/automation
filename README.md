@@ -613,6 +613,7 @@ at sheet combine 거래처.xlsx --cols 시,구,동 --into 주소 -o 합본.xlsx
 at sheet rename 거래처A.xlsx --map '수량=개수' --map '금액=총액' -o 맞춘본.xlsx
 at sheet rename 거래처B.xlsx --map-file 매핑.json -o 맞춘본2.xlsx
 at sheet convert 깨진파일.csv -o 정상.xlsx
+at sheet convert 명단.csv -o 명단.docx     # 보고서에 붙일 워드 표로
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet where 명단.csv --empty 연락처         # 빈 칸만 (채워 넣을 것 찾기)

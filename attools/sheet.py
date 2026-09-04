@@ -225,6 +225,14 @@ def save(table: Table, path: Path, *, excel_bom: bool = True, sheet_name: str = 
         xlsx.write_sheets(path, {sheet_name or table.sheet or "Sheet1": table.as_rows()})
         return path
 
+    if suffix == ".docx":
+        # 보고서에 붙일 표. 값은 글자로 바꿔 넣는다.
+        from . import docx
+
+        rows = [[to_text(cell) for cell in row] for row in table.as_rows()]
+        docx.write_document(path, [docx.table(rows)])
+        return path
+
     delimiter = "\t" if suffix == ".tsv" else ","
     # 엑셀에서 바로 열려면 UTF-8 BOM 이 있어야 한글이 안 깨진다
     encoding = "utf-8-sig" if excel_bom else "utf-8"
