@@ -1270,6 +1270,64 @@ def cmd_life_save(a) -> int:
     return 0
 
 
+def cmd_life_cal(a) -> int:
+    import calendar
+    from datetime import date as _date
+
+    today = _date.today()
+    year, month = today.year, today.month
+    if a.month:
+        body = a.month.strip().replace("/", "-").replace(".", "-")
+        parts = [p for p in body.split("-") if p]
+        try:
+            year = int(parts[0])
+            month = int(parts[1]) if len(parts) > 1 else 1
+            if not 1 <= month <= 12:
+                raise ValueError
+        except (ValueError, IndexError):
+            _p(f"연-월로 적어 주세요: {a.month} (예: 2026-09)")
+            return 1
+
+    extra = life.load_user_holidays(a.holidays)
+    years: set[int] = set()
+    for i in range(a.count):
+        years.add(year + (month - 1 + i) // 12)
+    holidays: dict = {}
+    for y in sorted(years):
+        holidays.update(life.holidays_for(y, extra))
+
+    for i in range(a.count):
+        y, m = year + (month - 1 + i) // 12, (month - 1 + i) % 12 + 1
+        weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(y, m)
+        days = [d for w in weeks for d in w if d.month == m]
+        work = len([d for d in days if life.is_workday(d, holidays)])
+        rest = [d for d in days if d in holidays]
+
+        if i:
+            _p("")
+        _p(f"{y}년 {m}월   영업일 {work}일, 공휴일 {len(rest)}일")
+        _p("  " + "".join(f" {name} " for name in life.WEEKDAYS))
+        for week in weeks:
+            cells = []
+            for d in week:
+                if d.month != m:
+                    cells.append("    ")
+                else:
+                    mark = "*" if d in holidays else "." if d == today else " "
+                    cells.append(f"{d.day:>3}{mark}")
+            _p("  " + "".join(cells))
+        for d in rest:
+            _p(f"  {d.day:>3}* {holidays[d]}")
+
+    _p("\n* 공휴일, . 오늘")
+    warning = life.missing_lunar_warning(holidays, sorted(years))
+    if warning:
+        _p("")
+        for line in warning:
+            _p(line)
+    return 0
+
+
 # ================================================================== sheet
 
 def _width(text: str) -> int:
@@ -3971,6 +4029,14 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--tax", type=float, default=life.INTEREST_TAX, metavar="%",
                     help="이자소득세 (기본 15.4, 비과세면 0)")
     sv.set_defaults(func=cmd_life_save)
+
+    cl = lp.add_parser("cal", help="달력 - 공휴일과 그 달 영업일 수")
+    cl.add_argument("month", nargs="?", metavar="연-월", help="기본은 이번 달")
+    cl.add_argument("-n", "--count", type=int, default=1, metavar="개월",
+                    help="이어지는 달까지 함께 (기본 1)")
+    cl.add_argument("--holidays", metavar="파일",
+                    help="음력 명절 등을 적어 둔 파일 (기본 ~/.attools/holidays.txt)")
+    cl.set_defaults(func=cmd_life_cal)
 
     # ---- sheet
     sh = sub.add_parser("sheet", help="엑셀·CSV 실무 보조").add_subparsers(dest="cmd", required=True)
