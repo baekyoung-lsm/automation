@@ -404,6 +404,11 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
         그림문서 = Path(self.path("그림문서.md"))
         그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        용어문서 = Path(self.path("용어.md"))
+        용어문서.write_text("API 설명. api 사용. Api 응답.\n", encoding="utf-8")
+        self.assertIn("대소문자",
+                      self.run_cli("doc", "terms", str(용어문서), expect=1))
+
         이미지 = self.run_cli("doc", "images", str(그림문서), expect=1)
         self.assertIn("없음", 이미지)
         self.assertIn("없는 파일 1개", 이미지)

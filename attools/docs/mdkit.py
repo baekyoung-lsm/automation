@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import re
 import urllib.parse
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from ..hangul import strip_particle
 
 TOC_START = "<!-- toc -->"
 TOC_END = "<!-- /toc -->"
@@ -368,3 +371,83 @@ def format_tables(text: str) -> tuple[str, int]:
     if text.endswith("\n"):
         body += "\n"
     return body, touched
+
+
+# ------------------------------------------------------------ 용어 표기 점검
+
+INLINE_CODE = re.compile(r"`[^`]*`")
+URL_LIKE = re.compile(r"https?://\S+|\S+@\S+\.\S+")
+WORD_EN = re.compile(r"[A-Za-z][A-Za-z0-9]{1,}")
+WORD_KO = re.compile(r"[가-힣]{2,}")
+
+
+@dataclass
+class TermUse:
+    key: str                                   # 비교용 형태
+    kind: str                                  # 대소문자 | 띄어쓰기
+    forms: Counter = field(default_factory=Counter)
+    places: dict = field(default_factory=dict)  # 표기 -> 처음 본 (파일, 줄)
+
+    @property
+    def total(self) -> int:
+        return sum(self.forms.values())
+
+    def summary(self) -> str:
+        return ", ".join(f"{form} {n}" for form, n in self.forms.most_common())
+
+
+def prose_lines(text: str):
+    """코드 블록·인라인 코드·URL 을 뺀 (줄 번호, 줄). 용어를 셀 때 쓴다."""
+    for lineno, line in _outside_fences(text):
+        body = INLINE_CODE.sub(" ", line)
+        body = URL_LIKE.sub(" ", body)
+        yield lineno, body
+
+
+def term_variants(docs: list[tuple[str, str]], *, min_count: int = 2) -> list[TermUse]:
+    """같은 말을 다르게 적은 곳을 찾는다.
+
+    영문은 대소문자만 다른 표기(API/Api/api), 한글은 띄어쓰기만 다른 표기
+    ('데이터 베이스'/'데이터베이스')를 본다. 어느 쪽이 옳은지는 정하지
+    않는다 - 프로젝트마다 다르고, 틀렸다고 단정하면 결과를 안 보게 된다.
+    """
+    case: dict[str, TermUse] = {}
+    korean: Counter = Counter()
+    joined_places: dict[str, tuple[str, int]] = {}
+    pairs: dict[str, Counter] = {}
+    pair_places: dict[str, tuple[str, int]] = {}
+
+    for name, text in docs:
+        for lineno, line in prose_lines(text):
+            for m in WORD_EN.finditer(line):
+                word = m.group(0)
+                spot = case.setdefault(word.lower(), TermUse(word.lower(), "대소문자"))
+                spot.forms[word] += 1
+                spot.places.setdefault(word, (name, lineno))
+
+            tokens = [strip_particle(w)[0] for w in WORD_KO.findall(line)]
+            tokens = [t for t in tokens if len(t) >= 2]
+            for token in tokens:
+                korean[token] += 1
+                joined_places.setdefault(token, (name, lineno))
+            for first, second in zip(tokens, tokens[1:]):
+                key = first + second
+                pairs.setdefault(key, Counter())[f"{first} {second}"] += 1
+                pair_places.setdefault(f"{first} {second}", (name, lineno))
+
+    out = [use for use in case.values()
+           if len(use.forms) > 1 and use.total >= min_count]
+
+    for key, spaced in pairs.items():
+        if key not in korean:
+            continue                      # 붙여 쓴 표기가 아예 없으면 흔들림이 아니다
+        use = TermUse(key, "띄어쓰기")
+        use.forms[key] = korean[key]
+        use.places[key] = joined_places[key]
+        for form, count in spaced.items():
+            use.forms[form] = count
+            use.places[form] = pair_places[form]
+        if use.total >= min_count:
+            out.append(use)
+
+    return sorted(out, key=lambda u: (-u.total, u.key))

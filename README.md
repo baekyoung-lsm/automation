@@ -367,6 +367,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc table <경로…>` | 마크다운 표의 칸 너비를 맞춘다. 한글을 두 칸으로 센다 |
 | `at doc tables <파일>` | 문서 안의 표를 csv·xlsx 로 뽑는다 |
 | `at doc images <경로…>` | 문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·안 쓰는 그림 |
+| `at doc terms <경로…>` | 용어 표기 흔들림 - `API`/`api`, `데이터 베이스`/`데이터베이스` |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -377,6 +378,7 @@ at doc split 기획서.md -o 기획서/          # 미리보기
 at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
+at doc terms docs/ --kind 띄어쓰기          # 붙여 쓴 곳과 띄어 쓴 곳
 at doc images docs/ --orphans --only-bad   # 깨진 그림과 안 쓰는 그림
 at doc tables 회의록.md                    # 표 목록
 at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
@@ -385,6 +387,11 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`terms` 는 같은 말을 다르게 적은 곳을 찾는다. 영문은 대소문자만 다른 표기, 한글은 띄어쓰기만
+다른 표기를 본다(조사가 붙어 있어도 같은 말로 센다). **어느 쪽이 옳은지는 정하지 않는다** —
+프로젝트마다 다르고, 틀렸다고 단정하면 결과를 안 보게 된다. 코드 블록, `인라인 코드`, URL 은
+세지 않는다. 붙여 쓴 표기가 문서 어디에도 없으면 띄어쓰기 흔들림으로 보지 않는다.
 
 `images` 는 문서가 가리키는 이미지가 실제로 있는지, 얼마나 큰지(헤더만 읽는다), 설명(alt)이
 비어 있지 않은지 본다. `--orphans` 는 어느 문서에서도 안 쓰는 이미지를 찾지만 **지우지는

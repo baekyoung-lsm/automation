@@ -205,6 +205,35 @@ def cmd_doc_images(a) -> int:
     return 1 if missing else 0
 
 
+def cmd_doc_terms(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    docs = [(str(path), path.read_text(encoding="utf-8", errors="replace"))
+            for path in targets]
+    found = mdkit.term_variants(docs, min_count=a.min)
+    if a.kind != "전부":
+        found = [u for u in found if u.kind == a.kind]
+
+    if not found:
+        _p(f"파일 {len(targets)}개, 표기가 흔들리는 말이 없습니다.")
+        return 0
+
+    _p(f"표기가 흔들리는 말 {len(found)}개")
+    for use in found[:a.limit]:
+        _p(f"\n  [{use.kind}] {use.summary()}")
+        for form, (name, line) in list(use.places.items())[:4]:
+            _p(f"    {form}  ->  {name}:{line}")
+    if len(found) > a.limit:
+        _p(f"\n... {len(found) - a.limit}개 더 (--limit 로 늘리세요)")
+
+    _p("\n어느 쪽이 옳은지는 정하지 않습니다. 프로젝트마다 다릅니다.")
+    _p("코드 블록과 `인라인 코드`, URL 은 세지 않습니다.")
+    return 1
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -378,3 +407,11 @@ def add_commands(sub) -> None:
     di.add_argument("--only-bad", action="store_true", help="문제 있는 것만")
     di.add_argument("--limit", type=int, default=30)
     di.set_defaults(func=cmd_doc_images)
+
+    dm = dc.add_parser("terms", help="용어 표기 흔들림 - API/api, 데이터 베이스/데이터베이스")
+    dm.add_argument("paths", nargs="+", metavar="경로")
+    dm.add_argument("--kind", default="전부", choices=["전부", "대소문자", "띄어쓰기"])
+    dm.add_argument("--min", type=int, default=2, metavar="회",
+                    help="이만큼 나온 말만 (기본 2)")
+    dm.add_argument("--limit", type=int, default=20)
+    dm.set_defaults(func=cmd_doc_terms)

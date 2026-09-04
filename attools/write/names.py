@@ -6,15 +6,8 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from ..hangul import has_batchim
-
-# 어간 뒤에 붙는 조사. 긴 것부터 떼어내야 '에게서'를 '에'로 자르지 않는다.
-PARTICLES = [
-    "에게서", "한테서", "으로써", "으로서", "에서는", "에게는", "이라고", "라고는",
-    "에게", "한테", "으로", "께서", "에서", "라고", "이라", "부터", "까지", "조차",
-    "마저", "처럼", "보다", "밖에", "대로", "만큼", "이나", "든지",
-    "은", "는", "이", "가", "을", "를", "와", "과", "도", "만", "의", "에", "로", "야", "아",
-]
+# 조사 목록과 떼기는 hangul 에 있다. 문서 쪽에서도 같은 규칙을 쓴다.
+from ..hangul import PARTICLES, has_batchim, strip_particle
 
 # 받침 유무로 갈리는 조사 짝. (받침 있을 때, 받침 없을 때)
 PAIRS = [("이", "가"), ("은", "는"), ("을", "를"), ("과", "와"),
@@ -56,14 +49,6 @@ class JosaError:
     right: str
     line: int
     excerpt: str
-
-
-def strip_particle(word: str) -> tuple[str, str]:
-    """어절에서 조사를 떼어 (어간, 조사). 못 떼면 (어절, '')."""
-    for p in PARTICLES:
-        if len(word) > len(p) + 1 and word.endswith(p):
-            return word[: -len(p)], p
-    return word, ""
 
 
 def all_stems(text: str, *, max_len: int = 5) -> dict[str, Name]:

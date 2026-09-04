@@ -113,6 +113,23 @@ def ends_with_batchim(word: str) -> bool | None:
     return has_batchim(last)
 
 
+# 어간 뒤에 붙는 조사. 긴 것부터 떼어내야 '에게서'를 '에'로 자르지 않는다.
+PARTICLES = [
+    "에게서", "한테서", "으로써", "으로서", "에서는", "에게는", "이라고", "라고는",
+    "에게", "한테", "으로", "께서", "에서", "라고", "이라", "부터", "까지", "조차",
+    "마저", "처럼", "보다", "밖에", "대로", "만큼", "이나", "든지",
+    "은", "는", "이", "가", "을", "를", "와", "과", "도", "만", "의", "에", "로", "야", "아",
+]
+
+
+def strip_particle(word: str) -> tuple[str, str]:
+    """어절에서 조사를 떼어 (어간, 조사). 못 떼면 (어절, '')."""
+    for p in PARTICLES:
+        if len(word) > len(p) + 1 and word.endswith(p):
+            return word[: -len(p)], p
+    return word, ""
+
+
 def is_riul_batchim(word: str) -> bool:
     """끝 글자의 받침이 ㄹ 인지. '서울로' 처럼 조사가 달라진다."""
     if not word:

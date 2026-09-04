@@ -226,5 +226,42 @@ class ImageLinkTest(unittest.TestCase):
         self.assertEqual(mdkit.links(body), [])
 
 
+class TermVariantTest(unittest.TestCase):
+    DOCS = [("a.md", "API 를 부른다. api 는 빠르다. `api` 는 코드다.\n"
+                     "데이터베이스에 넣는다."),
+            ("b.md", "Api 응답. 데이터 베이스 설정. 데이터 베이스 이름.")]
+
+    def test_case_variants_are_grouped(self):
+        found = {u.key: u for u in mdkit.term_variants(self.DOCS)}
+        self.assertEqual(dict(found["api"].forms), {"API": 1, "api": 1, "Api": 1})
+
+    def test_inline_code_is_not_counted(self):
+        # `api` 는 코드라서 세지 않는다 (세면 흔들림이 부풀려진다)
+        self.assertEqual(mdkit.term_variants(self.DOCS)[0].forms["api"], 1)
+
+    def test_spacing_variants_need_a_joined_form_somewhere(self):
+        found = {u.key: u for u in mdkit.term_variants(self.DOCS)}
+        self.assertEqual(found["데이터베이스"].kind, "띄어쓰기")
+        self.assertEqual(found["데이터베이스"].forms["데이터 베이스"], 2)
+
+    def test_particles_do_not_hide_the_joined_form(self):
+        # '데이터베이스에' 처럼 조사가 붙어도 같은 말로 본다
+        docs = [("a.md", "데이터베이스에 넣는다."), ("b.md", "데이터 베이스 설정")]
+        self.assertTrue(any(u.kind == "띄어쓰기" for u in mdkit.term_variants(docs)))
+
+    def test_spacing_alone_is_not_reported(self):
+        # 붙여 쓴 표기가 아예 없으면 흔들림이 아니다
+        docs = [("a.md", "서버 설정 파일"), ("b.md", "서버 설정 값")]
+        self.assertEqual([u for u in mdkit.term_variants(docs)
+                          if u.kind == "띄어쓰기"], [])
+
+    def test_code_fence_and_url_are_skipped(self):
+        docs = [("a.md", "```\nAPI api\n```\nhttps://example.com/Api\n")]
+        self.assertEqual(mdkit.term_variants(docs), [])
+
+    def test_consistent_spelling_is_not_reported(self):
+        self.assertEqual(mdkit.term_variants([("a.md", "API 와 API")]), [])
+
+
 if __name__ == "__main__":
     unittest.main()
