@@ -45,7 +45,8 @@ attools/
     todo.py         TODO/FIXME 수집 (주석 안에 있을 때만)
     logkit.py       로그 집계·분포·반복 에러 묶기, 응답 시간 백분위
     jsonkit.py      JSON 스키마·비교·평탄화·합치기
-    deps.py         의존성 파일 훑기
+    deps.py         의존성 파일 훑기, 잠금 파일 비교
+    pyscan.py       파이썬 소스 훑기 (안 쓰는 import, 고아 모듈)
     schedule.py     cron 해석
 
   docs/             문서 작업 - 마크다운과 보고서

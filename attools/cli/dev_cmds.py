@@ -6,7 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import files, hangul, life, sheet, text
-from ..code import dbkit, deps, devkit, fakedata, jsonkit, logkit, openapi
+from ..code import (dbkit, deps, devkit, fakedata, jsonkit, logkit, openapi,
+                    pyscan)
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
@@ -421,6 +422,43 @@ def cmd_dev_lock(a) -> int:
         _p(f"맨 앞 숫자가 바뀐 것 {len(majors)}개: "
            + ", ".join(c.name for c in majors[:8]))
         _p("대개 여기서 호환이 깨집니다. 바뀐 것 전체를 훑기 전에 이것부터 보세요.")
+    return 0
+
+
+def cmd_dev_unused(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    found: list = []
+    checked = 0
+    for path in pyscan.iter_python(root):
+        checked += 1
+        found += pyscan.unused_imports(path, skip_init=not a.init)
+
+    if found:
+        _p(f"안 쓰는 import {len(found)}건 (파일 {checked}개 훑음)")
+        for item in found[:a.limit]:
+            _p(f"  {item.path}:{item.line}  {item.source}")
+        if len(found) > a.limit:
+            _p(f"  ... {len(found) - a.limit}건 더")
+        _p("한 줄만 넘기려면 그 줄에 attools:ignore 를 적으면 됩니다.")
+    else:
+        _p(f"파일 {checked}개, 안 쓰는 import 가 없습니다.")
+
+    if a.modules:
+        orphans = [m for m in pyscan.module_uses(root) if m.orphan]
+        _p(f"\n아무도 import 하지 않는 모듈 {len(orphans)}개")
+        for item in orphans[:a.limit]:
+            _p(f"  {item.path}")
+        _p("진입점(패키지 최상단, 스크립트)은 원래 아무도 부르지 않습니다. "
+           "지우기 전에 확인하세요.")
+
+    if found:
+        _p("\n별표 import(from x import *)는 판단하지 않습니다. "
+           "동적으로 부르는 이름도 못 봅니다.")
+        return 1
     return 0
 
 
@@ -850,6 +888,15 @@ def add_commands(sub) -> None:
     lk.add_argument("--major", action="store_true", help="맨 앞 숫자가 바뀐 것만")
     lk.add_argument("--limit", type=int, default=40)
     lk.set_defaults(func=cmd_dev_lock)
+
+    un = dp.add_parser("unused", help="안 쓰는 import 찾기 (파이썬)")
+    un.add_argument("dir", nargs="?", default=".")
+    un.add_argument("--modules", action="store_true",
+                    help="아무도 import 하지 않는 모듈도 찾는다")
+    un.add_argument("--init", action="store_true",
+                    help="__init__.py 도 본다 (다시 내보내기가 많아 오탐이 늘어난다)")
+    un.add_argument("--limit", type=int, default=30)
+    un.set_defaults(func=cmd_dev_unused)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

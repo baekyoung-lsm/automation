@@ -147,6 +147,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기 |
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
+| `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -181,6 +182,7 @@ at dev fake -c 이름 -c 연락처=전화 -c 금액=금액:1000:9000 -n 200 -o �
 at dev fake -c 이름 -c 가입일=날짜:365 --seed 7        # 씨앗을 주면 같은 자료가 다시
 git show HEAD~1:package-lock.json > /tmp/전.json
 at dev lock /tmp/전.json package-lock.json --major     # 맨 앞 숫자가 바뀐 것만
+at dev unused src/ --modules                           # 걸리면 exit 1
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
 at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
@@ -212,6 +214,12 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
 숫자를 지어내게 된다.
+
+`at dev unused` 는 `ast` 로 읽으므로 문자열 검색보다 정확하다. 별칭(`import numpy as np`),
+속성 사용(`os.path.join`), `__all__` 에 적힌 이름, 문자열 타입 주석까지 쓴 것으로 센다.
+**별표 import(`from x import *`)는 판단하지 않고**, `__init__.py` 는 기본으로 건너뛴다 —
+거기 import 는 대개 다시 내보내기라 파일 안에서 안 쓰이는 것이 정상이다. 동적으로 부르는
+이름은 볼 수 없으니 지우기 전에 확인하고, 남겨야 하면 그 줄에 `attools:ignore` 를 적는다.
 
 `at dev lock` 은 `package-lock.json`(v1·v2·v3), `Pipfile.lock`, `poetry.lock`,
 `yarn.lock`, `requirements.txt`, `go.mod` 를 읽어 **무엇이 얼마나 바뀌었는지**만 낸다.

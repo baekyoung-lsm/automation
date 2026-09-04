@@ -336,6 +336,13 @@ class SmokeTest(unittest.TestCase):
             "node_modules/react": {"version": "18.2.0"}}}), encoding="utf-8")
         Path(새락).write_text(json.dumps({"lockfileVersion": 3, "packages": {
             "node_modules/react": {"version": "19.0.0"}}}), encoding="utf-8")
+        소스 = Path(self.path("소스"))
+        소스.mkdir()
+        (소스 / "a.py").write_text("import os\nimport sys\n\nprint(sys.argv)\n",
+                                   encoding="utf-8")
+        self.assertIn("import os",
+                      self.run_cli("dev", "unused", str(소스), expect=1))
+
         잠금 = self.run_cli("dev", "lock", 옛락, 새락)
         self.assertIn("react", 잠금)
         self.assertIn("맨 앞 숫자", 잠금)
