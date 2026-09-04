@@ -2459,6 +2459,43 @@ def cmd_sheet_join(a) -> int:
     return 0
 
 
+def cmd_sheet_dedupe(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, info = sheet.dedupe(t, a.key, keep=a.keep, by=a.by)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    # 받침에 맞는 조사를 붙인다. 우리가 만든 hangul.josa 를 쓴다.
+    subject = hangul.josa(a.by, "이/가") if a.by else ""
+    how = {"first": "먼저 나온 것", "last": "나중에 나온 것",
+           "max": f"{subject} 가장 큰 것", "min": f"{subject} 가장 작은 것"}[a.keep]
+    _p(f"{', '.join(a.key)} 기준으로 {how}만 남깁니다")
+    _p(f"  {len(t.rows):,}행 -> {info.kept:,}행  ·  지운 행 {info.removed:,}")
+    if info.blank_keys:
+        _p(f"  키가 빈 행 {info.blank_keys:,}개는 한 묶음으로 봤습니다.")
+
+    if info.duplicate_keys:
+        _p(f"\n겹친 키 {len(info.duplicate_keys)}개")
+        for key, count in info.duplicate_keys[:a.limit]:
+            _p(f"  {_pad(_cut(key, 24), 26)}{count}행")
+        if len(info.duplicate_keys) > a.limit:
+            _p(f"  ... {len(info.duplicate_keys) - a.limit}개 더")
+
+    if not info.removed:
+        _p("\n중복이 없습니다.")
+        return 0
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(result, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3215,6 +3252,17 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    dd = common(sh.add_parser("dedupe", help="키가 같은 행 중 하나만 남기기"))
+    dd.add_argument("file")
+    dd.add_argument("-k", "--key", action="append", required=True, metavar="열")
+    dd.add_argument("--keep", default="first",
+                    choices=["first", "last", "max", "min"])
+    dd.add_argument("--by", default="", metavar="열",
+                    help="--keep max/min 일 때 기준 열 (예: 수정일)")
+    dd.add_argument("-o", "--out", metavar="파일")
+    dd.add_argument("--limit", type=int, default=15)
+    dd.set_defaults(func=cmd_sheet_dedupe)
 
     jn = common(sh.add_parser("join", help="두 표를 키로 합치기 (VLOOKUP 대신)"))
     jn.add_argument("left", metavar="왼쪽파일")

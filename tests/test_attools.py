@@ -1211,6 +1211,49 @@ class SheetTest(unittest.TestCase):
         _, missing = sheet.fill(t, "{이름} {연차}")
         self.assertEqual(missing, {"연차"})
 
+    def test_dedupe_keep_first_and_last(self):
+        t = sheet.Table(["k", "v"], [["1", "가"], ["1", "나"], ["2", "다"]])
+        first, info = sheet.dedupe(t, ["k"], keep="first")
+        self.assertEqual([r[1] for r in first.rows], ["가", "다"])
+        self.assertEqual((info.kept, info.removed), (2, 1))
+        self.assertEqual(info.duplicate_keys, [("1", 2)])
+
+        last, _ = sheet.dedupe(t, ["k"], keep="last")
+        self.assertEqual([r[1] for r in last.rows], ["나", "다"])
+
+    def test_dedupe_keep_latest_by_date(self):
+        from datetime import date
+
+        t = sheet.Table(["사번", "부서", "수정일"],
+                        [["E1", "영업", date(2026, 1, 5)],
+                         ["E1", "영업2팀", date(2026, 3, 2)],
+                         ["E2", "개발", date(2026, 2, 1)]])
+        result, _ = sheet.dedupe(t, ["사번"], keep="max", by="수정일")
+        self.assertEqual([r[1] for r in result.rows], ["영업2팀", "개발"])
+
+        oldest, _ = sheet.dedupe(t, ["사번"], keep="min", by="수정일")
+        self.assertEqual(oldest.rows[0][1], "영업")
+
+    def test_dedupe_multiple_keys(self):
+        t = sheet.Table(["a", "b", "v"], [["1", "x", "가"], ["1", "y", "나"],
+                                          ["1", "x", "다"]])
+        result, info = sheet.dedupe(t, ["a", "b"])
+        self.assertEqual(len(result.rows), 2)
+        self.assertEqual(info.removed, 1)
+
+    def test_dedupe_requires_by_for_max(self):
+        t = sheet.Table(["k"], [["1"]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.dedupe(t, ["k"], keep="max")
+        with self.assertRaises(sheet.SheetError):
+            sheet.dedupe(t, ["k"], keep="아무거나")
+
+    def test_dedupe_counts_blank_keys(self):
+        t = sheet.Table(["k", "v"], [["", "가"], ["", "나"], ["1", "다"]])
+        result, info = sheet.dedupe(t, ["k"])
+        self.assertEqual(info.blank_keys, 2)
+        self.assertEqual(len(result.rows), 2)
+
     def test_join_left_keeps_unmatched(self):
         left = sheet.Table(["사번", "이름"], [["E1", "홍길동"], ["E3", "이영희"]])
         right = sheet.Table(["사번", "연봉"], [["E1", 100], ["E9", 200]])

@@ -838,3 +838,70 @@ def join(left: Table, right: Table, *, on: str, right_on: str = "",
                 report.right_only += 1
 
     return Table(headers, rows, source=f"{left.source} + {right.source}"), report
+
+
+@dataclass
+class DedupeReport:
+    kept: int = 0
+    removed: int = 0
+    duplicate_keys: list[tuple[str, int]] = field(default_factory=list)
+    blank_keys: int = 0
+
+
+def dedupe(table: Table, keys: list[str], *, keep: str = "first",
+           by: str = "") -> tuple[Table, DedupeReport]:
+    """키가 같은 행 중 하나만 남긴다.
+
+    keep: first/last 는 나온 순서, max/min 은 by 열의 값 기준.
+    완전히 같은 행만 지우는 clean --dedupe 와 다르다. 사번이 같고 나머지가
+    다른 행에서 최신 것만 남기는 게 실무에서 필요한 쪽이다.
+    """
+    if keep not in ("first", "last", "max", "min"):
+        raise SheetError(f"알 수 없는 방식: {keep} (first, last, max, min)")
+    if keep in ("max", "min") and not by:
+        raise SheetError(f"--keep {keep} 은 어떤 열로 고를지 --by 로 알려 줘야 합니다.")
+
+    indexes = [table.index_of(k) for k in keys]
+    order_index = table.index_of(by) if by else None
+    report = DedupeReport()
+
+    groups: dict[tuple, list[list]] = {}
+    for row in table.rows:
+        key = tuple(to_text(row[i]) if i < len(row) else "" for i in indexes)
+        if not any(key):
+            report.blank_keys += 1
+        groups.setdefault(key, []).append(row)
+
+    def rank(row: list):
+        cell = row[order_index] if order_index is not None and order_index < len(row) else None
+        if cell is None or cell == "":
+            return (1, 0.0, "")
+        if isinstance(cell, bool):
+            return (0, float(cell), "")
+        if isinstance(cell, (int, float)):
+            return (0, float(cell), "")
+        if isinstance(cell, (datetime, date)):
+            stamp = cell if isinstance(cell, datetime) else datetime(
+                cell.year, cell.month, cell.day)
+            return (0, stamp.timestamp(), "")
+        return (0, 0.0, to_text(cell))
+
+    rows: list[list] = []
+    for key, members in groups.items():
+        if len(members) > 1:
+            report.duplicate_keys.append((" / ".join(key) or "(빈 키)", len(members)))
+            report.removed += len(members) - 1
+
+        if keep == "first":
+            picked = members[0]
+        elif keep == "last":
+            picked = members[-1]
+        elif keep == "max":
+            picked = max(members, key=rank)
+        else:
+            picked = min(members, key=rank)
+        rows.append(picked)
+
+    report.kept = len(rows)
+    report.duplicate_keys.sort(key=lambda x: -x[1])
+    return Table(table.headers, rows, source=table.source, sheet=table.sheet), report
