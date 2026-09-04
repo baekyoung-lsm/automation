@@ -7,8 +7,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
-               manuscript, mdkit, names, report, sheet, text, todo)
+from . import (__version__, deps, devkit, files, gitkit, jsonkit, keys, life,
+               logkit, manuscript, mdkit, names, report, sheet, text, todo)
 from .schedule import Cron, CronError
 from . import hangul
 from .hangul import is_decomposed
@@ -2872,6 +2872,71 @@ def cmd_git_branches(a) -> int:
     return 0
 
 
+def cmd_dev_deps(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    paths = [Path(f) for f in a.file] if a.file else deps.find_files(root)
+    if not paths:
+        _p("의존성 파일을 찾지 못했습니다.")
+        _p("  찾는 것: pyproject.toml, package.json, go.mod, requirements*.txt")
+        return 1
+
+    found: list[deps.DepFile] = []
+    for path in paths:
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        try:
+            found.append(deps.read_file(path))
+        except ValueError as e:
+            _p(str(e))
+            return 1
+
+    total = sum(len(f.deps) for f in found)
+    loose = [d for f in found for d in f.deps if not d.pinned]
+    _p(f"의존성 {total:,}개  ·  파일 {len(found)}개  ·  "
+       f"버전 고정 {total - len(loose):,} / 열림 {len(loose):,}\n")
+
+    for f in found:
+        pinned = sum(1 for d in f.deps if d.pinned)
+        _p(f"{f.path.name}  ({f.kind})  {len(f.deps):,}개"
+           + (f"  고정 {pinned}/{len(f.deps)}" if f.deps else ""))
+        for note in f.notes:
+            _p(f"    {note}")
+        if a.list and f.deps:
+            _grid(["이름", "버전 조건", "묶음", "고정"],
+                  [[d.name, d.spec or "-", d.group, "예" if d.pinned else "아니오"]
+                   for d in f.deps[:a.limit]], limit=30)
+            if len(f.deps) > a.limit:
+                _p(f"    ... {len(f.deps) - a.limit}개 더")
+        _p("")
+
+    if a.loose:
+        if not loose:
+            _p("버전이 열린 의존성이 없습니다.")
+            return 0
+        _p(f"버전이 고정되지 않은 것 {len(loose)}개")
+        _grid(["이름", "조건", "파일"],
+              [[d.name, d.spec or "(조건 없음)", Path(d.source).name]
+               for d in loose[:a.limit]], limit=28)
+        if len(loose) > a.limit:
+            _p(f"  ... {len(loose) - a.limit}개 더")
+        _p("")
+
+    clashes = deps.conflicts(found)
+    if clashes:
+        _p(f"파일마다 조건이 다른 것 {len(clashes)}개")
+        for name, rows in clashes[:a.limit]:
+            joined = ", ".join(f"{where} {spec or '(조건 없음)'}" for where, spec in rows)
+            _p(f"  {_pad(name, 24)}{joined}")
+        return 1
+    _p("파일 사이에 조건이 어긋나는 의존성은 없습니다.")
+    return 0
+
+
 # =================================================================== json
 
 def _json_load(a, source):
@@ -3138,6 +3203,15 @@ def build_parser() -> argparse.ArgumentParser:
     pt.add_argument("--force", action="store_true", help="SIGKILL")
     pt.add_argument("-y", "--yes", action="store_true", help="확인 없이 종료")
     pt.set_defaults(func=cmd_dev_port)
+
+    dpz = dp.add_parser("deps", help="의존성 파일 훑기 - 개수·고정 여부·충돌")
+    dpz.add_argument("dir", nargs="?", default=".")
+    dpz.add_argument("-f", "--file", action="append", metavar="파일",
+                     help="직접 지정 (여러 번)")
+    dpz.add_argument("-l", "--list", action="store_true", help="의존성 목록도")
+    dpz.add_argument("--loose", action="store_true", help="버전이 열린 것만 모아 보기")
+    dpz.add_argument("--limit", type=int, default=40)
+    dpz.set_defaults(func=cmd_dev_deps)
 
     pl = dp.add_parser("ports", help="열려 있는 포트 전부 보기")
     pl.add_argument("filter", nargs="?", metavar="이름|번호",

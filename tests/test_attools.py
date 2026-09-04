@@ -11,9 +11,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import (devkit, files, gitkit, hangul, jsonkit, keyhtml, keys, life,
-                     logkit, manuscript, mdkit, names, report, sheet, text, todo,
-                     xlsx)
+from attools import (deps, devkit, files, gitkit, hangul, jsonkit, keyhtml, keys,
+                     life, logkit, manuscript, mdkit, names, report, sheet, text,
+                     todo, xlsx)
 from attools.schedule import Cron, CronError
 
 
@@ -2297,6 +2297,90 @@ class ReportTest(unittest.TestCase):
         html = report.tiles_html([report.Tile("행", "1,204", "전체")])
         self.assertIn("1,204", html)
         self.assertIn("전체", html)
+
+
+class DepsTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name, content):
+        p = self.root / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def test_requirements_parsing(self):
+        p = self.write("requirements.txt",
+                       "# 주석\ndjango==4.2.11\npsycopg2-binary>=2.9\nrequests\n"
+                       "celery[redis]~=5.3.0\n-r other.txt\n")
+        result = deps.read_file(p)
+        self.assertEqual([d.name for d in result.deps],
+                         ["django", "psycopg2-binary", "requests", "celery"])
+        self.assertTrue(result.deps[0].pinned)
+        self.assertFalse(result.deps[1].pinned)
+        self.assertFalse(result.deps[2].pinned)   # 조건이 없으면 고정이 아니다
+        self.assertTrue(result.notes)             # -r 은 메모로 남긴다
+
+    def test_package_json_groups(self):
+        p = self.write("package.json",
+                       '{"dependencies":{"react":"18.3.1","axios":"^1.6.0"},'
+                       '"devDependencies":{"vitest":"~1.4.0"}}')
+        result = deps.read_file(p)
+        by_name = {d.name: d for d in result.deps}
+        self.assertTrue(by_name["react"].pinned)      # 정확한 버전
+        self.assertFalse(by_name["axios"].pinned)     # ^ 는 범위
+        self.assertEqual(by_name["vitest"].group, "개발")
+
+    def test_package_json_broken(self):
+        p = self.write("package.json", "{망가짐")
+        result = deps.read_file(p)
+        self.assertEqual(result.deps, [])
+        self.assertTrue(result.notes)
+
+    def test_go_mod_parsing(self):
+        p = self.write("go.mod",
+                       "module x\ngo 1.22\nrequire (\n"
+                       "    github.com/gin-gonic/gin v1.9.1\n"
+                       "    github.com/x/y v1.0.0 // indirect\n)\n"
+                       "require golang.org/x/sync v0.6.0\n")
+        result = deps.read_file(p)
+        self.assertEqual(len(result.deps), 3)
+        self.assertTrue(all(d.pinned for d in result.deps))   # go.mod 는 늘 고정
+
+    def test_pyproject_parsing(self):
+        p = self.write("pyproject.toml",
+                       '[project]\nname = "x"\ndependencies = ["requests>=2", "click==8.1"]\n'
+                       '[project.optional-dependencies]\ntest = ["pytest==8.1"]\n')
+        result = deps.read_file(p)
+        names = {d.name for d in result.deps}
+        self.assertEqual(names, {"requests", "click", "pytest"})
+        groups = {d.name: d.group for d in result.deps}
+        self.assertEqual(groups["pytest"], "test")
+
+    def test_find_files(self):
+        self.write("pyproject.toml", "[project]\n")
+        self.write("requirements.txt", "x\n")
+        self.write("requirements/dev.txt", "y\n")
+        found = {p.name for p in deps.find_files(self.root)}
+        self.assertEqual(found, {"pyproject.toml", "requirements.txt", "dev.txt"})
+
+    def test_conflicts_between_files(self):
+        a = deps.read_file(self.write("requirements.txt", "django==4.2\n"))
+        b = deps.read_file(self.write("requirements/dev.txt", "django>=4.0\n"))
+        found = deps.conflicts([a, b])
+        self.assertEqual([name for name, _ in found], ["django"])
+
+    def test_no_conflict_when_specs_agree(self):
+        a = deps.read_file(self.write("requirements.txt", "django==4.2\n"))
+        b = deps.read_file(self.write("requirements/dev.txt", "django==4.2\n"))
+        self.assertEqual(deps.conflicts([a, b]), [])
+
+    def test_unknown_file(self):
+        with self.assertRaises(ValueError):
+            deps.read_file(self.write("Gemfile", "gem 'rails'\n"))
 
 
 if __name__ == "__main__":

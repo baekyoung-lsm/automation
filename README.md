@@ -102,6 +102,7 @@ zip 파일에는 덮어쓰지 않는다.
 | `at dev port <포트>` | 포트를 잡고 있는 프로세스를 찾고 `--kill` 로 종료한다 |
 | `at dev jwt <토큰>` | JWT 헤더·페이로드를 디코드하고 `exp`/`iat` 를 KST로 보여준다 (서명 검증 안 함) |
 | `at dev time [값]` | epoch(초/밀리초)·ISO 문자열·`now` 를 KST/UTC/epoch 로 상호 변환한다 |
+| `at dev deps [경로]` | 의존성 파일 훑기 — 개수, 버전 고정 여부, 파일 사이 충돌 |
 | `at dev ports [이름\|번호]` | 지금 열려 있는 포트 전부 (프로세스·PID와 함께) |
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
 | `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기 |
@@ -115,6 +116,8 @@ zip 파일에는 덮어쓰지 않는다.
 at dev env                       # 배포 전 .env 점검, 문제 있으면 exit 1
 at dev env --sync                # .env 에서 .env.example 을 만든다 (미리보기)
 at dev env --sync --apply
+at dev deps --loose              # 버전이 고정되지 않은 것만
+at dev deps -l                   # 목록까지
 at dev ports                     # 지금 뭐가 떠 있나
 at dev ports node                # 이름으로 거르기
 at dev port 8080 --kill
@@ -131,6 +134,10 @@ at dev log app.log                      # 전체 요약
 at dev log app.log -l ERROR -b 10m      # 에러만 10분 단위로
 kubectl logs pod | at dev log -
 ```
+
+`at dev deps` 는 `pyproject.toml`, `package.json`, `go.mod`, `requirements*.txt` 를 읽는다.
+같은 패키지가 파일마다 다른 조건으로 적혀 있으면 따로 알려 주고 종료 코드 1을 돌려주므로
+CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 그런 줄이 있다는 것만 알린다.
 
 `at dev bench` 는 첫 실행(캐시가 비어 느린 회차)을 예열로 빼고 잰다. 두 명령을 비교할 때
 중앙값 차이가 편차보다 작으면 "차이가 뚜렷하지 않다"고 알려 준다 — 측정 잡음을 개선으로
