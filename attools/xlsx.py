@@ -142,23 +142,25 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
 
         rows: list[list] = []
         width = 0
-        for _, el in ET.iterparse(z.open(part), events=("end",)):
-            if el.tag != f"{{{NS['m']}}}row":
-                continue
-            values: dict[int, object] = {}
-            for c in el.findall("m:c", NS):
-                idx = col_to_index(c.get("r", "A1"))
-                value = _cell_value(c, strings, date_flags)
-                if value is not None:
-                    values[idx] = value
-            el.clear()
+        # zip 안의 멤버도 반드시 닫는다. 안 닫으면 ResourceWarning 이 뜬다.
+        with z.open(part) as stream:
+            for _, el in ET.iterparse(stream, events=("end",)):
+                if el.tag != f"{{{NS['m']}}}row":
+                    continue
+                values: dict[int, object] = {}
+                for c in el.findall("m:c", NS):
+                    idx = col_to_index(c.get("r", "A1"))
+                    value = _cell_value(c, strings, date_flags)
+                    if value is not None:
+                        values[idx] = value
+                el.clear()
 
-            if not values:
-                rows.append([])
-                continue
-            top = max(values) + 1
-            width = max(width, top)
-            rows.append([values.get(i) for i in range(top)])
+                if not values:
+                    rows.append([])
+                    continue
+                top = max(values) + 1
+                width = max(width, top)
+                rows.append([values.get(i) for i in range(top)])
 
         return [r + [None] * (width - len(r)) for r in rows]
 

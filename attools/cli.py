@@ -129,7 +129,7 @@ def cmd_file_dupes(a) -> int:
 def cmd_file_undo(a) -> int:
     journal = Path(a.journal) if a.journal else None
     if journal is None:
-        candidates = sorted(files.JOURNAL_DIR.glob("*.jsonl")) if files.JOURNAL_DIR.is_dir() else []
+        candidates = sorted(files.journal_dir().glob("*.jsonl")) if files.journal_dir().is_dir() else []
         if not candidates:
             _p("되돌릴 저널이 없습니다.")
             return 1
@@ -1831,7 +1831,7 @@ def _keys_fill(groups) -> int:
             except keys.KeysError as e:
                 _p(f"  {e}")
 
-    _p(f"\n{filled}개를 채웠습니다. 저장: {keys.USER_DATA}")
+    _p(f"\n{filled}개를 채웠습니다. 저장: {keys.user_data_path()}")
     return 0
 
 
@@ -1855,8 +1855,8 @@ def cmd_keys(a) -> int:
         _p(f"단축키 {sum(len(g.items) for g in groups)}개\n")
         for g in groups:
             _p(f"  {_pad(g.id, 8)}{_pad(g.name, 14)}{g.desc}  ({len(g.items)}개)")
-        _p(f"\n사용자 파일: {keys.USER_DATA}")
-        _p(f"조회 기록:   {keys.STATE_FILE}")
+        _p(f"\n사용자 파일: {keys.user_data_path()}")
+        _p(f"조회 기록:   {keys.state_path()}")
         _p("\n출처")
         for name, url in sources.items():
             _p(f"  {name}: {url}")
@@ -1873,7 +1873,7 @@ def cmd_keys(a) -> int:
             names = ", ".join(g.app_name(a) for a in missing)
             _p(f"  [{_pad(g.name, 8)}] {_pad(_cut(item.name, 24), 26)}{names}")
         _p("\n확인하면 attools/data/shortcuts.json 을 고치거나,")
-        _p(f"내 것만 채우려면 {keys.USER_DATA} 에 적으면 됩니다.")
+        _p(f"내 것만 채우려면 {keys.user_data_path()} 에 적으면 됩니다.")
         _p('기본 단축키가 없는 기능이면 "없음" 이라고 적어 두세요.')
         return 0
 
@@ -1942,7 +1942,7 @@ def _keys_edit(groups) -> int:
     """사용자 단축키 파일 틀을 만들어 준다."""
     import json as _json
 
-    path = keys.USER_DATA
+    path = keys.user_data_path()
     if path.exists():
         _p(f"이미 있습니다: {path}")
         _p("이 파일의 항목이 기본 데이터를 덮어씁니다. 같은 이름이면 사용자 값이 이깁니다.")

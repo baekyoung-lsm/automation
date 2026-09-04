@@ -8,9 +8,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 DATA_FILE = Path(__file__).parent / "data" / "shortcuts.json"
-USER_DIR = Path.home() / ".attools"
-USER_DATA = USER_DIR / "shortcuts.json"   # 사용자가 추가·수정한 단축키
-STATE_FILE = USER_DIR / "keys.json"       # 조회 횟수, 사용자 순서, 고정
+def user_dir() -> Path:
+    """설정과 기록이 쌓이는 곳. 홈은 부를 때마다 다시 본다."""
+    return Path.home() / ".attools"
+
+
+def user_data_path() -> Path:
+    """사용자가 추가·수정한 단축키."""
+    return user_dir() / "shortcuts.json"
+
+
+def state_path() -> Path:
+    """조회 횟수, 사용자 순서, 고정."""
+    return user_dir() / "keys.json"
 
 # 값이 없는 칸은 두 가지다. 이 둘을 구분하지 않으면 "찾아봐야 할 것"을 알 수 없다.
 NO_SHORTCUT = "없음"      # 확인했고, 기본 단축키가 없는 기능
@@ -96,11 +106,11 @@ def load_groups() -> tuple[list[Group], dict]:
     raw = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     groups = {g["id"]: g for g in raw["groups"]}
 
-    if USER_DATA.is_file():
+    if user_data_path().is_file():
         try:
-            extra = json.loads(USER_DATA.read_text(encoding="utf-8"))
+            extra = json.loads(user_data_path().read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            raise KeysError(f"{USER_DATA} 를 읽지 못했습니다: {e}") from None
+            raise KeysError(f"{user_data_path()} 를 읽지 못했습니다: {e}") from None
         for g in extra.get("groups", []):
             base = groups.get(g["id"])
             if base is None:
@@ -133,18 +143,18 @@ class State:
 
     @classmethod
     def load(cls) -> State:
-        if not STATE_FILE.is_file():
+        if not state_path().is_file():
             return cls()
         try:
-            raw = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+            raw = json.loads(state_path().read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return cls()
         return cls(hits=raw.get("hits", {}), order=raw.get("order", {}),
                    pins=raw.get("pins", []))
 
     def save(self) -> None:
-        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        STATE_FILE.write_text(
+        state_path().parent.mkdir(parents=True, exist_ok=True)
+        state_path().write_text(
             json.dumps({"hits": self.hits, "order": self.order, "pins": self.pins},
                        ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -233,21 +243,21 @@ def search_all(groups: list[Group], query: str) -> list[tuple[Group, Item]]:
 
 
 def load_user_file() -> dict:
-    if not USER_DATA.is_file():
+    if not user_data_path().is_file():
         return {"groups": []}
     try:
-        data = json.loads(USER_DATA.read_text(encoding="utf-8"))
+        data = json.loads(user_data_path().read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
-        raise KeysError(f"{USER_DATA} 를 읽지 못했습니다: {e}") from None
+        raise KeysError(f"{user_data_path()} 를 읽지 못했습니다: {e}") from None
     data.setdefault("groups", [])
     return data
 
 
 def save_user_file(data: dict) -> Path:
-    USER_DATA.parent.mkdir(parents=True, exist_ok=True)
-    USER_DATA.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+    user_data_path().parent.mkdir(parents=True, exist_ok=True)
+    user_data_path().write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                          encoding="utf-8")
-    return USER_DATA
+    return user_data_path()
 
 
 def set_shortcut(group: Group, item_name: str, app_id: str, value: str | None, *,

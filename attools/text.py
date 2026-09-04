@@ -13,7 +13,9 @@ from pathlib import Path
 
 from .files import IGNORE_DIRS
 
-BACKUP_DIR = Path.home() / ".attools" / "text"
+def backup_dir() -> Path:
+    """원본 백업이 쌓이는 곳. 홈은 부를 때마다 다시 본다."""
+    return Path.home() / ".attools" / "text"
 ENCODINGS = ("utf-8", "cp949", "euc-kr", "utf-16")
 BOM_UTF8 = b"\xef\xbb\xbf"
 BINARY_SUFFIXES = {
@@ -191,7 +193,7 @@ def apply_changes(changes: list[Change], *, target_encoding: str | None = None,
         return None
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    base = journal.parent if journal else BACKUP_DIR / stamp
+    base = journal.parent if journal else backup_dir() / stamp
     base.mkdir(parents=True, exist_ok=True)
     journal = journal or base / "journal.jsonl"
 
@@ -223,9 +225,10 @@ def undo(journal: Path) -> tuple[int, list[str]]:
 
 
 def latest_journal() -> Path | None:
-    if not BACKUP_DIR.is_dir():
+    base = backup_dir()
+    if not base.is_dir():
         return None
-    found = sorted(BACKUP_DIR.glob("*/journal.jsonl"))
+    found = sorted(base.glob("*/journal.jsonl"))
     return found[-1] if found else None
 
 

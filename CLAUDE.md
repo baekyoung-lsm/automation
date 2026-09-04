@@ -17,6 +17,10 @@ xml.etree 로 직접 읽고 쓴다(`attools/xlsx.py`). 새 의존성이 필요�
 
 **출력은 한국어다.** 도움말, 오류 메시지, 표 머리글 전부. 이모지는 쓰지 않는다.
 
+**홈 경로는 부를 때마다 다시 읽는다.** `Path.home()` 을 모듈 최상단에서 굳히면
+시험이 실제 `~/.attools` 를 건드린다. `files.journal_dir()`, `text.backup_dir()`,
+`keys.user_data_path()`, `life.holiday_file()` 처럼 함수로 두고 그때그때 부른다.
+
 **모르는 것을 그럴듯하게 채우지 않는다.** `attools/data/shortcuts.json` 은
 확인한 단축키만 넣고, 확인 못 한 칸은 `null`(표시는 `?`), 기본 단축키가 없는
 기능은 `"없음"`(표시는 `—`)으로 구분한다. `at keys --gaps` 로 남은 것을 본다.
@@ -53,13 +57,17 @@ tests/test_attools.py
 1. 로직은 해당 모듈에 순수 함수·데이터클래스로 넣는다. 출력(`print`)은 하지 않는다.
 2. `cli.py` 에 `cmd_<그룹>_<이름>` 핸들러와 서브파서를 더한다. 표는 `_grid`,
    한글 폭 맞춤은 `_pad`·`_cut` 를 쓴다.
-3. 테스트를 쓴다. 로직 단위 테스트 + `CliWiringTest` 가 배선을 자동으로 훑는다.
+3. 테스트를 쓴다. 세 겹이다.
+   - 로직 단위 테스트 (`tests/test_attools.py`)
+   - `CliWiringTest` 가 모든 하위 명령의 배선과 `--help` 를 자동으로 훑는다
+   - `tests/test_smoke.py` 가 그룹마다 대표 명령을 실제 파일로 끝까지 돌린다.
+     새 그룹을 만들면 여기에도 한 줄 더한다.
 4. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
 
 ## 확인
 
 ```bash
-python3 -m unittest discover -s tests    # 전부 통과해야 한다
+python3 -W error::ResourceWarning -m unittest discover -s tests   # 전부 통과해야 한다
 ./at git scan                            # 자기 저장소 시크릿 검사
 ./at doc links README.md                 # 링크 검사
 ```

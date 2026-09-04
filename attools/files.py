@@ -30,7 +30,13 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
 _EXT_MAP = {ext: cat for cat, exts in CATEGORIES.items() for ext in exts}
 ETC = "기타"
 
-JOURNAL_DIR = Path.home() / ".attools" / "journal"
+def journal_dir() -> Path:
+    """되돌리기 저널이 쌓이는 곳. 홈은 부를 때마다 다시 본다.
+
+    import 시점에 Path.home() 을 굳혀 두면 시험에서 홈을 바꿔도 실제 홈을
+    건드리게 된다.
+    """
+    return Path.home() / ".attools" / "journal"
 
 
 @dataclass
@@ -119,8 +125,9 @@ def apply_moves(moves: list[Move], *, journal: Path | None = None) -> Path | Non
     if not moves:
         return None
     if journal is None:
-        JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
-        journal = JOURNAL_DIR / f"{datetime.now():%Y%m%d-%H%M%S}.jsonl"
+        base = journal_dir()
+        base.mkdir(parents=True, exist_ok=True)
+        journal = base / f"{datetime.now():%Y%m%d-%H%M%S}.jsonl"
     else:
         journal.parent.mkdir(parents=True, exist_ok=True)
 
