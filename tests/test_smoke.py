@@ -171,6 +171,10 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("짝 찾음", self.run_cli("sheet", "join", csv,
                                               self.path("급여.csv"), "--on", "사번"))
         self.run_cli("sheet", "split", csv, "--by", "부서")
+        self.assertIn("통과", self.run_cli("sheet", "validate", csv,
+                                          "--required", "이름"))
+        self.assertIn("겹치지", self.run_cli("sheet", "validate", csv,
+                                             "--unique", "사번", expect=1))
         self.assertIn("월급", self.run_cli("sheet", "fx", csv,
                                            "--add", "월급=연봉/12", "--round", "0"))
         out = self.path("보고서.html")

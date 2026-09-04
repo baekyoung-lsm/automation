@@ -1033,3 +1033,136 @@ def add_column(table: Table, name: str, expression: str, *,
         rows.append(new_row)
 
     return Table(headers, rows, source=table.source, sheet=table.sheet), report
+
+
+# --------------------------------------------------------------------- 규칙 검증
+
+TYPE_CHECKS = {
+    "숫자": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
+    "정수": lambda v: isinstance(v, int) and not isinstance(v, bool),
+    "날짜": lambda v: isinstance(v, (date, datetime)),
+    "참거짓": lambda v: isinstance(v, bool),
+    "문자": lambda v: isinstance(v, str),
+}
+
+
+@dataclass
+class Rule:
+    kind: str            # required / unique / type / match / range / oneof
+    column: str
+    argument: str = ""
+
+    def describe(self) -> str:
+        return {
+            "required": f"{self.column}: 빈 칸이 없어야 함",
+            "unique": f"{self.column}: 값이 겹치지 않아야 함",
+            "type": f"{self.column}: {self.argument} 여야 함",
+            "match": f"{self.column}: {self.argument} 에 맞아야 함",
+            "range": f"{self.column}: {self.argument} 범위 안이어야 함",
+            "oneof": f"{self.column}: {self.argument} 중 하나여야 함",
+        }[self.kind]
+
+
+@dataclass
+class Violation:
+    rule: Rule
+    count: int = 0
+    rows: list[int] = field(default_factory=list)
+    samples: list[str] = field(default_factory=list)
+
+
+def parse_rule(kind: str, spec: str) -> Rule:
+    if kind in ("required", "unique"):
+        return Rule(kind, spec.strip())
+    column, sep, argument = spec.partition("=")
+    if not sep:
+        raise SheetError(f"'열=조건' 형태로 적으세요: --{kind} {spec}")
+    return Rule(kind, column.strip(), argument.strip())
+
+
+def _range_bounds(argument: str) -> tuple[float | None, float | None]:
+    low, _, high = argument.partition(":")
+    def number(text: str):
+        text = text.strip()
+        if not text:
+            return None
+        value = parse_number(text)
+        if value is None:
+            raise SheetError(f"범위를 숫자로 읽지 못했습니다: {text}")
+        return float(value)
+    return number(low), number(high)
+
+
+def validate_rules(table: Table, rules: list[Rule]) -> list[Violation]:
+    """규칙을 어긴 행을 모은다. 행 번호는 헤더를 1행으로 센 엑셀 기준."""
+    found: list[Violation] = []
+
+    for rule in rules:
+        index = table.index_of(rule.column)
+        bad = Violation(rule)
+
+        if rule.kind == "unique":
+            seen: dict[str, int] = {}
+            for number, row in enumerate(table.rows, 2):
+                key = to_text(row[index] if index < len(row) else None)
+                if not key:
+                    continue
+                if key in seen:
+                    bad.count += 1
+                    if len(bad.rows) < 20:
+                        bad.rows.append(number)
+                    if len(bad.samples) < 5 and key not in bad.samples:
+                        bad.samples.append(key)
+                else:
+                    seen[key] = number
+            if bad.count:
+                found.append(bad)
+            continue
+
+        checker = None
+        if rule.kind == "type":
+            checker = TYPE_CHECKS.get(rule.argument)
+            if checker is None:
+                raise SheetError(f"모르는 타입입니다: {rule.argument} "
+                                 f"({', '.join(TYPE_CHECKS)})")
+        elif rule.kind == "match":
+            try:
+                pattern = re.compile(rule.argument)
+            except re.error as e:
+                raise SheetError(f"정규식이 잘못됐습니다: {e}") from None
+            checker = lambda v: bool(pattern.fullmatch(to_text(v)))  # noqa: E731
+        elif rule.kind == "range":
+            low, high = _range_bounds(rule.argument)
+
+            def checker(v, low=low, high=high):
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    return False
+                return not ((low is not None and v < low)
+                            or (high is not None and v > high))
+        elif rule.kind == "oneof":
+            allowed = {x.strip() for x in rule.argument.split(",") if x.strip()}
+            checker = lambda v: to_text(v) in allowed  # noqa: E731
+
+        for number, row in enumerate(table.rows, 2):
+            value = row[index] if index < len(row) else None
+            blank = value is None or value == ""
+
+            if rule.kind == "required":
+                ok = not blank
+            elif blank:
+                ok = True          # 빈 칸은 required 로만 잡는다. 규칙이 겹치면 시끄럽다
+            else:
+                ok = checker(value)
+
+            if ok:
+                continue
+            bad.count += 1
+            if len(bad.rows) < 20:
+                bad.rows.append(number)
+            shown = to_text(value) or "(빈 칸)"
+            if len(bad.samples) < 5 and shown not in bad.samples:
+                bad.samples.append(shown)
+
+        if bad.count:
+            found.append(bad)
+    return found

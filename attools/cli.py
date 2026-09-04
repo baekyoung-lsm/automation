@@ -2751,6 +2751,63 @@ def cmd_sheet_fx(a) -> int:
     return 0
 
 
+RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof")
+
+
+def cmd_sheet_validate(a) -> int:
+    import json as _json
+
+    t = _load(a)
+    if t is None:
+        return 1
+
+    rules: list[sheet.Rule] = []
+    try:
+        for kind in RULE_KINDS:
+            for spec in getattr(a, kind) or []:
+                rules.append(sheet.parse_rule(kind, spec))
+        if a.rules:
+            path = Path(a.rules)
+            if not path.is_file():
+                _p(f"규칙 파일이 없습니다: {path}")
+                return 1
+            for item in _json.loads(path.read_text(encoding="utf-8")):
+                rules.append(sheet.Rule(item["kind"], item["column"],
+                                        item.get("argument", "")))
+    except (sheet.SheetError, KeyError, _json.JSONDecodeError) as e:
+        _p(f"규칙을 읽지 못했습니다: {e}")
+        return 1
+
+    if not rules:
+        _p("규칙을 하나 이상 주세요.")
+        _p("  예: --required 이름 --unique 사번 --match '사번=^E\\d{3}$'")
+        _p("      --range '연봉=0:' --type 입사일=날짜 --oneof 부서=영업,개발")
+        return 1
+
+    try:
+        violations = sheet.validate_rules(t, rules)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{Path(a.file).name}  {len(t.rows):,}행  ·  규칙 {len(rules)}개")
+    if not violations:
+        _p("모든 규칙을 통과했습니다.")
+        return 0
+
+    total = sum(v.count for v in violations)
+    _p(f"어긴 것 {total:,}건  ·  규칙 {len(violations)}개\n")
+    for v in violations:
+        _p(f"[{v.rule.describe()}]  {v.count:,}건")
+        _p(f"  해당 행: {', '.join(str(n) for n in v.rows[:a.limit])}"
+           + (" ..." if v.count > len(v.rows) else ""))
+        if v.samples:
+            _p(f"  값 예시: {', '.join(_cut(x, 24) for x in v.samples)}")
+        _p("")
+    _p("행 번호는 헤더를 1행으로 센 엑셀 기준입니다.")
+    return 1
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3591,6 +3648,20 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    vd = common(sh.add_parser("validate", help="규칙으로 검증 (납품·수령 데이터)"))
+    vd.add_argument("file")
+    vd.add_argument("--required", action="append", metavar="열", help="빈 칸이 없어야")
+    vd.add_argument("--unique", action="append", metavar="열", help="값이 겹치지 않아야")
+    vd.add_argument("--type", action="append", metavar="열=종류",
+                    help="숫자 · 정수 · 날짜 · 참거짓 · 문자")
+    vd.add_argument("--match", action="append", metavar="열=정규식")
+    vd.add_argument("--range", action="append", metavar="열=최소:최대",
+                    help="예: '연봉=0:' 또는 '나이=18:65'")
+    vd.add_argument("--oneof", action="append", metavar="열=값,값")
+    vd.add_argument("--rules", metavar="파일", help="규칙을 적어 둔 JSON")
+    vd.add_argument("--limit", type=int, default=20)
+    vd.set_defaults(func=cmd_sheet_validate)
 
     fx = common(sh.add_parser("fx", help="수식으로 계산한 열 붙이기"))
     fx.add_argument("file")

@@ -314,6 +314,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
+| `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
@@ -334,6 +335,9 @@ at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
+at sheet validate 납품.csv --required 이름 --unique 사번 \
+    --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
+at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv
 at sheet join 직원.xlsx 급여.csv --on 사번 -o 통합.xlsx
@@ -342,6 +346,11 @@ at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`validate` 는 규칙을 어긴 행 번호와 값 예시를 보여 주고, 하나라도 어기면 종료 코드 1을
+돌려주므로 데이터를 받거나 넘기기 전 검사로 CI 에 넣을 수 있다. 규칙은 `--rules 규칙.json`
+으로 파일에 두고 재사용한다. 빈 칸은 `--required` 로만 잡는다 — 규칙마다 다시 잡으면
+같은 행이 여러 번 나와 정작 볼 것을 못 본다.
 
 `fx` 의 수식은 파이썬 문법이지만 **쓸 수 있는 문법만 열어 뒀다**. 사칙연산, 비교, `and/or`,
 `A if 조건 else B`, 그리고 `abs round min max int float len str` 만 된다. `__import__` 나

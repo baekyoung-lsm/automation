@@ -1256,6 +1256,64 @@ class SheetTest(unittest.TestCase):
         _, missing = sheet.fill(t, "{이름} {연차}")
         self.assertEqual(missing, {"연차"})
 
+    def rule_table(self):
+        from datetime import date
+
+        return sheet.Table(
+            ["사번", "이름", "부서", "연봉", "입사일"],
+            [["E001", "홍길동", "영업", 52000000, date(2021, 3, 2)],
+             ["E002", "", "개발", 47000000, date(2023, 7, 15)],
+             ["E002", "이영희", "기획", -100, "2020-01-06"],
+             ["잘못", "최수진", "인사", 61000000, date(2020, 1, 6)]])
+
+    def test_validate_required_and_unique(self):
+        found = {v.rule.kind: v for v in sheet.validate_rules(
+            self.rule_table(),
+            [sheet.parse_rule("required", "이름"),
+             sheet.parse_rule("unique", "사번")])}
+        self.assertEqual(found["required"].rows, [3])
+        self.assertEqual(found["unique"].rows, [4])
+        self.assertEqual(found["unique"].samples, ["E002"])
+
+    def test_validate_match_range_type_oneof(self):
+        rules = [sheet.parse_rule("match", r"사번=^E\d{3}$"),
+                 sheet.parse_rule("range", "연봉=0:"),
+                 sheet.parse_rule("type", "입사일=날짜"),
+                 sheet.parse_rule("oneof", "부서=영업,개발,인사")]
+        found = {v.rule.kind: v for v in sheet.validate_rules(self.rule_table(), rules)}
+        self.assertEqual(found["match"].rows, [5])
+        self.assertEqual(found["range"].rows, [4])
+        self.assertEqual(found["type"].rows, [4])
+        self.assertEqual(found["oneof"].rows, [4])
+
+    def test_validate_blank_only_caught_by_required(self):
+        # 빈 칸을 규칙마다 다시 잡으면 같은 행이 여러 번 나와 시끄럽다
+        t = sheet.Table(["a"], [[None]])
+        self.assertEqual(sheet.validate_rules(t, [sheet.parse_rule("type", "a=숫자")]), [])
+        self.assertEqual(len(sheet.validate_rules(
+            t, [sheet.parse_rule("required", "a")])), 1)
+
+    def test_validate_passes_clean_table(self):
+        t = sheet.Table(["사번", "이름"], [["E001", "가"], ["E002", "나"]])
+        self.assertEqual(sheet.validate_rules(
+            t, [sheet.parse_rule("required", "이름"),
+                sheet.parse_rule("unique", "사번")]), [])
+
+    def test_validate_range_bounds(self):
+        t = sheet.Table(["나이"], [[17], [30], [70]])
+        found = sheet.validate_rules(t, [sheet.parse_rule("range", "나이=18:65")])
+        self.assertEqual(found[0].rows, [2, 4])
+
+    def test_parse_rule_errors(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.parse_rule("match", "정규식만있음")
+        with self.assertRaises(sheet.SheetError):
+            sheet.validate_rules(sheet.Table(["a"], [[1]]),
+                                 [sheet.parse_rule("type", "a=없는종류")])
+        with self.assertRaises(sheet.SheetError):
+            sheet.validate_rules(sheet.Table(["a"], [["x"]]),
+                                 [sheet.parse_rule("match", "a=(열린괄호")])
+
     def test_fx_adds_computed_column(self):
         t = sheet.Table(["이름", "연봉"], [["가", 1200], ["나", 2400]])
         out, report = sheet.add_column(t, "월급", "연봉/12", digits=0)
