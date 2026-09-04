@@ -50,6 +50,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사) |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
+| `at file tree [경로]` | 프로젝트 구조. `.gitignore` 를 그대로 따르고 줄 수·크기도 |
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
@@ -67,9 +68,14 @@ at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
 at file dupes ~/Pictures --script > 삭제후보.sh
 at file watch src -p '*.py' -- pytest -q
+at file tree -d 2 --lines --summary      # LLM 에 붙여넣기 좋은 구조 요약
 at file big ~/Downloads --depth 2
 at file undo
 ```
+
+`tree` 는 `.gitignore` 를 직접 해석하지 않고 `git ls-files` 에게 묻는다. 부정 패턴이나 `**`
+같은 규칙을 흉내 내다 어긋나는 것보다 정확하다. git 저장소가 아니면 숨김·빌드 디렉터리를
+이름으로 거르고, 그렇게 했다는 사실을 함께 알린다.
 
 `diff` 는 크기가 같아도 해시를 비교하므로 **크기가 같고 내용만 바뀐 파일**을 잡는다.
 `--quick` 은 크기만 봐서 빠르지만 그런 변경은 놓치고, 결과에 그 사실을 함께 알려 준다.
@@ -236,6 +242,11 @@ at git stats --path src/ --weekday
 
 `at git stats` 의 "자주 바뀐 파일"은 그냥 통계가 아니다. 같은 파일이 계속 고쳐진다면
 설계가 그 자리에 몰려 있거나 버그가 반복된다는 뜻이라, 리팩터링 대상을 고를 때 쓴다.
+
+`at git` 명령은 모두 `git ls-files` 로 대상을 고르므로 `.gitignore` 를 그대로 따른다.
+아직 `git add` 하지 않은 저장소에서는 "추적하는 파일이 없다"고 분명히 알린다 —
+검사할 게 없는 것과 문제가 없는 것은 다르기 때문이다. `--all` 을 붙이면 추적 안 되는
+파일까지 본다.
 
 `at git todo` 는 표시가 **주석 안에 있을 때만** 센다. 문자열 리터럴의 `"TODO"` 까지 잡으면
 쓸모가 없기 때문이다. `TODO(이름)` 이나 `TODO @이름` 으로 적힌 담당자가 있으면 그것을

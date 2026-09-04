@@ -517,6 +517,37 @@ def cmd_file_diff(a) -> int:
     return 1
 
 
+def cmd_file_tree(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    tree = files.build_tree(root, depth=a.depth, use_git=not a.no_git,
+                            glob=a.glob, with_lines=a.lines or a.summary)
+    if not tree.children:
+        _p("보여줄 파일이 없습니다.")
+        return 0
+
+    rows = files.render_tree(tree, show_lines=a.lines, show_size=a.size)
+    for row in rows[:a.limit]:
+        _p(row)
+    if len(rows) > a.limit:
+        _p(f"... {len(rows) - a.limit}줄 더 (--limit 로 조절)")
+
+    _p(f"\n파일 {tree.file_count:,}개  ·  {files.human_size(tree.total_size)}"
+       + (f"  ·  {tree.total_lines:,}줄" if a.lines or a.summary else ""))
+    if files.tracked_paths(root) is None and not a.no_git:
+        _p("git 저장소가 아니라 숨김·빌드 디렉터리는 이름으로 걸렀습니다.")
+
+    if a.summary:
+        _p("")
+        _grid(["확장자", "파일", "줄"],
+              [[ext, f"{n:,}", f"{lines:,}" if lines else "-"]
+               for ext, n, lines in files.language_summary(tree)[:a.limit]], limit=16)
+    return 0
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -695,6 +726,11 @@ def cmd_git_scan(a) -> int:
     findings = gitkit.scan_paths(root, staged=a.staged, tracked=not a.all,
                                  entropy_threshold=a.entropy)
     if not findings:
+        if not a.staged and not a.all and gitkit.tracked_count(root) == 0:
+            if not a.quiet:
+                _p("git 이 추적하는 파일이 없어 아무것도 검사하지 않았습니다.")
+                _p("추적 안 되는 파일까지 보려면 --all 을 붙이세요.")
+            return 0
         if not a.quiet:
             _p("시크릿으로 보이는 값이 없습니다.")
         return 0
@@ -726,6 +762,10 @@ def cmd_git_todo(a) -> int:
 
     found = todo.collect(root, tracked=not a.all, markers=markers, glob=a.glob)
     if not found:
+        if not a.all and gitkit.tracked_count(root) == 0:
+            _p("git 이 추적하는 파일이 없습니다. (아직 add 하지 않았습니까?)")
+            _p("추적 안 되는 파일까지 보려면 --all 을 붙이세요.")
+            return 0
         _p("TODO 가 없습니다.")
         return 0
 
@@ -2375,6 +2415,19 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--now", action="store_true", help="시작하자마자 한 번 실행")
     w.epilog = "실행할 명령은 -- 뒤에 적는다.  예: at file watch src -p '*.py' -- pytest -q"
     w.set_defaults(func=cmd_file_watch, command=[])
+
+    tr2 = fp.add_parser("tree", help="프로젝트 구조 - .gitignore 를 그대로 따른다")
+    tr2.add_argument("dir", nargs="?", default=".")
+    tr2.add_argument("-d", "--depth", type=int, default=0, metavar="단계",
+                     help="이보다 깊은 곳은 접는다 (0이면 전부)")
+    tr2.add_argument("-g", "--glob", action="append", metavar="패턴")
+    tr2.add_argument("--lines", action="store_true", help="코드 파일의 줄 수도")
+    tr2.add_argument("--size", action="store_true", help="파일 크기도")
+    tr2.add_argument("--summary", action="store_true", help="확장자별 집계도")
+    tr2.add_argument("--no-git", action="store_true",
+                     help="git 에 묻지 않고 이름으로만 거른다")
+    tr2.add_argument("--limit", type=int, default=200)
+    tr2.set_defaults(func=cmd_file_tree)
 
     b = fp.add_parser("big", help="용량 차지하는 디렉터리/파일 찾기")
     b.add_argument("dir", nargs="?", default=".")

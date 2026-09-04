@@ -481,3 +481,168 @@ def diff_dirs(left: Path, right: Path, *, include_hidden: bool = False,
         else:
             result.changed.append((name, left_size, right_size))
     return result
+
+
+CODE_SUFFIXES = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".go", ".rs", ".rb",
+    ".php", ".c", ".h", ".cpp", ".hpp", ".cs", ".swift", ".sh", ".sql", ".vue",
+    ".scala", ".ex", ".exs", ".lua", ".pl", ".r", ".m", ".dart",
+}
+
+
+def tracked_paths(root: Path) -> list[Path] | None:
+    """git 이 무시하지 않는 파일 목록. git 저장소가 아니면 None.
+
+    .gitignore 를 직접 해석하지 않고 git 에게 물어본다. 부정 패턴이나 **
+    같은 규칙을 흉내 내다 어긋나는 것보다 낫다.
+    """
+    import subprocess
+
+    try:
+        # core.quotepath=false 를 안 주면 한글 파일명이 8진수로 이스케이프돼 나온다
+        proc = subprocess.run(
+            ["git", "-c", "core.quotepath=false",
+             "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=root, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    return [root / name for name in proc.stdout.splitlines() if name.strip()]
+
+
+def count_lines(path: Path, *, limit: int = 2_000_000) -> int | None:
+    try:
+        if path.stat().st_size > limit:
+            return None
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if b"\0" in data[:8000]:
+        return None
+    return data.count(b"\n") + (0 if data.endswith(b"\n") or not data else 1)
+
+
+@dataclass
+class TreeNode:
+    name: str
+    path: Path
+    is_dir: bool
+    children: list["TreeNode"] = field(default_factory=list)
+    size: int = 0
+    lines: int | None = None
+
+    @property
+    def total_size(self) -> int:
+        return self.size + sum(c.total_size for c in self.children)
+
+    @property
+    def total_lines(self) -> int:
+        return (self.lines or 0) + sum(c.total_lines for c in self.children)
+
+    @property
+    def file_count(self) -> int:
+        return (0 if self.is_dir else 1) + sum(c.file_count for c in self.children)
+
+
+def build_tree(root: Path, *, depth: int = 0, use_git: bool = True,
+               glob: list[str] | None = None, with_lines: bool = False) -> TreeNode:
+    root = root.resolve()
+    paths = tracked_paths(root) if use_git else None
+    if paths is None:
+        paths = [p for p in root.rglob("*")
+                 if p.is_file() and not any(part in IGNORE_DIRS or part.startswith(".")
+                                            for part in p.relative_to(root).parts)]
+
+    if glob:
+        from fnmatch import fnmatch
+
+        paths = [p for p in paths
+                 if any(fnmatch(p.name, g) or fnmatch(str(p.relative_to(root)), g)
+                        for g in glob)]
+
+    tree = TreeNode(root.name or str(root), root, True)
+    index: dict[Path, TreeNode] = {root: tree}
+
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if depth and len(rel.parts) > depth:
+            rel = Path(*rel.parts[:depth])          # 깊이를 넘으면 그 위 디렉터리로 접는다
+            if root / rel in index:
+                continue
+
+        parent = tree
+        for i, part in enumerate(rel.parts[:-1], 1):
+            key = root.joinpath(*rel.parts[:i])
+            node = index.get(key)
+            if node is None:
+                node = TreeNode(part, key, True)
+                index[key] = node
+                parent.children.append(node)
+            parent = node
+
+        leaf_path = root / rel
+        if leaf_path in index:
+            continue
+        leaf = TreeNode(rel.parts[-1], leaf_path, not leaf_path.is_file())
+        if leaf_path.is_file():
+            try:
+                leaf.size = leaf_path.stat().st_size
+            except OSError:
+                leaf.size = 0
+            if with_lines and leaf_path.suffix.lower() in CODE_SUFFIXES:
+                leaf.lines = count_lines(leaf_path)
+        index[leaf_path] = leaf
+        parent.children.append(leaf)
+
+    def order(node: TreeNode) -> None:
+        node.children.sort(key=lambda c: (not c.is_dir, c.name.lower()))
+        for child in node.children:
+            order(child)
+
+    order(tree)
+    return tree
+
+
+def render_tree(node: TreeNode, *, prefix: str = "", show_lines: bool = False,
+                show_size: bool = False, is_last: bool = True,
+                is_root: bool = True) -> list[str]:
+    label = node.name + ("/" if node.is_dir else "")
+    extra = []
+    if show_lines and node.lines:
+        extra.append(f"{node.lines:,}줄")
+    if show_size and not node.is_dir:
+        extra.append(human_size(node.size))
+    suffix = f"  {' · '.join(extra)}" if extra else ""
+
+    if is_root:
+        rows = [label + suffix]
+        child_prefix = ""
+    else:
+        rows = [f"{prefix}{'└─ ' if is_last else '├─ '}{label}{suffix}"]
+        child_prefix = prefix + ("   " if is_last else "│  ")
+
+    for i, child in enumerate(node.children):
+        rows += render_tree(child, prefix=child_prefix, show_lines=show_lines,
+                            show_size=show_size, is_last=i == len(node.children) - 1,
+                            is_root=False)
+    return rows
+
+
+def language_summary(node: TreeNode) -> list[tuple[str, int, int]]:
+    """(확장자, 파일 수, 줄 수) - 줄 수가 많은 순."""
+    table: dict[str, list[int]] = {}
+
+    def visit(n: TreeNode) -> None:
+        if not n.is_dir:
+            key = n.path.suffix.lower() or "(확장자 없음)"
+            row = table.setdefault(key, [0, 0])
+            row[0] += 1
+            row[1] += n.lines or 0
+        for child in n.children:
+            visit(child)
+
+    visit(node)
+    return sorted(((k, *v) for k, v in table.items()), key=lambda x: (-x[2], -x[1]))

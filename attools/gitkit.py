@@ -58,11 +58,28 @@ class Finding:
     excerpt: str
 
 
+# git 은 기본으로 비ASCII 파일명을 "\353\263..." 처럼 8진수로 이스케이프해서 내놓는다.
+# 한글 파일명이 그대로 나오게 매번 꺼 준다.
+GIT_BASE = ["git", "-c", "core.quotepath=false"]
+
+
 def run(args: list[str], cwd: Path | None = None) -> str:
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    proc = subprocess.run([*GIT_BASE, *args], cwd=cwd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or f"git {' '.join(args)} 실패")
     return proc.stdout
+
+
+def tracked_count(root: Path) -> int:
+    """git 이 추적하는 파일 수. 저장소가 아니면 -1.
+
+    0 과 '찾은 게 없음'은 다르다. 아직 add 하지 않은 저장소에서 조용히
+    '문제 없음'이라고 답하면 안 된다.
+    """
+    try:
+        return len([n for n in run(["ls-files"], root).splitlines() if n.strip()])
+    except RuntimeError:
+        return -1
 
 
 def repo_root(start: Path) -> Path:

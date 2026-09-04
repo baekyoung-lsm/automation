@@ -118,8 +118,10 @@ def add_blame(root: Path, todos: list[Todo]) -> None:
 
     for name, items in by_file.items():
         try:
-            out = subprocess.run(["git", "blame", "--line-porcelain", "--", name],
-                                 cwd=root, capture_output=True, text=True, timeout=30)
+            out = subprocess.run(
+                ["git", "-c", "core.quotepath=false",
+                 "blame", "--line-porcelain", "--", name],
+                cwd=root, capture_output=True, text=True, timeout=30)
         except (OSError, subprocess.TimeoutExpired):
             continue
         if out.returncode != 0:

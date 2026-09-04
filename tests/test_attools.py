@@ -124,6 +124,64 @@ class FilesTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "z.zip") as z:
             self.assertEqual(z.namelist(), ["sub/deep/c.log"])
 
+    def test_tree_structure_and_counts(self):
+        self.make("src/a.py", "1\n2\n3\n")
+        self.make("src/deep/b.py", "1\n")
+        self.make("README.md", "x")
+
+        tree = files.build_tree(self.root, use_git=False, with_lines=True)
+        self.assertEqual(tree.file_count, 3)
+        names = [c.name for c in tree.children]
+        self.assertEqual(names, ["src", "README.md"])   # 디렉터리가 먼저
+        self.assertEqual(tree.total_lines, 4)
+
+    def test_tree_depth_folds(self):
+        self.make("a/b/c/d.py", "1\n")
+        tree = files.build_tree(self.root, use_git=False, depth=2)
+        rows = files.render_tree(tree)
+        self.assertEqual(len(rows), 3)          # 루트 + a/ + b/
+
+    def test_tree_respects_gitignore(self):
+        import subprocess
+
+        subprocess.run(["git", "init", "-q"], cwd=self.root, capture_output=True)
+        self.make(".gitignore", "무시할것/\n*.log\n")
+        self.make("보일것.py", "1\n")
+        self.make("무시할것/숨김.py", "1\n")
+        self.make("app.log", "x")
+
+        tracked = files.tracked_paths(self.root)
+        self.assertIsNotNone(tracked)
+        names = {p.name for p in tracked}
+        self.assertIn("보일것.py", names)
+        self.assertNotIn("숨김.py", names)
+        self.assertNotIn("app.log", names)
+
+    def test_tracked_paths_outside_git(self):
+        self.assertIsNone(files.tracked_paths(self.root))
+
+    def test_count_lines_skips_binary(self):
+        text = self.make("a.py", "1\n2\n")
+        binary = self.root / "b.bin"
+        binary.write_bytes(b"\x00\x01\x02")
+        self.assertEqual(files.count_lines(text), 2)
+        self.assertIsNone(files.count_lines(binary))
+
+    def test_render_tree_uses_box_drawing(self):
+        self.make("a.py", "1\n")
+        self.make("b.py", "1\n")
+        rows = files.render_tree(files.build_tree(self.root, use_git=False))
+        self.assertTrue(rows[1].startswith("├─ "))
+        self.assertTrue(rows[2].startswith("└─ "))
+
+    def test_language_summary(self):
+        self.make("a.py", "1\n2\n")
+        self.make("b.py", "1\n")
+        self.make("c.md", "x")
+        summary = files.language_summary(
+            files.build_tree(self.root, use_git=False, with_lines=True))
+        self.assertEqual(summary[0], (".py", 2, 3))
+
     def test_dir_diff_finds_all_three_kinds(self):
         self.make("a/same.txt", "같음")
         self.make("b/same.txt", "같음")
@@ -736,6 +794,28 @@ class GitStatsTest(unittest.TestCase):
         self.assertEqual(gitkit.top_directory(["src/a.py", "src/b.py"]), "src")
         self.assertEqual(gitkit.top_directory(["src/a.py", "docs/b.md"]), "여러 곳")
         self.assertEqual(gitkit.top_directory([]), "기타")
+
+    def test_tracked_count_distinguishes_empty_index(self):
+        self.assertEqual(gitkit.tracked_count(self.root), 0)   # 저장소지만 add 전
+        self.commit("a.py", "1\n", "첫 커밋")
+        self.assertEqual(gitkit.tracked_count(self.root), 1)
+
+    def test_tracked_count_outside_repo(self):
+        outside = Path(tempfile.mkdtemp())
+        try:
+            self.assertEqual(gitkit.tracked_count(outside), -1)
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+
+    def test_korean_filenames_are_not_escaped(self):
+        # git 은 기본으로 비ASCII 파일명을 8진수로 이스케이프한다. 꺼야 한다.
+        self.commit("한글 파일.py", "# TODO 한글 주석\n", "한글 파일 추가")
+
+        names = [n for n in gitkit.run(["ls-files"], self.root).splitlines() if n]
+        self.assertEqual(names, ["한글 파일.py"])
+
+        found = todo.collect(self.root)
+        self.assertEqual([t.path for t in found], ["한글 파일.py"])
 
     def test_read_log_on_empty_repo(self):
         with self.assertRaises(RuntimeError):
