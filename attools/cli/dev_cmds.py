@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import (dbkit, deps, devkit, files, hangul, life, logkit,
-                manuscript, sheet, text)
+from .. import (dbkit, deps, devkit, files, hangul, jsonkit, life, logkit,
+                manuscript, openapi, sheet, text)
 from ..schedule import Cron, CronError
 from .common import _pad, _p, _confirm, _read_input, _cut, _grid
 
@@ -282,6 +282,74 @@ def cmd_dev_db(a) -> int:
     if a.out:
         table = sheet.Table(headers, rows, source=str(path))
         _p(f"저장: {sheet.save(table, Path(a.out))}")
+    return 0
+
+
+def cmd_dev_api(a) -> int:
+    source = Path(a.file)
+    if source.suffix.lower() in (".yaml", ".yml"):
+        _p("yaml 은 읽지 못합니다. 표준 라이브러리에 yaml 파서가 없습니다.")
+        _p("json 으로 바꿔서 주세요 (대부분의 도구가 openapi.json 을 함께 내놓습니다).")
+        return 1
+    try:
+        data = jsonkit.load(a.file)
+        spec = openapi.load(data)
+    except (jsonkit.JsonError, openapi.SpecError) as e:
+        _p(str(e))
+        return 1
+
+    head = f"{spec.title or '이름 없음'}"
+    if spec.version:
+        head += f"  {spec.version}"
+    if spec.openapi:
+        head += f"  (OpenAPI {spec.openapi})"
+    _p(head)
+    for url in spec.servers:
+        _p(f"  서버  {url}")
+
+    items = spec.endpoints
+    if a.find:
+        items = openapi.find(spec, a.find)
+    if a.method:
+        items = [e for e in items if e.method.lower() == a.method.lower()]
+    if a.holes:
+        items = [e for e in items if e in openapi.undocumented(spec)]
+    if not items:
+        _p("\n해당하는 엔드포인트가 없습니다.")
+        return 1
+
+    _p(f"\n엔드포인트 {len(items)}개 / 전체 {len(spec.endpoints)}개")
+    if a.detail:
+        for e in items[:a.limit]:
+            _p(f"\n{e.method} {e.path}" + ("  [폐기 예정]" if e.deprecated else ""))
+            if e.summary:
+                _p(f"  {e.summary}")
+            for p in e.params:
+                mark = "필수" if p.required else "선택"
+                _p(f"  - {p.place:6} {p.name}  ({p.type or '?'}, {mark})")
+            if e.body_fields:
+                _p(f"  - 본문   {', '.join(e.body_fields[:12])}"
+                   + ("  (필수)" if e.body_required else ""))
+            _p(f"  응답  {', '.join(e.responses) or '적혀 있지 않음'}")
+    else:
+        _grid(["메서드", "경로", "요약", "인자", "응답"],
+              [[e.method, e.path, e.summary or "-",
+                f"{len(e.required_params)}/{len(e.params)}",
+                ",".join(e.responses) or "-"] for e in items[:a.limit]], limit=44)
+        if len(items) > a.limit:
+            _p(f"  ... {len(items) - a.limit}개 더")
+
+    tags = spec.tags
+    if tags and not a.find:
+        _p("\n태그  " + "  ".join(f"{name} {count}" for name, count in
+                                   list(tags.items())[:8]))
+    holes = openapi.undocumented(spec)
+    old = [e for e in spec.endpoints if e.deprecated]
+    if holes:
+        _p(f"요약이나 오류 응답이 빠진 엔드포인트 {len(holes)}개 (--holes 로 봅니다)")
+    if old:
+        _p(f"폐기 예정 {len(old)}개")
+    _p("인자는 필수/전체 개수입니다. 참조($ref)는 문서 안의 것만 따라갑니다.")
     return 0
 
 
@@ -681,6 +749,16 @@ def add_commands(sub) -> None:
     db.add_argument("-o", "--out", metavar="파일", help="결과를 csv/xlsx 로 저장")
     db.add_argument("--limit", type=int, default=20, metavar="행")
     db.set_defaults(func=cmd_dev_db)
+
+    ap_ = dp.add_parser("api", help="OpenAPI(json) 문서 훑기 - 엔드포인트·인자·응답")
+    ap_.add_argument("file", metavar="openapi.json")
+    ap_.add_argument("--find", metavar="말", help="경로나 요약에 이 말이 든 것만")
+    ap_.add_argument("--method", metavar="GET", help="이 메서드만")
+    ap_.add_argument("--detail", action="store_true", help="인자와 본문까지 자세히")
+    ap_.add_argument("--holes", action="store_true",
+                     help="요약이나 오류 응답이 빠진 것만")
+    ap_.add_argument("--limit", type=int, default=30)
+    ap_.set_defaults(func=cmd_dev_api)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

@@ -131,6 +131,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청 |
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
+| `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -161,6 +162,9 @@ kubectl logs pod | at dev log -
 at dev slow app.log --over 500          # 500ms 넘는 요청 비율까지
 at dev slow app.log --sort total        # 총 소요 시간이 큰 경로부터
 at dev slow app.log --pattern 'took=(\d+)'
+at dev api openapi.json                                # 엔드포인트 한눈에
+at dev api openapi.json --find orders --detail         # 인자와 본문까지
+at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
 at dev db app.sqlite                                   # 표·뷰 목록과 행 수
 at dev db app.sqlite --table users                     # 열 구성과 앞 몇 행
 at dev db app.sqlite -q 'select 부서, count(*) from 사원 group by 부서' -o 집계.xlsx
@@ -189,6 +193,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
 숫자를 지어내게 된다.
+
+`at dev api` 는 **json 만** 읽는다. 표준 라이브러리에 yaml 파서가 없어서인데, 그 사실을
+숨기지 않고 말한다. 문서 안의 `$ref` 는 따라가고 외부 파일 참조는 따라가지 않는다.
+`--holes` 는 요약이 없거나 4xx·5xx 응답을 안 적은 엔드포인트를 모은다 — 성공 응답만 적힌
+문서가 흔한데, 그 문서를 보고 만든 클라이언트는 오류를 처리하지 않는다.
 
 `at dev db` 는 **읽기 전용**으로 연다. 훑어보다가 원본을 고치는 일이 없어야 해서다. 값을
 바꾸는 문장은 돌리기 전에 막고 그 이유를 말한다. 파일이 sqlite 인지는 확장자가 아니라

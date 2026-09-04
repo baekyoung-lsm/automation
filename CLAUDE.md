@@ -40,6 +40,7 @@ attools/
   hangul.py         NFC 정규화, 파일명 정리, 받침·조사
   devkit.py         .env, 포트, JWT, 시각, 마스킹, 대기, 생성기, 벤치, 재시도
   dbkit.py          sqlite 훑기 (읽기 전용)
+  openapi.py        OpenAPI(json) 엔드포인트·인자·응답 정리
   gitkit.py         브랜치 정리, 시크릿 검사, 커밋 통계
   todo.py           TODO/FIXME 수집 (주석 안에 있을 때만)
   logkit.py         로그 집계·분포·반복 에러 묶기

@@ -296,6 +296,14 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("금액", self.run_cli("dev", "db", db, "--table", "주문"))
         self.assertIn("1000", self.run_cli("dev", "db", db, "-q",
                                            "select 금액 from 주문"))
+
+        spec = self.path("openapi.json")
+        Path(spec).write_text(json.dumps({
+            "openapi": "3.0.0", "info": {"title": "주문 API", "version": "1.0"},
+            "paths": {"/orders": {"get": {"summary": "목록",
+                                          "responses": {"200": {}, "400": {}}}}},
+        }, ensure_ascii=False), encoding="utf-8")
+        self.assertIn("/orders", self.run_cli("dev", "api", spec))
         느림 = self.run_cli("dev", "slow", self.path("app.log"))
         self.assertIn("p95", 느림)
         self.assertIn("900", 느림)
