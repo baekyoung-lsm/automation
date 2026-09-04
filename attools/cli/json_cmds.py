@@ -214,6 +214,36 @@ def cmd_json_merge(a) -> int:
     return 0
 
 
+def cmd_json_types(a) -> int:
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+
+    node = jsonkit.infer_type(data, a.name)
+    if node.kind == "scalar":
+        _p("객체나 배열이어야 타입을 만들 수 있습니다.")
+        return 1
+    if node.kind == "array" and node.item is None:
+        _p("배열이 비어 있어 안에 무엇이 들어가는지 알 수 없습니다.")
+        return 1
+
+    code = (jsonkit.to_python(node) if a.lang == "python"
+            else jsonkit.to_typescript(node))
+    if a.out:
+        out = Path(a.out)
+        if out.exists() and not a.overwrite:
+            _p(f"이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(code, encoding="utf-8")
+        _p(f"저장: {out}")
+    else:
+        _p(code)
+    _p("표본 하나로 만든 것입니다. 표본에 없던 키나 널만 들어 있던 칸은 "
+       "알 수 없으니 사람이 손봐야 합니다.")
+    return 0
+
+
 def cmd_json_flat(a) -> int:
     data = _json_load(a, a.file)
     if data is None:
@@ -302,3 +332,11 @@ def add_commands(sub) -> None:
     jm.add_argument("--compact", action="store_true", help="한 줄로")
     jm.add_argument("--limit", type=int, default=15)
     jm.set_defaults(func=cmd_json_merge)
+
+    jt = jp.add_parser("types", help="표본 JSON 에서 타입 정의 만들기 (dataclass·interface)")
+    jt.add_argument("file", nargs="?", default="-")
+    jt.add_argument("--lang", default="python", choices=["python", "ts"])
+    jt.add_argument("--name", default="Root", metavar="이름", help="맨 바깥 타입 이름")
+    jt.add_argument("-o", "--out", metavar="파일")
+    jt.add_argument("--overwrite", action="store_true")
+    jt.set_defaults(func=cmd_json_types)

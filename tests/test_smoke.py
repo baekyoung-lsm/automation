@@ -295,6 +295,10 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("9090", self.run_cli("json", "set", one, "config.port=9090"))
         self.run_cli("json", "show", one, "--sort")
         합친 = self.run_cli("json", "merge", one, two)
+        타입 = self.run_cli("json", "types", one, "--name", "응답")
+        self.assertIn("@dataclass", 타입)
+        self.assertIn("export interface",
+                      self.run_cli("json", "types", one, "--lang", "ts"))
         self.assertIn("겹쳤습니다", 합친)
 
     # ------------------------------------------------------------- dev

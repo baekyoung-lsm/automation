@@ -170,5 +170,55 @@ class JsonkitTest(unittest.TestCase):
             jsonkit.merge_all([])
 
 
+class TypeGenTest(unittest.TestCase):
+    SAMPLE = {"id": 1, "name": "가", "active": True, "score": 1.5,
+              "tags": ["a", "b"], "meta": {"city": "서울", "zip": None},
+              "users": [{"id": 1, "name": "가"},
+                        {"id": 2, "name": "나", "nick": "별명"}]}
+
+    def test_python_dataclasses_are_ordered_by_dependency(self):
+        code = jsonkit.to_python(jsonkit.infer_type(self.SAMPLE, "Response"))
+        self.assertLess(code.index("class Meta"), code.index("class Response"))
+        self.assertLess(code.index("class Users"), code.index("class Response"))
+
+    def test_scalar_types_are_mapped(self):
+        code = jsonkit.to_python(jsonkit.infer_type(self.SAMPLE))
+        self.assertIn("id: int", code)
+        self.assertIn("name: str", code)
+        self.assertIn("active: bool", code)
+        self.assertIn("score: float", code)
+        self.assertIn("tags: list[str]", code)
+
+    def test_key_missing_in_some_items_becomes_optional(self):
+        code = jsonkit.to_python(jsonkit.infer_type(self.SAMPLE))
+        self.assertIn("nick: str | None = None", code)
+        self.assertIn("id: int", code)
+
+    def test_null_only_field_is_marked_unknown(self):
+        code = jsonkit.to_python(jsonkit.infer_type(self.SAMPLE))
+        self.assertIn("표본이 널이라", code)
+
+    def test_typescript_output(self):
+        code = jsonkit.to_typescript(jsonkit.infer_type(self.SAMPLE, "Response"))
+        self.assertIn("export interface Response {", code)
+        self.assertIn("users: Users[];", code)
+        self.assertIn("nick?: string;", code)
+
+    def test_odd_keys_are_quoted_in_ts_and_renamed_in_python(self):
+        node = jsonkit.infer_type({"응답 코드": 1, "x-총계": 2})
+        self.assertIn('"응답 코드": number;', jsonkit.to_typescript(node))
+        python = jsonkit.to_python(node)
+        self.assertIn("응답_코드: int", python)
+        self.assertIn("원래 키: 응답 코드", python)
+
+    def test_array_of_scalars_at_root(self):
+        node = jsonkit.infer_type([1, 2, 3], "번호들")
+        self.assertEqual(node.kind, "array")
+        self.assertEqual(node.item.scalar, "정수")
+
+    def test_empty_object_gets_pass(self):
+        self.assertIn("pass", jsonkit.to_python(jsonkit.infer_type({"a": {}})))
+
+
 if __name__ == "__main__":
     unittest.main()

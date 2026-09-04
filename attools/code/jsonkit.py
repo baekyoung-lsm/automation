@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -194,9 +195,7 @@ def preview(value, limit: int = 60) -> str:
 
 # ------------------------------------------------------------------- 경로 접근
 
-import re as _re
-
-PATH_TOKEN = _re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+PATH_TOKEN = re.compile(r"([^.\[\]]+)|\[(\d+)\]")
 
 
 def parse_path(path: str) -> list[str | int]:
@@ -333,3 +332,145 @@ def merge_all(values: list, *, list_mode: str = "replace") -> tuple[object, list
     for nxt in values[1:]:
         merged = deep_merge(merged, nxt, list_mode=list_mode, notes=notes)
     return merged, notes
+
+
+# ------------------------------------------------------- 표본에서 타입 만들기
+
+PY_SCALARS = {"문자": "str", "정수": "int", "실수": "float", "참거짓": "bool",
+              "널": "None"}
+TS_SCALARS = {"문자": "string", "정수": "number", "실수": "number",
+              "참거짓": "boolean", "널": "null"}
+
+
+@dataclass
+class TypeNode:
+    kind: str                      # object | array | scalar
+    name: str = ""
+    scalar: str = "문자"
+    item: "TypeNode | None" = None
+    fields: dict = field(default_factory=dict)     # 키 -> (TypeNode, 꼭 있는가)
+
+
+def _camel(name: str) -> str:
+    parts = re.split(r"[^0-9A-Za-z가-힣]+", name)
+    return "".join(p[:1].upper() + p[1:] for p in parts if p) or "값"
+
+
+def _scalar_name(value) -> str:
+    if value is None:
+        return "널"
+    if isinstance(value, bool):
+        return "참거짓"
+    if isinstance(value, int):
+        return "정수"
+    if isinstance(value, float):
+        return "실수"
+    return "문자"
+
+
+def infer_type(value, name: str = "Root") -> TypeNode:
+    """표본 하나에서 구조를 읽는다. 표본에 없는 것은 알 수 없다."""
+    if isinstance(value, dict):
+        node = TypeNode("object", _camel(name))
+        for key, body in value.items():
+            node.fields[key] = (infer_type(body, key), True)
+        return node
+    if isinstance(value, list):
+        node = TypeNode("array", _camel(name))
+        objects = [v for v in value if isinstance(v, dict)]
+        if objects:
+            merged = TypeNode("object", _camel(name))
+            for item in objects:
+                for key, body in item.items():
+                    if key not in merged.fields:
+                        merged.fields[key] = (infer_type(body, key), True)
+            for key in merged.fields:               # 일부에만 있으면 선택 항목
+                present = all(key in item for item in objects)
+                merged.fields[key] = (merged.fields[key][0], present)
+            node.item = merged
+        elif value:
+            node.item = infer_type(value[0], name)
+        return node
+    return TypeNode("scalar", _camel(name), _scalar_name(value))
+
+
+def _collect(node: TypeNode, out: list[TypeNode]) -> None:
+    if node.kind == "object":
+        for child, _ in node.fields.values():
+            _collect(child, out)
+        out.append(node)
+    elif node.kind == "array" and node.item is not None:
+        _collect(node.item, out)
+
+
+def to_python(root: TypeNode) -> str:
+    """dataclass 코드로. 이름이 겹치면 뒤엣것을 쓴다."""
+    def render(node: TypeNode, optional: bool) -> str:
+        if node.kind == "object":
+            body = node.name
+        elif node.kind == "array":
+            body = f"list[{render(node.item, False)}]" if node.item else "list"
+        else:
+            body = PY_SCALARS.get(node.scalar, "str")
+        return f"{body} | None" if optional and body != "None" else body
+
+    blocks: list[TypeNode] = []
+    _collect(root, blocks)
+    seen: dict[str, TypeNode] = {}
+    for node in blocks:
+        seen[node.name] = node
+
+    out = ["from __future__ import annotations", "", "from dataclasses import dataclass",
+           "", ""]
+    for node in seen.values():
+        out.append("@dataclass")
+        out.append(f"class {node.name}:")
+        if not node.fields:
+            out.append("    pass")
+        for key, (child, required) in node.fields.items():
+            safe = re.sub(r"\W", "_", key)
+            hint = render(child, not required)
+            line = f"    {safe}: {hint}"
+            if not required:
+                line += " = None"
+            notes = []
+            if safe != key:
+                notes.append(f"원래 키: {key}")
+            if child.kind == "scalar" and child.scalar == "널":
+                notes.append("표본이 널이라 타입을 모릅니다")
+            if notes:
+                line += "    # " + ", ".join(notes)
+            out.append(line)
+        out.append("")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+def to_typescript(root: TypeNode) -> str:
+    def render(node: TypeNode, optional: bool) -> str:
+        if node.kind == "object":
+            body = node.name
+        elif node.kind == "array":
+            body = f"{render(node.item, False)}[]" if node.item else "unknown[]"
+        else:
+            body = TS_SCALARS.get(node.scalar, "string")
+        return body
+
+    blocks: list[TypeNode] = []
+    _collect(root, blocks)
+    seen: dict[str, TypeNode] = {}
+    for node in blocks:
+        seen[node.name] = node
+
+    out: list[str] = []
+    for node in seen.values():
+        out.append(f"export interface {node.name} {{")
+        for key, (child, required) in node.fields.items():
+            mark = "" if required else "?"
+            quoted = key if re.fullmatch(r"[A-Za-z_$][\w$]*", key) else f'"{key}"'
+            note = ("  // 표본이 널이라 타입을 모릅니다"
+                    if child.kind == "scalar" and child.scalar == "널" else "")
+            out.append(f"  {quoted}{mark}: {render(child, not required)};{note}")
+        out.append("}")
+        out.append("")
+    return "\n".join(out).rstrip() + "\n"

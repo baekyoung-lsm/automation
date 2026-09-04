@@ -335,6 +335,7 @@ at text undo
 | `at json set <파일> <경로=값>` | 설정 파일의 값 바꾸기. 되돌릴 수 있다 |
 | `at json flat [파일]` | `경로<탭>값` 한 줄씩 출력해서 grep 하기 좋게 |
 | `at json merge <파일…>` | 설정 JSON 을 겹친다. 무엇을 덮어썼는지 함께 보여 준다 |
+| `at json types [파일]` | 표본 JSON 에서 타입 정의 만들기 (dataclass · TS interface) |
 
 ```bash
 curl -s ... | at json schema -
@@ -345,6 +346,8 @@ at json set package.json 'version="2.0.0"' --apply
 at json set 설정.json config.port=9090 --apply
 at json merge 기본설정.json 운영설정.json -o 배포설정.json
 at json merge 기본.json 지역.json --list append
+curl -s https://api.example.com/users | at json types - --name 사용자
+at json types 응답.json --lang ts -o types.ts
 at json flat 응답.json --grep 'error|실패'
 ```
 
