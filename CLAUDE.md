@@ -52,6 +52,7 @@ attools/
   docs/             문서 작업 - 마크다운과 보고서
     mdkit.py        목차·링크·제목 점검, 표 정렬, 절 나누기
     report.py       표를 HTML 보고서로 (차트 포함)
+    fromhtml.py     HTML -> 마크다운 (웹 문서 옮기기)
 
   write/            집필 - 사람이 쓰는 글
     manuscript.py   원고 분량·반복·장면·시간선·문체·EPUB

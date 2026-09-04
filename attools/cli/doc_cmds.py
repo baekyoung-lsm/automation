@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from .. import files, sheet, text
-from ..docs import mdkit
+from ..docs import fromhtml, mdkit
 from .common import _p, _grid, MD_SUFFIXES
 
 
@@ -407,6 +408,44 @@ def cmd_doc_index(a) -> int:
     return 0
 
 
+def cmd_doc_from_html(a) -> int:
+    if a.file == "-":
+        body = sys.stdin.read()
+    else:
+        path = Path(a.file)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            _p("웹 문서는 at dev http <주소> -o 저장.html 로 먼저 받아 두세요.")
+            return 1
+        try:
+            body, _encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"읽지 못했습니다: {e}")
+            return 1
+
+    parser = fromhtml.Converter()
+    parser.feed(body)
+    markdown = parser.result()
+    if not markdown.strip():
+        _p("옮길 내용이 없습니다.")
+        return 1
+
+    if a.out:
+        out = Path(a.out)
+        if out.exists() and not a.overwrite:
+            _p(f"이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(markdown, encoding="utf-8")
+        _p(f"저장: {out}  ({len(markdown.splitlines()):,}줄)")
+    else:
+        _p(markdown)
+
+    _p(f"\n옮기는 것: {fromhtml.SUPPORTED}")
+    _p("그 밖의 태그는 글자만 남깁니다. 옮긴 뒤 at doc lint 로 한 번 보세요.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -629,3 +668,9 @@ def add_commands(sub) -> None:
     dx.add_argument("--no-recursive", action="store_true")
     dx.add_argument("--apply", action="store_true")
     dx.set_defaults(func=cmd_doc_index)
+
+    dfh = dc.add_parser("from-html", help="HTML 을 마크다운으로 (웹 문서 옮기기)")
+    dfh.add_argument("file", nargs="?", default="-", metavar="파일")
+    dfh.add_argument("-o", "--out", metavar="파일")
+    dfh.add_argument("--overwrite", action="store_true")
+    dfh.set_defaults(func=cmd_doc_from_html)
