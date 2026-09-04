@@ -1976,6 +1976,59 @@ class JsonkitTest(unittest.TestCase):
         self.assertEqual(jsonkit.type_name(1), "int")
         self.assertEqual(jsonkit.type_name(None), "null")
 
+    def test_parse_path(self):
+        self.assertEqual(jsonkit.parse_path("users[0].name"), ["users", 0, "name"])
+        self.assertEqual(jsonkit.parse_path("a"), ["a"])
+        self.assertEqual(jsonkit.parse_path("a[2][3]"), ["a", 2, 3])
+        for bad in ("", "   ", "a..b"):
+            with self.assertRaises(jsonkit.JsonError):
+                jsonkit.parse_path(bad)
+
+    def test_get_path(self):
+        data = {"users": [{"name": "홍길동"}], "config": {"port": 8080}}
+        self.assertEqual(jsonkit.get_path(data, "users[0].name"), "홍길동")
+        self.assertEqual(jsonkit.get_path(data, "config.port"), 8080)
+
+    def test_get_path_errors_explain_where(self):
+        data = {"config": {"debug": True}}
+        with self.assertRaises(jsonkit.JsonError) as cm:
+            jsonkit.get_path(data, "config.debug.더")
+        self.assertIn("객체가 아니라", str(cm.exception))
+
+        with self.assertRaises(jsonkit.JsonError):
+            jsonkit.get_path(data, "없는키")
+        with self.assertRaises(jsonkit.JsonError):
+            jsonkit.get_path({"a": [1]}, "a[9]")
+
+    def test_set_path_returns_before_and_after(self):
+        data = {"version": "1.0.0", "list": [1, 2]}
+        self.assertEqual(jsonkit.set_path(data, "version", "2.0.0"), ("1.0.0", "2.0.0"))
+        self.assertEqual(data["version"], "2.0.0")
+
+        self.assertEqual(jsonkit.set_path(data, "list[1]", 9), (2, 9))
+        self.assertEqual(data["list"], [1, 9])
+
+    def test_set_path_requires_create_for_new_keys(self):
+        data = {"a": {}}
+        with self.assertRaises(jsonkit.JsonError) as cm:
+            jsonkit.set_path(data, "a.새키", 1)
+        self.assertIn("--create", str(cm.exception))
+
+        self.assertEqual(jsonkit.set_path(data, "a.새키", 1, create=True), (None, 1))
+        self.assertEqual(data["a"]["새키"], 1)
+
+    def test_set_path_creates_intermediate_objects(self):
+        data = {}
+        jsonkit.set_path(data, "a.b.c", 1, create=True)
+        self.assertEqual(data, {"a": {"b": {"c": 1}}})
+
+    def test_parse_value_json_then_string(self):
+        self.assertEqual(jsonkit.parse_value("3"), 3)
+        self.assertEqual(jsonkit.parse_value("true"), True)
+        self.assertEqual(jsonkit.parse_value('"글자"'), "글자")
+        self.assertEqual(jsonkit.parse_value("[1,2]"), [1, 2])
+        self.assertEqual(jsonkit.parse_value("그냥 글자"), "그냥 글자")
+
     def test_preview_truncates(self):
         self.assertTrue(jsonkit.preview("가" * 100, 10).endswith("…"))
 

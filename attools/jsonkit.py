@@ -190,3 +190,95 @@ def diff(before, after, *, key: str | None = None) -> JsonDiff:
 def preview(value, limit: int = 60) -> str:
     text = json.dumps(value, ensure_ascii=False) if not isinstance(value, str) else value
     return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+# ------------------------------------------------------------------- 경로 접근
+
+import re as _re
+
+PATH_TOKEN = _re.compile(r"([^.\[\]]+)|\[(\d+)\]")
+
+
+def parse_path(path: str) -> list[str | int]:
+    """'users[0].name' 을 ['users', 0, 'name'] 으로."""
+    path = path.strip()
+    if not path:
+        raise JsonError("경로가 비어 있습니다. 예: users[0].name")
+
+    parts: list[str | int] = []
+    position = 0
+    for m in PATH_TOKEN.finditer(path):
+        if m.start() > position and path[position:m.start()] not in (".", ""):
+            raise JsonError(f"경로를 해석하지 못했습니다: {path}")
+        position = m.end()
+        key, index = m.group(1), m.group(2)
+        parts.append(key.strip() if key is not None else int(index))
+    if position != len(path):
+        raise JsonError(f"경로를 해석하지 못했습니다: {path}")
+    if not parts:
+        raise JsonError(f"경로를 해석하지 못했습니다: {path}")
+    return parts
+
+
+def get_path(data, path: str):
+    """경로가 가리키는 값. 없으면 JsonError."""
+    current = data
+    for i, part in enumerate(parse_path(path)):
+        where = path if i == 0 else f"{path} (…{part} 앞까지는 찾았습니다)"
+        if isinstance(part, int):
+            if not isinstance(current, list) or not -len(current) <= part < len(current):
+                raise JsonError(f"{where}: [{part}] 위치가 없습니다")
+            current = current[part]
+        else:
+            if not isinstance(current, dict):
+                raise JsonError(
+                    f"{where}: '{part}' 앞이 객체가 아니라 {type_name(current)} 입니다")
+            if part not in current:
+                raise JsonError(f"{where}: '{part}' 키가 없습니다")
+            current = current[part]
+    return current
+
+
+def parse_value(text: str):
+    """'3', 'true', '"글자"', '[1,2]' 를 JSON 값으로. 안 되면 문자열 그대로."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def set_path(data, path: str, value, *, create: bool = False):
+    """경로의 값을 바꾼다. 원본을 그대로 고치고 (이전 값, 새 값) 을 돌려준다."""
+    parts = parse_path(path)
+    current = data
+
+    for i, part in enumerate(parts[:-1]):
+        if isinstance(part, int):
+            if not isinstance(current, list) or not -len(current) <= part < len(current):
+                raise JsonError(f"{path}: [{part}] 위치가 없습니다")
+            current = current[part]
+            continue
+        if not isinstance(current, dict):
+            raise JsonError(f"{path}: '{part}' 앞이 객체가 아닙니다")
+        if part not in current:
+            if not create:
+                raise JsonError(f"{path}: '{part}' 키가 없습니다 "
+                                "(--create 를 주면 만듭니다)")
+            current[part] = {}
+        current = current[part]
+
+    last = parts[-1]
+    if isinstance(last, int):
+        if not isinstance(current, list) or not -len(current) <= last < len(current):
+            raise JsonError(f"{path}: [{last}] 위치가 없습니다")
+        before = current[last]
+        current[last] = value
+        return before, value
+
+    if not isinstance(current, dict):
+        raise JsonError(f"{path}: '{last}' 앞이 객체가 아닙니다")
+    if last not in current and not create:
+        raise JsonError(f"{path}: '{last}' 키가 없습니다 (--create 를 주면 만듭니다)")
+    before = current.get(last, MISSING)
+    current[last] = value
+    return (None if before is MISSING else before), value

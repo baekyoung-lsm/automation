@@ -188,18 +188,28 @@ at text undo
 | `at json show [파일]` | 한글이 깨지지 않게 예쁘게 출력 (`--sort`, `--compact`) |
 | `at json schema [파일]` | 키 경로·타입·가끔 없는 키·예시 값 요약 |
 | `at json diff <이전> <이후>` | 사라진 키, 타입 바뀜, 새 키, 값 바뀜을 경로 단위로 |
+| `at json get <파일> <경로>` | `users[0].name` 처럼 경로로 값 하나 꺼내기 |
+| `at json set <파일> <경로=값>` | 설정 파일의 값 바꾸기. 되돌릴 수 있다 |
 | `at json flat [파일]` | `경로<탭>값` 한 줄씩 출력해서 grep 하기 좋게 |
 
 ```bash
 curl -s ... | at json schema -
 at json diff 어제응답.json 오늘응답.json --key id
 at json diff v1.json v2.json --breaking      # 깨질 변화만, 있으면 exit 1
+at json get package.json version --raw
+at json set package.json 'version="2.0.0"' --apply
+at json set 설정.json config.port=9090 --apply
 at json flat 응답.json --grep 'error|실패'
 ```
 
 `--key id` 를 주면 객체 배열을 그 필드 값으로 짝지어 비교한다. 순서만 바뀐 응답이
 전부 바뀐 것처럼 보이는 일을 막는다. `--breaking` 은 **사라진 키와 타입 변경**만 보고
 하나라도 있으면 종료 코드 1을 돌려주므로 계약 회귀 검사로 CI 에 넣을 수 있다.
+
+`set` 의 값은 JSON 으로 먼저 읽는다. `8080` 은 숫자, `true` 는 참, `"글자"` 는 문자열이 되고
+읽히지 않으면 문자열 그대로 쓴다. 무조건 문자열로 넣으려면 `--string` 을 준다. 기본은
+미리보기이고 `--apply` 로 쓰면 원본을 백업해 `at text undo` 로 되돌릴 수 있다.
+파일 전체를 다시 쓰므로 들여쓰기와 키 순서가 통일된다는 점은 감안해야 한다.
 
 파일이 JSON 으로 안 읽히면 JSON Lines 로 한 번 더 시도한다.
 

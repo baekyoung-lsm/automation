@@ -1683,6 +1683,79 @@ def cmd_novel_wordlist(a) -> int:
     return 0
 
 
+def cmd_json_get(a) -> int:
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+    try:
+        value = jsonkit.get_path(data, a.path)
+    except jsonkit.JsonError as e:
+        _p(str(e))
+        return 1
+
+    import json as _json
+
+    if a.raw and isinstance(value, str):
+        sys.stdout.write(value + "\n")
+    elif isinstance(value, (dict, list)):
+        _p(_json.dumps(value, ensure_ascii=False, indent=2))
+    else:
+        _p(_json.dumps(value, ensure_ascii=False))
+    return 0
+
+
+def cmd_json_set(a) -> int:
+    import json as _json
+
+    path, sep, raw_value = a.assignment.partition("=")
+    if not sep:
+        _p("'경로=값' 형태로 적으세요. 예: version=\"2.0.0\"  또는  config.port=8080")
+        return 1
+
+    source = Path(a.file)
+    data = _json_load(a, a.file)
+    if data is None:
+        return 1
+
+    value = raw_value if a.string else jsonkit.parse_value(raw_value)
+    try:
+        before, after = jsonkit.set_path(data, path.strip(), value, create=a.create)
+    except jsonkit.JsonError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{path.strip()}")
+    _p(f"  이전  {jsonkit.preview(before, 80)}")
+    _p(f"  이후  {jsonkit.preview(after, 80)}")
+
+    if before == after:
+        _p("\n값이 같아 바꿀 것이 없습니다.")
+        return 0
+
+    text_out = _json.dumps(data, ensure_ascii=False,
+                           indent=None if a.compact else a.indent) + "\n"
+    if not a.apply:
+        _p("\n실제로 쓰려면 --apply 를 붙이세요. (원본은 백업합니다)")
+        _p("파일 전체를 다시 쓰므로 들여쓰기와 키 순서가 통일됩니다. "
+           "--indent 로 칸 수를 맞출 수 있습니다.")
+        return 0
+
+    if a.out:
+        target = Path(a.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text_out, encoding="utf-8")
+        _p(f"\n저장: {target}")
+        return 0
+
+    original, encoding = text.read_text_any(source)
+    change = text.Change(source, original, text_out, encoding, hits=1,
+                         note=f"{path.strip()} 변경")
+    journal = text.apply_changes([change])
+    _p(f"\n{source} 를 고쳤습니다.")
+    _p(f"되돌리기: at text undo {journal}")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -3506,6 +3579,24 @@ def build_parser() -> argparse.ArgumentParser:
     jd.add_argument("--no-values", action="store_true", help="값만 바뀐 것은 생략")
     jd.add_argument("--limit", type=int, default=25)
     jd.set_defaults(func=cmd_json_diff)
+
+    jg = jp.add_parser("get", help="경로가 가리키는 값 하나 꺼내기")
+    jg.add_argument("file")
+    jg.add_argument("path", metavar="경로", help="예: users[0].name")
+    jg.add_argument("--raw", action="store_true", help="문자열이면 따옴표 없이")
+    jg.set_defaults(func=cmd_json_get)
+
+    jst = jp.add_parser("set", help="경로의 값 바꾸기 (설정 파일 편집)")
+    jst.add_argument("file")
+    jst.add_argument("assignment", metavar="경로=값",
+                     help='예: version="2.0.0"  ·  config.port=8080  ·  flags[0]=true')
+    jst.add_argument("--string", action="store_true", help="값을 무조건 문자열로")
+    jst.add_argument("--create", action="store_true", help="없는 키는 만든다")
+    jst.add_argument("--indent", type=int, default=2, metavar="칸")
+    jst.add_argument("--compact", action="store_true", help="한 줄로 저장")
+    jst.add_argument("-o", "--out", metavar="파일", help="원본 대신 여기에 저장")
+    jst.add_argument("--apply", action="store_true")
+    jst.set_defaults(func=cmd_json_set)
 
     jf = jp.add_parser("flat", help="경로=값 한 줄씩 (grep 하기 좋게)")
     jf.add_argument("file", nargs="?", default="-")
