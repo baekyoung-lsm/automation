@@ -739,6 +739,57 @@ def cmd_file_recent(a) -> int:
     return 0
 
 
+def cmd_file_unzip(a) -> int:
+    import zipfile
+
+    archive = Path(a.file)
+    if not archive.is_file():
+        _p(f"파일이 없습니다: {archive}")
+        return 1
+
+    try:
+        entries = files.list_zip(archive)
+    except zipfile.BadZipFile:
+        _p(f"zip 파일이 아니거나 깨졌습니다: {archive}")
+        return 1
+
+    dest = Path(a.out) if a.out else archive.parent / archive.stem
+    fixed = [e for e in entries if e.fixed]
+    unsafe = [e for e in entries if e.unsafe]
+    body = [e for e in entries if not e.is_dir]
+
+    _p(f"{archive}  ->  {dest}/")
+    _p(f"  항목 {len(body)}개, 이름을 고칠 것 {len(fixed)}개")
+    for e in entries[:a.limit]:
+        if e.is_dir:
+            continue
+        mark = "  <- " + e.raw if e.fixed and a.raw else ""
+        warn = f"  [건너뜀: {e.unsafe}]" if e.unsafe else ""
+        _p(f"  {e.name}  {files.human_size(e.size)}{mark}{warn}")
+    if len(body) > a.limit:
+        _p(f"  ... {len(body) - a.limit}개 더")
+
+    if unsafe:
+        _p(f"\n압축 바깥을 가리키는 항목 {len(unsafe)}개는 풀지 않습니다.")
+
+    if not a.apply:
+        _p("\n실제로 풀려면 --apply 를 붙이세요.")
+        if not fixed:
+            _p("이름이 깨진 항목은 없습니다. 그냥 unzip 을 써도 됩니다.")
+        return 0
+
+    written, skipped = files.extract_zip(archive, dest, entries,
+                                         overwrite=a.overwrite)
+    _p(f"\n{len(written)}개를 풀었습니다: {dest}/")
+    for reason in skipped[:a.limit]:
+        _p(f"  건너뜀  {reason}")
+    if len(skipped) > a.limit:
+        _p(f"  ... {len(skipped) - a.limit}개 더")
+    if skipped and not a.overwrite and any("이미 있음" in r for r in skipped):
+        _p("이미 있는 파일은 덮어쓰지 않았습니다 (--overwrite 로 덮어씁니다).")
+    return 0
+
+
 def cmd_file_hash(a) -> int:
     root = Path(a.dir)
 
@@ -3896,6 +3947,15 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--limit", type=int, default=15)
     ar.add_argument("--apply", action="store_true")
     ar.set_defaults(func=cmd_file_archive)
+
+    uz = fp.add_parser("unzip", help="한글 이름이 깨지는 zip 을 제대로 풀기")
+    uz.add_argument("file", metavar="zip파일")
+    uz.add_argument("-o", "--out", metavar="디렉터리", help="기본: zip 이름과 같은 폴더")
+    uz.add_argument("--overwrite", action="store_true", help="이미 있는 파일도 덮어쓴다")
+    uz.add_argument("--raw", action="store_true", help="고치기 전 이름도 함께 보여준다")
+    uz.add_argument("--limit", type=int, default=20)
+    uz.add_argument("--apply", action="store_true")
+    uz.set_defaults(func=cmd_file_unzip)
 
     hs = fp.add_parser("hash", help="체크섬 만들기·검증 (배포·백업 무결성)")
     hs.add_argument("dir", nargs="?", default=".")

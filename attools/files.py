@@ -9,7 +9,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .hangul import is_decomposed, sanitize_filename, to_nfc
 
@@ -757,3 +757,94 @@ def check_sums(root: Path, lines: list[str], algorithm: str = "sha256") -> Check
         result.ok.append(name) if digest(target, algorithm) == expected \
             else result.changed.append(name)
     return result
+
+
+# ------------------------------------------------------- 한글 이름 zip 풀기
+
+# 윈도우에서 만든 zip 은 파일명을 cp949 로 넣는데, 표준에는 그런 표시가 없다.
+# zipfile 은 UTF-8 표시가 없으면 cp437 로 읽으므로 한글이 깨져 나온다.
+ZIP_UTF8_FLAG = 0x800
+
+
+@dataclass
+class ZipEntry:
+    raw: str                # zipfile 이 읽은 그대로
+    name: str               # 고친 이름
+    size: int
+    is_dir: bool = False
+    fixed: bool = False     # 이름을 고쳤는가
+    unsafe: str = ""        # 위험하면 그 이유
+
+
+def fix_zip_name(raw: str, flag_bits: int) -> tuple[str, bool]:
+    """cp437 로 잘못 읽힌 이름을 cp949 로 되돌린다. (이름, 고쳤는지)"""
+    if flag_bits & ZIP_UTF8_FLAG:
+        return raw, False
+    try:
+        data = raw.encode("cp437")
+    except UnicodeEncodeError:
+        return raw, False
+    for encoding in ("cp949", "utf-8"):
+        try:
+            fixed = data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        if fixed != raw:
+            return to_nfc(fixed), True
+        return raw, False
+    return raw, False
+
+
+def unsafe_reason(name: str) -> str:
+    """압축 안 경로가 바깥을 가리키는지 본다(zip slip)."""
+    if name.startswith("/") or name.startswith("\\\\"):
+        return "절대 경로"
+    if re.match(r"^[A-Za-z]:", name):
+        return "드라이브 경로"
+    parts = PurePosixPath(name.replace("\\\\", "/")).parts
+    if ".." in parts:
+        return "상위 디렉터리(..)"
+    return ""
+
+
+def list_zip(archive: Path) -> list[ZipEntry]:
+    """압축 안의 목록을 읽는다. 풀지는 않는다."""
+    import zipfile
+
+    out: list[ZipEntry] = []
+    with zipfile.ZipFile(archive) as z:
+        for info in z.infolist():
+            name, fixed = fix_zip_name(info.filename, info.flag_bits)
+            out.append(ZipEntry(info.filename, name, info.file_size,
+                                info.is_dir(), fixed, unsafe_reason(name)))
+    return out
+
+
+def extract_zip(archive: Path, dest: Path, entries: list[ZipEntry], *,
+                overwrite: bool = False) -> tuple[list[Path], list[str]]:
+    """고친 이름으로 푼다. (푼 파일들, 건너뛴 이유들)"""
+    import zipfile
+
+    written: list[Path] = []
+    skipped: list[str] = []
+    dest = dest.resolve()
+    with zipfile.ZipFile(archive) as z:
+        for entry in entries:
+            if entry.unsafe:
+                skipped.append(f"{entry.name}: {entry.unsafe}")
+                continue
+            target = (dest / entry.name).resolve()
+            if not str(target).startswith(str(dest)):
+                skipped.append(f"{entry.name}: 대상 디렉터리 밖")
+                continue
+            if entry.is_dir:
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if target.exists() and not overwrite:
+                skipped.append(f"{entry.name}: 이미 있음")
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(entry.raw) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+            written.append(target)
+    return written, skipped

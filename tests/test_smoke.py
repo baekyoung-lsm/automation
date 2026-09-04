@@ -139,6 +139,21 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "big", self.path())
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
+
+        import zipfile
+
+        class Cp949Info(zipfile.ZipInfo):
+            def _encodeFilenameFlags(self):
+                return self.filename.encode("cp949"), 0
+
+        zip경로 = Path(self.path("윈도우.zip"))
+        with zipfile.ZipFile(zip경로, "w") as z:
+            z.writestr(Cp949Info("보고서/1분기.txt"), "내용")
+        푼곳 = self.path("푼것")
+        self.assertIn("1분기.txt",
+                      self.run_cli("file", "unzip", str(zip경로), "-o", 푼곳))
+        self.run_cli("file", "unzip", str(zip경로), "-o", 푼곳, "--apply")
+        self.assertTrue((Path(푼곳) / "보고서" / "1분기.txt").is_file())
         sums = self.path("SUMS.txt")
         self.run_cli("file", "hash", self.path("원고"), "-o", sums)
         self.assertIn("모두 같습니다",

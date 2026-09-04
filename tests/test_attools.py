@@ -380,6 +380,65 @@ class FilesTest(unittest.TestCase):
         self.assertEqual([Path(m.dst).name for m in moves], ["한글.txt"])
 
 
+    def _cp949_zip(self, names: dict) -> Path:
+        """윈도우에서 만든 것처럼 cp949 이름으로 zip 을 만든다."""
+        import zipfile
+
+        class Cp949Info(zipfile.ZipInfo):
+            def _encodeFilenameFlags(self):
+                return self.filename.encode("cp949"), 0
+
+        path = self.root / "윈도우.zip"
+        with zipfile.ZipFile(path, "w") as z:
+            for name, body in names.items():
+                z.writestr(Cp949Info(name), body)
+            info = zipfile.ZipInfo("정상.txt")
+            info.flag_bits |= files.ZIP_UTF8_FLAG
+            z.writestr(info, "utf-8 표시가 있는 항목")
+        return path
+
+    def test_list_zip_repairs_cp949_names(self):
+        path = self._cp949_zip({"보고서/1분기 결과.txt": "내용", "사진.jpg": "x"})
+        entries = {e.name: e for e in files.list_zip(path)}
+        self.assertIn("보고서/1분기 결과.txt", entries)
+        self.assertTrue(entries["보고서/1분기 결과.txt"].fixed)
+        self.assertFalse(entries["정상.txt"].fixed)      # 이미 UTF-8 이면 두 번 고치지 않는다
+
+    def test_fix_zip_name_leaves_utf8_flagged_alone(self):
+        self.assertEqual(files.fix_zip_name("한글.txt", files.ZIP_UTF8_FLAG),
+                         ("한글.txt", False))
+
+    def test_fix_zip_name_leaves_ascii_alone(self):
+        self.assertEqual(files.fix_zip_name("report.txt", 0), ("report.txt", False))
+
+    def test_unsafe_reason_catches_escapes(self):
+        self.assertEqual(files.unsafe_reason("../바깥.txt"), "상위 디렉터리(..)")
+        self.assertEqual(files.unsafe_reason("/etc/passwd"), "절대 경로")
+        self.assertEqual(files.unsafe_reason("C:/윈도우"), "드라이브 경로")
+        self.assertEqual(files.unsafe_reason("안/전.txt"), "")
+
+    def test_extract_zip_writes_fixed_names_and_skips_escapes(self):
+        path = self._cp949_zip({"보고서/결과.txt": "내용", "../바깥.txt": "위험"})
+        dest = self.root / "풀기"
+        written, skipped = files.extract_zip(path, dest, files.list_zip(path))
+        names = sorted(p.relative_to(dest).as_posix() for p in written)
+        self.assertEqual(names, ["보고서/결과.txt", "정상.txt"])
+        self.assertTrue(any("상위 디렉터리" in s for s in skipped))
+        self.assertEqual((dest / "보고서" / "결과.txt").read_text(encoding="utf-8"),
+                         "내용")
+
+    def test_extract_zip_keeps_existing_files_unless_told(self):
+        path = self._cp949_zip({"결과.txt": "새 내용"})
+        dest = self.root / "풀기"
+        dest.mkdir()
+        (dest / "결과.txt").write_text("원래 내용", encoding="utf-8")
+        written, skipped = files.extract_zip(path, dest, files.list_zip(path))
+        self.assertTrue(any("이미 있음" in s for s in skipped))
+        self.assertEqual((dest / "결과.txt").read_text(encoding="utf-8"), "원래 내용")
+        files.extract_zip(path, dest, files.list_zip(path), overwrite=True)
+        self.assertEqual((dest / "결과.txt").read_text(encoding="utf-8"), "새 내용")
+
+
 class DevkitTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
