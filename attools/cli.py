@@ -371,6 +371,96 @@ def cmd_novel_snap(a) -> int:
 
 
 
+def _parse_goal(text: str) -> int:
+    """'300000' 또는 '1500매'(원고지 200자) 를 글자수로."""
+    body = text.strip().replace(",", "")
+    if body.endswith("매"):
+        return int(float(body[:-1]) * 200)
+    if body.endswith("자"):
+        body = body[:-1]
+    return int(float(body))
+
+
+def cmd_novel_pace(a) -> int:
+    from datetime import date
+
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    goal = 0
+    if a.goal:
+        try:
+            goal = _parse_goal(a.goal)
+        except ValueError:
+            _p(f"목표를 읽지 못했습니다: {a.goal} (예: 300000 또는 1500매)")
+            return 1
+    due = None
+    if a.due:
+        try:
+            due = date.fromisoformat(a.due)
+        except ValueError:
+            _p(f"마감일은 2026-12-31 형식으로 적어 주세요: {a.due}")
+            return 1
+
+    snaps = manuscript.list_snapshots(root)
+    if not snaps:
+        _p("스냅샷이 없습니다. at novel snap 으로 먼저 한 번 찍어 두세요.")
+        return 1
+
+    p = manuscript.pace(snaps, window=a.window, goal=goal, due=due)
+    live = manuscript.total([manuscript.analyze(f)
+                             for f in manuscript.collect([root])]).chars_no_space
+
+    _p(f"{root}  스냅샷 {len(snaps)}개 "
+       f"({p.days[0].day} ~ {p.days[-1].day})")
+    _p(f"  마지막 기록      {p.current:,}자 (원고지 {p.current / 200:,.1f}매)")
+    if live != p.current:
+        _p(f"  지금 원고        {live:,}자 ({live - p.current:+,}자, 아직 스냅샷 안 함)")
+
+    if len(p.days) < 2:
+        _p("\n기록이 하루뿐이라 속도를 계산할 수 없습니다. "
+           "며칠 더 at novel snap 을 찍어 주세요.")
+        return 0
+
+    _p(f"  기록 기간        {p.span}일, 그중 쓴 날 {p.written_days}일")
+    _p(f"  하루 평균        {p.per_day:,.0f}자 (달력) / "
+       f"{p.per_written_day:,.0f}자 (쓴 날만)")
+    if best := p.best:
+        _p(f"  가장 많이 쓴 날  {best.day}  {best.written:,}자")
+
+    if a.days:
+        _p("")
+        rows = [[str(d.day), f"{d.total:,}",
+                 "기준" if d.baseline else f"{d.written:+,}"]
+                for d in p.days[-a.days:]]
+        _grid(["날짜", "누적", "그날"], rows)
+
+    if not goal:
+        _p("\n--goal 300000 이나 --goal 1500매 를 주면 남은 분량과 마감을 계산합니다.")
+        return 0
+
+    _p(f"\n목표 {goal:,}자까지 {p.remaining:,}자 남았습니다 "
+       f"({p.current / goal:.0%} 씀).")
+    left = p.days_left()
+    if left is not None:
+        if left <= 0:
+            _p(f"마감 {p.due} 이 지났거나 오늘입니다.")
+        else:
+            need = p.need_per_day() or 0
+            _p(f"마감 {p.due} 까지 {left}일 -> 하루 {need:,.0f}자")
+            if need > p.per_day > 0:
+                _p(f"필요한 속도가 지금 속도({p.per_day:,.0f}자/일)의 "
+                   f"{need / p.per_day:.1f}배입니다.")
+    if finish := p.finish_day():
+        _p(f"지금 속도면 {finish} 에 목표에 닿습니다. "
+           "쉰 날까지 나눈 값이라 계획이 아니라 어림값입니다.")
+    elif p.per_day <= 0:
+        _p("기간 중 늘어난 분량이 없어 도착일을 계산하지 않았습니다.")
+    return 0
+
+
 def cmd_file_rename(a) -> int:
     root = Path(a.dir)
     if not root.is_dir():
@@ -4288,6 +4378,16 @@ def build_parser() -> argparse.ArgumentParser:
     sn.add_argument("--note", default="")
     sn.add_argument("-l", "--list", action="store_true")
     sn.set_defaults(func=cmd_novel_snap)
+
+    pc = np_.add_parser("pace", help="스냅샷으로 집필 속도·마감 계산")
+    pc.add_argument("dir", nargs="?", default=".")
+    pc.add_argument("--goal", metavar="분량", help="목표 (예: 300000 또는 1500매)")
+    pc.add_argument("--due", metavar="날짜", help="마감일 (2026-12-31)")
+    pc.add_argument("--window", type=int, default=0, metavar="일",
+                    help="최근 N일 기록만 본다 (기본 전부)")
+    pc.add_argument("--days", type=int, default=0, metavar="줄",
+                    help="날짜별 표를 N줄 보여준다")
+    pc.set_defaults(func=cmd_novel_pace)
 
     return ap
 

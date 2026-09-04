@@ -7,7 +7,7 @@ import re
 import shutil
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text"}
@@ -702,3 +702,118 @@ def export_text(chapters: list[tuple[str, str]], *, title: str = "",
         lines.append(text)
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+# ------------------------------------------------------------------ 집필 속도
+
+@dataclass
+class DayCount:
+    day: date
+    total: int
+    written: int          # 그날 늘어난 글자수. 첫날은 0(기준일이라 알 수 없다)
+    baseline: bool = False
+
+
+@dataclass
+class Pace:
+    days: list[DayCount]
+    goal: int = 0
+    due: date | None = None
+
+    @property
+    def current(self) -> int:
+        return self.days[-1].total if self.days else 0
+
+    @property
+    def span(self) -> int:
+        """기록이 걸친 날 수(첫 기록일부터 마지막 기록일까지)."""
+        if len(self.days) < 2:
+            return 0
+        return (self.days[-1].day - self.days[0].day).days
+
+    @property
+    def written_days(self) -> int:
+        return len([d for d in self.days if d.written > 0])
+
+    @property
+    def per_day(self) -> float:
+        """달력 하루 평균. 쉰 날도 나눈다. 기록이 하루뿐이면 0."""
+        if self.span <= 0:
+            return 0.0
+        return (self.days[-1].total - self.days[0].total) / self.span
+
+    @property
+    def per_written_day(self) -> float:
+        """실제로 쓴 날만 나눈 평균."""
+        wrote = [d.written for d in self.days if d.written > 0]
+        return sum(wrote) / len(wrote) if wrote else 0.0
+
+    @property
+    def best(self) -> DayCount | None:
+        wrote = [d for d in self.days if d.written > 0]
+        return max(wrote, key=lambda d: d.written) if wrote else None
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.goal - self.current) if self.goal else 0
+
+    def days_left(self, today: date | None = None) -> int | None:
+        if self.due is None:
+            return None
+        return (self.due - (today or date.today())).days
+
+    def need_per_day(self, today: date | None = None) -> float | None:
+        """마감까지 하루에 써야 하는 양. 마감이 지났으면 None."""
+        left = self.days_left(today)
+        if left is None or left <= 0 or not self.goal:
+            return None
+        return self.remaining / left
+
+    def finish_day(self, today: date | None = None) -> date | None:
+        """지금 속도로 갔을 때 목표에 닿는 날. 속도나 목표가 없으면 None."""
+        if not self.goal or self.per_day <= 0:
+            return None
+        if not self.remaining:
+            return today or date.today()
+        return (today or date.today()) + timedelta(
+            days=int(self.remaining / self.per_day + 0.999))
+
+
+def daily_counts(snapshots: list[dict]) -> list[DayCount]:
+    """스냅샷을 날짜별로 접는다. 하루에 여러 번 찍었으면 그날 마지막 것만 본다.
+
+    첫날은 그 전에 얼마를 썼는지 알 수 없으므로 증가량을 0 으로 두고
+    기준일로 표시한다. 0자를 쓴 날과 섞이지 않게 하려는 것이다.
+    """
+    by_day: dict[date, int] = {}
+    for snap in snapshots:
+        stamp = snap.get("time") or ""
+        try:
+            when = datetime.fromisoformat(stamp).date()
+        except ValueError:
+            continue
+        by_day[when] = snap.get("total", 0)
+
+    out: list[DayCount] = []
+    previous: int | None = None
+    for when in sorted(by_day):
+        amount = by_day[when]
+        if previous is None:
+            out.append(DayCount(when, amount, 0, baseline=True))
+        else:
+            out.append(DayCount(when, amount, amount - previous))
+        previous = amount
+    return out
+
+
+def pace(snapshots: list[dict], *, window: int = 0, goal: int = 0,
+         due: date | None = None) -> Pace:
+    """window 일 안의 기록만 본다. 0 이면 전부."""
+    days = daily_counts(snapshots)
+    if window and days:
+        edge = days[-1].day - timedelta(days=window)
+        kept = [d for d in days if d.day >= edge]
+        if len(kept) >= 2:
+            kept[0] = DayCount(kept[0].day, kept[0].total, 0, baseline=True)
+            days = kept
+    return Pace(days=days, goal=goal, due=due)

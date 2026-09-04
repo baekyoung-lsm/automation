@@ -716,6 +716,75 @@ class ManuscriptTest(unittest.TestCase):
         self.assertEqual(snaps[0]["note"], "초고")
 
 
+class PaceTest(unittest.TestCase):
+    SNAPS = [
+        {"time": "2026-08-25T20:00:00", "total": 1000},
+        {"time": "2026-08-28T09:00:00", "total": 2000},
+        {"time": "2026-08-28T20:00:00", "total": 2800},   # 같은 날 두 번
+        {"time": "2026-09-01T20:00:00", "total": 4000},
+    ]
+
+    def test_daily_counts_folds_same_day_and_marks_baseline(self):
+        days = manuscript.daily_counts(self.SNAPS)
+        self.assertEqual([str(d.day) for d in days],
+                         ["2026-08-25", "2026-08-28", "2026-09-01"])
+        self.assertEqual([d.total for d in days], [1000, 2800, 4000])
+        self.assertTrue(days[0].baseline)
+        self.assertEqual(days[0].written, 0)
+        self.assertEqual([d.written for d in days[1:]], [1800, 1200])
+
+    def test_daily_counts_skips_broken_timestamp(self):
+        days = manuscript.daily_counts([{"time": "언제인지 모름", "total": 5},
+                                        *self.SNAPS])
+        self.assertEqual(len(days), 3)
+
+    def test_pace_averages_and_best_day(self):
+        p = manuscript.pace(self.SNAPS)
+        self.assertEqual(p.current, 4000)
+        self.assertEqual(p.span, 7)
+        self.assertEqual(p.written_days, 2)
+        self.assertAlmostEqual(p.per_day, 3000 / 7)
+        self.assertEqual(p.per_written_day, 1500)
+        self.assertEqual(str(p.best.day), "2026-08-28")
+
+    def test_pace_single_day_has_no_speed(self):
+        p = manuscript.pace(self.SNAPS[:1])
+        self.assertEqual(p.span, 0)
+        self.assertEqual(p.per_day, 0.0)
+        self.assertIsNone(p.best)
+        self.assertIsNone(p.finish_day())
+
+    def test_window_keeps_recent_days_and_rebases(self):
+        p = manuscript.pace(self.SNAPS, window=4)
+        self.assertEqual([str(d.day) for d in p.days],
+                         ["2026-08-28", "2026-09-01"])
+        self.assertTrue(p.days[0].baseline)
+        self.assertEqual(p.days[0].written, 0)
+
+    def test_goal_and_due_math(self):
+        from datetime import date
+
+        p = manuscript.pace(self.SNAPS, goal=10000, due=date(2026, 9, 11))
+        today = date(2026, 9, 1)
+        self.assertEqual(p.remaining, 6000)
+        self.assertEqual(p.days_left(today), 10)
+        self.assertEqual(p.need_per_day(today), 600)
+        self.assertEqual(str(p.finish_day(today)), "2026-09-15")
+
+    def test_past_due_gives_no_daily_need(self):
+        from datetime import date
+
+        p = manuscript.pace(self.SNAPS, goal=10000, due=date(2026, 8, 1))
+        self.assertIsNone(p.need_per_day(date(2026, 9, 1)))
+
+    def test_goal_already_met(self):
+        from datetime import date
+
+        p = manuscript.pace(self.SNAPS, goal=1000)
+        self.assertEqual(p.remaining, 0)
+        self.assertEqual(p.finish_day(date(2026, 9, 1)), date(2026, 9, 1))
+
+
 class CronTest(unittest.TestCase):
     def runs(self, expr, start, n=3):
         from datetime import datetime
