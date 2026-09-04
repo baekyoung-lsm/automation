@@ -331,6 +331,10 @@ at keys "ctrl+shift+v"           # 키 조합으로 거꾸로 찾기
 at keys -g calc -s abc           # 스프레드시트만, 가나다 순
 at keys --html ~/단축키.html      # 브라우저용 한 장짜리 파일로
 at keys --list                   # 묶음·출처 보기
+at keys --gaps                   # 아직 확인 못 한 칸만 모아 보기
+at keys --set 'doc/표 만들기/word=Alt+N,T'
+at keys --set 'doc/편집 용지/gdocs=없음'
+at keys --fill                   # 확인 못 한 칸을 하나씩 물어 채운다
 at keys --edit                   # 내 단축키를 추가할 파일 틀 만들기
 ```
 
@@ -363,9 +367,10 @@ at keys --edit                   # 내 단축키를 추가할 파일 틀 만들�
 at keys --gaps        # ? 로 남은 칸만 모아 보기
 ```
 
-확인해서 채웠으면 `attools/data/shortcuts.json` 을 고치거나, 내 것만 쓸 거면
-`~/.attools/shortcuts.json` 에 적으면 된다. 기본 단축키가 없는 기능이면 `"없음"` 이라고
-적어 두면 `?` 에서 빠진다.
+확인해서 채우려면 `at keys --set '그룹/기능/앱=값'` 을 쓴다. 값에 `없음` 을 주면 그 앱에
+기본 단축키가 없다는 뜻으로 기록되어 `?` 에서 빠진다. `--fill` 은 남은 칸을 하나씩
+물어 가며 채운다. 어느 쪽이든 `~/.attools/shortcuts.json` 에만 쓰고 기본 데이터는
+건드리지 않으므로, 도구를 갱신해도 내가 채운 것이 남는다.
 
 단축키는 제품 버전과 설정에 따라 다르다. 출처는 `at keys --list` 에 있다.
 

@@ -230,3 +230,57 @@ def search_all(groups: list[Group], query: str) -> list[tuple[Group, Item]]:
     for g in groups:
         out.extend((g, i) for i in search(g, query))
     return out
+
+
+def load_user_file() -> dict:
+    if not USER_DATA.is_file():
+        return {"groups": []}
+    try:
+        data = json.loads(USER_DATA.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise KeysError(f"{USER_DATA} 를 읽지 못했습니다: {e}") from None
+    data.setdefault("groups", [])
+    return data
+
+
+def save_user_file(data: dict) -> Path:
+    USER_DATA.parent.mkdir(parents=True, exist_ok=True)
+    USER_DATA.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                         encoding="utf-8")
+    return USER_DATA
+
+
+def set_shortcut(group: Group, item_name: str, app_id: str, value: str | None, *,
+                 cat: str = "", freq: int = 3) -> tuple[Path, bool]:
+    """사용자 파일에 단축키 한 칸을 적는다. (파일 경로, 새 항목인지)
+
+    value 가 None 이면 '없음'(기본 단축키가 없는 기능)으로 적는다.
+    기본 데이터는 건드리지 않는다. 갱신될 때 덮어써지지 않게 하기 위해서다.
+    """
+    if app_id not in group.app_ids:
+        raise KeysError(f"'{app_id}' 앱이 {group.name} 그룹에 없습니다. "
+                        f"있는 앱: {', '.join(group.app_ids)}")
+
+    data = load_user_file()
+    block = next((g for g in data["groups"] if g.get("id") == group.id), None)
+    if block is None:
+        block = {"id": group.id, "items": []}
+        data["groups"].append(block)
+    block.setdefault("items", [])
+
+    existing = next((i for i in block["items"] if i.get("name") == item_name), None)
+    is_new = existing is None
+    if existing is None:
+        base = next((i for i in group.items if i.name == item_name), None)
+        existing = {
+            "name": item_name,
+            "cat": cat or (base.cat if base else "기타"),
+            "freq": base.freq if base else freq,
+            # 기본 데이터의 다른 칸도 함께 옮겨 둬야 사용자 항목이 그것을 덮지 않는다
+            "keys": dict(base.keys) if base else {},
+        }
+        block["items"].append(existing)
+        is_new = base is None
+
+    existing.setdefault("keys", {})[app_id] = NO_SHORTCUT if value is None else value
+    return save_user_file(data), is_new

@@ -1305,6 +1305,58 @@ class KeysTest(unittest.TestCase):
         with self.assertRaises(keys.KeysError):
             keys.find_group(self.groups, "없는그룹")
 
+    def test_set_shortcut_writes_user_file(self):
+        root = Path(tempfile.mkdtemp())
+        original = keys.USER_DATA
+        keys.USER_DATA = root / "shortcuts.json"
+        try:
+            path, is_new = keys.set_shortcut(self.doc, "표 만들기", "word", "Alt+N,T")
+            self.assertTrue(path.is_file())
+            self.assertFalse(is_new)          # 기본 데이터에 있는 항목
+
+            groups, _ = keys.load_groups()
+            item = next(i for i in keys.find_group(groups, "doc").items
+                        if i.name == "표 만들기")
+            self.assertEqual(item.shortcut("word"), "Alt+N,T")
+            # 기본 데이터의 다른 칸이 사용자 항목에 덮여 사라지면 안 된다
+            self.assertEqual(item.shortcut("hwp"), "Ctrl+N,T")
+        finally:
+            keys.USER_DATA = original
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_set_shortcut_none_marks_no_shortcut(self):
+        root = Path(tempfile.mkdtemp())
+        original = keys.USER_DATA
+        keys.USER_DATA = root / "shortcuts.json"
+        try:
+            keys.set_shortcut(self.doc, "편집 용지", "gdocs", None)
+            groups, _ = keys.load_groups()
+            item = next(i for i in keys.find_group(groups, "doc").items
+                        if i.name == "편집 용지")
+            self.assertEqual(item.status("gdocs"), "none")
+            self.assertEqual(item.shortcut("gdocs"), keys.MARK_NONE)
+        finally:
+            keys.USER_DATA = original
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_set_shortcut_new_item(self):
+        root = Path(tempfile.mkdtemp())
+        original = keys.USER_DATA
+        keys.USER_DATA = root / "shortcuts.json"
+        try:
+            _, is_new = keys.set_shortcut(self.doc, "내가 만든 기능", "hwp", "Ctrl+Q")
+            self.assertTrue(is_new)
+            groups, _ = keys.load_groups()
+            names_ = [i.name for i in keys.find_group(groups, "doc").items]
+            self.assertIn("내가 만든 기능", names_)
+        finally:
+            keys.USER_DATA = original
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_set_shortcut_rejects_unknown_app(self):
+        with self.assertRaises(keys.KeysError):
+            keys.set_shortcut(self.doc, "표 만들기", "없는앱", "x")
+
     def test_html_export_is_self_contained(self):
         html = keyhtml.build(self.groups, self.sources)
         self.assertNotIn("__DATA__", html)
