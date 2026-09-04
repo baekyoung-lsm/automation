@@ -788,5 +788,40 @@ class ColumnDiffTest(unittest.TestCase):
         self.assertEqual((d.added, d.removed), (["성명"], ["이름"]))
 
 
+class SaveSheetsTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def tables(self) -> dict:
+        return {"영업": sheet.Table(["이름", "연봉"], [["가", 5000]]),
+                "개발": sheet.Table(["이름", "연봉"], [["나", 6000], ["다", 5500]])}
+
+    def test_each_table_becomes_a_sheet(self):
+        path = sheet.save_sheets(self.tables(), self.root / "부서별.xlsx")
+        self.assertEqual(sheet.xlsx.sheet_names(path), ["영업", "개발"])
+        loaded = sheet.load(path, sheet="개발")
+        self.assertEqual(len(loaded.rows), 2)
+
+    def test_sheet_name_is_cleaned_for_excel(self):
+        tables = {"영업/1분기 [초안] 아주 긴 이름을 넣어 서른한 자를 넘겨 봅니다": 
+                  sheet.Table(["가"], [["1"]])}
+        path = sheet.save_sheets(tables, self.root / "정리.xlsx")
+        name = sheet.xlsx.sheet_names(path)[0]
+        self.assertLessEqual(len(name), 31)
+        self.assertNotIn("/", name)
+        self.assertNotIn("[", name)
+
+    def test_csv_is_refused(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.save_sheets(self.tables(), self.root / "안됨.csv")
+
+    def test_empty_input_is_refused(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.save_sheets({}, self.root / "빈것.xlsx")
+
+
 if __name__ == "__main__":
     unittest.main()

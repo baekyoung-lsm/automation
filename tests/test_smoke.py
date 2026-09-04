@@ -245,6 +245,10 @@ class SmokeTest(unittest.TestCase):
                                                  "--cols", "이름,부서", "--into", "표시"))
         self.assertIn("열 구조가 같습니다",
                       self.run_cli("sheet", "diff", csv, csv, "--columns"))
+        시트파일 = self.path("부서별.xlsx")
+        self.run_cli("sheet", "split", csv, "--by", "부서",
+                     "--sheets", 시트파일, "--apply")
+        self.assertGreater(len(xlsx.sheet_names(Path(시트파일))), 1)
         self.assertIn("지운 행", self.run_cli("sheet", "dedupe", csv, "-k", "사번",
                                               "--keep", "max", "--by", "입사일"))
         self.assertIn("짝 찾음", self.run_cli("sheet", "join", csv,

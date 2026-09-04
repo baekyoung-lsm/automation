@@ -460,6 +460,25 @@ def cmd_sheet_split(a) -> int:
         _p(str(e))
         return 1
 
+    if a.sheets:
+        target = Path(a.sheets)
+        _p(f"{len(t.rows):,}행 -> 시트 {len(pieces)}개  ({target})")
+        for name, part in pieces.items():
+            _p(f"  {name.replace(source.stem + '-', '')}  {len(part.rows):,}행")
+        if not a.apply:
+            _p("\n실제로 저장하려면 --apply 를 붙이세요.")
+            return 0
+        try:
+            saved = sheet.save_sheets(
+                {name.replace(f"{source.stem}-", "") or "전체": part
+                 for name, part in pieces.items()}, target)
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        _p(f"\n저장: {saved}")
+        _p("시트 이름은 엑셀 규칙에 맞춰 다듬습니다(31자, : \\ / ? * [ ] 금지).")
+        return 0
+
     _p(f"{len(t.rows):,}행 -> 파일 {len(pieces)}개")
     for name, part in pieces.items():
         safe = hangul.sanitize_filename(f"{name}{suffix}")
@@ -1056,6 +1075,8 @@ def add_commands(sub) -> None:
     sl.add_argument("--by", metavar="열", help="이 열의 값마다 (부서별·월별)")
     sl.add_argument("-o", "--out", metavar="디렉터리")
     sl.add_argument("--format", metavar="확장자", help="csv 또는 xlsx")
+    sl.add_argument("--sheets", metavar="파일",
+                    help="파일 여러 개 대신 한 xlsx 의 시트로 나눈다")
     sl.add_argument("--apply", action="store_true")
     sl.set_defaults(func=cmd_sheet_split)
 

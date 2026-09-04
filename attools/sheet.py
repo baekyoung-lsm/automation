@@ -235,6 +235,23 @@ def save(table: Table, path: Path, *, excel_bom: bool = True, sheet_name: str = 
     return path
 
 
+
+def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:
+    """여러 표를 한 xlsx 의 여러 시트로 저장한다.
+
+    부서별로 파일을 쪼개면 열어 볼 때마다 파일을 찾아야 한다. 한 파일 안의
+    탭으로 두면 엑셀에서 그대로 넘겨 본다.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in XLSX_SUFFIXES:
+        raise SheetError("여러 시트는 xlsx 로만 저장할 수 있습니다.")
+    if not tables:
+        raise SheetError("저장할 표가 없습니다.")
+    xlsx.write_sheets(path, {xlsx.safe_sheet_name(name): table.as_rows()
+                             for name, table in tables.items()}, header=header)
+    return path
+
+
 # ---------------------------------------------------------------------- 훑기
 
 @dataclass

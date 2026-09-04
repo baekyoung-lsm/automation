@@ -593,6 +593,7 @@ at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
+at sheet split 전체.xlsx --by 부서 --sheets 부서별.xlsx --apply   # 한 파일 여러 탭
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
 curl -s https://api.example.com/users | at sheet from-json - -o 사용자.xlsx
 at sheet from-json 응답.json --path data.users -o 표.csv
@@ -611,6 +612,10 @@ at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이�
 # 틀 안에서: {이름:님/님} 대신 {이름:은/는}, {도시:으로/로} 처럼 받침에 맞는 조사
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`split --sheets` 는 파일 여러 개 대신 **한 xlsx 의 탭 여러 개**로 나눈다. 부서별 파일을
+따로 만들면 열 때마다 파일을 찾아야 한다. 시트 이름은 엑셀 규칙(31자, `: \ / ? * [ ]` 금지)에
+맞춰 다듬는다.
 
 `melt` 는 피벗의 반대다. `1월 2월 3월`처럼 옆으로 늘어선 열을 `항목/값` 두 열로 눕혀서
 피벗테이블이나 `at sheet pivot` 에 그대로 넣을 수 있는 모양으로 만든다. 빈 칸은 행으로
