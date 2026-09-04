@@ -55,6 +55,70 @@ def cmd_find(a) -> int:
     return 0
 
 
+def _command_tree() -> dict[str, dict[str, list[str]]]:
+    """{그룹: {하위명령: [옵션…]}}. 실제 파서에서 뽑는다."""
+    tree: dict[str, dict[str, list[str]]] = {}
+    for path, _help, parser in walk_commands(build_parser()):
+        options = sorted({o for action in parser._actions
+                          for o in action.option_strings if o.startswith("--")})
+        if len(path) == 1:
+            tree.setdefault(path[0], {})
+            if not any(isinstance(a, argparse._SubParsersAction)
+                       for a in parser._actions):
+                tree[path[0]][""] = options
+        elif len(path) == 2:
+            tree.setdefault(path[0], {})[path[1]] = options
+    return tree
+
+
+def cmd_completion(a) -> int:
+    tree = _command_tree()
+    groups = " ".join(tree)
+
+    if a.shell == "bash":
+        lines = ["# attools 자동완성. 다음 줄을 ~/.bashrc 에 넣으세요:",
+                 '#   eval "$(at completion bash)"',
+                 "_at_complete() {",
+                 '  local cur="${COMP_WORDS[COMP_CWORD]}" group="${COMP_WORDS[1]}"',
+                 '  local sub="${COMP_WORDS[2]}" words=""',
+                 "  if [ $COMP_CWORD -eq 1 ]; then",
+                 f'    words="{groups}"',
+                 "  elif [ $COMP_CWORD -eq 2 ]; then",
+                 '    case "$group" in']
+        for group, subs in tree.items():
+            # 하위 명령이 없는 그룹(keys)은 그 자리에서 옵션을 완성한다
+            names = " ".join(n for n in subs if n) or " ".join(subs.get("", []))
+            lines.append(f'      {group}) words="{names}" ;;')
+        lines += ['    esac', "  else", '    case "$group $sub" in']
+        for group, subs in tree.items():
+            for sub, options in subs.items():
+                if sub and options:
+                    lines.append(f'      "{group} {sub}") words="{" ".join(options)}" ;;')
+        lines += ['    esac', "  fi",
+                  '  COMPREPLY=($(compgen -W "$words" -- "$cur"))',
+                  "}",
+                  "complete -F _at_complete at"]
+        _p("\n".join(lines))
+        return 0
+
+    # zsh
+    lines = ["# attools 자동완성. 다음 줄을 ~/.zshrc 에 넣으세요:",
+             '#   eval "$(at completion zsh)"',
+             "_at_complete() {",
+             "  local -a words",
+             "  case $CURRENT in",
+             f'    2) words=({groups}) ;;',
+             "    3) case ${words[2]:-${(z)BUFFER}[2]} in"]
+    for group, subs in tree.items():
+        names = " ".join(n for n in subs if n) or " ".join(subs.get("", []))
+        lines.append(f"      {group}) words=({names}) ;;")
+    lines += ["      esac ;;", "  esac",
+              "  compadd -- $words", "}",
+              "compdef _at_complete at"]
+    _p("\n".join(lines))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="at", description="파일 / 텍스트 / JSON / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 자동화 도구")
@@ -67,6 +131,10 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("words", nargs="*", metavar="말")
     fd.add_argument("--deep", action="store_true", help="옵션 설명까지 찾는다")
     fd.set_defaults(func=cmd_find)
+
+    cp = sub.add_parser("completion", help="셸 자동완성 스크립트 출력")
+    cp.add_argument("shell", nargs="?", default="bash", choices=["bash", "zsh"])
+    cp.set_defaults(func=cmd_completion)
     return ap
 
 

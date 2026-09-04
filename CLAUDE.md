@@ -76,6 +76,7 @@ tests/
    - `tests/test_smoke.py` 가 그룹마다 대표 명령을 실제 파일로 끝까지 돌린다.
      새 그룹을 만들면 여기에도 한 줄 더한다.
 4. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
+   `at find` 와 `at completion` 은 파서를 걸어 다니며 목록을 만들므로 따로 고칠 것이 없다.
 
 ## 확인
 

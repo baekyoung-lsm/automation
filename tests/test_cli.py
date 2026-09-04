@@ -127,5 +127,53 @@ class FindCommandTest(unittest.TestCase):
         self.assertGreater(len(leaves), 80)
 
 
+class CompletionTest(unittest.TestCase):
+    def setUp(self):
+        from attools import cli
+
+        self.cli = cli
+
+    def output(self, *args) -> str:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = self.cli.main(["completion", *args])
+        self.assertEqual(code, 0)
+        return out.getvalue()
+
+    def test_bash_script_is_valid_shell(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        script = self.output("bash")
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash 가 없습니다")
+        with tempfile.NamedTemporaryFile("w", suffix=".bash", delete=False,
+                                         encoding="utf-8") as fh:
+            fh.write(script)
+            path = fh.name
+        done = subprocess.run([bash, "-n", path], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_every_group_appears(self):
+        script = self.output("bash")
+        for group in ("file", "dev", "git", "life", "sheet", "text", "doc",
+                      "json", "keys", "novel"):
+            self.assertIn(f"{group})", script)
+
+    def test_new_commands_are_included_automatically(self):
+        # 목록을 손으로 적지 않고 파서에서 뽑는지
+        script = self.output("bash")
+        self.assertIn("conflicts", script)
+        self.assertIn("--columns", script)
+
+    def test_leaf_group_completes_its_options(self):
+        self.assertIn("--gaps", self.output("bash"))
+
+    def test_zsh_script_mentions_compdef(self):
+        self.assertIn("compdef _at_complete at", self.output("zsh"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,7 @@
 표준 라이브러리만 쓰고 외부 의존성은 없다. Python 3.10+.
 
 명령이 많아 `at find <말>` 로 찾을 수 있다 — `at find 중복`, `at find 시간`.
+셸 자동완성은 `eval "$(at completion bash)"` (zsh 도 있다).
 
 - `file` 파일 분류·이름 정리·중복 탐지·변경 감시
 - `dev` .env 대조, 포트, JWT, 시각 변환, 로그 마스킹, 헬스체크 대기, cron 해석, 키 생성
