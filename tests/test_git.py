@@ -346,5 +346,50 @@ class ReadyTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+class HeavyBlobTest(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+        import tempfile
+
+        self.root = Path(tempfile.mkdtemp())
+        self.git = lambda *args: subprocess.run(
+            ["git", "-C", str(self.root), *args], check=True, capture_output=True)
+        self.git("init", "-q")
+        self.git("config", "user.email", "a@b")
+        self.git("config", "user.name", "시험")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def commit(self, name: str, body: bytes, message: str) -> None:
+        (self.root / name).write_bytes(body)
+        self.git("add", ".")
+        self.git("commit", "-qm", message)
+
+    def test_counts_versions_and_total(self):
+        self.commit("큰파일.bin", b"0" * 4000, "처음")
+        self.commit("큰파일.bin", b"1" * 6000, "고침")
+        found = {b.path: b for b in gitkit.heavy_blobs(self.root)}
+        self.assertEqual(found["큰파일.bin"].versions, 2)
+        self.assertEqual(found["큰파일.bin"].size, 6000)
+        self.assertEqual(found["큰파일.bin"].total, 10000)
+        self.assertTrue(found["큰파일.bin"].in_tree)
+
+    def test_deleted_file_still_counts_and_is_marked(self):
+        self.commit("지울것.bin", b"0" * 5000, "추가")
+        (self.root / "지울것.bin").unlink()
+        self.git("add", "-A")
+        self.git("commit", "-qm", "삭제")
+        found = {b.path: b for b in gitkit.heavy_blobs(self.root)}
+        self.assertIn("지울것.bin", found)         # 히스토리에는 남는다
+        self.assertTrue(found["지울것.bin"].gone)
+
+    def test_sorted_by_total_and_limited(self):
+        self.commit("작은것.bin", b"0" * 100, "작은 것")
+        self.commit("큰것.bin", b"0" * 9000, "큰 것")
+        blobs = gitkit.heavy_blobs(self.root, top=1)
+        self.assertEqual([b.path for b in blobs], ["큰것.bin"])
+
+
 if __name__ == "__main__":
     unittest.main()

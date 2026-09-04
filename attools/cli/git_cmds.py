@@ -288,6 +288,43 @@ def cmd_git_ready(a) -> int:
     return 1
 
 
+def cmd_git_heavy(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    try:
+        blobs = gitkit.heavy_blobs(root, top=a.top)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+    if not blobs:
+        _p("히스토리에 파일이 없습니다.")
+        return 0
+
+    if a.gone:
+        blobs = [b for b in blobs if b.gone]
+        if not blobs:
+            _p("히스토리에만 남은 큰 파일이 없습니다.")
+            return 0
+
+    _grid(["파일", "판본 합계", "가장 큰 판본", "판본", "지금"],
+          [[b.path, files.human_size(b.total), files.human_size(b.size),
+            f"{b.versions:,}", "있음" if b.in_tree else "지워짐"]
+           for b in blobs], limit=44)
+
+    gone = [b for b in blobs if b.gone]
+    total = sum(b.total for b in blobs)
+    _p(f"\n위 {len(blobs)}개의 판본 합계 {files.human_size(total)}")
+    if gone:
+        _p(f"그중 {len(gone)}개는 지금은 없는 파일입니다 "
+           f"({files.human_size(sum(b.total for b in gone))}).")
+        _p("작업 디렉터리에서 지워도 히스토리에는 남습니다. 저장소를 줄이려면 "
+           "히스토리를 다시 써야 합니다(git filter-repo).")
+    _p("판본 합계는 압축 전 크기라 실제 .git 크기와는 다릅니다.")
+    return 0
+
+
 def cmd_git_release(a) -> int:
     root = _repo(a)
     if root is None:
@@ -460,3 +497,10 @@ def add_commands(sub) -> None:
     rd.add_argument("--entropy", type=float, default=0.0, metavar="비트")
     rd.add_argument("--limit", type=int, default=10)
     rd.set_defaults(func=cmd_git_ready)
+
+    hv = gp.add_parser("heavy", help="저장소를 무겁게 하는 파일 (히스토리 포함)")
+    hv.add_argument("dir", nargs="?", default=".")
+    hv.add_argument("--top", type=int, default=20, metavar="개")
+    hv.add_argument("--gone", action="store_true",
+                    help="지금은 없는데 히스토리에 남은 것만")
+    hv.set_defaults(func=cmd_git_heavy)

@@ -418,6 +418,7 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 | `at git conflicts [경로]` | 충돌 표시가 남은 자리를 찾는다. 어느 쪽이 몇 줄인지까지 |
 | `at git ready [경로]` | 커밋 전 한 번에 점검 - 시크릿·충돌·디버그 흔적·큰 파일 |
+| `at git heavy [경로]` | 저장소를 무겁게 하는 파일 (히스토리에만 남은 것까지) |
 
 ```bash
 at git sweep --fetch              # 미리보기
@@ -426,6 +427,7 @@ at git scan                       # 추적 중인 파일 전체
 at git scan --staged --quiet      # 커밋 직전 검사, 발견되면 exit 1
 at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
 at git ready                      # 커밋 직전. 걸리면 exit 1
+at git heavy --gone               # 지웠는데 히스토리에 남아 있는 것
 at git conflicts                  # 병합 중이면 충돌 파일만, 아니면 전체
 at git todo                       # 오래 방치된 순
 at git todo -m FIXME -m BUG -s severity
@@ -449,6 +451,11 @@ at git stats --path src/ --weekday
 아직 `git add` 하지 않은 저장소에서는 "추적하는 파일이 없다"고 분명히 알린다 —
 검사할 게 없는 것과 문제가 없는 것은 다르기 때문이다. `--all` 을 붙이면 추적 안 되는
 파일까지 본다.
+
+`at git heavy` 는 클론이 왜 무거운지 본다. 파일을 지워도 히스토리에는 남기 때문에, 지금
+작업 디렉터리에 없는 파일도 함께 세고 `지워짐` 으로 표시한다. 판본 합계는 **압축 전** 크기라
+실제 `.git` 크기와는 다르다 — 어느 파일이 문제인지 가리는 용도다. 줄이려면 히스토리를 다시
+써야 하는데(`git filter-repo`) 그 판단과 실행은 사람이 한다.
 
 `at git ready` 는 커밋 직전에 한 번에 본다 — 스테이징된 파일의 시크릿, 남은 충돌 표시,
 **이번에 더한 줄**의 디버그 흔적(`console.log`, `debugger`, `breakpoint()`, `it.only`),

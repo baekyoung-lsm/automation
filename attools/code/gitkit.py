@@ -673,3 +673,58 @@ def staged_big_files(root: Path, *, limit: int = 1_000_000) -> list[tuple[str, i
         if path.is_file() and path.stat().st_size >= limit:
             out.append((name, path.stat().st_size))
     return sorted(out, key=lambda x: -x[1])
+
+
+# ------------------------------------------------------ 저장소를 무겁게 하는 것
+
+@dataclass
+class HeavyBlob:
+    path: str
+    size: int              # 가장 큰 판본의 크기
+    versions: int = 1      # 히스토리에 남은 판본 수
+    total: int = 0         # 판본들의 크기 합
+    in_tree: bool = True   # 지금도 저장소에 있는가
+
+    @property
+    def gone(self) -> bool:
+        return not self.in_tree
+
+
+def heavy_blobs(root: Path, *, top: int = 20) -> list[HeavyBlob]:
+    """히스토리에 남은 큰 파일을 찾는다. 지운 파일도 히스토리에는 남는다.
+
+    작업 디렉터리에서 지워도 저장소 크기는 줄지 않는다. 무엇 때문에 큰지
+    알아야 히스토리를 다시 쓸지(git filter-repo) 판단할 수 있다.
+    """
+    listing = run(["rev-list", "--objects", "--all"], root)
+    proc = subprocess.run(
+        [*GIT_BASE, "cat-file",
+         "--batch-check=%(objecttype) %(objectsize) %(rest)"],
+        input=listing, cwd=root, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip() or "git cat-file 실패")
+
+    found: dict[str, HeavyBlob] = {}
+    for line in proc.stdout.splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) < 3 or parts[0] != "blob":
+            continue
+        try:
+            size = int(parts[1])
+        except ValueError:
+            continue
+        name = parts[2].strip()
+        if not name:
+            continue
+        blob = found.get(name)
+        if blob is None:
+            found[name] = HeavyBlob(name, size, 1, size)
+        else:
+            blob.versions += 1
+            blob.total += size
+            blob.size = max(blob.size, size)
+
+    tracked = {n for n in run(["ls-files"], root).splitlines() if n}
+    for name, blob in found.items():
+        blob.in_tree = name in tracked
+    return sorted(found.values(), key=lambda b: -b.total)[:top]

@@ -371,6 +371,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("충돌 표시가 없습니다", self.run_cli("git", "conflicts", repo))
         self.assertIn("스테이징된 파일이 없습니다",
                       self.run_cli("git", "ready", repo, expect=1))
+        self.assertIn("판본", self.run_cli("git", "heavy", repo, "--top", "3"))
 
     # ------------------------------------------------------------- doc
 
