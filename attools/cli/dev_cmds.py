@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import deps, devkit, files, hangul, life, logkit, manuscript, text
+from .. import (dbkit, deps, devkit, files, hangul, life, logkit,
+                manuscript, sheet, text)
 from ..schedule import Cron, CronError
 from .common import _pad, _p, _confirm, _read_input, _cut, _grid
 
@@ -226,6 +227,62 @@ def cmd_dev_retry(a) -> int:
     _p(f"\n{len(attempts)}번 다 실패했습니다. 모두 {spent:.1f}초. "
        f"마지막 종료 코드 {code} 그대로 돌려줍니다.")
     return last.code
+
+
+def cmd_dev_db(a) -> int:
+    path = Path(a.file)
+    try:
+        conn = dbkit.connect(path)
+    except dbkit.DbError as e:
+        _p(str(e))
+        return 1
+
+    try:
+        if a.query:
+            if dbkit.looks_like_write(a.query):
+                _p("읽기 전용으로 열기 때문에 값을 바꾸는 문장은 돌아가지 않습니다.")
+                return 1
+            headers, rows, more = dbkit.query(conn, a.query, limit=a.limit)
+        elif a.table:
+            cols = dbkit.columns(conn, a.table)
+            _p(f"{a.table}  열 {len(cols)}개")
+            _grid(["열", "타입", "빈칸", "기본값", "키"],
+                  [[c.name, c.type or "-", "안 됨" if c.notnull else "됨",
+                    c.default or "-", "PK" if c.pk else ""] for c in cols])
+            headers, rows, more = dbkit.sample(conn, a.table, limit=a.limit)
+            _p(f"\n앞에서 {len(rows)}행")
+        else:
+            items = dbkit.tables(conn)
+            if not items:
+                _p("표가 없습니다.")
+                return 0
+            _grid(["이름", "종류", "행", "열"],
+                  [[t.name, t.kind, "?" if t.rows < 0 else f"{t.rows:,}",
+                    str(t.columns)] for t in items])
+            total = sum(t.rows for t in items if t.rows > 0)
+            _p(f"\n표 {len([t for t in items if t.kind == 'table'])}개, "
+               f"뷰 {len([t for t in items if t.kind == 'view'])}개, "
+               f"행 {total:,}개")
+            _p("--table 이름 으로 열 구성과 앞 몇 행을, -q 로 직접 조회합니다.")
+            return 0
+    except dbkit.DbError as e:
+        _p(str(e))
+        return 1
+    finally:
+        conn.close()
+
+    if not headers:
+        _p("결과가 없습니다.")
+        return 0
+
+    _grid(headers, [[sheet.to_text(v) for v in row] for row in rows])
+    if more:
+        _p(f"  ... {a.limit}행까지만 보여줍니다 (--limit 로 늘리세요)")
+
+    if a.out:
+        table = sheet.Table(headers, rows, source=str(path))
+        _p(f"저장: {sheet.save(table, Path(a.out))}")
+    return 0
 
 
 def cmd_dev_mask(a) -> int:
@@ -616,6 +673,14 @@ def add_commands(sub) -> None:
     rt.add_argument("command", nargs="*", metavar="명령",
                     help="-- 뒤에 그대로 적는다")
     rt.set_defaults(func=cmd_dev_retry, command=[])
+
+    db = dp.add_parser("db", help="sqlite 파일 훑기 (읽기 전용)")
+    db.add_argument("file", metavar="db파일")
+    db.add_argument("--table", metavar="이름", help="그 표의 열 구성과 앞 몇 행")
+    db.add_argument("-q", "--query", metavar="SQL", help="직접 조회 (SELECT 만)")
+    db.add_argument("-o", "--out", metavar="파일", help="결과를 csv/xlsx 로 저장")
+    db.add_argument("--limit", type=int, default=20, metavar="행")
+    db.set_defaults(func=cmd_dev_db)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

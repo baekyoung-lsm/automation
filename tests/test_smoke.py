@@ -281,6 +281,19 @@ class SmokeTest(unittest.TestCase):
         self.assertNotIn("비밀", synced)          # 비밀값이 새어 나가면 안 된다
         self.assertIn("ERROR", self.run_cli("dev", "log", self.path("app.log")))
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
+
+        import sqlite3
+
+        db = self.path("가게.db")
+        conn = sqlite3.connect(db)
+        conn.execute("CREATE TABLE 주문(번호 INTEGER PRIMARY KEY, 금액 INTEGER)")
+        conn.execute("INSERT INTO 주문(금액) VALUES (1000)")
+        conn.commit()
+        conn.close()
+        self.assertIn("주문", self.run_cli("dev", "db", db))
+        self.assertIn("금액", self.run_cli("dev", "db", db, "--table", "주문"))
+        self.assertIn("1000", self.run_cli("dev", "db", db, "-q",
+                                           "select 금액 from 주문"))
         느림 = self.run_cli("dev", "slow", self.path("app.log"))
         self.assertIn("p95", 느림)
         self.assertIn("900", 느림)
