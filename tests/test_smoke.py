@@ -556,6 +556,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("스냅샷 1개", out)
         self.assertIn("속도를 계산할 수 없습니다", out)
 
+    def test_novel_export_docx(self):
+        import zipfile
+
+        out = self.path("투고본.docx")
+        self.run_cli("novel", "export", self.path("원고"), "-f", "docx",
+                     "--title", "시험작", "-o", out)
+        with zipfile.ZipFile(out) as z:
+            self.assertIn("word/document.xml", z.namelist())
+
     def test_novel_export_epub(self):
         import zipfile
 

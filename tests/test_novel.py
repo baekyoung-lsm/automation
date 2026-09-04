@@ -678,5 +678,61 @@ class NoteTest(unittest.TestCase):
         self.assertEqual(manuscript.find_notes(body), [])
 
 
+class DocxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.dest = self.root / "투고본.docx"
+        self.chapters = [("1화 만남", "첫 문단.\n\n＊\n\n둘째 <태그> 문단."),
+                         ("2화 이별", "마지막 문단.")]
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, **kw):
+        import zipfile
+
+        manuscript.export_docx(self.chapters, self.dest, **kw)
+        return zipfile.ZipFile(self.dest)
+
+    def test_zip_has_the_three_required_parts(self):
+        with self.make() as z:
+            self.assertEqual(sorted(z.namelist()),
+                             ["[Content_Types].xml", "_rels/.rels",
+                              "word/document.xml"])
+
+    def test_document_xml_parses(self):
+        import xml.etree.ElementTree as ET
+
+        with self.make(title="시험작") as z:
+            ET.fromstring(z.read("word/document.xml"))
+
+    def test_text_is_escaped_not_interpreted(self):
+        with self.make() as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("&lt;태그&gt;", body)
+        self.assertNotIn("<태그>", body)
+
+    def test_each_chapter_starts_a_new_page(self):
+        with self.make() as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        self.assertEqual(body.count('w:type="page"'), 1)   # 첫 화 앞은 안 나눈다
+
+    def test_title_page_adds_a_break_before_the_first_chapter(self):
+        with self.make(title="시험작") as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        self.assertEqual(body.count('w:type="page"'), 2)
+
+    def test_scene_break_is_centered(self):
+        with self.make() as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("＊ ＊ ＊", body)
+        self.assertIn('w:jc w:val="center"', body)
+
+    def test_korean_font_is_set(self):
+        with self.make() as z:
+            body = z.read("word/document.xml").decode("utf-8")
+        self.assertIn(manuscript.DOCX_FONT, body)
+
+
 if __name__ == "__main__":
     unittest.main()

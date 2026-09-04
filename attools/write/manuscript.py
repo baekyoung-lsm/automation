@@ -1179,3 +1179,88 @@ def remove_notes(text: str) -> tuple[str, int]:
     if text.endswith("\n"):
         out += "\n"
     return out, count
+
+
+# --------------------------------------------------------------------- DOCX
+
+# 워드 문서는 xml 몇 장을 담은 zip 이다. 스타일 파일 없이 서식을 직접 적어
+# 넣으면 워드·한글·구글 문서에서 모두 열린다.
+DOCX_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>
+"""
+
+DOCX_RELS = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>
+"""
+
+DOCX_NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"')
+DOCX_FONT = "맑은 고딕"
+
+
+def _docx_paragraph(text: str, *, size: int = 20, bold: bool = False,
+                    center: bool = False, indent: bool = False,
+                    page_break: bool = False) -> str:
+    """문단 하나. size 는 하프포인트(20 이면 10pt)."""
+    from html import escape
+
+    marks = ['<w:jc w:val="center"/>'] if center else []
+    if indent:
+        marks.append('<w:ind w:firstLine="200"/>')     # 전각 한 칸쯤
+    marks.append('<w:spacing w:line="360" w:lineRule="auto"/>')
+    properties = f"<w:pPr>{''.join(marks)}</w:pPr>"
+
+    run_marks = (f'<w:rFonts w:eastAsia="{DOCX_FONT}" w:ascii="{DOCX_FONT}"/>'
+                 f'<w:sz w:val="{size}"/><w:szCs w:val="{size}"/>'
+                 + ("<w:b/>" if bold else ""))
+    body = escape(text)
+    run = (f"<w:r><w:rPr>{run_marks}</w:rPr>"
+           + ('<w:br w:type="page"/>' if page_break else "")
+           + f'<w:t xml:space="preserve">{body}</w:t></w:r>')
+    return f"<w:p>{properties}{run}</w:p>"
+
+
+def export_docx(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "",
+                author: str = "", note: str = "", indent: bool = True) -> "Path":
+    """원고를 워드 문서로. 투고에서 docx 를 요구하는 곳이 많다."""
+    import zipfile
+
+    parts: list[str] = []
+    if title:
+        parts.append(_docx_paragraph(title, size=36, bold=True, center=True))
+    if author:
+        parts.append(_docx_paragraph(author, size=22, center=True))
+    if note:
+        parts.append(_docx_paragraph(note, size=18, center=True))
+
+    for number, (name, body) in enumerate(chapters):
+        parts.append(_docx_paragraph(name, size=28, bold=True,
+                                     page_break=bool(number or title)))
+        for block in body.split("\n\n"):
+            block = block.strip()
+            if not block:
+                continue
+            if SEPARATOR_ONLY.match(block) or block in ("＊", "*"):
+                parts.append(_docx_paragraph("＊ ＊ ＊", center=True))
+                continue
+            for line in block.splitlines():
+                if line.strip():
+                    parts.append(_docx_paragraph(line.strip(), indent=indent))
+
+    document = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                f"<w:document {DOCX_NS}><w:body>{''.join(parts)}"
+                '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
+                '<w:pgMar w:top="1417" w:right="1134" w:bottom="1417" '
+                'w:left="1134"/></w:sectPr></w:body></w:document>')
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", DOCX_TYPES)
+        z.writestr("_rels/.rels", DOCX_RELS)
+        z.writestr("word/document.xml", document)
+    return dest

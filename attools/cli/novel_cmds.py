@@ -396,7 +396,8 @@ def cmd_novel_export(a) -> int:
         # HTML·EPUB 은 CSS 로 들여쓰므로 본문에 공백 문자를 넣지 않는다
         body = manuscript.normalize_body(raw,
                                          indent=a.indent
-                                         and a.format not in ("html", "epub"),
+                                         and a.format not in ("html", "epub",
+                                                              "docx"),
                                          scene_mark=a.scene_mark,
                                          join_lines=a.join)
         total += len("".join(body.split()))   # 공백 제외 글자수
@@ -410,6 +411,13 @@ def cmd_novel_export(a) -> int:
         for name, body in chapters:
             _p(f"  {_pad(name, 24)}{len(''.join(body.split())):,}자")
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+        return 0
+
+    if a.format == "docx":
+        dest = manuscript.export_docx(chapters, Path(a.out), title=a.title,
+                                      author=a.author, note=note, indent=a.indent)
+        _p(f"저장: {dest}  ({note})")
+        _p("워드·한글·구글 문서에서 열립니다. 화마다 쪽이 나뉩니다.")
         return 0
 
     if a.format == "epub":
@@ -941,7 +949,7 @@ def add_commands(sub) -> None:
     ex.add_argument("paths", nargs="+")
     ex.add_argument("-o", "--out", metavar="파일")
     ex.add_argument("-f", "--format", default="html",
-                    choices=["html", "txt", "md", "epub"])
+                    choices=["html", "txt", "md", "epub", "docx"])
     ex.add_argument("--title", default="", metavar="제목")
     ex.add_argument("--author", default="", metavar="필명")
     ex.add_argument("--note", default="", metavar="설명", help="기본: 분량 요약")

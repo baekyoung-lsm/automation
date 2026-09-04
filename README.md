@@ -881,7 +881,7 @@ at life save --deposit 1000만 --months 12 --rate 3.5
 | `at novel outline <경로…>` | 장면 목록 — 분량, 대사 비율, 등장인물, 첫 문장 (`-o` 로 xlsx 저장) |
 | `at novel wordlist <경로…>` | 어휘 목록 — 빈도, 처음 나온 화, 그 화에서만 쓰인 말 |
 | `at novel dialogue <경로…>` | 인물별 대사량과 말투 — 존댓말 비율, 자주 쓰는 어미 |
-| `at novel export <경로…>` | 여러 화를 한 파일로 — 투고·인쇄용 html / txt / md / epub |
+| `at novel export <경로…>` | 여러 화를 한 파일로 — 투고·인쇄용 html / txt / md / epub / docx |
 | `at novel style <경로…>` | 화별 문체 지표를 나란히 놓고 유난히 다른 화를 짚는다 |
 | `at novel timeline <경로…>` | 시간 표현을 모아 보고, 한 장면 안에서 시간대·계절이 어긋난 곳을 짚는다 |
 | `at novel find <찾을것> <경로…>` | 앞뒤 문장과 함께 찾고 처음·마지막 등장 위치를 알려준다 |
@@ -906,6 +906,7 @@ at novel dialogue 원고/ --samples 3
 at novel export 원고/ --title "겨울 성문" --author 필명 --indent -o 투고본.html
 at novel export 원고/ -f txt -o 투고본.txt
 at novel export 원고/ -f epub --title "겨울 성문" --author 필명 -o 원고.epub
+at novel export 원고/ -f docx --title "겨울 성문" --author 필명 -o 투고본.docx
 at novel style 원고/               # 화별 비교
 at novel style 원고/12화.txt --by scene
 at novel timeline 원고/ --context
@@ -970,6 +971,10 @@ at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜�
 "카일만 유독 반말인가", "두 인물의 말투가 구별되는가"를 숫자로 본다. 화자는 **같은 줄
 안에서만** 찾고 못 찾으면 비워 둔다 — 줄을 넘어가 다음 문단의 이름을 집으면 인물별
 집계가 통째로 어긋나기 때문이다. 못 찾은 비율이 30%를 넘으면 그 사실을 알려 준다.
+
+`-f docx` 는 워드 문서를 만든다. 투고에서 docx 를 요구하는 곳이 많은데, 그때만 다른 도구를
+쓰지 않아도 된다. 스타일 파일 없이 서식을 문단마다 직접 적어 넣으므로 워드·한글·구글 문서
+어디서나 열린다. 화마다 쪽을 나누고, 한글 글꼴과 줄 간격 1.5, A4 여백을 넣는다.
 
 `-f epub` 은 e북 리더에서 읽을 수 있는 EPUB 3 를 만든다. 화마다 XHTML 한 편, 목차는
 `nav.xhtml`, `mimetype` 은 압축하지 않고 맨 앞에 넣는다(그 순서가 어긋나면 리더가 파일을
