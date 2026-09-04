@@ -183,3 +183,141 @@ def conflicts(files: list[DepFile]) -> list[tuple[str, list[tuple[str, str]]]]:
         if len(rows) > 1 and len(specs) > 1:
             out.append((name, rows))
     return out
+
+
+# ------------------------------------------------------- 잠금 파일 비교
+
+LOCK_VERSION_RE = re.compile(r'^\s*version\s*=\s*"([^"]+)"')
+LOCK_NAME_RE = re.compile(r'^\s*name\s*=\s*"([^"]+)"')
+YARN_ENTRY_RE = re.compile(r'^"?([^@\s"][^@\s"]*)@[^:]*:?\s*$')
+
+
+def _lock_from_package_lock(data: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    packages = data.get("packages")
+    if isinstance(packages, dict):                 # lockfile v2/v3
+        for key, body in packages.items():
+            if not key.startswith("node_modules/") or not isinstance(body, dict):
+                continue
+            name = key.split("node_modules/")[-1]
+            if body.get("version"):
+                out[name] = str(body["version"])
+    if not out and isinstance(data.get("dependencies"), dict):   # v1
+        def walk(node: dict) -> None:
+            for name, body in node.items():
+                if isinstance(body, dict):
+                    if body.get("version"):
+                        out.setdefault(name, str(body["version"]))
+                    if isinstance(body.get("dependencies"), dict):
+                        walk(body["dependencies"])
+        walk(data["dependencies"])
+    return out
+
+
+def _lock_from_pipfile_lock(data: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for group in ("default", "develop"):
+        for name, body in (data.get(group) or {}).items():
+            if isinstance(body, dict) and body.get("version"):
+                out[name] = str(body["version"]).lstrip("=")
+    return out
+
+
+def read_lock(path: Path) -> dict[str, str]:
+    """잠금 파일에서 {패키지: 버전}. 형식을 모르면 빈 사전."""
+    name = path.name.lower()
+    text = path.read_text(encoding="utf-8", errors="replace")
+
+    # Pipfile.lock 은 이름이 .json 으로 끝나지 않지만 안은 JSON 이다.
+    if name.endswith(".json") or name == "pipfile.lock":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        if name == "pipfile.lock":
+            return _lock_from_pipfile_lock(data)
+        return _lock_from_package_lock(data)
+
+    if name == "poetry.lock" or name.endswith(".lock") and "[[package]]" in text:
+        out: dict[str, str] = {}
+        current = ""
+        for line in text.splitlines():
+            if line.strip() == "[[package]]":
+                current = ""
+            elif m := LOCK_NAME_RE.match(line):
+                current = m.group(1)
+            elif current and (m := LOCK_VERSION_RE.match(line)):
+                out[current] = m.group(1)
+                current = ""
+        return out
+
+    if name == "yarn.lock":
+        out = {}
+        current = ""
+        for line in text.splitlines():
+            if not line.startswith((" ", "\t", "#")) and line.strip():
+                m = YARN_ENTRY_RE.match(line.split(",")[0].strip())
+                current = m.group(1) if m else ""
+            elif current and (m := LOCK_VERSION_RE.match(line.strip())):
+                out[current] = m.group(1)
+                current = ""
+        return out
+
+    if name.startswith("requirements") or name.endswith(".txt"):
+        out = {}
+        for line in text.splitlines():
+            body = line.split("#", 1)[0].strip()
+            if not body or body.startswith("-"):
+                continue
+            if "==" in body:
+                head, _, version = body.partition("==")
+                out[head.strip().split("[")[0]] = version.strip()
+        return out
+
+    if name == "go.mod" or name == "go.sum":
+        out = {}
+        for line in text.splitlines():
+            if m := GO_REQUIRE_RE.match(line.replace("require ", "")):
+                out.setdefault(m.group("name"), m.group("version"))
+        return out
+    return {}
+
+
+def version_key(version: str) -> tuple:
+    """숫자 부분만 견줘 올렸는지 내렸는지 본다. 못 읽으면 빈 튜플."""
+    parts = re.findall(r"\d+", version)
+    return tuple(int(p) for p in parts[:4])
+
+
+@dataclass
+class LockChange:
+    name: str
+    before: str
+    after: str
+
+    @property
+    def kind(self) -> str:
+        if not self.before:
+            return "추가"
+        if not self.after:
+            return "삭제"
+        old, new = version_key(self.before), version_key(self.after)
+        if not old or not new or old == new:
+            return "바뀜"
+        return "올림" if new > old else "내림"
+
+    @property
+    def major(self) -> bool:
+        """맨 앞 숫자가 달라졌는가. 대개 호환이 깨지는 자리다."""
+        old, new = version_key(self.before), version_key(self.after)
+        return bool(old and new and old[0] != new[0])
+
+
+def lock_diff(before: dict[str, str], after: dict[str, str]) -> list[LockChange]:
+    """두 잠금 파일의 차이. 이름 순으로 돌려준다."""
+    out: list[LockChange] = []
+    for name in sorted(set(before) | set(after)):
+        old, new = before.get(name, ""), after.get(name, "")
+        if old != new:
+            out.append(LockChange(name, old, new))
+    return out

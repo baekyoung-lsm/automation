@@ -330,6 +330,16 @@ class SmokeTest(unittest.TestCase):
         }, ensure_ascii=False), encoding="utf-8")
         self.assertIn("/orders", self.run_cli("dev", "api", spec))
 
+        옛락 = self.path("old-lock.json")
+        새락 = self.path("new-lock.json")
+        Path(옛락).write_text(json.dumps({"lockfileVersion": 3, "packages": {
+            "node_modules/react": {"version": "18.2.0"}}}), encoding="utf-8")
+        Path(새락).write_text(json.dumps({"lockfileVersion": 3, "packages": {
+            "node_modules/react": {"version": "19.0.0"}}}), encoding="utf-8")
+        잠금 = self.run_cli("dev", "lock", 옛락, 새락)
+        self.assertIn("react", 잠금)
+        self.assertIn("맨 앞 숫자", 잠금)
+
         가짜 = self.path("시험자료.csv")
         만든것 = self.run_cli("dev", "fake", "-c", "이름", "-c", "연락처=전화",
                               "-n", "5", "--seed", "1", "-o", 가짜)

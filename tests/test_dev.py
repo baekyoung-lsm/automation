@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
@@ -414,6 +415,73 @@ class DepsTest(unittest.TestCase):
     def test_unknown_file(self):
         with self.assertRaises(ValueError):
             deps.read_file(self.write("Gemfile", "gem 'rails'\n"))
+
+
+class LockDiffTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name: str, body: str) -> Path:
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_package_lock_v3(self):
+        path = self.write("package-lock.json", json.dumps({
+            "lockfileVersion": 3,
+            "packages": {"": {"name": "app"},
+                         "node_modules/react": {"version": "18.2.0"}}}))
+        self.assertEqual(deps.read_lock(path), {"react": "18.2.0"})
+
+    def test_package_lock_v1_walks_nested_deps(self):
+        path = self.write("package-lock.json", json.dumps({
+            "lockfileVersion": 1,
+            "dependencies": {"a": {"version": "1.0.0",
+                                   "dependencies": {"b": {"version": "2.0.0"}}}}}))
+        self.assertEqual(deps.read_lock(path), {"a": "1.0.0", "b": "2.0.0"})
+
+    def test_poetry_lock(self):
+        path = self.write("poetry.lock",
+                          '[[package]]\nname = "django"\nversion = "5.0.1"\n')
+        self.assertEqual(deps.read_lock(path), {"django": "5.0.1"})
+
+    def test_requirements_takes_pinned_only(self):
+        path = self.write("requirements.txt",
+                          "django==4.2.1\nrequests>=2.0\n# 주석\n-r other.txt\n")
+        self.assertEqual(deps.read_lock(path), {"django": "4.2.1"})
+
+    def test_pipfile_lock(self):
+        path = self.write("Pipfile.lock", json.dumps(
+            {"default": {"django": {"version": "==4.2.1"}},
+             "develop": {"pytest": {"version": "==8.0.0"}}}))
+        self.assertEqual(deps.read_lock(path),
+                         {"django": "4.2.1", "pytest": "8.0.0"})
+
+    def test_unknown_format_returns_empty(self):
+        self.assertEqual(deps.read_lock(self.write("모르는파일.cfg", "내용")), {})
+
+    def test_diff_classifies_changes(self):
+        before = {"a": "1.0.0", "b": "2.0.0", "c": "1.0.0"}
+        after = {"a": "2.0.0", "b": "2.0.1", "d": "1.0.0"}
+        kinds = {c.name: c.kind for c in deps.lock_diff(before, after)}
+        self.assertEqual(kinds, {"a": "올림", "b": "올림", "c": "삭제", "d": "추가"})
+
+    def test_major_change_is_flagged(self):
+        changes = {c.name: c for c in deps.lock_diff({"a": "1.9.0", "b": "1.0.0"},
+                                                     {"a": "2.0.0", "b": "1.1.0"})}
+        self.assertTrue(changes["a"].major)
+        self.assertFalse(changes["b"].major)
+
+    def test_downgrade_is_named(self):
+        change = deps.lock_diff({"a": "2.0.0"}, {"a": "1.9.0"})[0]
+        self.assertEqual(change.kind, "내림")
+
+    def test_unreadable_version_is_just_changed(self):
+        change = deps.lock_diff({"a": "main"}, {"a": "develop"})[0]
+        self.assertEqual(change.kind, "바뀜")
 
 
 if __name__ == "__main__":

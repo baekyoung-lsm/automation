@@ -378,6 +378,52 @@ def cmd_dev_fake(a) -> int:
     return 0
 
 
+def cmd_dev_lock(a) -> int:
+    before_path, after_path = Path(a.before), Path(a.after)
+    for path in (before_path, after_path):
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+
+    before = deps.read_lock(before_path)
+    after = deps.read_lock(after_path)
+    if not before and not after:
+        _p("두 파일 모두에서 버전을 읽지 못했습니다.")
+        _p("package-lock.json, pipfile.lock, poetry.lock, yarn.lock, "
+           "requirements.txt, go.mod 를 읽습니다.")
+        return 1
+
+    changes = deps.lock_diff(before, after)
+    if not changes:
+        _p(f"패키지 {len(after):,}개, 바뀐 것이 없습니다.")
+        return 0
+
+    if a.major:
+        changes = [c for c in changes if c.major]
+        if not changes:
+            _p("맨 앞 숫자가 바뀐 패키지는 없습니다.")
+            return 0
+
+    _grid(["패키지", "전", "후", "무엇"],
+          [[c.name, c.before or "-", c.after or "-",
+            c.kind + ("  (맨 앞 숫자)" if c.major else "")]
+           for c in changes[:a.limit]], limit=40)
+    if len(changes) > a.limit:
+        _p(f"  ... {len(changes) - a.limit}개 더")
+
+    counts: dict[str, int] = {}
+    for c in changes:
+        counts[c.kind] = counts.get(c.kind, 0) + 1
+    _p("\n" + " · ".join(f"{k} {n}" for k, n in counts.items())
+       + f"  (전체 {len(before):,} -> {len(after):,}개)")
+    majors = [c for c in changes if c.major]
+    if majors:
+        _p(f"맨 앞 숫자가 바뀐 것 {len(majors)}개: "
+           + ", ".join(c.name for c in majors[:8]))
+        _p("대개 여기서 호환이 깨집니다. 바뀐 것 전체를 훑기 전에 이것부터 보세요.")
+    return 0
+
+
 def cmd_dev_mask(a) -> int:
     try:
         text = _read_input(a.file)
@@ -797,6 +843,13 @@ def add_commands(sub) -> None:
     fk.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
     fk.add_argument("--limit", type=int, default=10)
     fk.set_defaults(func=cmd_dev_fake)
+
+    lk = dp.add_parser("lock", help="잠금 파일 두 개를 비교 - 어떤 패키지가 얼마나 바뀌었나")
+    lk.add_argument("before", metavar="이전")
+    lk.add_argument("after", metavar="이후")
+    lk.add_argument("--major", action="store_true", help="맨 앞 숫자가 바뀐 것만")
+    lk.add_argument("--limit", type=int, default=40)
+    lk.set_defaults(func=cmd_dev_lock)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

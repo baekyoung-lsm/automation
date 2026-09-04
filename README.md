@@ -146,6 +146,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
 | `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기 |
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
+| `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -178,6 +179,8 @@ at dev slow app.log --sort total        # 총 소요 시간이 큰 경로부터
 at dev slow app.log --pattern 'took=(\d+)'
 at dev fake -c 이름 -c 연락처=전화 -c 금액=금액:1000:9000 -n 200 -o 시험자료.xlsx
 at dev fake -c 이름 -c 가입일=날짜:365 --seed 7        # 씨앗을 주면 같은 자료가 다시
+git show HEAD~1:package-lock.json > /tmp/전.json
+at dev lock /tmp/전.json package-lock.json --major     # 맨 앞 숫자가 바뀐 것만
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
 at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
@@ -209,6 +212,12 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
 숫자를 지어내게 된다.
+
+`at dev lock` 은 `package-lock.json`(v1·v2·v3), `Pipfile.lock`, `poetry.lock`,
+`yarn.lock`, `requirements.txt`, `go.mod` 를 읽어 **무엇이 얼마나 바뀌었는지**만 낸다.
+잠금 파일 diff 는 수천 줄이라 눈으로 읽히지 않는데, 실제로 봐야 하는 것은 패키지별 버전
+변화다. 맨 앞 숫자가 바뀐 것은 따로 모아 준다 — 대개 거기서 호환이 깨진다. 버전 문자열의
+숫자만 견주므로 `main` 처럼 숫자가 없으면 '올림/내림' 대신 '바뀜' 이라고만 한다.
 
 `at dev fake` 는 화면과 엑셀에서 한글이 어떻게 보이는지까지 확인할 수 있게 **한글 이름·주소**
 로 만든다. `--seed` 를 주면 같은 자료가 다시 나오므로 시험이 흔들리지 않는다. 만든
