@@ -700,3 +700,60 @@ def day_label(stamp: float, *, today: datetime | None = None) -> str:
     today = today or datetime.now()
     delta = (today.date() - when.date()).days
     return {0: "오늘", 1: "어제", 2: "그저께"}.get(delta, f"{when:%Y-%m-%d}")
+
+
+HASH_ALGORITHMS = {"sha256": "sha256", "sha1": "sha1", "md5": "md5",
+                   "blake2": "blake2b"}
+
+
+def digest(path: Path, algorithm: str = "sha256", *, chunk: int = 1 << 20) -> str:
+    name = HASH_ALGORITHMS.get(algorithm)
+    if name is None:
+        raise ValueError(f"모르는 방식입니다: {algorithm} "
+                         f"({', '.join(HASH_ALGORITHMS)})")
+    h = hashlib.new(name)
+    with path.open("rb") as fh:
+        while block := fh.read(chunk):
+            h.update(block)
+    return h.hexdigest()
+
+
+@dataclass
+class CheckResult:
+    ok: list[str] = field(default_factory=list)
+    changed: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    malformed: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def failed(self) -> int:
+        return len(self.changed) + len(self.missing) + len(self.malformed)
+
+
+def write_sums(root: Path, targets: list[Path], algorithm: str = "sha256") -> list[str]:
+    """sha256sum 과 같은 형식으로 줄을 만든다. 다른 도구로도 검증할 수 있다."""
+    lines = []
+    for path in targets:
+        rel = path.relative_to(root) if path.is_relative_to(root) else path
+        lines.append(f"{digest(path, algorithm)}  {rel}")
+    return lines
+
+
+def check_sums(root: Path, lines: list[str], algorithm: str = "sha256") -> CheckResult:
+    result = CheckResult()
+    for number, raw in enumerate(lines, 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("  ", 1)
+        if len(parts) != 2 or not parts[0]:
+            result.malformed.append((number, line[:60]))
+            continue
+        expected, name = parts[0].strip(), parts[1].strip()
+        target = root / name
+        if not target.is_file():
+            result.missing.append(name)
+            continue
+        result.ok.append(name) if digest(target, algorithm) == expected \
+            else result.changed.append(name)
+    return result

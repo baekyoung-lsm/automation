@@ -125,6 +125,50 @@ class FilesTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "z.zip") as z:
             self.assertEqual(z.namelist(), ["sub/deep/c.log"])
 
+    def test_digest_is_stable_and_content_sensitive(self):
+        a = self.make("a.txt", "같은 내용")
+        b = self.make("b.txt", "같은 내용")
+        c = self.make("c.txt", "다른 내용")
+        self.assertEqual(files.digest(a), files.digest(b))
+        self.assertNotEqual(files.digest(a), files.digest(c))
+        self.assertEqual(len(files.digest(a)), 64)          # sha256
+        with self.assertRaises(ValueError):
+            files.digest(a, "없는방식")
+
+    def test_write_sums_format_matches_sha256sum(self):
+        self.make("a.txt", "내용")
+        self.make("sub/b.txt", "내용")
+        targets = sorted(files.iter_targets(self.root, recursive=True,
+                                            include_hidden=False))
+        lines = files.write_sums(self.root, targets)
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            digest, sep, name = line.partition("  ")   # 표준 도구와 같은 두 칸
+            self.assertEqual(len(digest), 64)
+            self.assertTrue(sep)
+            self.assertIn(name, ("a.txt", "sub/b.txt"))
+
+    def test_check_sums_detects_change_and_missing(self):
+        self.make("같음.txt", "그대로")
+        self.make("바뀜.txt", "처음")
+        self.make("사라짐.txt", "있음")
+        targets = sorted(files.iter_targets(self.root, recursive=True,
+                                            include_hidden=False))
+        lines = files.write_sums(self.root, targets)
+
+        (self.root / "바뀜.txt").write_text("나중", encoding="utf-8")
+        (self.root / "사라짐.txt").unlink()
+
+        result = files.check_sums(self.root, lines)
+        self.assertEqual(result.ok, ["같음.txt"])
+        self.assertEqual(result.changed, ["바뀜.txt"])
+        self.assertEqual(result.missing, ["사라짐.txt"])
+        self.assertEqual(result.failed, 2)
+
+    def test_check_sums_reports_malformed_lines(self):
+        result = files.check_sums(self.root, ["# 주석", "", "이상한줄"])
+        self.assertEqual(result.malformed, [(3, "이상한줄")])
+
     def test_recent_files_filters_by_age(self):
         import os
         import time

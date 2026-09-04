@@ -53,6 +53,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file recent [경로]` | 최근에 손댄 파일을 오늘·어제별로 |
 | `at file tree [경로]` | 프로젝트 구조. `.gitignore` 를 그대로 따르고 줄 수·크기도 |
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
+| `at file hash [경로]` | 체크섬 만들기·검증. `sha256sum -c` 와 같은 형식 |
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
 | `at file undo [저널]` | 직전 organize/fixname 을 되돌린다 |
@@ -64,6 +65,8 @@ at file fixname ~/Documents -r --apply
 at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply
 at file rename ~/문서 --prefix '기획팀_' --replace '최종(수정)=v2' --apply
 at file rename ~/스캔 -t '{parent}_{seq:03d}{ext}' --apply
+at file hash dist/ -o SHA256SUMS.txt
+at file hash dist/ --check SHA256SUMS.txt      # 달라진 게 있으면 exit 1
 at file diff 배포전/ 배포후/ -g '*.py'
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
@@ -79,6 +82,10 @@ at file undo
 `tree` 는 `.gitignore` 를 직접 해석하지 않고 `git ls-files` 에게 묻는다. 부정 패턴이나 `**`
 같은 규칙을 흉내 내다 어긋나는 것보다 정확하다. git 저장소가 아니면 숨김·빌드 디렉터리를
 이름으로 거르고, 그렇게 했다는 사실을 함께 알린다.
+
+`hash` 가 적는 형식은 `sha256sum` 과 같아서(`<해시><공백 두 칸><경로>`) 다른 도구로도
+검증할 수 있다. `--check` 는 달라진 파일·없어진 파일을 따로 알려 주고 하나라도 어긋나면
+종료 코드 1을 돌려준다.
 
 `diff` 는 크기가 같아도 해시를 비교하므로 **크기가 같고 내용만 바뀐 파일**을 잡는다.
 `--quick` 은 크기만 봐서 빠르지만 그런 변경은 놓치고, 결과에 그 사실을 함께 알려 준다.

@@ -578,6 +578,76 @@ def cmd_file_recent(a) -> int:
     return 0
 
 
+def cmd_file_hash(a) -> int:
+    root = Path(a.dir)
+
+    if a.check:
+        sums = Path(a.check)
+        if not sums.is_file():
+            _p(f"파일이 없습니다: {sums}")
+            return 1
+        base = root if root.is_dir() and str(root) != "." else sums.parent
+        try:
+            result = files.check_sums(
+                base, sums.read_text(encoding="utf-8").splitlines(), a.algorithm)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+
+        _p(f"{sums.name}  기준 {base}")
+        _p(f"  같음 {len(result.ok):,}  ·  달라짐 {len(result.changed):,}"
+           f"  ·  없음 {len(result.missing):,}"
+           + (f"  ·  형식 이상 {len(result.malformed):,}" if result.malformed else ""))
+        for name in result.changed[:a.limit]:
+            _p(f"  달라짐  {name}")
+        for name in result.missing[:a.limit]:
+            _p(f"  없음    {name}")
+        for number, line in result.malformed[:a.limit]:
+            _p(f"  {number}행 형식 이상  {line}")
+
+        if result.failed:
+            _p("\n하나라도 다르면 배포본이 바뀐 것입니다.")
+            return 1
+        _p("\n모두 같습니다.")
+        return 0
+
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    targets = sorted(files.iter_targets(root, recursive=not a.no_recursive,
+                                        include_hidden=a.hidden))
+    if a.glob:
+        from fnmatch import fnmatch
+
+        targets = [p for p in targets
+                   if any(fnmatch(p.name, g) for g in a.glob)]
+    if not targets:
+        _p("대상 파일이 없습니다.")
+        return 1
+
+    try:
+        lines = files.write_sums(root, targets, a.algorithm)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    if a.out:
+        target = Path(a.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _p(f"{len(lines):,}개 파일의 {a.algorithm} 를 적었습니다: {target}")
+        _p(f"검증: at file hash {root} --check {target}")
+        return 0
+
+    for line in lines[:a.limit]:
+        _p(line)
+    if len(lines) > a.limit:
+        _p(f"... {len(lines) - a.limit:,}개 더")
+    _p(f"\n{len(lines):,}개.  -o 로 저장하면 나중에 --check 로 검증합니다.")
+    return 0
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -3319,6 +3389,18 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--limit", type=int, default=15)
     ar.add_argument("--apply", action="store_true")
     ar.set_defaults(func=cmd_file_archive)
+
+    hs = fp.add_parser("hash", help="체크섬 만들기·검증 (배포·백업 무결성)")
+    hs.add_argument("dir", nargs="?", default=".")
+    hs.add_argument("-a", "--algorithm", default="sha256",
+                    choices=list(files.HASH_ALGORITHMS))
+    hs.add_argument("-g", "--glob", action="append", metavar="패턴")
+    hs.add_argument("--hidden", action="store_true")
+    hs.add_argument("--no-recursive", action="store_true")
+    hs.add_argument("-o", "--out", metavar="파일", help="예: SHA256SUMS.txt")
+    hs.add_argument("--check", metavar="파일", help="적어 둔 체크섬과 맞춰본다")
+    hs.add_argument("--limit", type=int, default=20)
+    hs.set_defaults(func=cmd_file_hash)
 
     fd2 = fp.add_parser("diff", help="두 디렉터리 비교 (배포·백업 검증)")
     fd2.add_argument("left", metavar="왼쪽")

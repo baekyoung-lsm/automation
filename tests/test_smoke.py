@@ -139,6 +139,10 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "big", self.path())
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
+        sums = self.path("SUMS.txt")
+        self.run_cli("file", "hash", self.path("원고"), "-o", sums)
+        self.assertIn("모두 같습니다",
+                      self.run_cli("file", "hash", self.path("원고"), "--check", sums))
         self.assertIn("왼쪽에만", self.run_cli("file", "diff", self.path("문서"),
                                                self.path("원고"), expect=1))
 
