@@ -210,9 +210,10 @@ class SmokeTest(unittest.TestCase):
 
     def test_sheet_fill(self):
         template = self.path("틀.txt")
-        Path(template).write_text("{이름} 님 {부서}\n", encoding="utf-8")
+        Path(template).write_text("{이름:은/는} {부서:으로/로} 갑니다.\n",
+                                   encoding="utf-8")
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
-        self.assertIn("홍길동", text)
+        self.assertIn("홍길동은", text)
 
     # ------------------------------------------------------------ json
 

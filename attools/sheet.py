@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from .hangul import josa
+
 from . import xlsx
 
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
@@ -705,6 +707,11 @@ class Filled:
     row: int
 
 
+# {이름:을/를} 처럼 조사 짝을 적은 자리. 형식 지정(03d, .2f)과 헷갈리지 않게
+# 한글 한두 글자 / 한글 한두 글자 꼴만 조사로 본다.
+JOSA_SPEC = re.compile(r"[가-힣]{1,2}/[가-힣]{1,2}")
+
+
 def placeholders(template: str) -> list[str]:
     """틀에 쓰인 자리표시자 이름을 순서대로 모은다."""
     out: list[str] = []
@@ -732,9 +739,12 @@ def render(template: str, values: dict[str, object], *,
                 missing.add(key)
             return ""
         value = values[key]
+        spec = spec.strip()
+        if JOSA_SPEC.fullmatch(spec):      # {이름:을/를} 은 받침에 맞는 조사를 붙인다
+            return josa(to_text(value), spec)
         if spec:
             try:
-                return format(value, spec.strip())
+                return format(value, spec)
             except (ValueError, TypeError):
                 pass
         return to_text(value)

@@ -94,10 +94,39 @@ def has_batchim(syllable: str) -> bool | None:
     return (code - 0xAC00) % 28 != 0
 
 
+# 숫자는 읽는 소리로 받침을 본다. 2(이)·4(사)·5(오)·9(구)만 받침이 없다.
+DIGIT_BATCHIM = {"0": True, "1": True, "2": False, "3": True, "4": False,
+                 "5": False, "6": True, "7": True, "8": True, "9": False}
+
+
+def ends_with_batchim(word: str) -> bool | None:
+    """낱말 끝소리에 받침이 있는지. 한글도 숫자도 아니면 None.
+
+    '2를', '3을' 처럼 숫자로 끝나는 말도 흔해서 읽는 소리로 판단한다.
+    """
+    if not word:
+        return None
+    last = word[-1]
+    if last in DIGIT_BATCHIM:
+        return DIGIT_BATCHIM[last]
+    return has_batchim(last)
+
+
+def is_riul_batchim(word: str) -> bool:
+    """끝 글자의 받침이 ㄹ 인지. '서울로' 처럼 조사가 달라진다."""
+    if not word:
+        return False
+    code = ord(word[-1])
+    return 0xAC00 <= code <= 0xD7A3 and (code - 0xAC00) % 28 == 8
+
+
 def josa(word: str, pair: str = "은/는") -> str:
     """받침에 맞는 조사를 붙여 반환한다. 예: josa("책", "이/가") -> "책이"."""
     with_batchim, _, without = pair.partition("/")
-    flag = has_batchim(word)
+    flag = ends_with_batchim(word)
     if flag is None:
         return word + with_batchim
+    # 받침이 ㄹ 이면 '으로' 가 아니라 '로' 다 (서울로, 하늘로).
+    if flag and with_batchim.startswith("으") and is_riul_batchim(word):
+        return word + without
     return word + (with_batchim if flag else without)

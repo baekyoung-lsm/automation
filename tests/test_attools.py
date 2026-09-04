@@ -35,6 +35,19 @@ class HangulTest(unittest.TestCase):
         self.assertEqual(hangul.josa("노트", "이/가"), "노트가")
         self.assertEqual(hangul.josa("원고", "은/는"), "원고는")
 
+    def test_josa_riul_takes_ro(self):
+        self.assertEqual(hangul.josa("서울", "으로/로"), "서울로")
+        self.assertEqual(hangul.josa("부산", "으로/로"), "부산으로")
+        self.assertEqual(hangul.josa("책", "으로/로"), "책으로")
+
+    def test_josa_reads_trailing_digit_aloud(self):
+        self.assertEqual(hangul.josa("2", "을/를"), "2를")     # 이
+        self.assertEqual(hangul.josa("3", "을/를"), "3을")     # 삼
+        self.assertEqual(hangul.josa("10", "으로/로"), "10으로")
+
+    def test_josa_unknown_word_keeps_first_form(self):
+        self.assertEqual(hangul.josa("Kim", "은/는"), "Kim은")
+
 
 class FilesTest(unittest.TestCase):
     def setUp(self):
@@ -1761,6 +1774,21 @@ class SheetTest(unittest.TestCase):
     def test_transpose_needs_rows(self):
         with self.assertRaises(sheet.SheetError):
             sheet.transpose(sheet.Table(["가"], []))
+
+
+    def test_render_attaches_josa_by_batchim(self):
+        out = sheet.render("{이름:은/는} {도시:으로/로} 간다.",
+                           {"이름": "민수", "도시": "서울"})
+        self.assertEqual(out, "민수는 서울로 간다.")
+        out = sheet.render("{이름:은/는} {도시:으로/로} 간다.",
+                           {"이름": "지현", "도시": "부산"})
+        self.assertEqual(out, "지현은 부산으로 간다.")
+
+    def test_render_josa_on_number(self):
+        self.assertEqual(sheet.render("{수량:을/를}", {"수량": 3}), "3을")
+
+    def test_render_keeps_format_spec(self):
+        self.assertEqual(sheet.render("{번호:03d}", {"번호": 7}), "007")
 
 
 class KeysTest(unittest.TestCase):
