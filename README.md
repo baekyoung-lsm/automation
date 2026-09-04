@@ -445,7 +445,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시 |
+| `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시. `--stats` 로 합계·평균·중앙값 |
 | `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
@@ -472,6 +472,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 
 ```bash
 at sheet peek 매출.xlsx --sheet 1분기 -n 10
+at sheet peek 매출.xlsx --stats            # 합계·평균·중앙값·최빈값
 at sheet check 직원명부.xlsx --key 사번 --required 입사일
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx

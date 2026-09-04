@@ -87,6 +87,19 @@ def cmd_sheet_peek(a) -> int:
         ])
     _grid(header, body, limit=a.width)
 
+    if a.stats:
+        _p("\n요약")
+        rows = []
+        for c in sheet.column_stats(t):
+            if c.kind == "숫자":
+                rows.append([c.name, "숫자", f"{c.total:,.10g}", f"{c.mean:,.2f}",
+                             f"{c.median:,.10g}", "-"])
+            else:
+                top = f"{c.top} {c.top_ratio:.0%}" if c.top else "-"
+                rows.append([c.name, c.kind, "-", "-", "-", top])
+        _grid(["열", "타입", "합계", "평균", "중앙값", "최빈값"], rows, limit=a.width)
+        _p("평균과 중앙값을 함께 봅니다. 한쪽만 보면 치우친 자료를 잘못 읽습니다.")
+
     if a.rows:
         _p(f"\n앞 {a.rows}행")
         _grid(t.headers, [[sheet.to_text(v) for v in r] for r in t.rows[:a.rows]],
@@ -890,6 +903,8 @@ def add_commands(sub) -> None:
     pk.add_argument("file")
     pk.add_argument("-n", "--rows", type=int, default=5, help="미리보기 행 수 (0이면 생략)")
     pk.add_argument("--width", type=int, default=24, metavar="칸", help="열 표시 폭")
+    pk.add_argument("--stats", action="store_true",
+                    help="숫자 열의 합계·평균·중앙값, 나머지 열의 최빈값")
     pk.set_defaults(func=cmd_sheet_peek)
 
     ck = common(sh.add_parser("check", help="중복 키·결측·타입 혼재 검증"))

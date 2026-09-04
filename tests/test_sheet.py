@@ -715,5 +715,41 @@ class CombineTest(unittest.TestCase):
             sheet.combine_columns(self.TABLE, [], into="주소")
 
 
+class ColumnStatTest(unittest.TestCase):
+    TABLE = sheet.Table(["부서", "연봉"],
+                        [["영업", 100], ["개발", 200], ["개발", None], ["영업", 900]])
+
+    def test_numbers_get_total_mean_median(self):
+        stat = {s.name: s for s in sheet.column_stats(self.TABLE)}["연봉"]
+        self.assertEqual((stat.count, stat.total), (3, 1200))
+        self.assertEqual(stat.median, 200)          # 평균 400 과 다르다
+        self.assertEqual((stat.low, stat.high), (100, 900))
+
+    def test_median_of_even_count_is_the_middle_average(self):
+        table = sheet.Table(["값"], [[1], [2], [3], [4]])
+        self.assertEqual(sheet.column_stats(table)[0].median, 2.5)
+
+    def test_text_column_gets_top_value(self):
+        stat = {s.name: s for s in sheet.column_stats(self.TABLE)}["부서"]
+        self.assertEqual((stat.top, stat.top_count), ("영업", 2))
+        self.assertAlmostEqual(stat.top_ratio, 0.5)
+
+    def test_mostly_text_column_is_not_treated_as_numeric(self):
+        table = sheet.Table(["값"], [["가"], ["나"], [3]])
+        self.assertNotEqual(sheet.column_stats(table)[0].kind, "숫자")
+
+    def test_date_column_keeps_range(self):
+        from datetime import date as _date
+
+        table = sheet.Table(["날"], [[_date(2026, 1, 1)], [_date(2026, 5, 1)]])
+        stat = sheet.column_stats(table)[0]
+        self.assertEqual((stat.kind, stat.low, stat.high),
+                         ("날짜", _date(2026, 1, 1), _date(2026, 5, 1)))
+
+    def test_empty_column_is_safe(self):
+        stat = sheet.column_stats(sheet.Table(["값"], [[None], [""]]))[0]
+        self.assertEqual((stat.count, stat.top_ratio), (0, 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()

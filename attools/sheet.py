@@ -1496,3 +1496,56 @@ def combine_columns(table: Table, columns: list[str], *, into: str = "합침",
         body.insert(at, value)
         rows.append(body)
     return Table(headers, rows, source=table.source, sheet=table.sheet)
+
+
+@dataclass
+class ColumnStat:
+    name: str
+    kind: str
+    count: int = 0              # 값이 있는 칸 수
+    total: float = 0.0
+    mean: float = 0.0
+    median: float = 0.0
+    low: object = None
+    high: object = None
+    top: str = ""               # 가장 많이 나온 값
+    top_count: int = 0
+
+    @property
+    def top_ratio(self) -> float:
+        return self.top_count / self.count if self.count else 0.0
+
+
+def column_stats(table: Table) -> list[ColumnStat]:
+    """열마다 요약값. 숫자는 합계·평균·중앙값, 나머지는 최빈값.
+
+    평균과 중앙값을 함께 낸다. 한쪽만 보면 치우친 자료를 잘못 읽는다.
+    """
+    out: list[ColumnStat] = []
+    for i, name in enumerate(table.headers):
+        values = [row[i] for row in table.rows
+                  if i < len(row) and row[i] is not None and row[i] != ""]
+        numbers = [v for v in values
+                   if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        stat = ColumnStat(name, kind_of(values[0]) if values else "빈칸",
+                          count=len(values))
+
+        if numbers and len(numbers) >= len(values) / 2:
+            ordered = sorted(numbers)
+            middle = len(ordered) // 2
+            stat.kind = "숫자"
+            stat.total = sum(ordered)
+            stat.mean = stat.total / len(ordered)
+            stat.median = (ordered[middle] if len(ordered) % 2
+                           else (ordered[middle - 1] + ordered[middle]) / 2)
+            stat.low, stat.high = ordered[0], ordered[-1]
+        else:
+            counted = Counter(to_text(v) for v in values)
+            if counted:
+                stat.top, stat.top_count = counted.most_common(1)[0]
+            comparable = [v for v in values if isinstance(v, (date, datetime))]
+            if comparable and len(comparable) == len(values):
+                stat.kind = "날짜"
+                stat.low, stat.high = min(comparable), max(comparable)
+        out.append(stat)
+    return out
