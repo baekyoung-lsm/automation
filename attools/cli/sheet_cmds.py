@@ -189,6 +189,27 @@ def cmd_sheet_diff(a) -> int:
     if before is None or after is None:
         return 1
 
+    if a.columns:
+        cd = sheet.column_diff(before, after)
+        if cd.empty:
+            _p("열 구조가 같습니다.")
+            return 0
+        if cd.added:
+            _p(f"새로 생긴 열 {len(cd.added)}개: {', '.join(cd.added)}")
+        if cd.removed:
+            _p(f"사라진 열 {len(cd.removed)}개: {', '.join(cd.removed)}")
+        for name, old_at, new_at in cd.moved:
+            _p(f"자리 바뀜  {name}: {old_at}번째 -> {new_at}번째")
+        for name, old_kind, new_kind in cd.retyped:
+            _p(f"타입 바뀜  {name}: {old_kind} -> {new_kind}")
+        _p("\n열 이름이 같으면 같은 열로 봅니다. 이름만 바꾼 열은 "
+           "'사라짐 + 새로 생김' 으로 나옵니다.")
+        return 1
+
+    if not a.key:
+        _p("--key 로 행을 짝지을 열을 주세요. 열 구조만 보려면 --columns 를 쓰세요.")
+        return 1
+
     try:
         d = sheet.diff(before, after, a.key)
     except sheet.SheetError as e:
@@ -929,7 +950,9 @@ def add_commands(sub) -> None:
     df = common(sh.add_parser("diff", help="두 파일을 키 기준으로 비교"))
     df.add_argument("before")
     df.add_argument("after")
-    df.add_argument("--key", required=True, metavar="열")
+    df.add_argument("--key", metavar="열", help="행을 짝지을 열")
+    df.add_argument("--columns", action="store_true",
+                    help="행 대신 열 구조만 비교 (키가 없어도 된다)")
     df.add_argument("--limit", type=int, default=20)
     df.set_defaults(func=cmd_sheet_diff)
 

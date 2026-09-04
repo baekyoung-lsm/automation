@@ -457,7 +457,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
-| `at sheet diff <이전> <이후> --key <열>` | 키 기준으로 추가·삭제·변경된 값을 찾는다 |
+| `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
 | `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
@@ -485,6 +485,7 @@ at sheet check 직원명부.xlsx --key 사번 --required 입사일
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
+at sheet diff 지난달.xlsx 이번달.xlsx --columns   # 서식이 바뀌었는지만
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
 at sheet melt 월별매출.xlsx --keep 부서 --keep 이름 --name 월 --value 매출 -o 긴표.csv
 at sheet transpose 요약.csv
@@ -540,6 +541,11 @@ at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 
 `--format` 은 국내에서 자주 쓰는 형식을 본다 — `사업자번호`(국세청 검증번호 계산),
 `휴대폰`, `전화번호`, `우편번호`(5자리), `이메일`. 사업자번호는 **규칙에 맞는 번호인지만**
 확인한다. 실제로 등록된 사업자인지는 알 수 없다 — 오타를 잡는 용도다.
+
+`diff --columns` 는 행을 보지 않고 **열 구조만** 비교한다. 거래처가 보내 주는 파일의
+서식이 바뀌었는지(열이 생기고, 자리가 밀리고, 숫자였던 열이 문자가 됐는지) 볼 때 쓴다.
+키가 없어도 되고 행이 아주 많아도 빠르다. 열 이름이 같으면 같은 열로 보므로 이름만 바꾼
+열은 '사라짐 + 새로 생김' 으로 나온다 — 짐작해서 맞추지 않는다.
 
 `validate` 는 규칙을 어긴 행 번호와 값 예시를 보여 주고, 하나라도 어기면 종료 코드 1을
 돌려주므로 데이터를 받거나 넘기기 전 검사로 CI 에 넣을 수 있다. 규칙은 `--rules 규칙.json`

@@ -1549,3 +1549,38 @@ def column_stats(table: Table) -> list[ColumnStat]:
                 stat.low, stat.high = min(comparable), max(comparable)
         out.append(stat)
     return out
+
+
+@dataclass
+class ColumnDiff:
+    added: list[str] = field(default_factory=list)
+    removed: list[str] = field(default_factory=list)
+    moved: list[tuple[str, int, int]] = field(default_factory=list)   # 이름, 전, 후
+    retyped: list[tuple[str, str, str]] = field(default_factory=list)  # 이름, 전, 후
+
+    @property
+    def empty(self) -> bool:
+        return not (self.added or self.removed or self.moved or self.retyped)
+
+
+def column_diff(before: Table, after: Table) -> ColumnDiff:
+    """열 구조만 비교한다. 키가 없어도, 행이 아주 많아도 볼 수 있다.
+
+    거래처가 보내 주는 파일의 서식이 바뀌었는지 확인할 때 쓴다.
+    """
+    old_kinds = {c.name: c.main_kind for c in profile(before)}
+    new_kinds = {c.name: c.main_kind for c in profile(after)}
+    out = ColumnDiff()
+    out.added = [h for h in after.headers if h not in before.headers]
+    out.removed = [h for h in before.headers if h not in after.headers]
+
+    for name in before.headers:
+        if name not in after.headers:
+            continue
+        old_at, new_at = before.headers.index(name), after.headers.index(name)
+        if old_at != new_at:
+            out.moved.append((name, old_at + 1, new_at + 1))
+        if old_kinds.get(name) != new_kinds.get(name):
+            out.retyped.append((name, old_kinds.get(name, "?"),
+                                new_kinds.get(name, "?")))
+    return out

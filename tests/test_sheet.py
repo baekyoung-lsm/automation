@@ -751,5 +751,34 @@ class ColumnStatTest(unittest.TestCase):
         self.assertEqual((stat.count, stat.top_ratio), (0, 0.0))
 
 
+class ColumnDiffTest(unittest.TestCase):
+    BEFORE = sheet.Table(["사번", "이름", "부서", "연봉"],
+                         [["E001", "가", "영업", 5000]])
+    AFTER = sheet.Table(["사번", "이름", "연봉", "입사일", "부서"],
+                        [["E001", "가", "5천만", "2024-01-05", "영업"]])
+
+    def test_added_and_removed_columns(self):
+        d = sheet.column_diff(self.BEFORE, self.AFTER)
+        self.assertEqual(d.added, ["입사일"])
+        self.assertEqual(d.removed, [])
+
+    def test_moved_columns_report_both_positions(self):
+        d = sheet.column_diff(self.BEFORE, self.AFTER)
+        self.assertIn(("연봉", 4, 3), d.moved)
+        self.assertIn(("부서", 3, 5), d.moved)
+
+    def test_type_change_is_reported(self):
+        d = sheet.column_diff(self.BEFORE, self.AFTER)
+        self.assertEqual([n for n, _, _ in d.retyped], ["연봉"])
+
+    def test_same_structure_is_empty(self):
+        self.assertTrue(sheet.column_diff(self.BEFORE, self.BEFORE).empty)
+
+    def test_renamed_column_shows_as_removed_and_added(self):
+        after = sheet.Table(["사번", "성명", "부서", "연봉"], [["E001", "가", "영업", 5000]])
+        d = sheet.column_diff(self.BEFORE, after)
+        self.assertEqual((d.added, d.removed), (["성명"], ["이름"]))
+
+
 if __name__ == "__main__":
     unittest.main()

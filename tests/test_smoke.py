@@ -241,6 +241,8 @@ class SmokeTest(unittest.TestCase):
                                                  "--col", "이름", "--sep", " "))
         self.assertIn("합쳤습니다", self.run_cli("sheet", "combine", csv,
                                                  "--cols", "이름,부서", "--into", "표시"))
+        self.assertIn("열 구조가 같습니다",
+                      self.run_cli("sheet", "diff", csv, csv, "--columns"))
         self.assertIn("지운 행", self.run_cli("sheet", "dedupe", csv, "-k", "사번",
                                               "--keep", "max", "--by", "입사일"))
         self.assertIn("짝 찾음", self.run_cli("sheet", "join", csv,
