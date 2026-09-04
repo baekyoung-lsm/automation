@@ -318,6 +318,12 @@ class SmokeTest(unittest.TestCase):
                                           "responses": {"200": {}, "400": {}}}}},
         }, ensure_ascii=False), encoding="utf-8")
         self.assertIn("/orders", self.run_cli("dev", "api", spec))
+
+        가짜 = self.path("시험자료.csv")
+        만든것 = self.run_cli("dev", "fake", "-c", "이름", "-c", "연락처=전화",
+                              "-n", "5", "--seed", "1", "-o", 가짜)
+        self.assertIn("5행", 만든것)
+        self.assertIn("010-", Path(가짜).read_text(encoding="utf-8"))
         느림 = self.run_cli("dev", "slow", self.path("app.log"))
         self.assertIn("p95", 느림)
         self.assertIn("900", 느림)

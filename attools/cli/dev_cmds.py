@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import (dbkit, deps, devkit, files, hangul, jsonkit, life, logkit,
-                manuscript, openapi, sheet, text)
+from .. import (dbkit, deps, devkit, fakedata, files, hangul, jsonkit, life,
+                logkit, manuscript, openapi, sheet, text)
 from ..schedule import Cron, CronError
 from .common import _pad, _p, _confirm, _read_input, _cut, _grid
 
@@ -350,6 +350,29 @@ def cmd_dev_api(a) -> int:
     if old:
         _p(f"폐기 예정 {len(old)}개")
     _p("인자는 필수/전체 개수입니다. 참조($ref)는 문서 안의 것만 따라갑니다.")
+    return 0
+
+
+def cmd_dev_fake(a) -> int:
+    try:
+        fields = [fakedata.parse_field(spec) for spec in a.col]
+        headers, rows = fakedata.make_rows(fields, a.rows, seed=a.seed)
+    except fakedata.FakeError as e:
+        _p(str(e))
+        _p("예: -c 이름 -c 연락처=전화 -c 금액=금액:10000:50000 -c 가입일=날짜:365")
+        return 1
+
+    table = sheet.Table(headers, rows, source="가짜 자료")
+    _grid(headers, [[sheet.to_text(v) for v in r] for r in rows[:a.limit]])
+    if len(rows) > a.limit:
+        _p(f"  ... {len(rows) - a.limit}행 더")
+    _p(f"\n{len(rows):,}행 x {len(headers)}열" +
+       (f"  (씨앗 {a.seed}: 같은 값이 다시 나옵니다)" if a.seed is not None else ""))
+    if any(f.kind == "사업자번호" for f in fields):
+        _p("사업자번호는 검증번호까지 맞지만 실제로 등록된 번호가 아닙니다.")
+    _p("전부 무작위입니다. 실제 사람·회사와 관계없습니다.")
+    if a.out:
+        _p(f"저장: {sheet.save(table, Path(a.out))}")
     return 0
 
 
@@ -759,6 +782,15 @@ def add_commands(sub) -> None:
                      help="요약이나 오류 응답이 빠진 것만")
     ap_.add_argument("--limit", type=int, default=30)
     ap_.set_defaults(func=cmd_dev_api)
+
+    fk = dp.add_parser("fake", help="시험용 가짜 표 만들기 (한글 이름·전화·주소)")
+    fk.add_argument("-c", "--col", action="append", required=True, metavar="열=종류",
+                    help="예: 이름, 연락처=전화, 금액=금액:1000:9000, 가입일=날짜:365")
+    fk.add_argument("-n", "--rows", type=int, default=10, metavar="행")
+    fk.add_argument("--seed", type=int, metavar="씨앗", help="같은 값을 다시 만들 때")
+    fk.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    fk.add_argument("--limit", type=int, default=10)
+    fk.set_defaults(func=cmd_dev_fake)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")
