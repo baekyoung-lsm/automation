@@ -595,6 +595,15 @@ class SheetTest(unittest.TestCase):
     def test_render_josa_on_number(self):
         self.assertEqual(sheet.render("{수량:을/를}", {"수량": 3}), "3을")
 
+    def test_render_writes_amounts_in_hangul(self):
+        self.assertEqual(sheet.render("{금액:한글}", {"금액": 12345}),
+                         "만 이천삼백사십오")
+        self.assertEqual(sheet.render("{금액:계약서}", {"금액": 1250000}),
+                         "일금 일백이십오만원정")
+
+    def test_hangul_spec_only_applies_to_numbers(self):
+        self.assertEqual(sheet.render("{값:한글}", {"값": "글자"}), "글자")
+
     def test_render_keeps_format_spec(self):
         self.assertEqual(sheet.render("{번호:03d}", {"번호": 7}), "007")
 

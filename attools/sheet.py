@@ -742,6 +742,12 @@ def render(template: str, values: dict[str, object], *,
         spec = spec.strip()
         if JOSA_SPEC.fullmatch(spec):      # {이름:을/를} 은 받침에 맞는 조사를 붙인다
             return josa(to_text(value), spec)
+        if spec in ("한글", "계약서") and isinstance(value, (int, float)) \
+                and not isinstance(value, bool):
+            from .life import formal_amount, korean_amount
+
+            return (korean_amount(value) if spec == "한글"
+                    else formal_amount(value))
         if spec:
             try:
                 return format(value, spec)

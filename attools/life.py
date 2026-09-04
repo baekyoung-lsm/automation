@@ -650,3 +650,59 @@ def to_deposit(monthly: float, base_deposit: float, rate: float) -> RentPlan:
         raise ValueError("전환율은 0보다 커야 합니다.")
     moved = int(monthly * 12 / (rate / 100))
     return RentPlan(int(base_deposit) + moved, 0, moved, rate)
+
+
+# --------------------------------------------------------- 금액 한글 표기
+
+DIGITS = "영일이삼사오육칠팔구"
+SMALL_UNITS = ["", "십", "백", "천"]
+BIG_UNITS = ["", "만", "억", "조", "경"]
+
+
+def _korean_group(number: int, *, formal: bool) -> str:
+    """네 자리 이하를 한글로. formal 이면 '일십', '일백' 처럼 앞의 일을 살린다."""
+    out = ""
+    for place in range(3, -1, -1):
+        digit = (number // 10 ** place) % 10
+        if not digit:
+            continue
+        if digit == 1 and place and not formal:
+            out += SMALL_UNITS[place]      # 십, 백, 천
+        else:
+            out += DIGITS[digit] + SMALL_UNITS[place]
+    return out
+
+
+def korean_amount(value: float, *, formal: bool = False) -> str:
+    """금액을 한글로. 12,345 -> '만 이천삼백사십오'.
+
+    formal 은 계약서·영수증에 쓰는 '일금 …원정' 꼴이다. 이때는 '일천'처럼
+    앞의 '일'을 살리고 자리를 붙여 쓴다 - 숫자를 덧붙여 고치기 어렵게 하려는
+    표기라서다.
+    """
+    number = int(round(value))
+    if number == 0:
+        return "영"
+    sign = "마이너스 " if number < 0 else ""
+    number = abs(number)
+
+    groups: list[str] = []
+    index = 0
+    while number and index < len(BIG_UNITS):
+        chunk = number % 10000
+        if chunk:
+            body = _korean_group(chunk, formal=formal)
+            if chunk == 1 and index and not formal:
+                body = ""              # 10,000 은 '일만'이 아니라 '만'이다
+            groups.append(body + BIG_UNITS[index])
+        number //= 10000
+        index += 1
+    if number:                                     # 경보다 큰 수
+        return sign + f"{int(value):,}"
+    joiner = "" if formal else " "
+    return sign + joiner.join(reversed(groups))
+
+
+def formal_amount(value: float, *, unit: str = "원") -> str:
+    """계약서에 쓰는 '일금 오십만원정'."""
+    return f"일금 {korean_amount(value, formal=True)}{unit}정"

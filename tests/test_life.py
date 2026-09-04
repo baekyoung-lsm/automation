@@ -257,5 +257,36 @@ class RentTest(unittest.TestCase):
             life.to_monthly(100_000_000, 200_000_000, 5)
 
 
+class KoreanAmountTest(unittest.TestCase):
+    def test_reading_form(self):
+        self.assertEqual(life.korean_amount(0), "영")
+        self.assertEqual(life.korean_amount(101), "백일")
+        self.assertEqual(life.korean_amount(10_000), "만")        # '일만'이 아니다
+        self.assertEqual(life.korean_amount(12_345), "만 이천삼백사십오")
+        self.assertEqual(life.korean_amount(500_000), "오십만")
+        self.assertEqual(life.korean_amount(100_000_000), "억")
+
+    def test_formal_form_keeps_leading_one(self):
+        self.assertEqual(life.korean_amount(1_000, formal=True), "일천")
+        self.assertEqual(life.korean_amount(10_000, formal=True), "일만")
+        self.assertEqual(life.formal_amount(1_250_000), "일금 일백이십오만원정")
+
+    def test_formal_form_has_no_spaces(self):
+        self.assertNotIn(" ", life.korean_amount(1_234_567, formal=True))
+
+    def test_rounds_to_won(self):
+        self.assertEqual(life.korean_amount(1000.4), "천")
+
+    def test_negative_is_marked(self):
+        self.assertTrue(life.korean_amount(-5_000).startswith("마이너스"))
+
+    def test_huge_number_falls_back_to_digits(self):
+        # 경보다 크면 한글로 적지 않고 숫자로 둔다
+        self.assertIn(",", life.korean_amount(10 ** 21))
+
+    def test_unit_can_change(self):
+        self.assertTrue(life.formal_amount(1000, unit="달러").endswith("달러정"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -264,6 +264,23 @@ def cmd_life_rent(a) -> int:
     return 0
 
 
+def cmd_life_won(a) -> int:
+    try:
+        amount = life.parse_amount(" ".join(a.amount))
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{life.format_won(amount)}")
+    _p(f"  읽기      {life.korean_amount(amount)}")
+    _p(f"  계약서    {life.formal_amount(amount, unit=a.unit)}")
+    if amount != int(amount):
+        _p("소수점 아래는 반올림했습니다.")
+    _p("계약서 표기는 자리를 붙여 쓰고 '일천'처럼 앞의 일을 살립니다. "
+       "숫자를 덧붙여 고치기 어렵게 하려는 표기입니다.")
+    return 0
+
+
 def cmd_life_cal(a) -> int:
     import calendar
     from datetime import date as _date
@@ -472,3 +489,8 @@ def add_commands(sub) -> None:
     rn.add_argument("--rate", type=float, default=5.5, metavar="%",
                     help="연 전환율 (기본 5.5)")
     rn.set_defaults(func=cmd_life_rent)
+
+    wn = lp.add_parser("won", help="금액을 한글로 (계약서·영수증 표기)")
+    wn.add_argument("amount", nargs="+", metavar="금액", help="예: 1250000, 125만")
+    wn.add_argument("--unit", default="원", metavar="단위")
+    wn.set_defaults(func=cmd_life_won)
