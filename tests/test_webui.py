@@ -224,6 +224,68 @@ class SheetAppTest(WebUiTest):
         self.assertNotEqual(first["saved"], second["saved"])
 
 
+class NovelAppTest(WebUiTest):
+    """원고 화면. 읽기만 하므로 원고가 그대로인지도 본다."""
+
+    def manuscript(self):
+        root = self.work / "원고"
+        root.mkdir()
+        (root / "1화.txt").write_text(
+            "리안은 문을 열었다. 리안은 말했다.\n\n"
+            "\"어디 갔었어?\"\n\n하윤이 웃었다. 하윤이 대답했다.\n",
+            encoding="utf-8")
+        (root / "2화.txt").write_text(
+            "리안이 떠났다. 그저 조용했다. 그저 아무 말도 없었다.\n\n"
+            "\"괜찮아.\n", encoding="utf-8")
+        return root
+
+    def test_count(self):
+        root = self.manuscript()
+        _, data = self.post("/api/novel/count", {"path": str(root)})
+        self.assertEqual(data["files"], 2)
+        self.assertEqual(len(data["rows"]), 2)
+        self.assertIn("합계", data["total"][0])
+
+    def test_count_single_file(self):
+        root = self.manuscript()
+        _, data = self.post("/api/novel/count", {"path": str(root / "1화.txt")})
+        self.assertEqual(data["files"], 1)
+
+    def test_empty_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/novel/count", {"path": str(self.work)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_inspect_finds_unclosed_quote(self):
+        root = self.manuscript()
+        _, data = self.post("/api/novel/inspect", {"path": str(root)})
+        self.assertEqual(data["quote_total"], 1)
+        self.assertTrue(any("그저" in row[0] for row in data["adverbs"]))
+
+    def test_cast_counts_people(self):
+        root = self.manuscript()
+        _, data = self.post("/api/novel/cast",
+                            {"path": str(root), "min_count": "2"})
+        found = {row[0] for row in data["rows"]}
+        self.assertIn("리안", found)
+        self.assertEqual(data["labels"], ["1화.txt", "2화.txt"])
+
+    def test_cast_with_nothing_found(self):
+        root = self.manuscript()
+        _, data = self.post("/api/novel/cast",
+                            {"path": str(root), "min_count": "99"})
+        self.assertEqual(data["rows"], [])
+        self.assertTrue(data["note"])
+
+    def test_reading_does_not_change_files(self):
+        root = self.manuscript()
+        before = {p.name: p.read_text(encoding="utf-8") for p in root.iterdir()}
+        for action in ("count", "inspect", "cast"):
+            self.post("/api/novel/" + action, {"path": str(root)})
+        after = {p.name: p.read_text(encoding="utf-8") for p in root.iterdir()}
+        self.assertEqual(before, after)
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

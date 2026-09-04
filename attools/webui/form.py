@@ -67,3 +67,14 @@ def existing_file(payload: dict, key: str = "path") -> Path:
     if path.is_dir():
         raise UiError(f"파일이 아니라 폴더입니다: {path}")
     return path.resolve()
+
+
+def existing_path(payload: dict, key: str = "path") -> Path:
+    """파일이든 폴더든 있기만 하면 된다."""
+    raw = text(payload, key)
+    if not raw:
+        raise UiError("경로를 적어 주세요.")
+    path = Path(raw).expanduser()
+    if not path.exists():
+        raise UiError(f"그런 파일이나 폴더가 없습니다: {path}")
+    return path.resolve()
