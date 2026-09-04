@@ -288,5 +288,49 @@ class KoreanAmountTest(unittest.TestCase):
         self.assertTrue(life.formal_amount(1000, unit="달러").endswith("달러정"))
 
 
+class TimeCalcTest(unittest.TestCase):
+    def test_parse_clock_forms(self):
+        self.assertEqual(life.parse_clock("09:30"), 570)
+        self.assertEqual(life.parse_clock("9시 30분"), 570)
+        self.assertEqual(life.parse_clock("18시"), 1080)
+        with self.assertRaises(life.TimeError):
+            life.parse_clock("아침")
+        with self.assertRaises(life.TimeError):
+            life.parse_clock("09:99")
+
+    def test_parse_duration_forms(self):
+        self.assertEqual(life.parse_duration("3h20m"), 200)
+        self.assertEqual(life.parse_duration("3시간 20분"), 200)
+        self.assertEqual(life.parse_duration("90분"), 90)
+        self.assertEqual(life.parse_duration("1.5시간"), 90)
+        with self.assertRaises(life.TimeError):
+            life.parse_duration("조금")
+
+    def test_span_over_midnight(self):
+        night = life.parse_span("22:00~06:00")
+        self.assertEqual(night.minutes, 480)          # 야간 근무
+        self.assertEqual(life.parse_span("09:00-18:30").minutes, 570)
+
+    def test_span_needs_two_times(self):
+        with self.assertRaises(life.TimeError):
+            life.parse_span("09:00")
+
+    def test_work_minutes_subtracts_break(self):
+        spans = [life.parse_span("09:00-12:00"), life.parse_span("13:00-18:00")]
+        self.assertEqual(life.work_minutes(spans), 480)
+        self.assertEqual(life.work_minutes(spans, rest=60), 420)
+
+    def test_work_minutes_can_go_negative(self):
+        # 휴게가 더 길면 0 으로 가리지 않는다. 입력이 잘못됐다는 신호다
+        self.assertLess(life.work_minutes([life.parse_span("09:00-10:00")], rest=120), 0)
+
+    def test_format_minutes(self):
+        self.assertEqual(life.format_minutes(510), "8시간 30분")
+        self.assertEqual(life.format_minutes(480), "8시간")
+        self.assertEqual(life.format_minutes(45), "45분")
+        self.assertEqual(life.format_minutes(510, clock=True), "08:30")
+        self.assertEqual(life.format_minutes(-30), "-30분")
+
+
 if __name__ == "__main__":
     unittest.main()

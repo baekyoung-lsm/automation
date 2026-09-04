@@ -281,6 +281,60 @@ def cmd_life_won(a) -> int:
     return 0
 
 
+def cmd_life_time(a) -> int:
+    items = [x for x in a.items]
+    try:
+        # '09:00 +3h20m' 처럼 시각과 길이를 주면 더한 시각을 낸다
+        if len(items) == 2 and "-" not in items[0] and "~" not in items[0] \
+                and (items[1].startswith(("+", "-")) or not any(
+                    c in items[1] for c in ":시")):
+            base = life.parse_clock(items[0])
+            step = life.parse_duration(items[1])
+            if items[1].strip().startswith("-"):
+                step = -step
+            total = base + step
+            _p(f"{items[0]} {'+' if step >= 0 else '-'} "
+               f"{life.format_minutes(abs(step))}"
+               f"  ->  {life.format_minutes(total % (24 * 60), clock=True)}")
+            if total >= 24 * 60:
+                days = total // (24 * 60)
+                _p("  (다음 날)" if days == 1 else f"  ({days}일 뒤)")
+            elif total < 0:
+                _p("  (전날로 넘어갑니다)")
+            return 0
+
+        spans = [life.parse_span(x) for x in items]
+    except life.TimeError as e:
+        _p(str(e))
+        _p("예: at life time 09:00-18:30 --break 60")
+        _p("    at life time 09:00 +3h20m")
+        return 1
+
+    if not spans:
+        _p("구간을 주세요. 예: at life time 09:00-18:30 --break 60")
+        return 1
+
+    for span in spans:
+        _p(f"  {life.format_minutes(span.start, clock=True)}"
+           f" ~ {life.format_minutes(span.end, clock=True)}"
+           f"   {life.format_minutes(span.minutes)}"
+           + ("   (자정을 넘김)" if span.end < span.start else ""))
+
+    worked = life.work_minutes(spans, rest=a.brk)
+    if a.brk:
+        _p(f"  휴게 {life.format_minutes(a.brk)} 제외")
+    _p(f"\n합계  {life.format_minutes(worked)}  ({worked / 60:.2f}시간)")
+    if worked < 0:
+        _p("휴게가 일한 시간보다 깁니다. 입력을 확인하세요.")
+        return 1
+
+    if a.rate:
+        pay = worked / 60 * a.rate
+        _p(f"시급 {int(a.rate):,}원 기준  {life.format_won(pay)}")
+        _p("연장·야간 가산은 계산하지 않습니다. 근로기준법 가산율은 사람이 적용하세요.")
+    return 0
+
+
 def cmd_life_cal(a) -> int:
     import calendar
     from datetime import date as _date
@@ -494,3 +548,12 @@ def add_commands(sub) -> None:
     wn.add_argument("amount", nargs="+", metavar="금액", help="예: 1250000, 125만")
     wn.add_argument("--unit", default="원", metavar="단위")
     wn.set_defaults(func=cmd_life_won)
+
+    tm = lp.add_parser("time", help="시간 계산 - 근무 시간, 시각 더하기")
+    tm.add_argument("items", nargs="+", metavar="구간|시각",
+                    help="예: 09:00-18:30, 또는 '09:00 +3h20m'")
+    tm.add_argument("--break", dest="brk", type=int, default=0, metavar="분",
+                    help="휴게 시간(분)을 뺀다")
+    tm.add_argument("--rate", type=float, default=0, metavar="시급",
+                    help="시급을 주면 임금도 계산 (가산 없음)")
+    tm.set_defaults(func=cmd_life_time)

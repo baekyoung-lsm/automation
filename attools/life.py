@@ -706,3 +706,75 @@ def korean_amount(value: float, *, formal: bool = False) -> str:
 def formal_amount(value: float, *, unit: str = "원") -> str:
     """계약서에 쓰는 '일금 오십만원정'."""
     return f"일금 {korean_amount(value, formal=True)}{unit}정"
+
+
+# ------------------------------------------------------------------ 시간 계산
+
+CLOCK_RE = re.compile(r"^(\d{1,2})\s*[:시]\s*(\d{1,2})?\s*분?$")
+DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(시간|시|분|h|m)", re.IGNORECASE)
+
+
+class TimeError(Exception):
+    pass
+
+
+def parse_clock(text: str) -> int:
+    """'09:30', '9시 30분', '18시' 를 자정부터의 분으로."""
+    body = text.strip()
+    m = CLOCK_RE.match(body)
+    if not m:
+        raise TimeError(f"시각을 읽지 못했습니다: {text} (예: 09:30)")
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if hour > 47 or minute > 59:
+        raise TimeError(f"시각 범위를 벗어났습니다: {text}")
+    return hour * 60 + minute
+
+
+def parse_duration(text: str) -> int:
+    """'3h20m', '3시간 20분', '90분' 을 분으로."""
+    body = text.strip().lstrip("+")
+    total = 0.0
+    found = False
+    for value, unit in DURATION_RE.findall(body):
+        found = True
+        total += float(value) * (60 if unit.lower() in ("시간", "시", "h") else 1)
+    if not found:
+        raise TimeError(f"길이를 읽지 못했습니다: {text} (예: 3h20m, 3시간 20분)")
+    return int(round(total))
+
+
+def format_minutes(minutes: int, *, clock: bool = False) -> str:
+    """분을 '8시간 30분' 이나 '08:30' 으로. 자정을 넘으면 그대로 24시를 넘겨 적는다."""
+    sign = "-" if minutes < 0 else ""
+    minutes = abs(minutes)
+    hours, rest = divmod(minutes, 60)
+    if clock:
+        return f"{sign}{hours:02d}:{rest:02d}"
+    if not hours:
+        return f"{sign}{rest}분"
+    return f"{sign}{hours}시간" + (f" {rest}분" if rest else "")
+
+
+@dataclass
+class Span:
+    start: int          # 분
+    end: int
+
+    @property
+    def minutes(self) -> int:
+        """끝이 시작보다 이르면 자정을 넘긴 것으로 본다(야간 근무)."""
+        return self.end - self.start + (24 * 60 if self.end < self.start else 0)
+
+
+def parse_span(text: str) -> Span:
+    """'09:00-18:30' 을 구간으로. 붙임표는 - 와 ~ 를 받는다."""
+    body = text.replace("~", "-").strip()
+    start, sep, end = body.partition("-")
+    if not sep:
+        raise TimeError(f"'09:00-18:30' 꼴로 적어 주세요: {text}")
+    return Span(parse_clock(start), parse_clock(end))
+
+
+def work_minutes(spans: list[Span], *, rest: int = 0) -> int:
+    """일한 시간에서 휴게를 뺀다. 음수가 되면 0 으로 두지 않고 그대로 알린다."""
+    return sum(s.minutes for s in spans) - rest
