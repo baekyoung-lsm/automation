@@ -507,5 +507,36 @@ class EpubTest(unittest.TestCase):
         self.assertNotIn("\u3000", page)
 
 
+class CastTest(unittest.TestCase):
+    CHAPTERS = [("1화", "리안이 왔다. 리안나는 다른 사람이다. 세드릭도 왔다."),
+                ("2화", "리안은 갔다."),
+                ("3화", "세드릭만 남았다. 세드릭이 말했다.")]
+
+    def test_count_mentions_allows_particles(self):
+        self.assertEqual(names.count_mentions("리안이 왔다. 리안은 갔다.", "리안"), 2)
+        self.assertEqual(names.count_mentions("리안에게 주었다", "리안"), 1)
+
+    def test_count_mentions_skips_longer_names(self):
+        self.assertEqual(names.count_mentions("리안나는 리안이 아니다", "리안"), 1)
+
+    def test_cast_counts_by_chapter_sorted_by_total(self):
+        rows = names.cast_by_chapter(self.CHAPTERS, ["리안", "세드릭", "리안나"])
+        self.assertEqual([r.name for r in rows], ["세드릭", "리안", "리안나"])
+        self.assertEqual(rows[0].counts, [1, 0, 2])
+
+    def test_first_and_last_chapter(self):
+        row = names.cast_by_chapter(self.CHAPTERS, ["리안"])[0]
+        self.assertEqual((row.first, row.last, row.total), (1, 2, 2))
+
+    def test_gone_for_counts_chapters_since_last(self):
+        row = names.cast_by_chapter(self.CHAPTERS, ["리안"])[0]
+        self.assertEqual(row.gone_for(), 1)
+        self.assertEqual(row.gone_for(10), 8)      # 아직 안 쓴 화까지 셀 때
+
+    def test_missing_person_has_no_first_or_last(self):
+        row = names.cast_by_chapter(self.CHAPTERS, ["없는사람"])[0]
+        self.assertEqual((row.first, row.last, row.total, row.gone_for()), (0, 0, 0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

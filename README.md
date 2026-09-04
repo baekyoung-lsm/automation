@@ -694,6 +694,7 @@ at life save --deposit 1000만 --months 12 --rate 3.5
 | `at novel names <경로…>` | 인물·지명 후보를 뽑아 표기 흔들림과 이름 뒤 조사 오류를 찾는다 |
 | `at novel snap <디렉터리>` | 원고 전체를 스냅샷으로 복사하고 분량 변화를 기록한다. `-l` 로 목록 |
 | `at novel pace <디렉터리>` | 스냅샷으로 집필 속도를 재고 목표·마감까지 하루 몇 자인지 계산 |
+| `at novel cast <경로…>` | 화별 인물 등장 흐름. 오래 안 나온 인물을 짚는다 |
 
 ```bash
 at novel stats 원고/ --each
@@ -712,11 +713,17 @@ at novel timeline 원고/ --context
 at novel find "붉은 열쇠" 원고/          # 복선이 언제 깔리고 언제 회수됐는지
 at novel names 원고/ --min 3
 at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직접 지정
+at novel cast 원고/ --gone 5           # 5화 넘게 안 나온 인물
 at novel snap 원고/ --note "3부 초고 완료"
 at novel snap 원고/ -l
 at novel pace 원고/ --goal 1500매 --due 2026-12-31
 at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜별 표
 ```
+
+`at novel cast` 는 화마다 인물이 몇 번 나오는지를 `.` `o` `+` 로 늘어놓아 등장 흐름을
+한 줄로 보여 준다. 이름을 셀 때 조사는 붙여 세고(`리안이`, `리안에게`) **더 긴 이름의
+일부는 세지 않는다**(`리안나`는 `리안`이 아니다). 오래 안 나온 인물을 따로 짚지만,
+사라진 인물인지 잊은 인물인지는 판단하지 않는다.
 
 `at novel pace` 는 `snap` 이 남긴 기록만 본다. 하루에 여러 번 찍었으면 그날 마지막 것만
 세고, 첫 기록일은 그 전에 얼마를 썼는지 알 수 없으므로 '기준' 으로 표시하고 증가량에서

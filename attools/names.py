@@ -367,3 +367,56 @@ def first_appearances(words: list[Word], order: list[str]) -> dict[str, list[Wor
     for rows in out.values():
         rows.sort(key=lambda w: -w.count)
     return out
+
+
+# ------------------------------------------------------------- 화별 등장 흐름
+
+@dataclass
+class CastRow:
+    name: str
+    counts: list[int] = field(default_factory=list)
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts)
+
+    @property
+    def first(self) -> int:
+        """처음 나온 화 번호(1부터). 한 번도 안 나오면 0."""
+        for i, n in enumerate(self.counts, 1):
+            if n:
+                return i
+        return 0
+
+    @property
+    def last(self) -> int:
+        for i in range(len(self.counts), 0, -1):
+            if self.counts[i - 1]:
+                return i
+        return 0
+
+    def gone_for(self, total_chapters: int | None = None) -> int:
+        """마지막 등장 뒤 몇 화가 지났는지."""
+        end = total_chapters if total_chapters is not None else len(self.counts)
+        return end - self.last if self.last else 0
+
+
+def count_mentions(text: str, name: str) -> int:
+    """이름이 몇 번 나오는지. 더 긴 이름의 일부는 세지 않는다.
+
+    '리안' 을 셀 때 '리안나' 를 세면 인물별 집계가 통째로 어긋난다.
+    조사가 붙는 것은 세고, 다른 한글이 이어지면 세지 않는다.
+    """
+    if not name:
+        return 0
+    tail = "|".join(re.escape(p) for p in sorted(PARTICLES, key=len, reverse=True))
+    pattern = re.compile(re.escape(name) + f"(?:{tail})?(?![가-힣])")
+    return len(pattern.findall(text))
+
+
+def cast_by_chapter(chapters: list[tuple[str, str]],
+                    people: list[str]) -> list[CastRow]:
+    """화마다 인물이 몇 번 나오는지. 많이 나온 인물이 위로."""
+    rows = [CastRow(name, [count_mentions(text, name) for _, text in chapters])
+            for name in people]
+    return sorted(rows, key=lambda r: (-r.total, r.name))

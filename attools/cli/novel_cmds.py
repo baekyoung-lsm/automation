@@ -430,6 +430,51 @@ def cmd_novel_export(a) -> int:
     return 0
 
 
+def cmd_novel_cast(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    chapters: list[tuple[str, str]] = []
+    for path in targets:
+        raw = manuscript.read_text(path)
+        chapters.append((manuscript.chapter_title(path, raw),
+                         manuscript.strip_headings(raw)))
+
+    whole = "\n".join(text for _, text in chapters)
+    people = list(a.name or []) or [n.text for n in
+                                    names.extract(whole, min_count=a.min,
+                                                  min_variety=1)][:a.top]
+    if not people:
+        _p(f"{a.min}회 이상 나오는 인물을 찾지 못했습니다. --min 을 낮추거나 "
+           "--name 으로 지정하세요.")
+        return 1
+
+    rows = names.cast_by_chapter(chapters, people)
+    total = len(chapters)
+    marks = []
+    for r in rows:
+        cells = []
+        for n in r.counts:
+            cells.append("." if not n else ("+" if n >= a.strong else "o"))
+        marks.append([r.name, "".join(cells), f"{r.total:,}",
+                      chapters[r.first - 1][0] if r.first else "-",
+                      chapters[r.last - 1][0] if r.last else "-"])
+
+    _grid(["인물", f"화별({total}화)", "총", "처음", "마지막"], marks, limit=40)
+    _p(f"\n. 안 나옴   o 나옴   + {a.strong}회 이상")
+
+    gone = [r for r in rows if r.last and r.gone_for(total) >= a.gone]
+    if gone:
+        _p(f"\n{a.gone}화 넘게 안 나온 인물")
+        for r in gone:
+            _p(f"  {_pad(r.name, 12)}{chapters[r.last - 1][0]} 이후 "
+               f"{r.gone_for(total)}화째")
+        _p("사라진 인물인지 잊은 인물인지는 사람이 압니다.")
+    return 0
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -717,3 +762,15 @@ def add_commands(sub) -> None:
     pc.add_argument("--days", type=int, default=0, metavar="줄",
                     help="날짜별 표를 N줄 보여준다")
     pc.set_defaults(func=cmd_novel_pace)
+
+    ct = np_.add_parser("cast", help="화별 인물 등장 흐름 - 언제 나오고 언제 사라지는지")
+    ct.add_argument("paths", nargs="+")
+    ct.add_argument("--name", action="append", metavar="이름", help="인물을 직접 지정")
+    ct.add_argument("--min", type=int, default=5, metavar="회",
+                    help="이만큼 나온 말을 인물 후보로 (기본 5)")
+    ct.add_argument("--top", type=int, default=15, metavar="명")
+    ct.add_argument("--strong", type=int, default=5, metavar="회",
+                    help="한 화에서 이만큼 나오면 + 로 표시 (기본 5)")
+    ct.add_argument("--gone", type=int, default=3, metavar="화",
+                    help="이만큼 안 나오면 따로 알린다 (기본 3)")
+    ct.set_defaults(func=cmd_novel_cast)
