@@ -161,6 +161,69 @@ class WebUiTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
+class SheetAppTest(WebUiTest):
+    """엑셀 화면. WebUiTest 의 서버·홈 설정을 그대로 쓴다."""
+
+    def csv(self, name="명단.csv", body=None):
+        path = self.work / name
+        path.write_text(body if body is not None else
+                        "이름, 나이 ,전화\n 홍길동 ,30,010-1\n홍길동,30,010-1\n"
+                        "김철수,,010-2\n", encoding="utf-8")
+        return path
+
+    def test_peek(self):
+        path = self.csv()
+        _, data = self.post("/api/sheet/peek", {"path": str(path)})
+        self.assertEqual(data["headers"], ["이름", "나이", "전화"])
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(len(data["columns"]), 3)
+
+    def test_peek_rejects_other_formats(self):
+        # txt 는 구분자 있는 표로 읽으므로 받는다. pdf 처럼 못 읽는 것만 막는다.
+        path = self.work / "보고서.pdf"
+        path.write_text("아무거나", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/peek", {"path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_check_finds_missing(self):
+        path = self.csv()
+        _, data = self.post("/api/sheet/check",
+                            {"path": str(path), "required": "나이"})
+        self.assertFalse(data["clean"])
+        self.assertTrue(any("나이" in row[1] for row in data["rows"]))
+
+    def test_check_unknown_column(self):
+        path = self.csv()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/check", {"path": str(path), "key": "없는열"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_clean_preview_does_not_write(self):
+        path = self.csv()
+        before = sorted(p.name for p in self.work.iterdir())
+        _, data = self.post("/api/sheet/clean_preview",
+                            {"path": str(path), "dedupe": True})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(sorted(p.name for p in self.work.iterdir()), before)
+
+    def test_clean_save_keeps_original(self):
+        path = self.csv()
+        original = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/clean_save",
+                            {"path": str(path), "dedupe": True})
+        saved = Path(data["saved"])
+        self.assertTrue(saved.exists())
+        self.assertNotEqual(saved, path)
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_clean_save_twice_does_not_overwrite(self):
+        path = self.csv()
+        _, first = self.post("/api/sheet/clean_save", {"path": str(path)})
+        _, second = self.post("/api/sheet/clean_save", {"path": str(path)})
+        self.assertNotEqual(first["saved"], second["saved"])
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
