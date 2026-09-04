@@ -234,6 +234,68 @@ def cmd_doc_terms(a) -> int:
     return 1
 
 
+def cmd_doc_lint(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    docs = [(str(path), path.read_text(encoding="utf-8", errors="replace"))
+            for path in targets]
+
+    broken: list[str] = []
+    heading: list[str] = []
+    missing_image: list[str] = []
+    unaligned: list[str] = []
+
+    for path, body in zip(targets, (b for _, b in docs)):
+        for issue in mdkit.check_links(path):
+            broken.append(f"{path}:{issue.line}  [{issue.kind}] {issue.detail}")
+        for issue in mdkit.check_headings(body):
+            heading.append(f"{path}:{issue.line}  [{issue.kind}] {issue.detail}")
+        for link in mdkit.links(body):
+            if link.kind != "image":
+                continue
+            target = link.target.split("#", 1)[0]
+            if "://" in target or target.startswith("data:"):
+                continue
+            if not (path.parent / target).is_file():
+                missing_image.append(f"{path}:{link.line}  {target}")
+        _, touched = mdkit.format_tables(body)
+        if touched:
+            unaligned.append(f"{path}  표 {touched}개")
+
+    terms = mdkit.term_variants(docs, min_count=a.min_term)
+
+    def section(title: str, rows: list[str]) -> None:
+        if not rows:
+            return
+        _p(f"\n{title} {len(rows)}건")
+        for row in rows[:a.limit]:
+            _p(f"  {row}")
+        if len(rows) > a.limit:
+            _p(f"  ... {len(rows) - a.limit}건 더")
+
+    _p(f"문서 {len(targets)}개를 봤습니다.")
+    section("깨진 링크·앵커", broken)
+    section("없는 이미지", missing_image)
+    section("제목 구조", heading)
+    if not a.only_errors:
+        section("칸이 안 맞는 표 (at doc table --apply)", unaligned)
+        if terms:
+            _p(f"\n표기가 흔들리는 말 {len(terms)}개 (at doc terms)")
+            for use in terms[:a.limit]:
+                _p(f"  [{use.kind}] {use.summary()}")
+
+    errors = len(broken) + len(missing_image) + len(heading)
+    if errors:
+        _p(f"\n고쳐야 할 것 {errors}건. 표 정렬과 용어 표기는 판단이 필요해 "
+           "종료 코드에 넣지 않습니다.")
+        return 1
+    _p("\n깨진 링크·이미지와 제목 구조 문제가 없습니다.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -415,3 +477,12 @@ def add_commands(sub) -> None:
                     help="이만큼 나온 말만 (기본 2)")
     dm.add_argument("--limit", type=int, default=20)
     dm.set_defaults(func=cmd_doc_terms)
+
+    dl2 = dc.add_parser("lint", help="문서 점검 한 번에 - 링크·이미지·제목·표·용어")
+    dl2.add_argument("paths", nargs="+", metavar="경로")
+    dl2.add_argument("--only-errors", action="store_true",
+                     help="고쳐야 할 것만 (표 정렬·용어 흔들림 생략)")
+    dl2.add_argument("--min-term", type=int, default=3, metavar="회",
+                     help="용어 흔들림을 셀 최소 횟수 (기본 3)")
+    dl2.add_argument("--limit", type=int, default=10)
+    dl2.set_defaults(func=cmd_doc_lint)

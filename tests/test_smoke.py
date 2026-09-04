@@ -412,6 +412,9 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
         그림문서 = Path(self.path("그림문서.md"))
         그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        점검 = self.run_cli("doc", "lint", md)
+        self.assertIn("문서 1개를 봤습니다", 점검)
+
         용어문서 = Path(self.path("용어.md"))
         용어문서.write_text("API 설명. api 사용. Api 응답.\n", encoding="utf-8")
         self.assertIn("대소문자",

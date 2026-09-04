@@ -199,5 +199,54 @@ class InputErrorTest(unittest.TestCase):
         self.assertIn("파일이 없습니다", out.getvalue())
 
 
+class DocLintTest(unittest.TestCase):
+    """문서 점검 묶음이 오류와 판단거리를 갈라 놓는지."""
+
+    def setUp(self):
+        import shutil
+        import tempfile
+
+        from attools import cli
+
+        self.cli = cli
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def run_lint(self, *args) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["doc", "lint", *args])
+        return code, out.getvalue()
+
+    def test_broken_link_is_an_error(self):
+        doc = self.root / "a.md"
+        doc.write_text("# 제목\n\n[없는 문서](없는파일.md)\n", encoding="utf-8")
+        code, out = self.run_lint(str(doc))
+        self.assertEqual(code, 1)
+        self.assertIn("깨진 링크", out)
+
+    def test_table_alignment_is_not_an_error(self):
+        doc = self.root / "b.md"
+        doc.write_text("# 제목\n\n| 가 | 나 |\n|---|---|\n| 가나다 | 1 |\n",
+                       encoding="utf-8")
+        code, out = self.run_lint(str(doc))
+        self.assertEqual(code, 0)          # 판단이 필요한 것은 종료 코드에 넣지 않는다
+        self.assertIn("칸이 안 맞는 표", out)
+
+    def test_only_errors_hides_judgement_items(self):
+        doc = self.root / "c.md"
+        doc.write_text("# 제목\n\n| 가 | 나 |\n|---|---|\n| 가나다 | 1 |\n",
+                       encoding="utf-8")
+        _, out = self.run_lint(str(doc), "--only-errors")
+        self.assertNotIn("칸이 안 맞는 표", out)
+
+    def test_clean_document_passes(self):
+        doc = self.root / "d.md"
+        doc.write_text("# 제목\n\n## 하나\n\n글.\n", encoding="utf-8")
+        code, out = self.run_lint(str(doc))
+        self.assertEqual(code, 0)
+        self.assertIn("문제가 없습니다", out)
+
+
 if __name__ == "__main__":
     unittest.main()

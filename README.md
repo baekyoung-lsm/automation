@@ -376,6 +376,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc tables <파일>` | 문서 안의 표를 csv·xlsx 로 뽑는다 |
 | `at doc images <경로…>` | 문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·안 쓰는 그림 |
 | `at doc terms <경로…>` | 용어 표기 흔들림 - `API`/`api`, `데이터 베이스`/`데이터베이스` |
+| `at doc lint <경로…>` | 문서 점검 한 번에 - 링크·이미지·제목·표·용어 |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -386,6 +387,7 @@ at doc split 기획서.md -o 기획서/          # 미리보기
 at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
+at doc lint docs/ --only-errors            # CI 용. 고쳐야 할 것만
 at doc terms docs/ --kind 띄어쓰기          # 붙여 쓴 곳과 띄어 쓴 곳
 at doc images docs/ --orphans --only-bad   # 깨진 그림과 안 쓰는 그림
 at doc tables 회의록.md                    # 표 목록
@@ -395,6 +397,10 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`lint` 는 위의 검사를 한 번에 돌린다. **고쳐야 할 것**(깨진 링크·앵커, 없는 이미지, 제목
+구조)만 종료 코드 1로 보고하고, **판단이 필요한 것**(표 정렬, 용어 표기)은 보여만 준다.
+띄어쓰기나 대소문자는 프로젝트가 정할 일이라 CI 를 멈출 이유가 아니다.
 
 `terms` 는 같은 말을 다르게 적은 곳을 찾는다. 영문은 대소문자만 다른 표기, 한글은 띄어쓰기만
 다른 표기를 본다(조사가 붙어 있어도 같은 말로 센다). **어느 쪽이 옳은지는 정하지 않는다** —
