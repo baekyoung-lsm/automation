@@ -201,6 +201,7 @@ at dev outline src/ --file models.py                   # 그 파일의 클래스
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
 at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
+at dev api 새문서.json --diff 예전문서.json            # 깨질 변화가 있으면 exit 1
 at dev db app.sqlite                                   # 표·뷰 목록과 행 수
 at dev db app.sqlite --table users                     # 열 구성과 앞 몇 행
 at dev db app.sqlite -q 'select 부서, count(*) from 사원 group by 부서' -o 집계.xlsx
@@ -253,6 +254,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 잠금 파일 diff 는 수천 줄이라 눈으로 읽히지 않는데, 실제로 봐야 하는 것은 패키지별 버전
 변화다. 맨 앞 숫자가 바뀐 것은 따로 모아 준다 — 대개 거기서 호환이 깨진다. 버전 문자열의
 숫자만 견주므로 `main` 처럼 숫자가 없으면 '올림/내림' 대신 '바뀜' 이라고만 한다.
+
+`--diff` 는 예전 문서와 견줘 **클라이언트가 깨질 만한 변화**를 가려낸다. 엔드포인트·인자·
+응답이 사라지거나, 인자가 필수가 되거나, 타입이 바뀌면 깨짐으로 보고 종료 코드 1을 준다.
+더해지기만 한 변화(새 엔드포인트, 선택 인자, 새 응답)는 보여만 준다. API 계약 회귀 검사로
+CI 에 넣을 수 있다.
 
 `at dev fake` 는 화면과 엑셀에서 한글이 어떻게 보이는지까지 확인할 수 있게 **한글 이름·주소**
 로 만든다. `--seed` 를 주면 같은 자료가 다시 나오므로 시험이 흔들리지 않는다. 만든

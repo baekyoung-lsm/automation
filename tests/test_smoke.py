@@ -354,6 +354,15 @@ class SmokeTest(unittest.TestCase):
         }, ensure_ascii=False), encoding="utf-8")
         self.assertIn("/orders", self.run_cli("dev", "api", spec))
 
+        옛스펙 = self.path("openapi-old.json")
+        Path(옛스펙).write_text(json.dumps({
+            "openapi": "3.0.0", "info": {"title": "주문 API", "version": "0.9"},
+            "paths": {"/orders": {"get": {"responses": {"200": {}, "400": {}}}},
+                      "/old": {"get": {"responses": {"200": {}}}}},
+        }, ensure_ascii=False), encoding="utf-8")
+        견줌 = self.run_cli("dev", "api", spec, "--diff", 옛스펙, expect=1)
+        self.assertIn("사라진 엔드포인트", 견줌)
+
         옛락 = self.path("old-lock.json")
         새락 = self.path("new-lock.json")
         Path(옛락).write_text(json.dumps({"lockfileVersion": 3, "packages": {

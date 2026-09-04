@@ -310,6 +310,37 @@ def cmd_dev_api(a) -> int:
     for url in spec.servers:
         _p(f"  서버  {url}")
 
+    if a.diff:
+        other = Path(a.diff)
+        if other.suffix.lower() in (".yaml", ".yml"):
+            _p("yaml 은 읽지 못합니다. json 으로 바꿔서 주세요.")
+            return 1
+        try:
+            older = openapi.load(jsonkit.load(a.diff))
+        except (jsonkit.JsonError, openapi.SpecError) as e:
+            _p(str(e))
+            return 1
+
+        # 인자로 준 파일이 '새 문서', --diff 로 준 파일이 '예전 문서'다
+        changes = openapi.diff_specs(older, spec)
+        if not changes:
+            _p("\n두 문서의 엔드포인트가 같습니다.")
+            return 0
+
+        breaking = [c for c in changes if c.breaking]
+        _p(f"\n{a.diff} -> {a.file}")
+        _grid(["", "무엇", "어디", "자세히"],
+              [["깨짐" if c.breaking else "", c.kind, c.where, c.detail]
+               for c in changes[:a.limit]], limit=40)
+        if len(changes) > a.limit:
+            _p(f"  ... {len(changes) - a.limit}건 더")
+        _p(f"\n모두 {len(changes)}건, 그중 깨질 만한 것 {len(breaking)}건")
+        if breaking:
+            _p("엔드포인트·인자·응답이 사라지거나 필수가 늘면 쓰던 쪽이 깨집니다.")
+            return 1
+        _p("더해진 것들뿐이라 쓰던 쪽은 그대로 돌아갑니다.")
+        return 0
+
     items = spec.endpoints
     if a.find:
         items = openapi.find(spec, a.find)
@@ -1002,6 +1033,8 @@ def add_commands(sub) -> None:
 
     ap_ = dp.add_parser("api", help="OpenAPI(json) 문서 훑기 - 엔드포인트·인자·응답")
     ap_.add_argument("file", metavar="openapi.json")
+    ap_.add_argument("--diff", metavar="예전문서",
+                     help="예전 문서와 견줘 깨질 만한 변화를 찾는다")
     ap_.add_argument("--find", metavar="말", help="경로나 요약에 이 말이 든 것만")
     ap_.add_argument("--method", metavar="GET", help="이 메서드만")
     ap_.add_argument("--detail", action="store_true", help="인자와 본문까지 자세히")

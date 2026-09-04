@@ -100,5 +100,66 @@ class OpenApiTest(unittest.TestCase):
         self.assertEqual(spec.endpoints[0].params, [])
 
 
+class ApiDiffTest(unittest.TestCase):
+    OLD = {"paths": {
+        "/orders": {"get": {"parameters": [{"name": "page", "in": "query",
+                                            "schema": {"type": "integer"}}],
+                            "responses": {"200": {}, "400": {}}},
+                    "delete": {"responses": {"204": {}}}}}}
+    NEW = {"paths": {
+        "/orders": {"get": {"parameters": [{"name": "page", "in": "query",
+                                            "schema": {"type": "string"}},
+                                           {"name": "size", "in": "query",
+                                            "required": True,
+                                            "schema": {"type": "integer"}}],
+                            "responses": {"200": {}}}},
+        "/users": {"get": {"responses": {"200": {}}}}}}
+
+    def changes(self) -> dict:
+        found = openapi.diff_specs(openapi.load(self.OLD), openapi.load(self.NEW))
+        return {(c.kind, c.where): c for c in found}
+
+    def test_removed_endpoint_is_breaking(self):
+        change = self.changes()[("사라진 엔드포인트", "DELETE /orders")]
+        self.assertTrue(change.breaking)
+
+    def test_new_endpoint_is_not_breaking(self):
+        self.assertFalse(self.changes()[("새 엔드포인트", "GET /users")].breaking)
+
+    def test_new_required_parameter_is_breaking(self):
+        change = self.changes()[("새 인자", "GET /orders")]
+        self.assertTrue(change.breaking)
+        self.assertIn("필수", change.detail)
+
+    def test_optional_parameter_is_not_breaking(self):
+        new = {"paths": {"/a": {"get": {"parameters": [{"name": "q", "in": "query",
+                                                        "schema": {"type": "string"}}],
+                                        "responses": {"200": {}}}}}}
+        old = {"paths": {"/a": {"get": {"responses": {"200": {}}}}}}
+        found = openapi.diff_specs(openapi.load(old), openapi.load(new))
+        self.assertFalse(any(c.breaking for c in found))
+
+    def test_type_change_and_lost_response_are_breaking(self):
+        found = self.changes()
+        self.assertTrue(found[("인자 타입 바뀜", "GET /orders")].breaking)
+        self.assertTrue(found[("사라진 응답", "GET /orders")].breaking)
+
+    def test_body_field_changes(self):
+        old = {"paths": {"/a": {"post": {"requestBody": {"content": {"application/json": {
+            "schema": {"type": "object", "properties": {"가": {}, "나": {}}}}}},
+            "responses": {}}}}}
+        new = {"paths": {"/a": {"post": {"requestBody": {"content": {"application/json": {
+            "schema": {"type": "object", "properties": {"가": {}, "다": {}}}}}},
+            "responses": {}}}}}
+        found = {c.kind: c for c in openapi.diff_specs(openapi.load(old),
+                                                       openapi.load(new))}
+        self.assertTrue(found["사라진 본문 필드"].breaking)
+        self.assertFalse(found["새 본문 필드"].breaking)
+
+    def test_same_spec_has_no_changes(self):
+        spec = openapi.load(self.OLD)
+        self.assertEqual(openapi.diff_specs(spec, spec), [])
+
+
 if __name__ == "__main__":
     unittest.main()

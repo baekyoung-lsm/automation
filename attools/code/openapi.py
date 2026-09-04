@@ -155,3 +155,72 @@ def find(spec: Spec, needle: str) -> list[Endpoint]:
 def undocumented(spec: Spec) -> list[Endpoint]:
     """요약이 없거나 오류 응답을 안 적은 것. 문서 구멍을 찾을 때."""
     return [e for e in spec.endpoints if not e.summary or not e.has_error_response]
+
+
+# ------------------------------------------------------------ 두 문서 비교
+
+@dataclass
+class ApiChange:
+    kind: str            # 사라진 엔드포인트 | 새 엔드포인트 | 인자 …
+    where: str           # GET /orders
+    detail: str = ""
+    breaking: bool = False
+
+
+def diff_specs(before: Spec, after: Spec) -> list[ApiChange]:
+    """예전 문서와 새 문서를 견준다. 클라이언트가 깨질 만한 것을 가려낸다.
+
+    깨지는 것: 엔드포인트가 사라짐, 필수 인자가 늘어남, 있던 인자가 사라짐,
+    인자 타입이 바뀜, 있던 응답 코드가 사라짐. 나머지는 더해진 것들이다.
+    """
+    old = {(e.method, e.path): e for e in before.endpoints}
+    new = {(e.method, e.path): e for e in after.endpoints}
+    out: list[ApiChange] = []
+
+    for key in old.keys() - new.keys():
+        out.append(ApiChange("사라진 엔드포인트", f"{key[0]} {key[1]}", breaking=True))
+    for key in new.keys() - old.keys():
+        out.append(ApiChange("새 엔드포인트", f"{key[0]} {key[1]}"))
+
+    for key in sorted(old.keys() & new.keys()):
+        a, b = old[key], new[key]
+        where = f"{key[0]} {key[1]}"
+        old_params = {p.name: p for p in a.params}
+        new_params = {p.name: p for p in b.params}
+
+        for name in old_params.keys() - new_params.keys():
+            out.append(ApiChange("사라진 인자", where, name, breaking=True))
+        for name in new_params.keys() - old_params.keys():
+            param = new_params[name]
+            out.append(ApiChange("새 인자", where,
+                                 f"{name} ({'필수' if param.required else '선택'})",
+                                 breaking=param.required))
+        for name in sorted(old_params.keys() & new_params.keys()):
+            first, second = old_params[name], new_params[name]
+            if first.type != second.type:
+                out.append(ApiChange("인자 타입 바뀜", where,
+                                     f"{name}: {first.type or '?'} -> "
+                                     f"{second.type or '?'}", breaking=True))
+            if not first.required and second.required:
+                out.append(ApiChange("인자가 필수가 됨", where, name, breaking=True))
+
+        gone = set(a.responses) - set(b.responses)
+        if gone:
+            out.append(ApiChange("사라진 응답", where,
+                                 ", ".join(sorted(gone)), breaking=True))
+        added = set(b.responses) - set(a.responses)
+        if added:
+            out.append(ApiChange("새 응답", where, ", ".join(sorted(added))))
+
+        if b.deprecated and not a.deprecated:
+            out.append(ApiChange("폐기 예정으로 표시됨", where))
+
+        old_body, new_body = set(a.body_fields), set(b.body_fields)
+        if old_body - new_body:
+            out.append(ApiChange("사라진 본문 필드", where,
+                                 ", ".join(sorted(old_body - new_body)),
+                                 breaking=True))
+        if new_body - old_body:
+            out.append(ApiChange("새 본문 필드", where,
+                                 ", ".join(sorted(new_body - old_body))))
+    return out
