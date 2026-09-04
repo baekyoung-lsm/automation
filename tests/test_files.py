@@ -487,5 +487,61 @@ class ImageTest(unittest.TestCase):
         self.assertEqual([p.name for p in unknown], ["g.jpg"])
 
 
+class RouteTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        for name in ("세금계산서_2026-03.pdf", "회의록.docx", "IMG_0001.jpg"):
+            (self.root / name).write_text("x", encoding="utf-8")
+        self.rules = files.load_rules([
+            {"이름": "세금계산서", "패턴": "세금계산서*.pdf",
+             "정규식": r"(?P<연>\d{4})-(?P<달>\d{2})", "폴더": "회계/{연}/{달}"},
+            {"패턴": "*.jpg", "폴더": "사진/{년}"},
+        ])
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_rules_accept_korean_and_english_keys(self):
+        rules = files.load_rules({"rules": [{"pattern": "*.txt", "folder": "글"}]})
+        self.assertEqual((rules[0].pattern, rules[0].folder), ("*.txt", "글"))
+
+    def test_rules_need_a_folder(self):
+        with self.assertRaises(ValueError):
+            files.load_rules([{"패턴": "*.txt"}])
+        with self.assertRaises(ValueError):
+            files.load_rules([])
+
+    def test_route_uses_regex_groups_in_folder_name(self):
+        routed, missed = files.plan_route(self.root, self.rules)
+        by_name = {Path(r.move.src).name: Path(r.move.dst) for r in routed}
+        self.assertEqual(
+            by_name["세금계산서_2026-03.pdf"].relative_to(self.root).as_posix(),
+            "회계/2026/03/세금계산서_2026-03.pdf")
+        self.assertEqual([p.name for p in missed], ["회의록.docx"])
+
+    def test_first_matching_rule_wins(self):
+        rules = files.load_rules([{"패턴": "*.jpg", "폴더": "먼저"},
+                                  {"패턴": "*", "폴더": "나중"}])
+        routed, _ = files.plan_route(self.root, rules)
+        jpg = next(r for r in routed if r.move.src.endswith(".jpg"))
+        self.assertIn("먼저", jpg.move.dst)
+
+    def test_rule_with_unmatched_regex_falls_through(self):
+        rules = files.load_rules([
+            {"패턴": "*.pdf", "정규식": r"없는패턴(?P<x>\d+)", "폴더": "안됨/{x}"},
+            {"패턴": "*.pdf", "폴더": "문서"}])
+        routed, _ = files.plan_route(self.root, rules)
+        self.assertTrue(routed[0].move.dst.endswith("문서/세금계산서_2026-03.pdf"))
+
+    def test_unknown_placeholder_is_reported(self):
+        rules = files.load_rules([{"패턴": "*.jpg", "폴더": "{없는것}"}])
+        with self.assertRaises(ValueError):
+            files.plan_route(self.root, rules)
+
+    def test_route_plan_does_not_touch_files(self):
+        files.plan_route(self.root, self.rules)
+        self.assertTrue((self.root / "IMG_0001.jpg").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -153,6 +153,18 @@ class SmokeTest(unittest.TestCase):
                          + png_chunk(b"IEND", b""))
         self.assertIn("800x600", self.run_cli("file", "image", self.path("문서")))
 
+        규칙 = self.path("규칙.json")
+        Path(규칙).write_text(json.dumps(
+            {"규칙": [{"이름": "글", "패턴": "*.txt", "폴더": "모은글/{년}"}]},
+            ensure_ascii=False), encoding="utf-8")
+        나눌곳 = Path(self.path("받은자료"))
+        나눌곳.mkdir()
+        (나눌곳 / "계약서.txt").write_text("내용\n", encoding="utf-8")
+        나눔 = self.run_cli("file", "route", str(나눌곳), "--rules", 규칙)
+        self.assertIn("모은글", 나눔)
+        self.run_cli("file", "route", str(나눌곳), "--rules", 규칙, "--apply")
+        self.assertTrue(list(나눌곳.glob("모은글/*/계약서.txt")))
+
         import zipfile
 
         class Cp949Info(zipfile.ZipInfo):

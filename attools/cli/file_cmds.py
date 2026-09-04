@@ -48,6 +48,74 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def cmd_file_route(a) -> int:
+    import json as _json
+
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    if a.example:
+        _p(_json.dumps({"규칙": [
+            {"이름": "세금계산서", "패턴": "세금계산서*.pdf",
+             "정규식": r"(?P<연>\d{4})-(?P<달>\d{2})", "폴더": "회계/{연}/{달}"},
+            {"이름": "사진", "패턴": "*.jpg", "폴더": "사진/{년}-{월}"},
+            {"이름": "나머지 문서", "패턴": "*.pdf", "폴더": "문서/{년}"},
+        ]}, ensure_ascii=False, indent=2))
+        _p("\n쓸 수 있는 자리: {년} {월} {일} {이름} {확장자} {분류}, "
+           "정규식의 이름 그룹")
+        return 0
+
+    rules_path = Path(a.rules) if a.rules else None
+    if rules_path is None or not rules_path.is_file():
+        _p(f"규칙 파일을 주세요: --rules 규칙.json  (--example 로 예시를 봅니다)")
+        return 1
+    try:
+        rules = files.load_rules(_json.loads(rules_path.read_text(encoding="utf-8")))
+        routed, missed = files.plan_route(root, rules, recursive=a.recursive,
+                                          include_hidden=a.hidden,
+                                          min_age_days=a.min_age)
+    except (ValueError, _json.JSONDecodeError) as e:
+        _p(f"규칙을 읽지 못했습니다: {e}")
+        return 1
+
+    if not routed:
+        _p("규칙에 걸린 파일이 없습니다.")
+        if missed:
+            _p(f"어느 규칙에도 안 걸린 파일 {len(missed)}개")
+        return 0
+
+    prefix = "" if a.apply else DRY + " "
+    counts: dict[str, int] = {}
+    for r in routed[:a.limit]:
+        counts[r.rule.label()] = counts.get(r.rule.label(), 0) + 1
+        _p(f"{prefix}[{r.rule.label()}] {Path(r.move.src).name}  ->  "
+           f"{Path(r.move.dst).relative_to(root.resolve())}")
+    for r in routed[a.limit:]:
+        counts[r.rule.label()] = counts.get(r.rule.label(), 0) + 1
+    if len(routed) > a.limit:
+        _p(f"... {len(routed) - a.limit}개 더")
+
+    _p("")
+    _grid(["규칙", "파일"], [[name, f"{n:,}"] for name, n in counts.items()])
+    if missed:
+        _p(f"\n어느 규칙에도 안 걸린 파일 {len(missed)}개 (그대로 둡니다)")
+        for path in missed[:5]:
+            _p(f"  {path.relative_to(root.resolve())}")
+        if len(missed) > 5:
+            _p(f"  ... {len(missed) - 5}개 더")
+
+    if not a.apply:
+        _p(f"\n총 {len(routed)}개. 실제로 옮기려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves([r.move for r in routed])
+    _p(f"\n{len(routed)}개를 옮겼습니다.")
+    _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
 def cmd_file_fixname(a) -> int:
     root = Path(a.dir)
     moves = files.plan_fixname(root, recursive=a.recursive,
@@ -665,6 +733,18 @@ def add_commands(sub) -> None:
     im.add_argument("--no-recursive", action="store_true")
     im.add_argument("--limit", type=int, default=20)
     im.set_defaults(func=cmd_file_image)
+
+    rt = fp.add_parser("route", help="규칙 파일대로 폴더에 나눠 담기")
+    rt.add_argument("dir", nargs="?", default=".")
+    rt.add_argument("--rules", metavar="파일", help="규칙을 적어 둔 JSON")
+    rt.add_argument("--example", action="store_true", help="규칙 파일 예시를 출력")
+    rt.add_argument("-r", "--recursive", action="store_true")
+    rt.add_argument("--hidden", action="store_true")
+    rt.add_argument("--min-age", type=float, default=0.0, metavar="일",
+                    help="이만큼 오래된 파일만")
+    rt.add_argument("--limit", type=int, default=20)
+    rt.add_argument("--apply", action="store_true")
+    rt.set_defaults(func=cmd_file_route)
 
     hs = fp.add_parser("hash", help="체크섬 만들기·검증 (배포·백업 무결성)")
     hs.add_argument("dir", nargs="?", default=".")

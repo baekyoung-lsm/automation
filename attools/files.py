@@ -9,6 +9,7 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 
 from .hangul import is_decomposed, sanitize_filename, to_nfc
@@ -960,3 +961,93 @@ def scan_images(root: Path, *, recursive: bool = True,
         info = image_info(path)
         (found if info else unknown).append(info or path)
     return found, unknown
+
+
+# ------------------------------------------------------------- 규칙대로 정리
+
+@dataclass
+class Rule:
+    """파일 하나를 어디로 보낼지 정하는 규칙."""
+    pattern: str = "*"          # 이름 glob (*.pdf, 세금계산서*)
+    folder: str = ""            # 보낼 곳. {년}{월}{일}{확장자}{이름} 을 쓸 수 있다
+    match: str = ""             # 이름 정규식 (선택). 이름 그룹은 폴더에 쓸 수 있다
+    name: str = ""              # 규칙 이름 (표시용)
+
+    def label(self) -> str:
+        return self.name or self.pattern
+
+
+@dataclass
+class Routed:
+    move: Move
+    rule: Rule
+
+
+def load_rules(data) -> list[Rule]:
+    """JSON 에서 규칙을 읽는다. 한글 키와 영문 키를 모두 받는다."""
+    if isinstance(data, dict):
+        data = data.get("규칙") or data.get("rules") or []
+    if not isinstance(data, list) or not data:
+        raise ValueError("규칙 목록이 비어 있습니다.")
+    out: list[Rule] = []
+    for i, item in enumerate(data, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"{i}번째 규칙이 객체가 아닙니다.")
+        folder = item.get("폴더") or item.get("folder") or ""
+        if not folder:
+            raise ValueError(f"{i}번째 규칙에 '폴더' 가 없습니다.")
+        out.append(Rule(pattern=str(item.get("패턴") or item.get("pattern") or "*"),
+                        folder=str(folder),
+                        match=str(item.get("정규식") or item.get("match") or ""),
+                        name=str(item.get("이름") or item.get("name") or "")))
+    return out
+
+
+def _folder_fields(path: Path, rule: Rule) -> dict[str, str] | None:
+    """폴더 이름에 넣을 값들. 정규식이 안 맞으면 None."""
+    when = datetime.fromtimestamp(path.stat().st_mtime)
+    fields = {"년": f"{when:%Y}", "월": f"{when:%m}", "일": f"{when:%d}",
+              "이름": path.stem, "확장자": path.suffix.lstrip("."),
+              "분류": category_of(path)}
+    if rule.match:
+        m = re.search(rule.match, path.name)
+        if not m:
+            return None
+        fields.update({k: v or "" for k, v in (m.groupdict() or {}).items()})
+        for i, group in enumerate(m.groups(), 1):
+            fields[str(i)] = group or ""
+    return fields
+
+
+def plan_route(root: Path, rules: list[Rule], *, recursive: bool = False,
+               include_hidden: bool = False,
+               min_age_days: float = 0.0) -> tuple[list[Routed], list[Path]]:
+    """규칙대로 옮길 계획과, 어느 규칙에도 안 걸린 파일들."""
+    root = root.resolve()
+    planned: set[Path] = set()
+    routed: list[Routed] = []
+    missed: list[Path] = []
+
+    for src in sorted(iter_targets(root, recursive=recursive,
+                                   include_hidden=include_hidden,
+                                   min_age_days=min_age_days)):
+        for rule in rules:                      # 먼저 걸리는 규칙이 이긴다
+            if not fnmatch(src.name, rule.pattern):
+                continue
+            fields = _folder_fields(src, rule)
+            if fields is None:
+                continue
+            try:
+                folder = rule.folder.format(**fields)
+            except (KeyError, IndexError) as e:
+                raise ValueError(f"'{rule.label()}' 규칙의 폴더 이름에서 "
+                                 f"{e} 를 채우지 못했습니다.") from None
+            dst = unique_path(root / folder / to_nfc(src.name), planned)
+            if dst == src:
+                break
+            planned.add(dst)
+            routed.append(Routed(Move(str(src), str(dst)), rule))
+            break
+        else:
+            missed.append(src)
+    return routed, missed
