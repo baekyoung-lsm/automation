@@ -282,3 +282,54 @@ def set_path(data, path: str, value, *, create: bool = False):
     before = current.get(last, MISSING)
     current[last] = value
     return (None if before is MISSING else before), value
+
+
+# ------------------------------------------------------------------- 합치기
+
+@dataclass
+class MergeNote:
+    path: str
+    before: object
+    after: object
+    kind: str          # 덮어씀 | 추가 | 이어붙임
+
+
+def deep_merge(base, over, *, list_mode: str = "replace",
+               notes: list[MergeNote] | None = None, path: str = ""):
+    """뒤에 오는 값이 이긴다. 무엇을 덮어썼는지 notes 에 남긴다.
+
+    설정 파일을 겹칠 때 무엇이 바뀌었는지 모르면 조용히 다른 설정으로
+    배포된다. 그래서 합치는 것과 기록을 함께 한다.
+    """
+    if isinstance(base, dict) and isinstance(over, dict):
+        out = dict(base)
+        for key, value in over.items():
+            spot = f"{path}.{key}" if path else key
+            if key in base:
+                out[key] = deep_merge(base[key], value,
+                                      list_mode=list_mode, notes=notes, path=spot)
+            else:
+                out[key] = value
+                if notes is not None:
+                    notes.append(MergeNote(spot, None, value, "추가"))
+        return out
+
+    if isinstance(base, list) and isinstance(over, list) and list_mode == "append":
+        if notes is not None and over:
+            notes.append(MergeNote(path, base, base + over, "이어붙임"))
+        return base + over
+
+    if base != over and notes is not None:
+        notes.append(MergeNote(path, base, over, "덮어씀"))
+    return over
+
+
+def merge_all(values: list, *, list_mode: str = "replace") -> tuple[object, list[MergeNote]]:
+    """앞에서부터 차례로 겹친다. 마지막 파일이 가장 세다."""
+    if not values:
+        raise JsonError("합칠 것이 없습니다.")
+    notes: list[MergeNote] = []
+    merged = values[0]
+    for nxt in values[1:]:
+        merged = deep_merge(merged, nxt, list_mode=list_mode, notes=notes)
+    return merged, notes

@@ -246,6 +246,8 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("가", self.run_cli("json", "get", one, "users[0].name"))
         self.assertIn("9090", self.run_cli("json", "set", one, "config.port=9090"))
         self.run_cli("json", "show", one, "--sort")
+        합친 = self.run_cli("json", "merge", one, two)
+        self.assertIn("겹쳤습니다", 합친)
 
     # ------------------------------------------------------------- dev
 

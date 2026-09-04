@@ -2619,6 +2619,36 @@ class JsonkitTest(unittest.TestCase):
         self.assertTrue(jsonkit.preview("가" * 100, 10).endswith("…"))
 
 
+    def test_deep_merge_keeps_untouched_keys(self):
+        merged, _ = jsonkit.merge_all([{"db": {"host": "local", "port": 5432}},
+                                       {"db": {"host": "prod"}}])
+        self.assertEqual(merged, {"db": {"host": "prod", "port": 5432}})
+
+    def test_merge_records_what_changed(self):
+        _, notes = jsonkit.merge_all([{"a": 1, "b": {"c": 2}}, {"a": 9, "b": {"d": 3}}])
+        kinds = {(n.kind, n.path) for n in notes}
+        self.assertIn(("덮어씀", "a"), kinds)
+        self.assertIn(("추가", "b.d"), kinds)
+
+    def test_merge_same_value_is_not_reported(self):
+        _, notes = jsonkit.merge_all([{"a": 1}, {"a": 1}])
+        self.assertEqual(notes, [])
+
+    def test_merge_replaces_lists_by_default(self):
+        merged, _ = jsonkit.merge_all([{"t": [1, 2]}, {"t": [3]}])
+        self.assertEqual(merged["t"], [3])
+
+    def test_merge_can_append_lists(self):
+        merged, notes = jsonkit.merge_all([{"t": [1, 2]}, {"t": [3]}],
+                                          list_mode="append")
+        self.assertEqual(merged["t"], [1, 2, 3])
+        self.assertEqual(notes[0].kind, "이어붙임")
+
+    def test_merge_needs_something(self):
+        with self.assertRaises(jsonkit.JsonError):
+            jsonkit.merge_all([])
+
+
 class LogkitTest(unittest.TestCase):
     SAMPLE = [
         "2026-09-03 10:00:01 INFO  요청 시작 user=1234",

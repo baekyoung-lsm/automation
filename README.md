@@ -250,6 +250,7 @@ at text undo
 | `at json get <파일> <경로>` | `users[0].name` 처럼 경로로 값 하나 꺼내기 |
 | `at json set <파일> <경로=값>` | 설정 파일의 값 바꾸기. 되돌릴 수 있다 |
 | `at json flat [파일]` | `경로<탭>값` 한 줄씩 출력해서 grep 하기 좋게 |
+| `at json merge <파일…>` | 설정 JSON 을 겹친다. 무엇을 덮어썼는지 함께 보여 준다 |
 
 ```bash
 curl -s ... | at json schema -
@@ -258,6 +259,8 @@ at json diff v1.json v2.json --breaking      # 깨질 변화만, 있으면 exit 
 at json get package.json version --raw
 at json set package.json 'version="2.0.0"' --apply
 at json set 설정.json config.port=9090 --apply
+at json merge 기본설정.json 운영설정.json -o 배포설정.json
+at json merge 기본.json 지역.json --list append
 at json flat 응답.json --grep 'error|실패'
 ```
 
@@ -269,6 +272,11 @@ at json flat 응답.json --grep 'error|실패'
 읽히지 않으면 문자열 그대로 쓴다. 무조건 문자열로 넣으려면 `--string` 을 준다. 기본은
 미리보기이고 `--apply` 로 쓰면 원본을 백업해 `at text undo` 로 되돌릴 수 있다.
 파일 전체를 다시 쓰므로 들여쓰기와 키 순서가 통일된다는 점은 감안해야 한다.
+
+`merge` 는 뒤에 오는 파일이 이긴다(기본설정 → 운영설정). 객체는 키 단위로 깊게 겹치고
+배열은 통째로 바꾼다(`--list append` 로 이어붙일 수 있다). **무엇을 덮어썼는지 경로와 값을
+함께 보여 준다** — 설정이 조용히 바뀐 채로 배포되는 것을 막으려는 것이다. 같은 값이면
+덮어썼다고 보고하지 않는다.
 
 파일이 JSON 으로 안 읽히면 JSON Lines 로 한 번 더 시도한다.
 

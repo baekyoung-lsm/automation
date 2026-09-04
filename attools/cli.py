@@ -3859,6 +3859,52 @@ def cmd_json_diff(a) -> int:
     return 1
 
 
+def cmd_json_merge(a) -> int:
+    import json as _json
+
+    values = []
+    for source in a.files:
+        data = _json_load(a, source)
+        if data is None:
+            return 1
+        values.append(data)
+
+    try:
+        merged, notes = jsonkit.merge_all(values, list_mode=a.list)
+    except jsonkit.JsonError as e:
+        _p(str(e))
+        return 1
+
+    overwritten = [n for n in notes if n.kind == "덮어씀"]
+    added = [n for n in notes if n.kind == "추가"]
+    joined = [n for n in notes if n.kind == "이어붙임"]
+
+    _p(f"파일 {len(values)}개를 겹쳤습니다. 뒤에 오는 파일이 이깁니다.")
+    _p(f"  덮어쓴 값 {len(overwritten)} · 새로 생긴 키 {len(added)}"
+       + (f" · 이어붙인 배열 {len(joined)}" if joined else ""))
+    for n in overwritten[:a.limit]:
+        _p(f"  덮어씀  {n.path}: {jsonkit.preview(n.before)} -> "
+           f"{jsonkit.preview(n.after)}")
+    for n in added[:a.limit]:
+        _p(f"  추가    {n.path}: {jsonkit.preview(n.after)}")
+    if len(overwritten) + len(added) > a.limit * 2:
+        _p("  ... 더 있습니다 (--limit 로 늘리세요)")
+
+    body = _json.dumps(merged, ensure_ascii=False,
+                       indent=None if a.compact else 2, sort_keys=a.sort)
+    if a.out:
+        out = Path(a.out)
+        if out.exists() and not a.overwrite:
+            _p(f"\n이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+            return 1
+        out.write_text(body + "\n", encoding="utf-8")
+        _p(f"\n저장: {out}")
+    else:
+        _p("")
+        _p(body)
+    return 0
+
+
 def cmd_json_flat(a) -> int:
     data = _json_load(a, a.file)
     if data is None:
@@ -4690,6 +4736,17 @@ def build_parser() -> argparse.ArgumentParser:
     jf.add_argument("--limit", type=int, default=200)
     jf.add_argument("--width", type=int, default=60, metavar="칸")
     jf.set_defaults(func=cmd_json_flat)
+
+    jm = jp.add_parser("merge", help="설정 JSON 겹치기 (뒤엣것이 이긴다)")
+    jm.add_argument("files", nargs="+", metavar="파일")
+    jm.add_argument("--list", default="replace", choices=["replace", "append"],
+                    help="배열을 통째로 바꿀지 이어붙일지 (기본 replace)")
+    jm.add_argument("-o", "--out", metavar="파일")
+    jm.add_argument("--overwrite", action="store_true")
+    jm.add_argument("--sort", action="store_true", help="키 이름 순으로 정렬")
+    jm.add_argument("--compact", action="store_true", help="한 줄로")
+    jm.add_argument("--limit", type=int, default=15)
+    jm.set_defaults(func=cmd_json_merge)
 
     # ---- keys
     ky = sub.add_parser("keys", help="단축키 찾기 (한글·Word·엑셀·PPT·구글)")
