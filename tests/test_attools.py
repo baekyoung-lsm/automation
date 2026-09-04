@@ -1479,6 +1479,37 @@ class TextTest(unittest.TestCase):
                            journal=self.root / "j" / "journal.jsonl")
         self.assertEqual(target.read_bytes(), "한글".encode("utf-8"))
 
+    def test_read_lines_strips_and_drops_blanks(self):
+        p = self.make("a.txt", "  홍길동  \n\n김철수\n")
+        self.assertEqual(text.read_lines(p), ["홍길동", "김철수"])
+        self.assertEqual(text.read_lines(p, keep_blank=True), ["홍길동", "", "김철수"])
+
+    def test_line_stats(self):
+        stats = text.line_stats(["가", "나", "가", "", "다"])
+        self.assertEqual((stats.total, stats.unique, stats.blank), (5, 3, 1))
+        self.assertEqual(stats.duplicated, 1)
+        self.assertEqual(stats.extra, 1)
+
+    def test_unique_keeps_order(self):
+        self.assertEqual(text.unique_lines(["나", "가", "나", "다"]), ["나", "가", "다"])
+        self.assertEqual(text.unique_lines(["A", "a"], ignore_case=True), ["A"])
+
+    def test_compare_lines(self):
+        result = text.compare_lines(["홍길동", "김철수"], ["김철수", "박민수"])
+        self.assertEqual(result["공통"], ["김철수"])
+        self.assertEqual(result["왼쪽만"], ["홍길동"])
+        self.assertEqual(result["오른쪽만"], ["박민수"])
+
+    def test_compare_lines_ignore_case(self):
+        result = text.compare_lines(["Kim"], ["kim"], ignore_case=True)
+        self.assertEqual(result["공통"], ["Kim"])
+        self.assertEqual(result["오른쪽만"], [])
+
+    def test_sort_lines_numeric_puts_text_last(self):
+        self.assertEqual(text.sort_lines(["10 개", "2 개", "가나다"], numeric=True),
+                         ["2 개", "10 개", "가나다"])
+        self.assertEqual(text.sort_lines(["나", "가"]), ["가", "나"])
+
     def test_diff_preview(self):
         change = text.Change(Path("a.txt"), "a\nb\n", "a\nc\n", "utf-8", 1)
         lines = change.diff()

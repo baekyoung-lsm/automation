@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+from collections import Counter
 import json
 import re
 import shutil
@@ -226,3 +227,74 @@ def latest_journal() -> Path | None:
         return None
     found = sorted(BACKUP_DIR.glob("*/journal.jsonl"))
     return found[-1] if found else None
+
+
+# --------------------------------------------------------------------- 줄 다루기
+
+@dataclass
+class LineStats:
+    total: int = 0
+    blank: int = 0
+    unique: int = 0
+    duplicated: int = 0     # 두 번 이상 나온 줄의 종류 수
+
+    @property
+    def extra(self) -> int:
+        """중복으로 늘어난 줄 수."""
+        return self.total - self.blank - self.unique
+
+
+def read_lines(path: Path, *, strip: bool = True, keep_blank: bool = False) -> list[str]:
+    content, _ = read_text_any(path)
+    lines = content.splitlines()
+    if strip:
+        lines = [line.strip() for line in lines]
+    return lines if keep_blank else [line for line in lines if line]
+
+
+def line_stats(lines: list[str]) -> LineStats:
+    counts = Counter(line for line in lines if line)
+    return LineStats(total=len(lines),
+                     blank=sum(1 for line in lines if not line),
+                     unique=len(counts),
+                     duplicated=sum(1 for n in counts.values() if n > 1))
+
+
+def unique_lines(lines: list[str], *, ignore_case: bool = False) -> list[str]:
+    """순서를 지키며 중복을 없앤다. 정렬하면 원래 순서를 잃는다."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        key = line.lower() if ignore_case else line
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return out
+
+
+def compare_lines(left: list[str], right: list[str], *,
+                  ignore_case: bool = False) -> dict[str, list[str]]:
+    """두 목록을 줄 단위로 대조한다. 명단 맞춰볼 때 쓴다."""
+    def key(line: str) -> str:
+        return line.lower() if ignore_case else line
+
+    left_keys = {key(line): line for line in left}
+    right_keys = {key(line): line for line in right}
+    return {
+        "공통": [left_keys[k] for k in left_keys if k in right_keys],
+        "왼쪽만": [left_keys[k] for k in left_keys if k not in right_keys],
+        "오른쪽만": [right_keys[k] for k in right_keys if k not in left_keys],
+    }
+
+
+def sort_lines(lines: list[str], *, descending: bool = False,
+               numeric: bool = False) -> list[str]:
+    if numeric:
+        def key(line: str):
+            head = re.match(r"\s*-?\d+(?:\.\d+)?", line)
+            return (0, float(head.group()), "") if head else (1, 0.0, line)
+    else:
+        def key(line: str):
+            return (0, 0.0, line)
+    return sorted(lines, key=key, reverse=descending)

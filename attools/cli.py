@@ -1529,6 +1529,73 @@ def cmd_novel_dialogue(a) -> int:
     return 0
 
 
+def cmd_text_lines(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        lines = text.read_lines(path, keep_blank=a.blank)
+    except (text.TextError, OSError) as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    if a.compare:
+        other = Path(a.compare)
+        if not other.is_file():
+            _p(f"파일이 없습니다: {other}")
+            return 1
+        result = text.compare_lines(lines, text.read_lines(other, keep_blank=a.blank),
+                                    ignore_case=a.ignore_case)
+        _p(f"{path.name} {len(lines):,}줄  vs  {other.name} "
+           f"{len(text.read_lines(other, keep_blank=a.blank)):,}줄")
+        for label, rows in result.items():
+            _p(f"\n{label} {len(rows):,}줄")
+            for row in rows[:a.limit]:
+                _p(f"  {_cut(row, a.width)}")
+            if len(rows) > a.limit:
+                _p(f"  ... {len(rows) - a.limit:,}줄 더")
+        if a.out:
+            picked = result.get(a.pick, [])
+            Path(a.out).write_text("\n".join(picked) + "\n", encoding="utf-8")
+            _p(f"\n'{a.pick}' {len(picked):,}줄을 저장: {a.out}")
+        return 0
+
+    stats = text.line_stats(lines)
+    _p(f"{path.name}  {stats.total:,}줄  ·  고유 {stats.unique:,}"
+       f"  ·  중복된 값 {stats.duplicated:,}종류({stats.extra:,}줄 초과)"
+       + (f"  ·  빈 줄 {stats.blank:,}" if stats.blank else ""))
+
+    if a.count:
+        counts = Counter(line for line in lines if line)
+        _p(f"\n많이 나온 줄 상위 {min(a.count, len(counts))}개")
+        for line, n in counts.most_common(a.count):
+            _p(f"  {n:>6,}회  {_cut(line, a.width)}")
+        return 0
+
+    result = lines
+    if a.unique:
+        result = text.unique_lines(result, ignore_case=a.ignore_case)
+    if a.sort or a.sort_num:
+        result = text.sort_lines(result, descending=a.desc, numeric=a.sort_num)
+
+    if result == lines and not a.out:
+        _p("\n--unique, --sort, --count, --compare 중 하나를 주면 처리 결과를 냅니다.")
+        return 0
+
+    if a.out:
+        Path(a.out).write_text("\n".join(result) + "\n", encoding="utf-8")
+        _p(f"\n{len(result):,}줄을 저장: {a.out}")
+        return 0
+
+    _p("")
+    for line in result[:a.limit]:
+        _p(line)
+    if len(result) > a.limit:
+        _p(f"... {len(result) - a.limit:,}줄 더 (-o 로 저장하세요)")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -2924,6 +2991,25 @@ def build_parser() -> argparse.ArgumentParser:
     tr.add_argument("--tabs", type=int, default=0, metavar="칸",
                     help="탭을 이만큼의 공백으로 (기본: 그대로)")
     tr.set_defaults(func=cmd_text_trim)
+
+    ln2 = tp.add_parser("lines", help="줄 단위 정리·대조 (명단 맞춰보기)")
+    ln2.add_argument("file")
+    ln2.add_argument("--unique", action="store_true", help="중복 줄 제거 (순서 유지)")
+    ln2.add_argument("--sort", action="store_true", help="가나다 순 정렬")
+    ln2.add_argument("--sort-num", action="store_true", help="줄 앞 숫자로 정렬")
+    ln2.add_argument("--desc", action="store_true", help="내림차순")
+    ln2.add_argument("--count", type=int, default=0, metavar="개",
+                     help="많이 나온 줄 상위 N개")
+    ln2.add_argument("--compare", metavar="파일", help="다른 파일과 줄 단위 대조")
+    ln2.add_argument("--pick", default="왼쪽만",
+                     choices=["공통", "왼쪽만", "오른쪽만"],
+                     help="--compare 결과 중 -o 로 저장할 것")
+    ln2.add_argument("-i", "--ignore-case", action="store_true")
+    ln2.add_argument("--blank", action="store_true", help="빈 줄도 센다")
+    ln2.add_argument("-o", "--out", metavar="파일")
+    ln2.add_argument("--limit", type=int, default=30)
+    ln2.add_argument("--width", type=int, default=80, metavar="칸")
+    ln2.set_defaults(func=cmd_text_lines)
 
     tu = tp.add_parser("undo", help="text 명령 되돌리기")
     tu.add_argument("journal", nargs="?")

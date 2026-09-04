@@ -149,6 +149,7 @@ kubectl logs pod | at dev log -
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
 | `at text trim [경로]` | 줄 끝 공백 제거, 파일 끝 개행 보정, 탭 → 공백 |
+| `at text lines <파일>` | 줄 단위 정리·대조 — 중복 제거, 정렬, 빈도, 두 파일 비교 |
 | `at text undo [저널]` | 직전 작업 되돌리기 |
 
 ```bash
@@ -157,11 +158,18 @@ at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply
 at text encoding 인수인계자료/ --apply     # 예전 파일 무더기 utf-8 로
 at text trim . -g '*.py' --apply
+at text lines 명단.txt --unique -o 정리본.txt
+at text lines 작년명단.txt --compare 올해명단.txt      # 빠진 사람·새로 온 사람
+at text lines 로그.txt --count 10                      # 많이 나온 줄 상위 10개
 at text undo
 ```
 
 기본은 미리보기다. 바뀌는 줄을 diff 로 먼저 보여 주고, `--apply` 를 붙여야 실제로 쓴다.
 원본은 `~/.attools/text/<시각>/` 에 통째로 백업하므로 `at text undo` 로 되돌릴 수 있다.
+
+`lines` 는 명단·목록을 맞춰볼 때 쓴다. `--compare` 는 공통·왼쪽만·오른쪽만으로 갈라
+보여 주고, `-o` 와 `--pick` 을 함께 주면 그중 하나를 파일로 저장한다. 인코딩은
+`text` 의 다른 명령과 같은 규칙으로 알아서 읽는다.
 
 정규식이 아니면 `.` 이나 `\` 도 문자 그대로 다룬다. BOM 이 있던 파일은 BOM 을 유지하고,
 없던 파일에 BOM 을 붙이지 않는다. 이진 파일과 `node_modules`, `.git` 같은 디렉터리는
