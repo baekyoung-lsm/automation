@@ -31,7 +31,10 @@ xml.etree 로 직접 읽고 쓴다(`attools/xlsx.py`). 새 의존성이 필요�
 ```
 at                  실행 스크립트
 attools/
-  cli.py            argparse 배선과 명령 핸들러 (여기만 사용자에게 보이는 문구)
+  cli/              argparse 배선과 명령 핸들러 (여기만 사용자에게 보이는 문구)
+    __init__.py     build_parser 와 main. 그룹 모듈을 불러 붙인다
+    common.py       _p, _grid, _pad 처럼 여러 그룹이 함께 쓰는 출력 도우미
+    <그룹>_cmds.py   그룹마다 한 파일: 핸들러 + add_commands(sub) 배선
   files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교
   text.py           여러 파일 찾아 바꾸기·인코딩·줄바꿈·공백
   hangul.py         NFC 정규화, 파일명 정리, 받침·조사
@@ -55,8 +58,11 @@ tests/test_attools.py
 ## 명령을 추가할 때
 
 1. 로직은 해당 모듈에 순수 함수·데이터클래스로 넣는다. 출력(`print`)은 하지 않는다.
-2. `cli.py` 에 `cmd_<그룹>_<이름>` 핸들러와 서브파서를 더한다. 표는 `_grid`,
-   한글 폭 맞춤은 `_pad`·`_cut` 를 쓴다.
+2. `cli/<그룹>_cmds.py` 에 `cmd_<그룹>_<이름>` 핸들러를 쓰고, 같은 파일의
+   `add_commands` 안에 서브파서를 더한다. 표는 `_grid`, 한글 폭 맞춤은
+   `_pad`·`_cut` 를 쓴다(`cli/common.py`). 새 그룹을 만들면 파일을 하나 더 만들고
+   `cli/__init__.py` 의 `GROUP_MODULES` 에 넣는다. 그룹 사이에 함수를 직접 부르지
+   않는다 - 함께 쓸 것은 `common.py` 로 올린다.
 3. 테스트를 쓴다. 세 겹이다.
    - 로직 단위 테스트 (`tests/test_attools.py`)
    - `CliWiringTest` 가 모든 하위 명령의 배선과 `--help` 를 자동으로 훑는다
