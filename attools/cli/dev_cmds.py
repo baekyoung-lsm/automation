@@ -554,22 +554,26 @@ def cmd_dev_outline(a) -> int:
         for result in wanted:
             _p(f"{result.path}  {result.lines:,}줄")
             body = [s for s in result.symbols if a.private or s.public]
-            _grid(["이름", "종류", "줄", "길이", "설명"],
+            _grid(["이름", "종류", "줄", "길이", "갈림길", "설명"],
                   [[("  " + s.name) if s.parent else s.name, s.kind,
-                    str(s.line), f"{s.lines}줄", "있음" if s.doc else "없음"]
+                    str(s.line), f"{s.lines}줄",
+                    str(s.branches) if s.kind != "클래스" else "-",
+                    "있음" if s.doc else "없음"]
                    for s in body], limit=40)
             _p("")
         return 0
 
     order = {"줄": lambda r: -r.lines,
              "길이": lambda r: -(r.longest.lines if r.longest else 0),
+             "갈림길": lambda r: -(r.branchy.branches if r.branchy else 0),
              "설명": lambda r: -len(r.undocumented),
              "이름": lambda r: str(r.path)}
     rows.sort(key=order[a.sort])
 
-    _grid(["파일", "줄", "클래스", "함수", "가장 긴 것", "설명 없는 공개"],
+    _grid(["파일", "줄", "클래스", "함수", "가장 긴 것", "갈림길 많은 것", "설명 없는 공개"],
           [[str(r.path), f"{r.lines:,}", str(len(r.classes)), str(len(r.functions)),
             (f"{r.longest.name} {r.longest.lines}줄" if r.longest else "-"),
+            (f"{r.branchy.name} {r.branchy.branches}" if r.branchy else "-"),
             str(len(r.undocumented))] for r in rows[:a.limit]], limit=40)
     if len(rows) > a.limit:
         _p(f"  ... {len(rows) - a.limit}개 더")
@@ -581,6 +585,13 @@ def cmd_dev_outline(a) -> int:
     if long:
         _p(f"{a.long}줄 넘는 함수가 있는 파일 {len(long)}개: "
            + ", ".join(f"{r.path.name}({r.longest.name})" for r in long[:5]))
+    branchy = [r for r in rows if r.branchy and r.branchy.branches >= a.branches]
+    if branchy:
+        _p(f"갈림길이 {a.branches} 이상인 함수가 있는 파일 {len(branchy)}개: "
+           + ", ".join(f"{r.path.name}({r.branchy.name} {r.branchy.branches})"
+                       for r in branchy[:5]))
+        _p("갈림길 수는 if·for·while·except·and/or 를 센 값입니다. "
+           "정확한 지표라기보다 어디부터 볼지 정하는 눈금입니다.")
     if broken:
         _p(f"읽지 못한 파일 {len(broken)}개: "
            + ", ".join(str(r.path) for r in broken[:3]))
@@ -1041,9 +1052,12 @@ def add_commands(sub) -> None:
     ol.add_argument("paths", nargs="*", default=["."], metavar="경로")
     ol.add_argument("--file", metavar="파일", help="그 파일의 클래스·함수 목록")
     ol.add_argument("--private", action="store_true", help="_ 로 시작하는 것도")
-    ol.add_argument("--sort", default="줄", choices=["줄", "길이", "설명", "이름"])
+    ol.add_argument("--sort", default="줄",
+                    choices=["줄", "길이", "갈림길", "설명", "이름"])
     ol.add_argument("--long", type=int, default=60, metavar="줄",
                     help="이보다 긴 함수가 있으면 따로 알린다 (기본 60)")
+    ol.add_argument("--branches", type=int, default=20, metavar="개",
+                    help="갈림길이 이보다 많으면 따로 알린다 (기본 20)")
     ol.add_argument("--limit", type=int, default=25)
     ol.set_defaults(func=cmd_dev_outline)
 

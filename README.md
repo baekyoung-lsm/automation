@@ -189,6 +189,7 @@ at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
 at dev http localhost:8080/health --head               # 헤더만
 at dev unused src/ --modules                           # 걸리면 exit 1
 at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
+at dev outline src/ --sort 갈림길                      # 조건이 많은 함수부터
 at dev outline src/ --file models.py                   # 그 파일의 클래스·함수
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
@@ -228,7 +229,9 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 기록이나 화면 공유로 새는 것을 막으려는 것이다.
 
 `at dev outline` 은 처음 보는 코드에서 어디부터 읽을지 정할 때 쓴다. 파일마다 줄 수,
-클래스·함수 수, **가장 긴 함수**, 설명(docstring) 없는 공개 이름 수를 낸다. 실행하지 않고
+클래스·함수 수, **가장 긴 함수**, **갈림길이 가장 많은 함수**, 설명(docstring) 없는 공개
+이름 수를 낸다. 갈림길 수는 `if`·`for`·`while`·`except`·`and/or`·컴프리헨션 조건을 센
+값이다 — 정확한 지표라기보다 어디부터 볼지 정하는 눈금이라고 화면에도 적는다. 실행하지 않고
 `ast` 로만 읽으므로 남의 코드에도 안전하다. `--file` 로 한 파일의 목록을 보면 메서드는
 소속 클래스 아래에 들여써서 나온다.
 

@@ -172,5 +172,43 @@ class OutlineTest(unittest.TestCase):
         self.assertEqual(len(pyscan.outlines([self.path])), 1)
 
 
+class BranchCountTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def count(self, body: str) -> int:
+        path = self.root / "a.py"
+        path.write_text(body, encoding="utf-8")
+        return pyscan.outline(path).symbols[0].branches
+
+    def test_straight_line_function_is_one(self):
+        self.assertEqual(self.count("def f():\n    return 1\n"), 1)
+
+    def test_if_and_for_add_one_each(self):
+        self.assertEqual(self.count("def f(a):\n    if a:\n        return 1\n"
+                                    "    for x in a:\n        pass\n"), 3)
+
+    def test_boolean_operators_count(self):
+        self.assertEqual(self.count("def f(a, b, c):\n    return a and b and c\n"), 3)
+
+    def test_except_and_comprehension_count(self):
+        body = ("def f(items):\n"
+                "    try:\n"
+                "        return [x for x in items if x]\n"
+                "    except ValueError:\n"
+                "        return []\n")
+        self.assertEqual(self.count(body), 4)     # 기본 1 + 컴프리헨션 + if + except
+
+    def test_branchy_picks_the_worst_function(self):
+        path = self.root / "b.py"
+        path.write_text("def 단순():\n    return 1\n\n\n"
+                        "def 복잡(a):\n    if a:\n        pass\n"
+                        "    for x in a:\n        pass\n", encoding="utf-8")
+        self.assertEqual(pyscan.outline(path).branchy.name, "복잡")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -147,6 +147,7 @@ class Symbol:
     end: int
     doc: bool = False
     parent: str = ""
+    branches: int = 1  # 갈림길 수(순환 복잡도)
 
     @property
     def lines(self) -> int:
@@ -178,9 +179,38 @@ class FileOutline:
         return max(body, key=lambda s: s.lines) if body else None
 
     @property
+    def branchy(self):
+        """갈림길이 가장 많은 함수."""
+        body = self.functions
+        return max(body, key=lambda s: s.branches) if body else None
+
+    @property
     def undocumented(self) -> list:
         """설명이 없는 공개 함수·클래스. 남이 읽을 때 먼저 막히는 자리다."""
         return [s for s in self.symbols if s.public and not s.doc]
+
+
+BRANCH_NODES = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.ExceptHandler,
+                ast.IfExp, ast.Assert, ast.comprehension)
+
+
+def branch_count(node: ast.AST) -> int:
+    """갈림길 수. if·for·while·except·and/or 를 센다(순환 복잡도).
+
+    읽기 어려움을 재는 여러 방법 중 계산이 분명한 것만 쓴다. 정확한 지표라기
+    보다 '어느 함수부터 볼까'를 정하는 눈금이다.
+    """
+    total = 1
+    for child in ast.walk(node):
+        if isinstance(child, ast.comprehension):
+            total += 1 + len(child.ifs)     # for 하나와 걸러내는 조건들
+        elif isinstance(child, BRANCH_NODES):
+            total += 1
+        elif isinstance(child, ast.BoolOp):
+            total += len(child.values) - 1
+        elif hasattr(ast, "match_case") and isinstance(child, ast.match_case):
+            total += 1
+    return total
 
 
 def outline(path: Path) -> FileOutline:
@@ -204,11 +234,13 @@ def outline(path: Path) -> FileOutline:
                     result.symbols.append(Symbol(
                         child.name, "메서드", child.lineno,
                         child.end_lineno or child.lineno,
-                        bool(ast.get_docstring(child)), node.name))
+                        bool(ast.get_docstring(child)), node.name,
+                        branch_count(child)))
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             result.symbols.append(Symbol(node.name, "함수", node.lineno,
                                          node.end_lineno or node.lineno,
-                                         bool(ast.get_docstring(node))))
+                                         bool(ast.get_docstring(node)), "",
+                                         branch_count(node)))
     return result
 
 
