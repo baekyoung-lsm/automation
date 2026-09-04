@@ -562,3 +562,143 @@ def style_outliers(rows: list[Style], *, sigma: float = 1.5) -> dict[str, list[s
                 direction = "높음" if value > mean else "낮음"
                 out[row.name].append(f"{labels[field_name]} {direction}")
     return dict(out)
+
+
+# ------------------------------------------------------------------ 내보내기
+
+def normalize_body(text: str, *, indent: bool = False, scene_mark: str = "",
+                   join_lines: bool = False) -> str:
+    """본문을 읽기 좋게 정리한다. 문단 사이 빈 줄 하나, 선택적으로 첫 줄 들여쓰기.
+
+    한글 원고는 보통 한 줄이 한 문단이라 줄마다 문단으로 본다. 문단이 여러 줄에
+    걸쳐 접혀 있는 파일이면 join_lines 로 한 문단으로 합친다.
+    """
+    text = strip_headings(text)
+    paragraphs: list[str] = []
+    for block in re.split(r"\n\s*\n", text):
+        block = block.strip()
+        if not block:
+            continue
+        if SEPARATOR_ONLY.match(block):
+            paragraphs.append(scene_mark or block)
+            continue
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if join_lines:
+            lines = [" ".join(lines)]
+        for line in lines:
+            paragraphs.append(("　" + line) if indent else line)
+    return "\n\n".join(paragraphs)
+
+
+def chapter_title(path: "Path", text: str) -> str:
+    """파일 첫 제목 줄이 있으면 그것을, 없으면 파일 이름을 쓴다."""
+    for line in text.splitlines():
+        if m := HEADING_LINE.match(line):
+            return m.group(2).strip()
+        if line.strip():
+            break
+    return path.stem
+
+
+EXPORT_CSS = """
+:root { --ink:#1b1a18; --dim:#6b6862; --paper:#fdfcfa; --line:#e6e2db; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#e9e6e0; --dim:#9a948b; --paper:#171614; --line:#332f2a; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink);
+  font:17px/1.9 "Noto Serif KR","Nanum Myeongjo","Apple SD Gothic Neo",serif;
+  word-break:keep-all; }
+.wrap { max-width:38rem; margin:0 auto; padding:4rem 1.5rem 6rem; }
+.title { text-align:center; margin-bottom:4rem; }
+.title h1 { font-size:2rem; margin:0 0 .5rem; letter-spacing:-0.02em; }
+.title .author { color:var(--dim); }
+.title .meta { color:var(--dim); font-size:.85rem; margin-top:1.5rem; }
+nav { border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+  padding:1.2rem 0; margin-bottom:3rem; }
+nav ol { margin:0; padding-left:1.2rem; color:var(--dim); }
+nav a { color:inherit; text-decoration:none; }
+nav a:hover { color:var(--ink); text-decoration:underline; }
+h2 { font-size:1.3rem; margin:4rem 0 2rem; padding-top:1rem;
+  border-top:1px solid var(--line); }
+p { margin:0 0 1.1rem; text-align:justify; }
+.break { text-align:center; color:var(--dim); margin:2.5rem 0; letter-spacing:.6em; }
+footer { margin-top:5rem; color:var(--dim); font-size:.85rem; text-align:center; }
+@media print {
+  body { background:#fff; color:#000; font-size:11pt; }
+  .wrap { max-width:none; padding:0; }
+  nav { display:none; }
+  h2 { page-break-before:always; border:0; }
+  .title { page-break-after:always; }
+}
+"""
+
+
+def export_html(chapters: list[tuple[str, str]], *, title: str = "",
+                author: str = "", note: str = "", indent: bool = False) -> str:
+    """HTML 로 묶는다. 들여쓰기는 공백 문자가 아니라 CSS 로 준다.
+
+    브라우저는 문단 앞 공백을 접어 버려서 전각 공백을 넣어도 보이지 않는다.
+    """
+    from html import escape
+
+    def paragraphs(body: str) -> str:
+        out = []
+        for block in body.split("\n\n"):
+            block = block.strip()
+            if not block:
+                continue
+            if SEPARATOR_ONLY.match(block) or block in ("＊", "*"):
+                out.append('<div class="break">＊ ＊ ＊</div>')
+            else:
+                out.append(f"<p>{escape(block)}</p>")
+        return "\n".join(out)
+
+    toc = "\n".join(f'<li><a href="#장{i}">{escape(name)}</a></li>'
+                    for i, (name, _) in enumerate(chapters, 1))
+    body = "\n".join(
+        f'<h2 id="장{i}">{escape(name)}</h2>\n{paragraphs(text)}'
+        for i, (name, text) in enumerate(chapters, 1))
+
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title or "원고")}</title>
+<style>{EXPORT_CSS}{"p { text-indent: 1em; }" if indent else ""}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="title">
+    <h1>{escape(title or "원고")}</h1>
+    {f'<div class="author">{escape(author)}</div>' if author else ""}
+    {f'<div class="meta">{escape(note)}</div>' if note else ""}
+  </div>
+  <nav><ol>{toc}</ol></nav>
+{body}
+</div>
+</body>
+</html>
+"""
+
+
+def export_text(chapters: list[tuple[str, str]], *, title: str = "",
+                author: str = "", note: str = "", markdown: bool = False) -> str:
+    lines: list[str] = []
+    if title:
+        lines.append(f"# {title}" if markdown else title)
+    if author:
+        lines.append(author)
+    if note:
+        lines.append("")
+        lines.append(note)
+    lines.append("")
+
+    for name, text in chapters:
+        lines.append("")
+        lines.append(f"## {name}" if markdown else f"[ {name} ]")
+        lines.append("")
+        lines.append(text)
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"

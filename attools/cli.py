@@ -1387,6 +1387,61 @@ def cmd_novel_style(a) -> int:
     return 0
 
 
+def cmd_novel_export(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    # 내보낸 파일이 원고 디렉터리 안에 있으면 다음 실행에서 원고로 다시 잡힌다.
+    # 형식을 바꿔 가며 내보내면 투고본.txt 가 투고본.html 의 원고가 되는 식이다.
+    if a.out:
+        out_path = Path(a.out).resolve()
+        before = len(targets)
+        targets = [p for p in targets
+                   if p.resolve() != out_path and p.stem != out_path.stem]
+        dropped = before - len(targets)
+        if dropped:
+            _p(f"앞서 내보낸 '{out_path.stem}' 파일 {dropped}개는 원고에서 뺐습니다.")
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    chapters: list[tuple[str, str]] = []
+    total = 0
+    for path in targets:
+        raw = manuscript.read_text(path)
+        name = manuscript.chapter_title(path, raw)
+        # HTML 은 CSS 로 들여쓰므로 본문에 공백 문자를 넣지 않는다
+        body = manuscript.normalize_body(raw,
+                                         indent=a.indent and a.format != "html",
+                                         scene_mark=a.scene_mark,
+                                         join_lines=a.join)
+        total += len("".join(body.split()))   # 공백 제외 글자수
+        chapters.append((name, body))
+
+    note = a.note or (f"{total:,}자  ·  원고지 {total / manuscript.WONGOJI_CHARS:,.0f}매"
+                      f"  ·  {len(chapters)}편")
+
+    if a.format == "html":
+        text = manuscript.export_html(chapters, title=a.title, author=a.author,
+                                      note=note, indent=a.indent)
+    else:
+        text = manuscript.export_text(chapters, title=a.title, author=a.author,
+                                      note=note, markdown=a.format == "md")
+
+    if not a.out:
+        _p(note)
+        for name, body in chapters:
+            _p(f"  {_pad(name, 24)}{len(''.join(body.split())):,}자")
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+        return 0
+
+    target = Path(a.out)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+    _p(f"저장: {target}  ({note})")
+    if a.format == "html":
+        _p("브라우저에서 열어 인쇄하면 화마다 쪽이 나뉩니다.")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -2845,6 +2900,20 @@ def build_parser() -> argparse.ArgumentParser:
     sy.add_argument("--min", type=int, default=100, metavar="자", help="장면 최소 분량")
     sy.add_argument("--limit", type=int, default=40)
     sy.set_defaults(func=cmd_novel_style)
+
+    ex = np_.add_parser("export", help="여러 화를 한 파일로 - 투고·인쇄용")
+    ex.add_argument("paths", nargs="+")
+    ex.add_argument("-o", "--out", metavar="파일")
+    ex.add_argument("-f", "--format", default="html", choices=["html", "txt", "md"])
+    ex.add_argument("--title", default="", metavar="제목")
+    ex.add_argument("--author", default="", metavar="필명")
+    ex.add_argument("--note", default="", metavar="설명", help="기본: 분량 요약")
+    ex.add_argument("--indent", action="store_true", help="문단 첫 줄을 한 칸 들여쓴다")
+    ex.add_argument("--join", action="store_true",
+                    help="여러 줄에 접힌 문단을 한 문단으로 합친다")
+    ex.add_argument("--scene-mark", default="", metavar="표시",
+                    help="장면 구분선을 이걸로 바꾼다 (예: ＊)")
+    ex.set_defaults(func=cmd_novel_export)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

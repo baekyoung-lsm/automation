@@ -493,6 +493,58 @@ class ManuscriptTest(unittest.TestCase):
         self.assertIn("2화", found)
         self.assertTrue(any("평균 문장 길이" in r for r in found["2화"]))
 
+    def test_normalize_body_one_line_one_paragraph(self):
+        text = "# 1화\n\n첫 줄이다.\n둘째 줄이다.\n\n***\n\n다음 문단.\n"
+        body = manuscript.normalize_body(text)
+        self.assertNotIn("1화", body)                    # 제목은 뺀다
+        self.assertEqual(body.split("\n\n"),
+                         ["첫 줄이다.", "둘째 줄이다.", "***", "다음 문단."])
+
+    def test_normalize_body_join_and_indent(self):
+        text = "접힌 문단의\n뒷부분이다.\n"
+        joined = manuscript.normalize_body(text, join_lines=True)
+        self.assertEqual(joined, "접힌 문단의 뒷부분이다.")
+
+        indented = manuscript.normalize_body(text, indent=True)
+        self.assertTrue(indented.startswith("\u3000"))
+
+    def test_normalize_body_scene_mark(self):
+        body = manuscript.normalize_body("가.\n\n***\n\n나.\n", scene_mark="＊")
+        self.assertIn("＊", body)
+        self.assertNotIn("***", body)
+
+    def test_chapter_title_prefers_heading(self):
+        self.assertEqual(manuscript.chapter_title(Path("01.txt"), "# 1화 겨울\n\n본문"),
+                         "1화 겨울")
+        self.assertEqual(manuscript.chapter_title(Path("01화.txt"), "제목 없는 본문"),
+                         "01화")
+
+    def test_export_html_structure(self):
+        html = manuscript.export_html([("1화", "가.\n\n***\n\n나.")],
+                                      title="제목", author="필명", note="메모")
+        self.assertIn("<h2 id=\"장1\">1화</h2>", html)
+        self.assertIn("<p>가.</p>", html)
+        self.assertIn('class="break"', html)
+        self.assertIn("제목", html)
+        self.assertNotIn("text-indent", html)
+
+    def test_export_html_indent_uses_css(self):
+        html = manuscript.export_html([("1화", "가.")], indent=True)
+        self.assertIn("text-indent", html)
+
+    def test_export_html_escapes(self):
+        html = manuscript.export_html([("<script>", "a & b")])
+        self.assertNotIn("<script>", html.split("<style>")[0] + html.split("</style>")[1])
+        self.assertIn("a &amp; b", html)
+
+    def test_export_text_formats(self):
+        plain = manuscript.export_text([("1화", "본문")], title="제목")
+        self.assertIn("[ 1화 ]", plain)
+
+        markdown = manuscript.export_text([("1화", "본문")], title="제목", markdown=True)
+        self.assertIn("# 제목", markdown)
+        self.assertIn("## 1화", markdown)
+
     def test_snapshot_growth(self):
         (self.root / "1화.txt").write_text("가나다", encoding="utf-8")
         manuscript.snapshot(self.root, note="초고")
