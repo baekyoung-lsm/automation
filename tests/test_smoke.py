@@ -217,6 +217,13 @@ class SmokeTest(unittest.TestCase):
                                           "--required", "이름"))
         self.assertIn("겹치지", self.run_cli("sheet", "validate", csv,
                                              "--unique", "사번", expect=1))
+
+        거래처 = self.path("거래처.csv")
+        Path(거래처).write_text("이름,사업자번호\n가게,124-81-00998\n나게,123-45-67890\n",
+                                encoding="utf-8")
+        self.assertIn("사업자번호 형식",
+                      self.run_cli("sheet", "validate", 거래처,
+                                   "--format", "사업자번호=사업자번호", expect=1))
         self.assertIn("월급", self.run_cli("sheet", "fx", csv,
                                            "--add", "월급=연봉/12", "--round", "0"))
         out = self.path("보고서.html")

@@ -3289,7 +3289,8 @@ def cmd_sheet_fx(a) -> int:
     return 0
 
 
-RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof")
+RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof",
+              "format")
 
 
 def cmd_sheet_validate(a) -> int:
@@ -3320,6 +3321,7 @@ def cmd_sheet_validate(a) -> int:
         _p("규칙을 하나 이상 주세요.")
         _p("  예: --required 이름 --unique 사번 --match '사번=^E\\d{3}$'")
         _p("      --range '연봉=0:' --type 입사일=날짜 --oneof 부서=영업,개발")
+        _p("      --format 사업자등록번호=사업자번호 --format 연락처=휴대폰")
         return 1
 
     try:
@@ -4491,6 +4493,8 @@ def build_parser() -> argparse.ArgumentParser:
     vd.add_argument("--range", action="append", metavar="열=최소:최대",
                     help="예: '연봉=0:' 또는 '나이=18:65'")
     vd.add_argument("--oneof", action="append", metavar="열=값,값")
+    vd.add_argument("--format", action="append", metavar="열=형식",
+                    dest="format", help="사업자번호 · 휴대폰 · 전화번호 · 우편번호 · 이메일")
     vd.add_argument("--rules", metavar="파일", help="규칙을 적어 둔 JSON")
     vd.add_argument("--limit", type=int, default=20)
     vd.set_defaults(func=cmd_sheet_validate)

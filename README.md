@@ -414,6 +414,7 @@ curl -s https://api.example.com/users | at sheet from-json - -o 사용자.xlsx
 at sheet from-json 응답.json --path data.users -o 표.csv
 at sheet to-json 명단.xlsx --nest -o 요청.json
 at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" ...; done
+at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \
     --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
 at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
@@ -442,6 +443,10 @@ at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 
 `from-json` 은 객체 배열을 표로 편다. 열은 모든 원소의 키 합집합이라 어떤 원소에만 있는
 키도 빠지지 않고, 없는 값은 빈 칸이 된다. 중첩된 객체는 `meta.부서` 처럼 펴고, 정한 깊이를
 넘거나 배열이면 JSON 글자로 남긴다. `--path` 를 생략하면 가장 큰 객체 배열을 알아서 찾는다.
+
+`--format` 은 국내에서 자주 쓰는 형식을 본다 — `사업자번호`(국세청 검증번호 계산),
+`휴대폰`, `전화번호`, `우편번호`(5자리), `이메일`. 사업자번호는 **규칙에 맞는 번호인지만**
+확인한다. 실제로 등록된 사업자인지는 알 수 없다 — 오타를 잡는 용도다.
 
 `validate` 는 규칙을 어긴 행 번호와 값 예시를 보여 주고, 하나라도 어기면 종료 코드 1을
 돌려주므로 데이터를 받거나 넘기기 전 검사로 CI 에 넣을 수 있다. 규칙은 `--rules 규칙.json`

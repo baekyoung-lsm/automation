@@ -1879,6 +1879,42 @@ class SheetTest(unittest.TestCase):
         self.assertEqual(sheet.render("{번호:03d}", {"번호": 7}), "007")
 
 
+    def test_bizno_checksum_accepts_real_numbers(self):
+        self.assertTrue(sheet.check_bizno("124-81-00998"))
+        self.assertTrue(sheet.check_bizno("2208162517"))
+
+    def test_bizno_checksum_rejects_wrong_check_digit(self):
+        self.assertFalse(sheet.check_bizno("124-81-00997"))
+        self.assertFalse(sheet.check_bizno("123-45-67890"))
+
+    def test_bizno_needs_ten_digits(self):
+        self.assertFalse(sheet.check_bizno("124-81-0099"))
+        self.assertFalse(sheet.check_bizno(""))
+
+    def test_format_checks_for_korean_fields(self):
+        checks = sheet.FORMAT_CHECKS
+        self.assertTrue(checks["휴대폰"]("010-1234-5678"))
+        self.assertTrue(checks["휴대폰"]("01012345678"))
+        self.assertFalse(checks["휴대폰"]("02-1234-5678"))
+        self.assertTrue(checks["전화번호"]("02-123-4567"))
+        self.assertTrue(checks["우편번호"]("06236"))
+        self.assertFalse(checks["우편번호"]("123-456"))     # 옛 6자리는 안 받는다
+        self.assertTrue(checks["이메일"]("a.b@example.co.kr"))
+        self.assertFalse(checks["이메일"]("a@b"))
+
+    def test_validate_format_rule_finds_bad_rows(self):
+        t = sheet.Table(["이름", "번호"],
+                        [["가게", "124-81-00998"], ["나게", "123-45-67890"]])
+        bad = sheet.validate_rules(t, [sheet.Rule("format", "번호", "사업자번호")])
+        self.assertEqual(len(bad), 1)
+        self.assertEqual(bad[0].rows, [3])
+
+    def test_validate_unknown_format_is_reported(self):
+        t = sheet.Table(["번호"], [["1"]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.validate_rules(t, [sheet.Rule("format", "번호", "주민번호")])
+
+
 class KeysTest(unittest.TestCase):
     def setUp(self):
         self.groups, self.sources = keys.load_groups()

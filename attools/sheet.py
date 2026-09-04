@@ -1057,9 +1057,42 @@ TYPE_CHECKS = {
 }
 
 
+# ------------------------------------------------------------- 국내 형식 검사
+
+BIZNO_WEIGHTS = [1, 3, 7, 1, 3, 7, 1, 3, 5]
+MOBILE_RE = re.compile(r"01[016789]-?\d{3,4}-?\d{4}")
+PHONE_RE = re.compile(r"(?:02|0[3-6][1-5]|070|080|1[5-9]\d{2})-?\d{3,4}-?\d{4}")
+POSTCODE_RE = re.compile(r"\d{5}")
+EMAIL_RE = re.compile(r"[^@\s]+@[^@\s.]+(?:\.[^@\s.]+)+")
+
+
+def check_bizno(value: object) -> bool:
+    """사업자등록번호 10자리의 검증번호를 확인한다.
+
+    국세청이 정한 가중치 계산이라 오타는 대부분 여기서 걸린다. 다만
+    '규칙에 맞는 번호'일 뿐 실제로 등록된 사업자인지는 알 수 없다.
+    """
+    digits = re.sub(r"\D", "", to_text(value))
+    if len(digits) != 10:
+        return False
+    numbers = [int(c) for c in digits]
+    total = sum(n * w for n, w in zip(numbers[:9], BIZNO_WEIGHTS))
+    total += (numbers[8] * 5) // 10
+    return (10 - total % 10) % 10 == numbers[9]
+
+
+FORMAT_CHECKS = {
+    "사업자번호": check_bizno,
+    "휴대폰": lambda v: bool(MOBILE_RE.fullmatch(to_text(v).replace(" ", ""))),
+    "전화번호": lambda v: bool(PHONE_RE.fullmatch(to_text(v).replace(" ", ""))),
+    "우편번호": lambda v: bool(POSTCODE_RE.fullmatch(to_text(v).strip())),
+    "이메일": lambda v: bool(EMAIL_RE.fullmatch(to_text(v).strip())),
+}
+
+
 @dataclass
 class Rule:
-    kind: str            # required / unique / type / match / range / oneof
+    kind: str            # required / unique / type / match / range / oneof / format
     column: str
     argument: str = ""
 
@@ -1068,6 +1101,7 @@ class Rule:
             "required": f"{self.column}: 빈 칸이 없어야 함",
             "unique": f"{self.column}: 값이 겹치지 않아야 함",
             "type": f"{self.column}: {self.argument} 여야 함",
+            "format": f"{self.column}: {self.argument} 형식이어야 함",
             "match": f"{self.column}: {self.argument} 에 맞아야 함",
             "range": f"{self.column}: {self.argument} 범위 안이어야 함",
             "oneof": f"{self.column}: {self.argument} 중 하나여야 함",
@@ -1136,6 +1170,11 @@ def validate_rules(table: Table, rules: list[Rule]) -> list[Violation]:
             if checker is None:
                 raise SheetError(f"모르는 타입입니다: {rule.argument} "
                                  f"({', '.join(TYPE_CHECKS)})")
+        elif rule.kind == "format":
+            checker = FORMAT_CHECKS.get(rule.argument)
+            if checker is None:
+                raise SheetError(f"모르는 형식입니다: {rule.argument} "
+                                 f"({', '.join(FORMAT_CHECKS)})")
         elif rule.kind == "match":
             try:
                 pattern = re.compile(rule.argument)
