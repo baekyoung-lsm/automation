@@ -501,6 +501,8 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
+        대사 = self.run_cli("novel", "say", 원고, "--min", "1")
+        self.assertIn("인물", 대사)
 
         통원고 = Path(self.path("통원고.txt"))
         통원고.write_text("들어가는 말.\n\n제1화 만남\n\n첫 문단.\n\n"

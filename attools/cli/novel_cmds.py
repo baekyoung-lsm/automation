@@ -605,6 +605,57 @@ def cmd_novel_split(a) -> int:
     return 0
 
 
+def cmd_novel_say(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    lines: list[str] = []
+    counts: dict[str, int] = {}
+    for path in targets:
+        body = manuscript.strip_headings(manuscript.read_text(path))
+        people = list(a.name or []) or [n.text for n in
+                                        names.extract(body, min_count=a.min,
+                                                      min_variety=1)]
+        speeches = names.extract_speech(body, people)
+        if a.who:
+            speeches = [s for s in speeches if s.speaker == a.who]
+        if not speeches:
+            continue
+        lines.append(f"# {manuscript.chapter_title(path, body)}")
+        for speech in speeches:
+            who = speech.speaker or ("?" if a.mark_unknown else "")
+            counts[speech.speaker or "(못 찾음)"] = \
+                counts.get(speech.speaker or "(못 찾음)", 0) + 1
+            prefix = f"{who}: " if who else ""
+            lines.append(f"{prefix}{speech.text}")
+        lines.append("")
+
+    if not lines:
+        _p("대사를 찾지 못했습니다." + (f" ('{a.who}' 의 대사가 없습니다.)" if a.who else ""))
+        return 1
+
+    body = "\n".join(lines).rstrip() + "\n"
+    if a.out:
+        Path(a.out).write_text(body, encoding="utf-8")
+        _p(f"저장: {a.out}  ({sum(counts.values()):,}줄)")
+    else:
+        for line in body.splitlines()[:a.limit]:
+            _p(line)
+        if len(body.splitlines()) > a.limit:
+            _p(f"... {len(body.splitlines()) - a.limit}줄 더 (-o 로 저장하세요)")
+
+    _p("")
+    _grid(["인물", "대사"], [[who, f"{n:,}"] for who, n in
+                             sorted(counts.items(), key=lambda kv: -kv[1])[:12]])
+    unknown = counts.get("(못 찾음)", 0)
+    if unknown:
+        _p(f"화자를 못 찾은 대사가 {unknown / sum(counts.values()):.0%} 입니다. "
+           "같은 줄에 이름이 없으면 비워 둡니다.")
+    return 0
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -930,3 +981,15 @@ def add_commands(sub) -> None:
     sp.add_argument("--drop-preface", action="store_true", help="첫 화 앞의 글을 버린다")
     sp.add_argument("--apply", action="store_true")
     sp.set_defaults(func=cmd_novel_split)
+
+    sy = np_.add_parser("say", help="대사만 뽑아 이어 보기 (말투 점검·낭독용)")
+    sy.add_argument("paths", nargs="+")
+    sy.add_argument("--who", metavar="이름", help="이 인물의 대사만")
+    sy.add_argument("--name", action="append", metavar="이름", help="인물을 직접 지정")
+    sy.add_argument("--min", type=int, default=3, metavar="회",
+                    help="이만큼 나온 말을 인물 후보로")
+    sy.add_argument("--mark-unknown", action="store_true",
+                    help="화자를 못 찾은 대사에 ? 를 붙인다")
+    sy.add_argument("-o", "--out", metavar="파일")
+    sy.add_argument("--limit", type=int, default=30)
+    sy.set_defaults(func=cmd_novel_say)

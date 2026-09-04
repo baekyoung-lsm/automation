@@ -831,6 +831,7 @@ at life save --deposit 1000만 --months 12 --rate 3.5
 | `at novel tidy <경로…>` | 원고 파일 정리 - 문단 사이 빈 줄, 들여쓰기, 장면 구분선 통일 |
 | `at novel quote <경로…>` | 따옴표 짝 점검 - 안 닫힌 대사, 굽은/곧은 따옴표 섞임 |
 | `at novel split <파일>` | 한 파일에 몰아 쓴 원고를 화 단위 파일로 나눈다 |
+| `at novel say <경로…>` | 대사만 뽑아 이어 본다 (말투 점검·낭독용) |
 
 ```bash
 at novel stats 원고/ --each
@@ -852,6 +853,7 @@ at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직
 at novel cast 원고/ --gone 5           # 5화 넘게 안 나온 인물
 at novel quote 원고/                   # 안 닫힌 대사 찾기 (있으면 exit 1)
 at novel split 통원고.txt -o 원고/ --apply
+at novel say 원고/ --who 리안 -o 리안_대사.txt   # 한 인물 말투만 이어 읽기
 at novel tidy 원고/ --scene-mark ＊     # 미리보기 (차이까지)
 at novel tidy 원고/ --join --indent --apply
 at novel snap 원고/ --note "3부 초고 완료"
@@ -859,6 +861,10 @@ at novel snap 원고/ -l
 at novel pace 원고/ --goal 1500매 --due 2026-12-31
 at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜별 표
 ```
+
+`at novel say` 는 대사만 뽑아 이어 놓는다. 지문을 걷어내고 읽으면 말투가 흔들리는 자리가
+눈에 띈다. 화자는 `dialogue` 와 같은 규칙으로 **같은 줄 안에서만** 찾고, 못 찾으면 비워
+둔다. 못 찾은 비율도 함께 알려 준다.
 
 `at novel split` 은 `제1화`, `2화 이별` 같은 줄과 마크다운 제목을 화의 시작으로 본다.
 본문 한가운데의 `3화 때 그랬다…` 는 화로 보지 않는다 — 화를 여는 줄은 **앞이 비어 있고 뒤에
