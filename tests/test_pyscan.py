@@ -96,5 +96,81 @@ class ModuleUseTest(unittest.TestCase):
         self.assertNotIn("x", [p.stem for p in pyscan.iter_python(self.root)])
 
 
+class OutlineTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.path = self.root / "a.py"
+        body = [
+            '"""모듈 설명."""',
+            "",
+            "import os",
+            "",
+            "",
+            "class 가게:",
+            '    """설명 있는 클래스."""',
+            "",
+            "    def 열다(self):",
+            '        """설명."""',
+            "        return 1",
+            "",
+            "    def _닫다(self):",
+            "        return 2",
+            "",
+            "",
+            "def 긴함수():",
+            "    x = 0",
+        ] + ["    x += 1"] * 6 + [
+            "    return x",
+            "",
+            "",
+            "def _숨은함수():",
+            "    return 0",
+            "",
+        ]
+        self.path.write_text("\n".join(body), encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_lists_classes_methods_and_functions(self):
+        result = pyscan.outline(self.path)
+        kinds = {(s.name, s.kind) for s in result.symbols}
+        self.assertIn(("가게", "클래스"), kinds)
+        self.assertIn(("열다", "메서드"), kinds)
+        self.assertIn(("긴함수", "함수"), kinds)
+
+    def test_method_knows_its_class(self):
+        열다 = next(s for s in pyscan.outline(self.path).symbols if s.name == "열다")
+        self.assertEqual(열다.parent, "가게")
+
+    def test_docstring_presence(self):
+        found = {s.name: s.doc for s in pyscan.outline(self.path).symbols}
+        self.assertTrue(found["가게"])
+        self.assertTrue(found["열다"])
+        self.assertFalse(found["긴함수"])
+
+    def test_undocumented_lists_public_only(self):
+        names = [s.name for s in pyscan.outline(self.path).undocumented]
+        self.assertIn("긴함수", names)
+        self.assertNotIn("_숨은함수", names)
+
+    def test_longest_function(self):
+        longest = pyscan.outline(self.path).longest
+        self.assertEqual(longest.name, "긴함수")
+        self.assertGreater(longest.lines, 5)
+
+    def test_broken_file_keeps_the_error(self):
+        bad = self.root / "b.py"
+        bad.write_text("def (:\n", encoding="utf-8")
+        result = pyscan.outline(bad)
+        self.assertTrue(result.error)
+        self.assertEqual(result.symbols, [])
+
+    def test_outlines_walks_directories_and_files(self):
+        rows = pyscan.outlines([self.root])
+        self.assertEqual([r.path.name for r in rows], ["a.py"])
+        self.assertEqual(len(pyscan.outlines([self.path])), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

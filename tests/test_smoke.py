@@ -347,6 +347,8 @@ class SmokeTest(unittest.TestCase):
                                    encoding="utf-8")
         self.assertIn("import os",
                       self.run_cli("dev", "unused", str(소스), expect=1))
+        구조 = self.run_cli("dev", "outline", str(소스))
+        self.assertIn("a.py", 구조)
 
         잠금 = self.run_cli("dev", "lock", 옛락, 새락)
         self.assertIn("react", 잠금)

@@ -135,3 +135,88 @@ def module_uses(root: Path) -> list[ModuleUse]:
                     if found and found.module != me:
                         found.imported_by.add(me)
     return sorted(uses.values(), key=lambda u: u.module)
+
+
+# ------------------------------------------------------------- 소스 구조 훑기
+
+@dataclass
+class Symbol:
+    name: str
+    kind: str          # 클래스 | 함수 | 메서드
+    line: int
+    end: int
+    doc: bool = False
+    parent: str = ""
+
+    @property
+    def lines(self) -> int:
+        return max(1, self.end - self.line + 1)
+
+    @property
+    def public(self) -> bool:
+        return not self.name.startswith("_")
+
+
+@dataclass
+class FileOutline:
+    path: Path
+    lines: int = 0
+    symbols: list = field(default_factory=list)
+    error: str = ""
+
+    @property
+    def classes(self) -> list:
+        return [s for s in self.symbols if s.kind == "클래스"]
+
+    @property
+    def functions(self) -> list:
+        return [s for s in self.symbols if s.kind != "클래스"]
+
+    @property
+    def longest(self):
+        body = self.functions
+        return max(body, key=lambda s: s.lines) if body else None
+
+    @property
+    def undocumented(self) -> list:
+        """설명이 없는 공개 함수·클래스. 남이 읽을 때 먼저 막히는 자리다."""
+        return [s for s in self.symbols if s.public and not s.doc]
+
+
+def outline(path: Path) -> FileOutline:
+    """한 파일의 클래스·함수를 훑는다. 실행하지 않고 ast 로만 읽는다."""
+    result = FileOutline(path)
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+    except (OSError, SyntaxError) as e:
+        result.error = str(e)
+        return result
+
+    result.lines = len(source.splitlines())
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            result.symbols.append(Symbol(node.name, "클래스", node.lineno,
+                                         node.end_lineno or node.lineno,
+                                         bool(ast.get_docstring(node))))
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    result.symbols.append(Symbol(
+                        child.name, "메서드", child.lineno,
+                        child.end_lineno or child.lineno,
+                        bool(ast.get_docstring(child)), node.name))
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            result.symbols.append(Symbol(node.name, "함수", node.lineno,
+                                         node.end_lineno or node.lineno,
+                                         bool(ast.get_docstring(node))))
+    return result
+
+
+def outlines(roots: list[Path]) -> list[FileOutline]:
+    out: list[FileOutline] = []
+    for root in roots:
+        if root.is_file():
+            out.append(outline(root))
+            continue
+        out += [outline(p) for p in iter_python(root)]
+    return out

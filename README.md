@@ -148,6 +148,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
+| `at dev outline [경로]` | 파이썬 소스 구조 - 파일별 클래스·함수·긴 함수·설명 없는 것 |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
@@ -187,6 +188,8 @@ at dev http localhost:8080/api/users                   # 2xx 아니면 exit 1
 at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
 at dev http localhost:8080/health --head               # 헤더만
 at dev unused src/ --modules                           # 걸리면 exit 1
+at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
+at dev outline src/ --file models.py                   # 그 파일의 클래스·함수
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
 at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
@@ -223,6 +226,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 많은데, 예외로 끊으면 그걸 못 본다(종료 코드로는 실패를 알린다). 응답이 JSON 이면 한글을
 그대로 두고 들여써서 보여 주고, `Authorization` 같은 헤더 값은 가려서 찍는다 — 터미널
 기록이나 화면 공유로 새는 것을 막으려는 것이다.
+
+`at dev outline` 은 처음 보는 코드에서 어디부터 읽을지 정할 때 쓴다. 파일마다 줄 수,
+클래스·함수 수, **가장 긴 함수**, 설명(docstring) 없는 공개 이름 수를 낸다. 실행하지 않고
+`ast` 로만 읽으므로 남의 코드에도 안전하다. `--file` 로 한 파일의 목록을 보면 메서드는
+소속 클래스 아래에 들여써서 나온다.
 
 `at dev unused` 는 `ast` 로 읽으므로 문자열 검색보다 정확하다. 별칭(`import numpy as np`),
 속성 사용(`os.path.join`), `__all__` 에 적힌 이름, 문자열 타입 주석까지 쓴 것으로 센다.

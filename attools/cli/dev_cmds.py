@@ -532,6 +532,62 @@ def cmd_dev_http(a) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_dev_outline(a) -> int:
+    roots = [Path(p) for p in a.paths]
+    for root in roots:
+        if not root.exists():
+            _p(f"경로가 없습니다: {root}")
+            return 1
+
+    rows = pyscan.outlines(roots)
+    broken = [r for r in rows if r.error]
+    rows = [r for r in rows if not r.error]
+    if not rows:
+        _p("파이썬 파일을 찾지 못했습니다.")
+        return 1
+
+    if a.file:
+        wanted = [r for r in rows if str(r.path).endswith(a.file)]
+        if not wanted:
+            _p(f"그 파일을 찾지 못했습니다: {a.file}")
+            return 1
+        for result in wanted:
+            _p(f"{result.path}  {result.lines:,}줄")
+            body = [s for s in result.symbols if a.private or s.public]
+            _grid(["이름", "종류", "줄", "길이", "설명"],
+                  [[("  " + s.name) if s.parent else s.name, s.kind,
+                    str(s.line), f"{s.lines}줄", "있음" if s.doc else "없음"]
+                   for s in body], limit=40)
+            _p("")
+        return 0
+
+    order = {"줄": lambda r: -r.lines,
+             "길이": lambda r: -(r.longest.lines if r.longest else 0),
+             "설명": lambda r: -len(r.undocumented),
+             "이름": lambda r: str(r.path)}
+    rows.sort(key=order[a.sort])
+
+    _grid(["파일", "줄", "클래스", "함수", "가장 긴 것", "설명 없는 공개"],
+          [[str(r.path), f"{r.lines:,}", str(len(r.classes)), str(len(r.functions)),
+            (f"{r.longest.name} {r.longest.lines}줄" if r.longest else "-"),
+            str(len(r.undocumented))] for r in rows[:a.limit]], limit=40)
+    if len(rows) > a.limit:
+        _p(f"  ... {len(rows) - a.limit}개 더")
+
+    total_lines = sum(r.lines for r in rows)
+    total_symbols = sum(len(r.symbols) for r in rows)
+    _p(f"\n파일 {len(rows)}개 · {total_lines:,}줄 · 클래스와 함수 {total_symbols:,}개")
+    long = [r for r in rows if r.longest and r.longest.lines >= a.long]
+    if long:
+        _p(f"{a.long}줄 넘는 함수가 있는 파일 {len(long)}개: "
+           + ", ".join(f"{r.path.name}({r.longest.name})" for r in long[:5]))
+    if broken:
+        _p(f"읽지 못한 파일 {len(broken)}개: "
+           + ", ".join(str(r.path) for r in broken[:3]))
+    _p("--file 로 파일 하나의 클래스·함수 목록을 봅니다.")
+    return 0
+
+
 def cmd_dev_mask(a) -> int:
     try:
         text = _read_input(a.file)
@@ -980,6 +1036,16 @@ def add_commands(sub) -> None:
     ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
+
+    ol = dp.add_parser("outline", help="파이썬 소스 구조 - 파일별 클래스·함수·긴 함수")
+    ol.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    ol.add_argument("--file", metavar="파일", help="그 파일의 클래스·함수 목록")
+    ol.add_argument("--private", action="store_true", help="_ 로 시작하는 것도")
+    ol.add_argument("--sort", default="줄", choices=["줄", "길이", "설명", "이름"])
+    ol.add_argument("--long", type=int, default=60, metavar="줄",
+                    help="이보다 긴 함수가 있으면 따로 알린다 (기본 60)")
+    ol.add_argument("--limit", type=int, default=25)
+    ol.set_defaults(func=cmd_dev_outline)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")
