@@ -175,6 +175,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("짝 찾음", self.run_cli("sheet", "join", csv,
                                               self.path("급여.csv"), "--on", "사번"))
         self.run_cli("sheet", "split", csv, "--by", "부서")
+        self.assertIn("users", self.run_cli("sheet", "from-json",
+                                            self.path("응답1.json"),
+                                            "--path", "users"))
         self.assertIn("통과", self.run_cli("sheet", "validate", csv,
                                           "--required", "이름"))
         self.assertIn("겹치지", self.run_cli("sheet", "validate", csv,

@@ -2878,6 +2878,41 @@ def cmd_sheet_validate(a) -> int:
     return 1
 
 
+def cmd_sheet_from_json(a) -> int:
+    try:
+        data = jsonkit.load(a.file)
+    except jsonkit.JsonError as e:
+        _p(str(e))
+        return 1
+
+    try:
+        records = sheet.find_records(data, a.path)
+        table, info = sheet.from_records(records, depth=a.depth)
+    except (sheet.SheetError, jsonkit.JsonError) as e:
+        _p(str(e))
+        return 1
+
+    where = f"'{a.path}'" if a.path else "가장 큰 객체 배열"
+    _p(f"{Path(a.file).name} 의 {where}  ->  {info.rows:,}행 x {info.columns}열")
+    if info.skipped:
+        _p(f"  객체가 아니라 건너뛴 원소 {info.skipped:,}개")
+    if info.max_depth:
+        _p(f"  중첩된 객체는 '부모.자식' 으로 폈습니다 (깊이 {info.max_depth})")
+    _p("")
+
+    _grid(table.headers,
+          [[sheet.to_text(v) for v in row] for row in table.rows[:a.rows]],
+          limit=a.width)
+    if len(table.rows) > a.rows:
+        _p(f"  ... {len(table.rows) - a.rows:,}행 더")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name=a.path or 'Sheet1')}")
+    else:
+        _p("\n저장하려면 -o 로 csv 나 xlsx 를 지정하세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3730,6 +3765,17 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    fj = sh.add_parser("from-json", help="JSON 배열을 표로 (API 응답 -> 엑셀)")
+    fj.add_argument("file", help="'-' 이면 표준 입력")
+    fj.add_argument("--path", default="", metavar="경로",
+                    help="배열이 있는 자리 (예: data.users). 생략하면 알아서 찾는다")
+    fj.add_argument("--depth", type=int, default=2, metavar="단계",
+                    help="중첩 객체를 이만큼까지 펴고 그보다 깊으면 JSON 글자로 둔다")
+    fj.add_argument("-o", "--out", metavar="파일")
+    fj.add_argument("--rows", type=int, default=10, metavar="개")
+    fj.add_argument("--width", type=int, default=18, metavar="칸")
+    fj.set_defaults(func=cmd_sheet_from_json)
 
     vd = common(sh.add_parser("validate", help="규칙으로 검증 (납품·수령 데이터)"))
     vd.add_argument("file")

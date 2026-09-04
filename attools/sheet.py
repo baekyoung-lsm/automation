@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
@@ -1166,3 +1167,82 @@ def validate_rules(table: Table, rules: list[Rule]) -> list[Violation]:
         if bad.count:
             found.append(bad)
     return found
+
+
+# ------------------------------------------------------------- JSON -> 표
+
+@dataclass
+class FlattenReport:
+    rows: int = 0
+    columns: int = 0
+    skipped: int = 0          # 객체가 아니라 건너뛴 원소
+    max_depth: int = 0
+
+
+def flatten_record(record: dict, *, prefix: str = "", depth: int = 2,
+                   separator: str = ".") -> dict[str, object]:
+    """중첩 객체를 '부모.자식' 꼴로 편다. 깊이를 넘으면 JSON 글자로 둔다."""
+    out: dict[str, object] = {}
+    for key, value in record.items():
+        name = f"{prefix}{key}"
+        if isinstance(value, dict) and depth > 0:
+            out.update(flatten_record(value, prefix=f"{name}{separator}",
+                                      depth=depth - 1, separator=separator))
+        elif isinstance(value, (dict, list)):
+            out[name] = json.dumps(value, ensure_ascii=False)
+        else:
+            out[name] = value
+    return out
+
+
+def from_records(records: list, *, depth: int = 2) -> tuple[Table, FlattenReport]:
+    """객체 배열을 표로. 키 합집합이 열이 되고 없는 값은 빈 칸이다."""
+    report = FlattenReport()
+    flattened: list[dict[str, object]] = []
+
+    for item in records:
+        if not isinstance(item, dict):
+            report.skipped += 1
+            continue
+        flattened.append(flatten_record(item, depth=depth))
+
+    if not flattened:
+        raise SheetError("표로 만들 객체가 없습니다. 객체들의 배열이어야 합니다.")
+
+    headers: list[str] = []
+    for row in flattened:
+        for key in row:
+            if key not in headers:
+                headers.append(key)
+
+    rows = [[row.get(h) for h in headers] for row in flattened]
+    report.rows, report.columns = len(rows), len(headers)
+    report.max_depth = max((h.count(".") for h in headers), default=0)
+    return Table(headers, rows), report
+
+
+def find_records(data, path: str = "") -> list:
+    """표로 만들 배열을 찾는다. path 를 주면 그 자리, 없으면 가장 큰 객체 배열."""
+    if path:
+        from . import jsonkit
+
+        found = jsonkit.get_path(data, path)
+        if not isinstance(found, list):
+            raise SheetError(f"'{path}' 는 배열이 아니라 "
+                             f"{jsonkit.type_name(found)} 입니다")
+        return found
+
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        raise SheetError("배열이나 객체여야 합니다.")
+
+    best: list = []
+    best_key = ""
+    for key, value in data.items():
+        if isinstance(value, list) and value and isinstance(value[0], dict):
+            if len(value) > len(best):
+                best, best_key = value, key
+    if not best:
+        raise SheetError("객체들의 배열을 찾지 못했습니다. --path 로 자리를 알려 주세요.")
+    return best

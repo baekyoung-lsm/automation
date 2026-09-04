@@ -1300,6 +1300,49 @@ class SheetTest(unittest.TestCase):
         _, missing = sheet.fill(t, "{이름} {연차}")
         self.assertEqual(missing, {"연차"})
 
+    def test_flatten_record(self):
+        row = sheet.flatten_record({"id": 1, "meta": {"부서": "영업"},
+                                    "태그": ["a"], "깊음": {"안": {"더": 1}}})
+        self.assertEqual(row["meta.부서"], "영업")
+        self.assertEqual(row["깊음.안.더"], 1)
+        self.assertEqual(row["태그"], '["a"]')      # 배열은 JSON 글자로
+
+    def test_flatten_record_depth_limit(self):
+        row = sheet.flatten_record({"a": {"b": {"c": 1}}}, depth=1)
+        self.assertIn("a.b", row)
+        self.assertEqual(row["a.b"], '{"c": 1}')
+
+    def test_from_records_union_of_keys(self):
+        table, info = sheet.from_records(
+            [{"id": 1, "name": "가"}, {"id": 2, "비고": "x"}])
+        self.assertEqual(table.headers, ["id", "name", "비고"])
+        self.assertEqual(table.rows, [[1, "가", None], [2, None, "x"]])
+        self.assertEqual((info.rows, info.columns), (2, 3))
+
+    def test_from_records_skips_non_objects(self):
+        table, info = sheet.from_records([{"a": 1}, 3, "글자"])
+        self.assertEqual(len(table.rows), 1)
+        self.assertEqual(info.skipped, 2)
+
+    def test_from_records_needs_objects(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.from_records([1, 2, 3])
+
+    def test_find_records_picks_largest_array(self):
+        data = {"작음": [{"a": 1}], "큼": [{"a": 1}, {"a": 2}], "숫자": [1, 2, 3]}
+        self.assertEqual(len(sheet.find_records(data)), 2)
+
+    def test_find_records_by_path(self):
+        data = {"data": {"users": [{"id": 1}]}}
+        self.assertEqual(sheet.find_records(data, "data.users"), [{"id": 1}])
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_records(data, "data")        # 배열이 아니다
+
+    def test_find_records_root_array(self):
+        self.assertEqual(sheet.find_records([{"a": 1}]), [{"a": 1}])
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_records({"a": 1})
+
     def rule_table(self):
         from datetime import date
 
