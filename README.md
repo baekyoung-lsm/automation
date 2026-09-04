@@ -62,6 +62,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file unzip <zip>` | 윈도우에서 만든 zip 의 깨진 한글 이름(cp949)을 되살려 푼다 |
 | `at file image [경로]` | 이미지 크기·비율·용량 훑기 (png·jpg·gif·bmp·webp) |
 | `at file route [경로] --rules <json>` | 내 규칙대로 폴더에 나눠 담는다 (이름 패턴 → 폴더) |
+| `at file flatten [경로]` | 하위 폴더의 파일을 한 곳으로 모은다 (`organize` 의 반대) |
 | `at file undo [저널]` | 직전 organize/fixname 을 되돌린다 |
 
 ```bash
@@ -76,6 +77,7 @@ at file hash dist/ --check SHA256SUMS.txt      # 달라진 게 있으면 exit 1
 at file diff 배포전/ 배포후/ -g '*.py'
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
+at file flatten ~/받은자료 --keep-path --apply   # 폴더 이름을 앞에 붙여 모은다
 at file route --example > 규칙.json        # 예시부터 보고 고쳐 쓴다
 at file route ~/받은자료 --rules 규칙.json          # 미리보기
 at file route ~/받은자료 --rules 규칙.json --apply
@@ -105,6 +107,11 @@ at file undo
 `archive` 는 압축한 뒤 zip 을 다시 열어 **모든 파일이 같은 크기로 들어갔는지 확인한 다음에만**
 원본을 지운다. 확인에 실패하면 원본을 그대로 두고 무엇이 문제인지 알려 준다. 이미 있는
 zip 파일에는 덮어쓰지 않는다.
+
+`flatten` 은 `organize` 의 반대다. 하위 폴더에 흩어진 파일을 한 곳으로 모은다. 이름이 겹치면
+`(1)` 을 붙이고, `--keep-path` 를 주면 폴더 이름을 앞에 붙여(`2026_1분기_보고서.pdf`) 겹침도
+줄이고 어디서 왔는지도 남긴다. `--prune` 은 **비어 있는 폴더만** 지운다. 되돌리면 파일이
+있던 폴더는 다시 생기지만, 원래부터 비어 있던 폴더는 돌아오지 않는다.
 
 `route` 는 `organize` 가 못 하는 일을 한다. `organize` 는 확장자와 날짜로만 나누지만
 `route` 는 "세금계산서*.pdf 는 회계/{연}/{달} 로" 처럼 **내 규칙**대로 옮긴다. 폴더 이름에는

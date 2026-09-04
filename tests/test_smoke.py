@@ -159,6 +159,13 @@ class SmokeTest(unittest.TestCase):
         나눌곳 = Path(self.path("받은자료"))
         나눌곳.mkdir()
         (나눌곳 / "계약서.txt").write_text("내용\n", encoding="utf-8")
+        깊은곳 = Path(self.path("받은자료")) / "안쪽"
+        깊은곳.mkdir(parents=True, exist_ok=True)
+        (깊은곳 / "깊은파일.txt").write_text("x", encoding="utf-8")
+        self.assertIn("--apply", self.run_cli("file", "flatten", self.path("받은자료")))
+        self.run_cli("file", "flatten", self.path("받은자료"), "--apply")
+        self.assertTrue((Path(self.path("받은자료")) / "깊은파일.txt").is_file())
+
         나눔 = self.run_cli("file", "route", str(나눌곳), "--rules", 규칙)
         self.assertIn("모은글", 나눔)
         self.run_cli("file", "route", str(나눌곳), "--rules", 규칙, "--apply")

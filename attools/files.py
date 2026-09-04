@@ -1051,3 +1051,48 @@ def plan_route(root: Path, rules: list[Rule], *, recursive: bool = False,
         else:
             missed.append(src)
     return routed, missed
+
+
+# ------------------------------------------------------- 하위 폴더 펼치기
+
+def plan_flatten(root: Path, *, dest: Path | None = None, keep_path: bool = False,
+                 sep: str = "_", include_hidden: bool = False) -> list[Move]:
+    """하위 폴더의 파일을 한 곳으로 모으는 계획.
+
+    이름이 겹치면 '(1)' 을 붙인다. keep_path 를 주면 폴더 이름을 파일명 앞에
+    붙여 어디서 왔는지 남긴다 - 겹침도 줄고 나중에 되짚기도 쉽다.
+    """
+    root = root.resolve()
+    target = (dest or root).resolve()
+    planned: set[Path] = set()
+    moves: list[Move] = []
+
+    for src in sorted(root.rglob("*")):
+        if not src.is_file() or src.is_symlink():
+            continue
+        rel = src.relative_to(root)
+        if len(rel.parts) == 1 and target == root:
+            continue                     # 이미 맨 위에 있다
+        if not include_hidden and any(p.startswith(".") for p in rel.parts):
+            continue
+        if any(p in IGNORE_DIRS for p in rel.parts):
+            continue
+
+        name = to_nfc(src.name)
+        if keep_path and len(rel.parts) > 1:
+            name = sep.join([*rel.parts[:-1], name])
+        dst = unique_path(target / name, planned)
+        if dst == src:
+            continue
+        planned.add(dst)
+        moves.append(Move(str(src), str(dst)))
+    return moves
+
+
+def empty_dirs(root: Path) -> list[Path]:
+    """비어 있는 하위 디렉터리. 깊은 것부터 돌려준다."""
+    out: list[Path] = []
+    for path in sorted(root.rglob("*"), key=lambda p: -len(p.parts)):
+        if path.is_dir() and not any(path.iterdir()):
+            out.append(path)
+    return out

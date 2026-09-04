@@ -117,6 +117,64 @@ def cmd_file_route(a) -> int:
     return 0
 
 
+def cmd_file_flatten(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    dest = Path(a.out) if a.out else None
+    moves = files.plan_flatten(root, dest=dest, keep_path=a.keep_path,
+                               sep=a.sep, include_hidden=a.hidden)
+    if not moves:
+        _p("하위 폴더에 옮길 파일이 없습니다.")
+        return 0
+
+    base = (dest or root).resolve()
+    prefix = "" if a.apply else DRY + " "
+    for mv in moves[:a.limit]:
+        src = Path(mv.src).relative_to(root.resolve())
+        _p(f"{prefix}{src}  ->  {Path(mv.dst).relative_to(base)}")
+    if len(moves) > a.limit:
+        _p(f"... {len(moves) - a.limit}개 더")
+
+    renamed = len([m for m in moves
+                   if Path(m.src).name != Path(m.dst).name])
+    _p(f"\n파일 {len(moves)}개" + (f", 이름이 겹쳐 바뀐 것 {renamed}개" if renamed else ""))
+    if renamed and not a.keep_path:
+        _p("--keep-path 를 주면 폴더 이름을 앞에 붙여 겹침을 줄입니다.")
+
+    if not a.apply:
+        _p("실제로 옮기려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves(moves)
+    _p(f"\n{len(moves)}개를 옮겼습니다.")
+    if a.prune:
+        removed = 0
+        # 안쪽을 지우면 바깥이 비므로 더 지울 것이 없을 때까지 되풀이한다
+        while True:
+            found = files.empty_dirs(root)
+            if not found:
+                break
+            gone = 0
+            for path in found:
+                try:
+                    path.rmdir()
+                    gone += 1
+                except OSError:
+                    continue
+            removed += gone
+            if not gone:
+                break
+        _p(f"빈 폴더 {removed}개를 지웠습니다. (비어 있는 것만 지웁니다)")
+    _p(f"되돌리기: at file undo {journal}")
+    if a.prune:
+        _p("되돌리면 파일이 있던 폴더는 다시 생깁니다. 원래부터 비어 "
+           "있던 폴더는 돌아오지 않습니다.")
+    return 0
+
+
 def cmd_file_fixname(a) -> int:
     root = Path(a.dir)
     moves = files.plan_fixname(root, recursive=a.recursive,
@@ -746,6 +804,19 @@ def add_commands(sub) -> None:
     rt.add_argument("--limit", type=int, default=20)
     rt.add_argument("--apply", action="store_true")
     rt.set_defaults(func=cmd_file_route)
+
+    ft = fp.add_parser("flatten", help="하위 폴더의 파일을 한 곳으로 모으기")
+    ft.add_argument("dir", nargs="?", default=".")
+    ft.add_argument("-o", "--out", metavar="디렉터리", help="기본은 그 디렉터리 자신")
+    ft.add_argument("--keep-path", action="store_true",
+                    help="폴더 이름을 파일명 앞에 붙인다")
+    ft.add_argument("--sep", default="_", metavar="구분자")
+    ft.add_argument("--hidden", action="store_true")
+    ft.add_argument("--prune", action="store_true",
+                    help="옮긴 뒤 빈 폴더를 지운다 (비어 있는 것만)")
+    ft.add_argument("--limit", type=int, default=20)
+    ft.add_argument("--apply", action="store_true")
+    ft.set_defaults(func=cmd_file_flatten)
 
     hs = fp.add_parser("hash", help="체크섬 만들기·검증 (배포·백업 무결성)")
     hs.add_argument("dir", nargs="?", default=".")

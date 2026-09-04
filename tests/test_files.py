@@ -544,5 +544,46 @@ class RouteTest(unittest.TestCase):
         self.assertTrue((self.root / "IMG_0001.jpg").is_file())
 
 
+class FlattenTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        for rel in ("2026/1분기/보고서.pdf", "2026/2분기/보고서.pdf", "메모.txt"):
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_top_level_files_stay(self):
+        moves = files.plan_flatten(self.root)
+        self.assertNotIn("메모.txt", [Path(m.src).name for m in moves])
+
+    def test_name_clash_gets_a_number(self):
+        moves = files.plan_flatten(self.root)
+        names = sorted(Path(m.dst).name for m in moves)
+        self.assertEqual(names, ["보고서 (1).pdf", "보고서.pdf"])
+
+    def test_keep_path_prefixes_folders(self):
+        moves = files.plan_flatten(self.root, keep_path=True)
+        names = sorted(Path(m.dst).name for m in moves)
+        self.assertEqual(names, ["2026_1분기_보고서.pdf", "2026_2분기_보고서.pdf"])
+
+    def test_dest_directory_can_differ(self):
+        dest = self.root / "모음"
+        moves = files.plan_flatten(self.root, dest=dest)
+        self.assertTrue(all(Path(m.dst).parent == dest.resolve() for m in moves))
+        self.assertIn("메모.txt", [Path(m.src).name for m in moves])   # 다른 곳이면 옮긴다
+
+    def test_plan_does_not_move_anything(self):
+        files.plan_flatten(self.root)
+        self.assertTrue((self.root / "2026" / "1분기" / "보고서.pdf").is_file())
+
+    def test_empty_dirs_are_listed_deepest_first(self):
+        (self.root / "빈것" / "안쪽").mkdir(parents=True)
+        found = files.empty_dirs(self.root)
+        self.assertEqual(found[0].name, "안쪽")
+
+
 if __name__ == "__main__":
     unittest.main()
