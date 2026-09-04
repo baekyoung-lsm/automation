@@ -157,6 +157,15 @@ class SmokeTest(unittest.TestCase):
             "text", "extract", r"(?P<시각>\S+ \S+) (?P<레벨>\w+) (?P<메시지>.+)",
             self.path("app.log")))
 
+        원본 = Path(self.path("문서")) / "보고서.txt"
+        고침 = Path(self.path("문서")) / "보고서_고침.txt"
+        고침.write_text(원본.read_text(encoding="utf-8") + "덧붙인 줄.\n",
+                        encoding="utf-8")
+        out = self.run_cli("text", "diff", str(원본), str(고침), expect=1)
+        self.assertIn("덧붙인 줄.", out)
+        self.assertIn("다른 곳이 없습니다",
+                      self.run_cli("text", "diff", str(원본), str(원본)))
+
     # ----------------------------------------------------------- sheet
 
     def test_sheet_group(self):

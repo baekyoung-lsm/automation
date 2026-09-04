@@ -2168,6 +2168,50 @@ def cmd_text_trim(a) -> int:
     return _text_report(a, text.plan_trim(files, tabs=a.tabs), "공백 정리")
 
 
+def cmd_text_diff(a) -> int:
+    left, right = Path(a.old), Path(a.new)
+    for path in (left, right):
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+    try:
+        old, _ = text.read_text_any(left)
+        new, _ = text.read_text_any(right)
+    except text.TextError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    unit = {"줄": "line", "문장": "sentence", "문단": "para"}[a.unit]
+    report = text.diff_units(old, new, unit=unit, similar=a.similar)
+    _p(f"{left} -> {right}  ({a.unit} 단위)")
+
+    shown = report.edits[:a.limit]
+    for e in shown:
+        where = f"{e.old_no or e.new_no}"
+        if e.kind == "수정" and not a.full:
+            _p(f"  {where:>5}  수정  {text.word_marks(e.old, e.new)}")
+        elif e.kind == "수정":
+            _p(f"  {where:>5}  - {e.old}")
+            _p(f"  {'':>5}  + {e.new}")
+        elif e.kind == "삭제":
+            _p(f"  {where:>5}  - {e.old}")
+        else:
+            _p(f"  {where:>5}  + {e.new}")
+
+    if len(report.edits) > len(shown):
+        _p(f"  … {len(report.edits) - len(shown)}건 더 (--limit 로 늘리세요)")
+
+    c = report.counts
+    if not report.edits:
+        _p(f"\n{a.unit} {report.new_total}개, 다른 곳이 없습니다.")
+        return 0
+    _p(f"\n같은 곳 {report.same} · 수정 {c['수정']} · 추가 {c['추가']} · "
+       f"삭제 {c['삭제']} · 겹치는 정도 {report.ratio:.0%}")
+    _p(f"{a.unit} {report.old_total}개 -> {report.new_total}개. "
+       "자리를 옮긴 것은 추가와 삭제로 셉니다.")
+    return 1
+
+
 def cmd_text_undo(a) -> int:
     journal = Path(a.journal) if a.journal else text.latest_journal()
     if journal is None or not journal.is_file():
@@ -3991,6 +4035,18 @@ def build_parser() -> argparse.ArgumentParser:
     ln2.add_argument("--limit", type=int, default=30)
     ln2.add_argument("--width", type=int, default=80, metavar="칸")
     ln2.set_defaults(func=cmd_text_lines)
+
+    td = tp.add_parser("diff", help="두 글을 줄·문장·문단 단위로 대조")
+    td.add_argument("old", metavar="이전")
+    td.add_argument("new", metavar="이후")
+    td.add_argument("--unit", default="줄", choices=["줄", "문장", "문단"],
+                    help="비교 단위 (기본 줄)")
+    td.add_argument("--full", action="store_true",
+                    help="고친 곳을 이전·이후 두 줄로 모두 보여준다")
+    td.add_argument("--similar", type=float, default=0.5, metavar="비율",
+                    help="이만큼 닮아야 '수정' 으로 묶는다 (기본 0.5)")
+    td.add_argument("--limit", type=int, default=40)
+    td.set_defaults(func=cmd_text_diff)
 
     ex2 = tp.add_parser("extract", help="정규식으로 뽑아 표 만들기")
     ex2.add_argument("pattern", metavar="정규식",

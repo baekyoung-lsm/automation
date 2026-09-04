@@ -1971,6 +1971,44 @@ class TextTest(unittest.TestCase):
         self.assertTrue(any(l.startswith("-b") for l in lines))
         self.assertTrue(any(l.startswith("+c") for l in lines))
 
+    def test_diff_units_pairs_similar_lines_as_edit(self):
+        r = text.diff_units("첫 문장이다.\n그대로.\n", "첫 문장이었다.\n그대로.\n")
+        self.assertEqual(r.same, 1)
+        self.assertEqual(r.counts, {"수정": 1, "추가": 0, "삭제": 0})
+        self.assertEqual(r.edits[0].old_no, 1)
+        self.assertEqual(r.edits[0].new_no, 1)
+
+    def test_diff_units_splits_unlike_pair_into_delete_and_add(self):
+        r = text.diff_units("고양이가 담을 넘었다.\n", "회의는 목요일로 미룬다.\n")
+        self.assertEqual([e.kind for e in r.edits], ["삭제", "추가"])
+
+    def test_diff_units_similar_threshold_is_adjustable(self):
+        old, new = "고양이가 담을 넘었다.\n", "회의는 목요일로 미룬다.\n"
+        r = text.diff_units(old, new, similar=0.0)
+        self.assertEqual([e.kind for e in r.edits], ["수정"])
+
+    def test_diff_units_ratio_and_totals(self):
+        r = text.diff_units("가\n나\n다\n", "가\n나\n")
+        self.assertEqual((r.old_total, r.new_total, r.same), (3, 2, 2))
+        self.assertAlmostEqual(r.ratio, 0.8)
+        self.assertEqual(text.diff_units("", "").ratio, 1.0)
+
+    def test_split_units_sentence_and_para(self):
+        doc = "한 문장이다. 두 번째다!\n\n다른 문단."
+        self.assertEqual(text.split_units(doc, "sentence"),
+                         ["한 문장이다.", "두 번째다!", "다른 문단."])
+        self.assertEqual(text.split_units(doc, "para"),
+                         ["한 문장이다. 두 번째다!", "다른 문단."])
+        with self.assertRaises(text.TextError):
+            text.split_units(doc, "글자")
+
+    def test_word_marks_shows_only_changed_words(self):
+        marked = text.word_marks("첫 문장이다 그리고 끝", "첫 문장이었다 그리고 진짜 끝")
+        self.assertIn("[-문장이다-]", marked)
+        self.assertIn("{+문장이었다+}", marked)
+        self.assertIn("{+진짜+}", marked)
+        self.assertTrue(marked.startswith("첫 "))
+
 
 class TodoTest(unittest.TestCase):
     def test_finds_markers_in_comments(self):

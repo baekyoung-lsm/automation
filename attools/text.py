@@ -343,3 +343,110 @@ def extract(lines: list[str], pattern: re.Pattern[str], *,
         else:
             result.rows.append([m.group(0)])
     return result
+
+
+# ---------------------------------------------------------------- 문서 비교
+
+@dataclass
+class Edit:
+    """바뀐 한 자리. 줄 번호는 1부터, 없으면 0."""
+    kind: str          # 추가 / 삭제 / 수정
+    old_no: int
+    new_no: int
+    old: str
+    new: str
+
+    @property
+    def ratio(self) -> float:
+        if not self.old or not self.new:
+            return 0.0
+        return difflib.SequenceMatcher(None, self.old, self.new).ratio()
+
+
+@dataclass
+class DiffReport:
+    unit: str
+    old_total: int
+    new_total: int
+    same: int = 0
+    edits: list[Edit] = field(default_factory=list)
+
+    @property
+    def counts(self) -> dict[str, int]:
+        out = {"수정": 0, "추가": 0, "삭제": 0}
+        for e in self.edits:
+            out[e.kind] += 1
+        return out
+
+    @property
+    def ratio(self) -> float:
+        """전체 비슷한 정도. 둘 다 비었으면 1."""
+        total = self.old_total + self.new_total
+        return 1.0 if not total else 2 * self.same / total
+
+
+def split_units(text: str, unit: str = "line") -> list[str]:
+    """비교 단위로 쪼갠다. 빈 줄은 세지 않는다."""
+    if unit == "line":
+        return [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if unit == "para":
+        return [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    if unit == "sentence":
+        # 문장 끝 뒤에 따옴표가 붙는 한국어 대사를 함께 끊는다.
+        parts = re.split(r"(?<=[.!?…])[\"'”’」』\)]*\s+|\n+", text)
+        return [s.strip() for s in parts if s and s.strip()]
+    raise TextError(f"모르는 단위입니다: {unit}")
+
+
+def diff_units(old: str, new: str, *, unit: str = "line",
+               similar: float = 0.5) -> DiffReport:
+    """두 글을 단위별로 대조한다. 옮겨진 자리는 추가+삭제로 본다.
+
+    similar 보다 덜 닮은 짝은 '수정' 으로 묶지 않는다. 전혀 다른 두 줄을
+    한 줄 고친 것처럼 보여주면 실제로 지워진 내용을 놓치기 때문이다.
+    """
+    a, b = split_units(old, unit), split_units(new, unit)
+    report = DiffReport(unit=unit, old_total=len(a), new_total=len(b))
+    matcher = difflib.SequenceMatcher(None, a, b, autojunk=False)
+
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            report.same += i2 - i1
+            continue
+        if tag == "replace":
+            # 짝이 맞는 만큼은 '수정'으로 묶고 남는 쪽만 추가/삭제로 남긴다.
+            pairs = min(i2 - i1, j2 - j1)
+            for k in range(pairs):
+                one = Edit("수정", i1 + k + 1, j1 + k + 1, a[i1 + k], b[j1 + k])
+                if one.ratio >= similar:
+                    report.edits.append(one)
+                else:
+                    report.edits.append(Edit("삭제", i1 + k + 1, 0, a[i1 + k], ""))
+                    report.edits.append(Edit("추가", 0, j1 + k + 1, "", b[j1 + k]))
+            for k in range(pairs, i2 - i1):
+                report.edits.append(Edit("삭제", i1 + k + 1, 0, a[i1 + k], ""))
+            for k in range(pairs, j2 - j1):
+                report.edits.append(Edit("추가", 0, j1 + k + 1, "", b[j1 + k]))
+        elif tag == "delete":
+            for k in range(i1, i2):
+                report.edits.append(Edit("삭제", k + 1, 0, a[k], ""))
+        else:                                   # insert
+            for k in range(j1, j2):
+                report.edits.append(Edit("추가", 0, k + 1, "", b[k]))
+    return report
+
+
+def word_marks(old: str, new: str) -> str:
+    """한 줄 안에서 무엇이 바뀌었는지 [-지움-]{+넣음+} 으로 표시한다."""
+    a, b = old.split(), new.split()
+    out: list[str] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b,
+                                                       autojunk=False).get_opcodes():
+        if tag == "equal":
+            out.extend(a[i1:i2])
+            continue
+        if tag in ("replace", "delete"):
+            out.append("[-" + " ".join(a[i1:i2]) + "-]")
+        if tag in ("replace", "insert"):
+            out.append("{+" + " ".join(b[j1:j2]) + "+}")
+    return " ".join(out)
