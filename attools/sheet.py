@@ -611,6 +611,8 @@ class Condition:
 
     @classmethod
     def parse(cls, op: str, spec: str) -> Condition:
+        if op in ("empty", "filled"):        # 값이 필요 없는 조건
+            return cls(spec.strip(), op, "")
         column, sep, value = spec.partition("=")
         if not sep:
             raise SheetError(f"'열=값' 형태로 적으세요: {spec}")
@@ -644,6 +646,10 @@ def where(table: Table, conditions: list[Condition], *, contains: list[Condition
             cell = row[i] if i < len(row) else None
             if c.op == "has":
                 results.append(c.value.lower() in to_text(cell).lower())
+                continue
+            if c.op in ("empty", "filled"):
+                blank = cell is None or to_text(cell).strip() == ""
+                results.append(blank if c.op == "empty" else not blank)
                 continue
             left, right = _comparable(cell, c.value)
             try:

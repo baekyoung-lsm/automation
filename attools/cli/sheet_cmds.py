@@ -395,7 +395,8 @@ def cmd_sheet_where(a) -> int:
 
     conditions = []
     try:
-        for op in ("eq", "ne", "gt", "gte", "lt", "lte", "has"):
+        for op in ("eq", "ne", "gt", "gte", "lt", "lte", "has",
+                   "empty", "filled"):
             for spec in getattr(a, op) or []:
                 conditions.append(sheet.Condition.parse(op, spec))
         if not conditions:
@@ -407,9 +408,9 @@ def cmd_sheet_where(a) -> int:
         return 1
 
     words = {"eq": "=", "ne": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤",
-             "has": "포함"}
+             "has": "포함", "empty": "빈 칸", "filled": "값 있음"}
     joined = (" 또는 " if a.any else " 그리고 ").join(
-        f"{c.column} {words[c.op]} {c.value}" for c in conditions)
+        f"{c.column} {words[c.op]} {c.value}".rstrip() for c in conditions)
     return _sheet_result(a, result, f"{len(t.rows):,}행 중  {joined}  ->")
 
 
@@ -1072,6 +1073,8 @@ def add_commands(sub) -> None:
                           ("lt", "작다"), ("lte", "작거나 같다"), ("has", "포함한다")):
         wh.add_argument(f"--{op}", action="append", metavar="열=값", help=help_text)
     wh.add_argument("--any", action="store_true", help="하나만 맞아도 통과 (기본은 전부)")
+    wh.add_argument("--empty", action="append", metavar="열", help="그 칸이 비어 있음")
+    wh.add_argument("--filled", action="append", metavar="열", help="그 칸에 값이 있음")
     wh.set_defaults(func=cmd_sheet_where)
 
     so = sheet_out(common(sh.add_parser("sort", help="정렬")))

@@ -854,5 +854,28 @@ class SortDirectionTest(unittest.TestCase):
         self.assertEqual(rows[0][0], "영업")
 
 
+class WhereBlankTest(unittest.TestCase):
+    TABLE = sheet.Table(["이름", "연봉"],
+                        [["가", 5000], ["나", None], ["다", ""], ["라", "  "]])
+
+    def pick(self, op: str) -> list:
+        cond = sheet.Condition.parse(op, "연봉")
+        return [r[0] for r in sheet.where(self.TABLE, [cond]).rows]
+
+    def test_empty_catches_none_and_blank_strings(self):
+        self.assertEqual(self.pick("empty"), ["나", "다", "라"])
+
+    def test_filled_is_the_opposite(self):
+        self.assertEqual(self.pick("filled"), ["가"])
+
+    def test_parse_needs_no_value(self):
+        cond = sheet.Condition.parse("empty", " 연봉 ")
+        self.assertEqual((cond.column, cond.value), ("연봉", ""))
+
+    def test_other_ops_still_need_a_value(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.Condition.parse("eq", "연봉")
+
+
 if __name__ == "__main__":
     unittest.main()
