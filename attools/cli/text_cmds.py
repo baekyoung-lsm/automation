@@ -306,6 +306,55 @@ def cmd_text_typo(a) -> int:
     return 0
 
 
+def cmd_text_wrap(a) -> int:
+    targets: list[Path] = []
+    for name in a.paths:
+        path = Path(name)
+        if path.is_dir():
+            targets += list(text.iter_files([path], glob=a.glob))
+        elif path.is_file():
+            targets.append(path)
+        else:
+            _p(f"파일이 없습니다: {path}")
+            return 1
+    if not targets:
+        _p("접을 파일이 없습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"{path}: 건너뜀 ({e})")
+            continue
+        wrapped = text.wrap_text(body, width=a.width, skip_code=not a.all,
+                                 skip_marked=not a.all)
+        if wrapped != body:
+            changes.append(text.Change(path, body, wrapped, encoding))
+
+    if not changes:
+        _p(f"파일 {len(targets)}개, {a.width}칸을 넘는 줄이 없습니다.")
+        return 0
+
+    for c in changes:
+        _p(f"{c.path}")
+        for line in c.diff(limit=a.limit):
+            _p(f"  {line}")
+        _p("")
+
+    if not a.apply:
+        _p(f"파일 {len(changes)}개를 고칩니다. 실제로 쓰려면 --apply 를 붙이세요.")
+        if not a.all:
+            _p("코드 블록·표·목록·인용은 건드리지 않습니다 (--all 로 포함).")
+        return 0
+
+    journal = text.apply_changes(changes)
+    _p(f"파일 {len(changes)}개를 접었습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_text_undo(a) -> int:
     journal = Path(a.journal) if a.journal else text.latest_journal()
     if journal is None or not journal.is_file():
@@ -399,6 +448,16 @@ def add_commands(sub) -> None:
     ty.add_argument("--limit", type=int, default=20)
     ty.add_argument("--apply", action="store_true")
     ty.set_defaults(func=cmd_text_typo)
+
+    tw = tp.add_parser("wrap", help="긴 줄을 폭에 맞춰 접기 (한글 두 칸으로 셈)")
+    tw.add_argument("paths", nargs="+", metavar="경로")
+    tw.add_argument("-w", "--width", type=int, default=80, metavar="칸")
+    tw.add_argument("-g", "--glob", action="append", metavar="패턴")
+    tw.add_argument("--all", action="store_true",
+                    help="코드 블록·표·목록도 접는다")
+    tw.add_argument("--limit", type=int, default=12, metavar="줄")
+    tw.add_argument("--apply", action="store_true")
+    tw.set_defaults(func=cmd_text_wrap)
 
     ex2 = tp.add_parser("extract", help="정규식으로 뽑아 표 만들기")
     ex2.add_argument("pattern", metavar="정규식",

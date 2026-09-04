@@ -450,3 +450,58 @@ def word_marks(old: str, new: str) -> str:
         if tag in ("replace", "insert"):
             out.append("{+" + " ".join(b[j1:j2]) + "+}")
     return " ".join(out)
+
+
+# ------------------------------------------------------------------ 줄 접기
+
+FENCE = re.compile(r"^\s*(```+|~~~+)")
+KEEP_AS_IS = re.compile(r"^\s*(\||>|#{1,6}\s|[-*+]\s|\d+[.)]\s|\s{4,}\S)")
+
+
+def display_width(text: str) -> int:
+    """한글·한자·전각은 두 칸으로 센다."""
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def wrap_line(line: str, width: int) -> list[str]:
+    """공백에서만 끊는다. 한국어는 낱말 안에서 끊으면 읽기 나빠진다."""
+    indent = line[:len(line) - len(line.lstrip())]
+    words = line.split()
+    if not words:
+        return [line]
+
+    out: list[str] = []
+    current = indent
+    for word in words:
+        candidate = word if current.strip() == "" else f"{current} {word}"
+        if current.strip() and display_width(candidate) > width:
+            out.append(current)
+            current = indent + word
+        else:
+            current = candidate if current.strip() else indent + word
+    out.append(current)
+    return out
+
+
+def wrap_text(body: str, *, width: int = 80, skip_code: bool = True,
+              skip_marked: bool = True) -> str:
+    """긴 줄을 폭에 맞춰 접는다. 코드 블록과 표는 건드리지 않는다."""
+    out: list[str] = []
+    fence: str | None = None
+    for line in body.splitlines():
+        m = FENCE.match(line)
+        if m and skip_code:
+            fence = None if fence else m.group(1)
+            out.append(line)
+            continue
+        if fence or (skip_marked and KEEP_AS_IS.match(line)):
+            out.append(line)
+            continue
+        if display_width(line) <= width:
+            out.append(line)
+            continue
+        out.extend(wrap_line(line, width))
+    text = "\n".join(out)
+    return text + "\n" if body.endswith("\n") else text

@@ -233,5 +233,45 @@ class TextTest(unittest.TestCase):
         self.assertTrue(marked.startswith("첫 "))
 
 
+class WrapTest(unittest.TestCase):
+    LONG = "한국어 문장이 아주 길게 이어지는 경우에 줄을 접어야 읽기 좋다."
+
+    def test_width_counts_hangul_as_two(self):
+        self.assertEqual(text.display_width("가나"), 4)
+        lines = text.wrap_line(self.LONG, 20)
+        self.assertTrue(all(text.display_width(l) <= 20 for l in lines), lines)
+
+    def test_breaks_only_at_spaces(self):
+        for line in text.wrap_line(self.LONG, 20):
+            self.assertNotIn("  ", line)
+            self.assertTrue(line.strip())
+        self.assertEqual(" ".join(text.wrap_line(self.LONG, 20)), self.LONG)
+
+    def test_keeps_indent_of_the_first_line(self):
+        lines = text.wrap_line("    " + self.LONG, 24)
+        self.assertTrue(all(l.startswith("    ") for l in lines), lines)
+
+    def test_code_fence_is_untouched(self):
+        body = "```\n" + self.LONG + "\n```\n"
+        self.assertEqual(text.wrap_text(body, width=10), body)
+
+    def test_tables_lists_and_quotes_are_untouched(self):
+        for line in (f"| {self.LONG} |", f"- {self.LONG}", f"> {self.LONG}",
+                     f"# {self.LONG}", f"1. {self.LONG}"):
+            self.assertEqual(text.wrap_text(line, width=10), line)
+
+    def test_all_option_wraps_everything_outside_code(self):
+        line = f"- {self.LONG}"
+        self.assertNotEqual(text.wrap_text(line, width=20, skip_marked=False), line)
+
+    def test_short_lines_and_trailing_newline_stay(self):
+        self.assertEqual(text.wrap_text("짧다\n", width=80), "짧다\n")
+        self.assertEqual(text.wrap_text("짧다", width=80), "짧다")
+
+    def test_wrapping_is_idempotent(self):
+        once = text.wrap_text(self.LONG + "\n", width=20)
+        self.assertEqual(text.wrap_text(once, width=20), once)
+
+
 if __name__ == "__main__":
     unittest.main()
