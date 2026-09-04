@@ -371,6 +371,16 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("스냅샷 1개", out)
         self.assertIn("속도를 계산할 수 없습니다", out)
 
+    def test_novel_export_epub(self):
+        import zipfile
+
+        out = self.path("투고본.epub")
+        self.run_cli("novel", "export", self.path("원고"), "-f", "epub",
+                     "--title", "시험작", "-o", out)
+        with zipfile.ZipFile(out) as z:
+            self.assertEqual(z.infolist()[0].filename, "mimetype")
+            self.assertIn("OEBPS/content.opf", z.namelist())
+
     def test_novel_export(self):
         out = self.path("투고본.html")
         self.run_cli("novel", "export", self.path("원고"), "--title", "제목",

@@ -447,5 +447,65 @@ class NamesTest(unittest.TestCase):
         self.assertEqual(counts["리안"], 1)
 
 
+class EpubTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.dest = self.root / "책.epub"
+        self.chapters = [("1화 만남", "첫 문단이다.\n\n＊\n\n둘째 문단."),
+                         ("2화 이별", "마지막 문단.")]
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _zip(self):
+        import zipfile
+
+        manuscript.export_epub(self.chapters, self.dest, title="시험작",
+                               author="홍길동", note="2편")
+        return zipfile.ZipFile(self.dest)
+
+    def test_mimetype_is_first_and_stored(self):
+        import zipfile
+
+        with self._zip() as z:
+            first = z.infolist()[0]
+            self.assertEqual(first.filename, "mimetype")
+            self.assertEqual(first.compress_type, zipfile.ZIP_STORED)
+            self.assertEqual(z.read("mimetype"), b"application/epub+zip")
+
+    def test_every_xml_part_parses(self):
+        import xml.etree.ElementTree as ET
+
+        with self._zip() as z:
+            for name in z.namelist():
+                if name.endswith((".xhtml", ".opf", ".xml")):
+                    ET.fromstring(z.read(name))     # 리더는 XML 파서로 읽는다
+
+    def test_manifest_and_spine_cover_every_chapter(self):
+        with self._zip() as z:
+            opf = z.read("OEBPS/content.opf").decode("utf-8")
+            for i in (1, 2):
+                self.assertIn(f'href="ch{i:03d}.xhtml"', opf)
+                self.assertIn(f'idref="ch{i:03d}"', opf)
+            self.assertLess(opf.index('idref="ch001"'), opf.index('idref="ch002"'))
+            self.assertIn("<dc:creator>홍길동</dc:creator>", opf)
+
+    def test_nav_lists_chapter_titles_in_order(self):
+        with self._zip() as z:
+            nav = z.read("OEBPS/nav.xhtml").decode("utf-8")
+            self.assertLess(nav.index("1화 만남"), nav.index("2화 이별"))
+
+    def test_scene_break_and_escaping(self):
+        page = manuscript.epub_chapter("제목 <&>", "본문 <태그> 처럼\n\n＊＊＊")
+        self.assertIn("&lt;태그&gt;", page)
+        self.assertIn('<p class="break">', page)
+        self.assertNotIn("<태그>", page)
+
+    def test_indent_uses_class_not_spaces(self):
+        page = manuscript.epub_chapter("제목", "본문", indent=True)
+        self.assertIn('class="indent"', page)
+        self.assertNotIn("\u3000", page)
+
+
 if __name__ == "__main__":
     unittest.main()

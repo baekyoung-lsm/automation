@@ -817,3 +817,119 @@ def pace(snapshots: list[dict], *, window: int = 0, goal: int = 0,
             kept[0] = DayCount(kept[0].day, kept[0].total, 0, baseline=True)
             days = kept
     return Pace(days=days, goal=goal, due=due)
+
+
+# --------------------------------------------------------------------- EPUB
+
+EPUB_CSS = """@charset "utf-8";
+body { margin: 0 5%; line-height: 1.8; word-break: keep-all; }
+h1 { font-size: 1.6em; margin: 2em 0 1.5em; text-align: center; }
+h2 { font-size: 1.25em; margin: 1.5em 0 1.5em; }
+p { margin: 0 0 0.9em; text-align: justify; }
+p.indent { text-indent: 1em; }
+.break { text-align: center; margin: 2em 0; letter-spacing: 0.5em; }
+.author { text-align: center; color: #666; }
+"""
+
+
+def _xhtml(title: str, body: str) -> str:
+    return ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<!DOCTYPE html>\n'
+            '<html xmlns="http://www.w3.org/1999/xhtml" '
+            'xmlns:epub="http://www.idpf.org/2007/ops" lang="ko">\n'
+            f"<head><meta charset=\"utf-8\"/><title>{title}</title>"
+            '<link rel="stylesheet" type="text/css" href="style.css"/></head>\n'
+            f"<body>\n{body}\n</body>\n</html>\n")
+
+
+def epub_chapter(name: str, body: str, *, indent: bool = False) -> str:
+    """한 화를 XHTML 로. 리더가 XML 파서를 쓰므로 태그를 반드시 닫는다."""
+    from html import escape
+
+    out = []
+    for block in body.split("\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        if SEPARATOR_ONLY.match(block) or block in ("＊", "*"):
+            out.append('<p class="break">＊ ＊ ＊</p>')
+            continue
+        text = escape(block).replace("\n", "<br/>\n")
+        out.append(f'<p class="indent">{text}</p>' if indent else f"<p>{text}</p>")
+    return _xhtml(escape(name), f"<h2>{escape(name)}</h2>\n" + "\n".join(out))
+
+
+def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "",
+                author: str = "", note: str = "", indent: bool = False,
+                language: str = "ko", identifier: str = "") -> "Path":
+    """EPUB 3 로 묶는다. e북 리더에서 교정할 때 쓴다.
+
+    mimetype 은 압축하지 않고 맨 앞에 넣어야 한다. 이 순서가 어긋나면
+    리더가 파일을 열지 못한다.
+    """
+    import uuid
+    import zipfile
+    from html import escape
+
+    book_title = title or "원고"
+    book_id = identifier or f"urn:uuid:{uuid.uuid4()}"
+    stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
+    names = [f"ch{i:03d}.xhtml" for i in range(1, len(chapters) + 1)]
+
+    cover_body = [f"<h1>{escape(book_title)}</h1>"]
+    if author:
+        cover_body.append(f'<p class="author">{escape(author)}</p>')
+    if note:
+        cover_body.append(f'<p class="author">{escape(note)}</p>')
+
+    items = "\n".join(
+        f'    <item id="ch{i:03d}" href="{name}" media-type="application/xhtml+xml"/>'
+        for i, name in enumerate(names, 1))
+    spine = "\n".join(f'    <itemref idref="ch{i:03d}"/>'
+                      for i in range(1, len(names) + 1))
+    opf = f"""<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">{escape(book_id)}</dc:identifier>
+    <dc:title>{escape(book_title)}</dc:title>
+    <dc:language>{escape(language)}</dc:language>
+    {f"<dc:creator>{escape(author)}</dc:creator>" if author else ""}
+    <meta property="dcterms:modified">{stamp}</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="css" href="style.css" media-type="text/css"/>
+    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>
+{items}
+  </manifest>
+  <spine>
+    <itemref idref="cover"/>
+{spine}
+  </spine>
+</package>
+"""
+    toc = "\n".join(f'      <li><a href="{name}">{escape(chapter[0])}</a></li>'
+                    for name, chapter in zip(names, chapters))
+    nav = _xhtml("목차",
+                 '<nav epub:type="toc" id="toc">\n    <h2>목차</h2>\n'
+                 f"    <ol>\n{toc}\n    </ol>\n  </nav>")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip",
+                   compress_type=zipfile.ZIP_STORED)
+        z.writestr("META-INF/container.xml",
+                   '<?xml version="1.0" encoding="utf-8"?>\n'
+                   '<container version="1.0" '
+                   'xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n'
+                   '  <rootfiles><rootfile full-path="OEBPS/content.opf" '
+                   'media-type="application/oebps-package+xml"/></rootfiles>\n'
+                   "</container>\n")
+        z.writestr("OEBPS/content.opf", opf)
+        z.writestr("OEBPS/nav.xhtml", nav)
+        z.writestr("OEBPS/style.css", EPUB_CSS)
+        z.writestr("OEBPS/cover.xhtml", _xhtml(escape(book_title),
+                                               "\n".join(cover_body)))
+        for name, (chapter, body) in zip(names, chapters):
+            z.writestr(f"OEBPS/{name}", epub_chapter(chapter, body, indent=indent))
+    return dest

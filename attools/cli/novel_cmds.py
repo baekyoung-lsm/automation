@@ -388,9 +388,10 @@ def cmd_novel_export(a) -> int:
     for path in targets:
         raw = manuscript.read_text(path)
         name = manuscript.chapter_title(path, raw)
-        # HTML 은 CSS 로 들여쓰므로 본문에 공백 문자를 넣지 않는다
+        # HTML·EPUB 은 CSS 로 들여쓰므로 본문에 공백 문자를 넣지 않는다
         body = manuscript.normalize_body(raw,
-                                         indent=a.indent and a.format != "html",
+                                         indent=a.indent
+                                         and a.format not in ("html", "epub"),
                                          scene_mark=a.scene_mark,
                                          join_lines=a.join)
         total += len("".join(body.split()))   # 공백 제외 글자수
@@ -399,19 +400,26 @@ def cmd_novel_export(a) -> int:
     note = a.note or (f"{total:,}자  ·  원고지 {total / manuscript.WONGOJI_CHARS:,.0f}매"
                       f"  ·  {len(chapters)}편")
 
-    if a.format == "html":
-        text = manuscript.export_html(chapters, title=a.title, author=a.author,
-                                      note=note, indent=a.indent)
-    else:
-        text = manuscript.export_text(chapters, title=a.title, author=a.author,
-                                      note=note, markdown=a.format == "md")
-
     if not a.out:
         _p(note)
         for name, body in chapters:
             _p(f"  {_pad(name, 24)}{len(''.join(body.split())):,}자")
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
         return 0
+
+    if a.format == "epub":
+        dest = manuscript.export_epub(chapters, Path(a.out), title=a.title,
+                                      author=a.author, note=note, indent=a.indent)
+        _p(f"저장: {dest}  ({note})")
+        _p("리더에 넣어 읽으면 화면이 달라져서 눈에 안 띄던 것이 보입니다.")
+        return 0
+
+    if a.format == "html":
+        text = manuscript.export_html(chapters, title=a.title, author=a.author,
+                                      note=note, indent=a.indent)
+    else:
+        text = manuscript.export_text(chapters, title=a.title, author=a.author,
+                                      note=note, markdown=a.format == "md")
 
     target = Path(a.out)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -657,7 +665,8 @@ def add_commands(sub) -> None:
     ex = np_.add_parser("export", help="여러 화를 한 파일로 - 투고·인쇄용")
     ex.add_argument("paths", nargs="+")
     ex.add_argument("-o", "--out", metavar="파일")
-    ex.add_argument("-f", "--format", default="html", choices=["html", "txt", "md"])
+    ex.add_argument("-f", "--format", default="html",
+                    choices=["html", "txt", "md", "epub"])
     ex.add_argument("--title", default="", metavar="제목")
     ex.add_argument("--author", default="", metavar="필명")
     ex.add_argument("--note", default="", metavar="설명", help="기본: 분량 요약")
