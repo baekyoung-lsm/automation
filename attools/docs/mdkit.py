@@ -12,6 +12,8 @@ from ..hangul import strip_particle
 
 TOC_START = "<!-- toc -->"
 TOC_END = "<!-- /toc -->"
+INDEX_START = "<!-- index -->"
+INDEX_END = "<!-- /index -->"
 
 HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
@@ -19,6 +21,7 @@ LINK_RE = re.compile(r"(!?)\[(?P<text>[^\]]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"
 REF_DEF_RE = re.compile(r"^\s{0,3}\[(?P<name>[^\]]+)\]:\s*(?P<target>\S+)")
 REF_USE_RE = re.compile(r"(!?)\[(?P<text>[^\]]*)\]\[(?P<name>[^\]]*)\]")
 SLUG_DROP = re.compile(r"[^\w\s-]", re.UNICODE)
+SEPARATOR_LINE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,}|={3,})\s*$")
 
 
 @dataclass
@@ -98,18 +101,28 @@ def build_toc(items: list[Heading], *, depth: int = 3, skip_first_h1: bool = Tru
     return "\n".join(lines)
 
 
-def update_toc(text: str, toc: str) -> tuple[str, bool]:
-    """<!-- toc --> 와 <!-- /toc --> 사이를 갈아 끼운다. (새 내용, 바뀜)"""
-    start = text.find(TOC_START)
+def update_block(text: str, body: str, *, start_mark: str,
+                 end_mark: str) -> tuple[str, bool]:
+    """표시 두 개 사이를 갈아 끼운다. (새 내용, 바뀜)
+
+    표시가 없으면 아무것도 하지 않는다. 넣을 자리를 사람이 정하게 두는 것이,
+    문서 맨 위에 마음대로 끼워 넣는 것보다 낫다.
+    """
+    start = text.find(start_mark)
     if start < 0:
         return text, False
-    end = text.find(TOC_END, start)
+    end = text.find(end_mark, start)
     if end < 0:
         return text, False
 
-    block = f"{TOC_START}\n\n{toc}\n\n"
+    block = f"{start_mark}\n\n{body}\n\n"
     new = text[:start] + block + text[end:]
     return new, new != text
+
+
+def update_toc(text: str, toc: str) -> tuple[str, bool]:
+    """<!-- toc --> 와 <!-- /toc --> 사이를 갈아 끼운다. (새 내용, 바뀜)"""
+    return update_block(text, toc, start_mark=TOC_START, end_mark=TOC_END)
 
 
 # ---------------------------------------------------------------------- 링크
@@ -804,3 +817,72 @@ def to_slides(text: str, *, title: str = "", by: str = "rule",
 </body>
 </html>
 """
+
+
+# ------------------------------------------------------------- 문서 목록 만들기
+
+@dataclass
+class DocEntry:
+    path: Path
+    title: str
+    summary: str
+    chars: int
+    modified: float
+
+    @property
+    def wordy(self) -> str:
+        return f"{self.chars:,}자"
+
+
+def first_paragraph(text: str, *, limit: int = 80) -> str:
+    """첫 제목 아래 첫 문단 한 줄. 표·코드·인용은 건너뛴다."""
+    for lineno, line in _outside_fences(text):
+        body = line.strip()
+        if not body or HEADING_RE.match(body) or body.startswith(("|", ">", "<!--")):
+            continue
+        if SEPARATOR_LINE.match(body):
+            continue
+        body = INLINE_CODE.sub(lambda m: m.group(0).strip("`"), body)
+        body = LINK_RE.sub(lambda m: m.group("text") or m.group("target"), body)
+        return body if len(body) <= limit else body[: limit - 1] + "…"
+    return ""
+
+
+def doc_entries(root: Path, *, recursive: bool = True,
+                skip: set | None = None) -> list[DocEntry]:
+    """디렉터리의 마크다운 문서를 훑어 제목과 첫 문단을 모은다."""
+    skip = skip or set()
+    walker = root.rglob("*") if recursive else root.glob("*")
+    out: list[DocEntry] = []
+    for path in sorted(walker):
+        if path.suffix.lower() not in {".md", ".markdown"} or not path.is_file():
+            continue
+        if path.name in skip or any(part.startswith(".") for part in path.parts):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        items = headings(text)
+        title = items[0].title if items else path.stem
+        out.append(DocEntry(path, title, first_paragraph(text),
+                            len("".join(text.split())), path.stat().st_mtime))
+    return out
+
+
+def build_index(entries: list[DocEntry], base: Path, *, table: bool = False) -> str:
+    """문서 목록을 마크다운으로. 링크는 base 를 기준으로 상대 경로."""
+    if not entries:
+        return ""
+    rows = []
+    for entry in entries:
+        try:
+            link = entry.path.relative_to(base).as_posix()
+        except ValueError:
+            link = entry.path.as_posix()
+        if table:
+            rows.append(f"| [{entry.title}]({link}) | {entry.summary} | "
+                        f"{entry.wordy} |")
+        else:
+            tail = f" — {entry.summary}" if entry.summary else ""
+            rows.append(f"- [{entry.title}]({link}){tail}")
+    if table:
+        return "\n".join(["| 문서 | 내용 | 분량 |", "| --- | --- | --- |", *rows])
+    return "\n".join(rows)

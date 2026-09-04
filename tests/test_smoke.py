@@ -418,6 +418,9 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
         그림문서 = Path(self.path("그림문서.md"))
         그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        목록 = self.run_cli("doc", "index", self.path())
+        self.assertIn("](", 목록)
+
         발표 = Path(self.path("발표.md"))
         발표.write_text("# 제목\n\n발표자\n\n---\n\n## 첫 장\n\n- 하나\n",
                         encoding="utf-8")

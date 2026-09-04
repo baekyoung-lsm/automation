@@ -351,6 +351,62 @@ def cmd_doc_slides(a) -> int:
     return 0
 
 
+def cmd_doc_index(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    out_path = Path(a.out) if a.out else None
+    skip = {out_path.name} if out_path else set()
+    entries = mdkit.doc_entries(root, recursive=not a.no_recursive, skip=skip)
+    if not entries:
+        _p("마크다운 문서를 찾지 못했습니다.")
+        return 1
+
+    order = {"이름": lambda e: str(e.path), "제목": lambda e: e.title,
+             "수정일": lambda e: -e.modified, "분량": lambda e: -e.chars}
+    entries.sort(key=order[a.sort])
+
+    base = out_path.parent if out_path else root
+    body = mdkit.build_index(entries, base, table=a.table)
+
+    if not out_path:
+        _p(body)
+        _p(f"\n문서 {len(entries)}개. -o 로 파일에 넣을 수 있습니다 "
+           f"({mdkit.INDEX_START} 와 {mdkit.INDEX_END} 사이).")
+        return 0
+
+    if not out_path.is_file():
+        _p(f"파일이 없습니다: {out_path}")
+        _p(f"먼저 만들고 넣을 자리에 {mdkit.INDEX_START} 와 "
+           f"{mdkit.INDEX_END} 를 적어 두세요.")
+        return 1
+
+    original = out_path.read_text(encoding="utf-8")
+    new, changed = mdkit.update_block(original, body,
+                                      start_mark=mdkit.INDEX_START,
+                                      end_mark=mdkit.INDEX_END)
+    if not changed:
+        marker = mdkit.INDEX_START in original
+        _p(f"{out_path}: " + ("이미 최신입니다." if marker
+                              else f"표시가 없습니다. 넣을 자리에 "
+                                   f"{mdkit.INDEX_START} 와 {mdkit.INDEX_END} 를 "
+                                   "적어 두세요."))
+        return 0 if marker else 1
+
+    _p(f"{out_path}  문서 {len(entries)}개")
+    if not a.apply:
+        _p("")
+        _p(body)
+        _p("\n실제로 넣으려면 --apply 를 붙이세요.")
+        return 0
+
+    out_path.write_text(new, encoding="utf-8")
+    _p("목록을 갱신했습니다.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -563,3 +619,13 @@ def add_commands(sub) -> None:
     ds2.add_argument("--title", default="", metavar="제목")
     ds2.add_argument("--overwrite", action="store_true")
     ds2.set_defaults(func=cmd_doc_slides)
+
+    dx = dc.add_parser("index", help="문서 디렉터리의 목록 만들기 (제목·첫 문단)")
+    dx.add_argument("dir", nargs="?", default=".")
+    dx.add_argument("-o", "--out", metavar="파일",
+                    help="이 파일의 <!-- index --> 사이에 넣는다")
+    dx.add_argument("--table", action="store_true", help="목록 대신 표로")
+    dx.add_argument("--sort", default="이름", choices=["이름", "제목", "수정일", "분량"])
+    dx.add_argument("--no-recursive", action="store_true")
+    dx.add_argument("--apply", action="store_true")
+    dx.set_defaults(func=cmd_doc_index)

@@ -353,5 +353,58 @@ class SlideTest(unittest.TestCase):
         self.assertIn("ArrowRight", mdkit.to_slides(self.MD))
 
 
+class DocIndexTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "설치.md").write_text("# 설치 안내\n\n설치는 이렇게 한다.\n",
+                                           encoding="utf-8")
+        (self.root / "빈문서.md").write_text("# 제목만\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_title_and_summary(self):
+        entries = {e.path.name: e for e in mdkit.doc_entries(self.root)}
+        self.assertEqual(entries["설치.md"].title, "설치 안내")
+        self.assertEqual(entries["설치.md"].summary, "설치는 이렇게 한다.")
+        self.assertEqual(entries["빈문서.md"].summary, "")
+
+    def test_first_paragraph_skips_tables_quotes_and_code(self):
+        body = ("# 제목\n\n| 가 | 나 |\n|---|---|\n\n> 인용\n\n"
+                "```\n코드\n```\n\n진짜 첫 문단이다.\n")
+        self.assertEqual(mdkit.first_paragraph(body), "진짜 첫 문단이다.")
+
+    def test_summary_strips_links_and_code_marks(self):
+        body = "# 제목\n\n[문서](a.md) 와 `코드` 를 본다.\n"
+        self.assertEqual(mdkit.first_paragraph(body), "문서 와 코드 를 본다.")
+
+    def test_build_index_links_are_relative_to_base(self):
+        entries = mdkit.doc_entries(self.root)
+        body = mdkit.build_index(entries, self.root)
+        self.assertIn("[설치 안내](설치.md)", body)
+
+    def test_table_form(self):
+        body = mdkit.build_index(mdkit.doc_entries(self.root), self.root, table=True)
+        self.assertTrue(body.startswith("| 문서 | 내용 | 분량 |"))
+
+    def test_update_block_needs_markers(self):
+        text = "# 문서\n\n<!-- index -->\n<!-- /index -->\n"
+        new, changed = mdkit.update_block(text, "- [가](가.md)",
+                                          start_mark=mdkit.INDEX_START,
+                                          end_mark=mdkit.INDEX_END)
+        self.assertTrue(changed)
+        self.assertIn("- [가](가.md)", new)
+        _, changed2 = mdkit.update_block("표시 없음\n", "무엇",
+                                         start_mark=mdkit.INDEX_START,
+                                         end_mark=mdkit.INDEX_END)
+        self.assertFalse(changed2)
+
+    def test_toc_still_uses_its_own_markers(self):
+        text = f"# 제목\n\n{mdkit.TOC_START}\n낡음\n{mdkit.TOC_END}\n"
+        new, changed = mdkit.update_toc(text, "- [설치](#설치)")
+        self.assertTrue(changed)
+        self.assertIn("- [설치](#설치)", new)
+
+
 if __name__ == "__main__":
     unittest.main()
