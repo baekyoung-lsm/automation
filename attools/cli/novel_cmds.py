@@ -475,6 +475,45 @@ def cmd_novel_cast(a) -> int:
     return 0
 
 
+def cmd_novel_tidy(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"{path}: 건너뜀 ({e})")
+            continue
+        tidied = manuscript.tidy_text(body, indent=a.indent,
+                                      scene_mark=a.scene_mark, join_lines=a.join)
+        if not tidied or tidied == body:
+            continue
+        changes.append(text.Change(path, body, tidied, encoding))
+
+    if not changes:
+        _p(f"파일 {len(targets)}개, 이미 정리돼 있습니다.")
+        return 0
+
+    for c in changes:
+        _p(f"{c.path}")
+        for line in c.diff(limit=a.limit):
+            _p(f"  {line}")
+        _p("")
+
+    if not a.apply:
+        _p(f"파일 {len(changes)}개를 고칩니다. 실제로 쓰려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = text.apply_changes(changes)
+    _p(f"파일 {len(changes)}개를 정리했습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -774,3 +813,15 @@ def add_commands(sub) -> None:
     ct.add_argument("--gone", type=int, default=3, metavar="화",
                     help="이만큼 안 나오면 따로 알린다 (기본 3)")
     ct.set_defaults(func=cmd_novel_cast)
+
+    td = np_.add_parser("tidy", help="원고 파일 정리 - 문단 사이 빈 줄, 들여쓰기, 장면 구분선")
+    td.add_argument("paths", nargs="+")
+    td.add_argument("--indent", action="store_true", help="문단 첫 줄을 전각 한 칸 들여쓴다")
+    td.add_argument("--join", action="store_true",
+                    help="여러 줄에 접힌 문단을 한 문단으로 합친다")
+    td.add_argument("--scene-mark", default="", metavar="표시",
+                    help="장면 구분선을 이걸로 통일한다 (예: ＊)")
+    td.add_argument("--limit", type=int, default=12, metavar="줄",
+                    help="미리보기에서 보여줄 차이 줄 수")
+    td.add_argument("--apply", action="store_true")
+    td.set_defaults(func=cmd_novel_tidy)

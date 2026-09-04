@@ -590,6 +590,35 @@ def normalize_body(text: str, *, indent: bool = False, scene_mark: str = "",
     return "\n\n".join(paragraphs)
 
 
+def tidy_text(text: str, *, indent: bool = False, scene_mark: str = "",
+              join_lines: bool = False) -> str:
+    """원고 파일을 그대로 다시 쓸 수 있게 정리한다. 제목 줄은 남긴다.
+
+    normalize_body 는 내보내기용이라 제목을 뗀다. 파일에 되쓸 때 그걸 쓰면
+    화 제목이 사라진다.
+    """
+    chunks: list[str] = []
+    buffer: list[str] = []
+
+    def flush() -> None:
+        if not buffer:
+            return
+        body = normalize_body("\n".join(buffer), indent=indent,
+                              scene_mark=scene_mark, join_lines=join_lines)
+        if body:
+            chunks.append(body)
+        buffer.clear()
+
+    for line in text.splitlines():
+        if HEADING_LINE.match(line):
+            flush()
+            chunks.append(line.strip())
+        else:
+            buffer.append(line)
+    flush()
+    return "\n\n".join(chunks) + "\n" if chunks else ""
+
+
 def chapter_title(path: "Path", text: str) -> str:
     """파일 첫 제목 줄이 있으면 그것을, 없으면 파일 이름을 쓴다."""
     for line in text.splitlines():

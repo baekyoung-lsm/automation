@@ -538,5 +538,39 @@ class CastTest(unittest.TestCase):
         self.assertEqual((row.first, row.last, row.total, row.gone_for()), (0, 0, 0, 0))
 
 
+class TidyTest(unittest.TestCase):
+    RAW = "# 1화 만남\n\n첫 줄이다.  \n이어지는 줄.\n\n\n***\n\n다음 문단.\n"
+
+    def test_headings_survive(self):
+        # normalize_body 는 제목을 떼지만, 파일에 되쓰는 tidy 는 남겨야 한다
+        self.assertIn("# 1화 만남", manuscript.tidy_text(self.RAW))
+        self.assertNotIn("# 1화 만남", manuscript.normalize_body(self.RAW))
+
+    def test_paragraphs_get_one_blank_line(self):
+        out = manuscript.tidy_text(self.RAW)
+        self.assertIn("첫 줄이다.\n\n이어지는 줄.", out)
+        self.assertNotIn("\n\n\n", out)
+
+    def test_scene_mark_is_unified(self):
+        out = manuscript.tidy_text(self.RAW, scene_mark="＊")
+        self.assertIn("＊", out)
+        self.assertNotIn("***", out)
+
+    def test_join_folds_wrapped_lines(self):
+        out = manuscript.tidy_text(self.RAW, join_lines=True)
+        self.assertIn("첫 줄이다. 이어지는 줄.", out)
+
+    def test_indent_uses_full_width_space(self):
+        out = manuscript.tidy_text(self.RAW, indent=True)
+        self.assertIn("　첫 줄이다.", out)
+
+    def test_tidy_is_idempotent(self):
+        once = manuscript.tidy_text(self.RAW, scene_mark="＊")
+        self.assertEqual(manuscript.tidy_text(once, scene_mark="＊"), once)
+
+    def test_empty_text_stays_empty(self):
+        self.assertEqual(manuscript.tidy_text("\n\n"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
