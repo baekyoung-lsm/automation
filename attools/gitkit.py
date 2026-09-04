@@ -524,3 +524,78 @@ def list_branches(root: Path, *, remote: bool = False) -> list[Branch]:
 
     return sorted(branches, key=lambda b: (b.when is None, -(b.when.timestamp()
                                                              if b.when else 0)))
+
+
+# ------------------------------------------------------------------ 충돌 표시
+
+CONFLICT_START = re.compile(r"^<{7}(?: |$)")
+CONFLICT_MID = re.compile(r"^={7}$")
+CONFLICT_END = re.compile(r"^>{7}(?: |$)")
+CONFLICT_BASE = re.compile(r"^\|{7}(?: |$)")
+
+
+@dataclass
+class Conflict:
+    path: str
+    line: int                 # <<<<<<< 가 있는 줄
+    ours: int = 0             # 우리 쪽 줄 수
+    theirs: int = 0
+    label_ours: str = ""
+    label_theirs: str = ""
+
+    @property
+    def one_sided(self) -> bool:
+        """한쪽이 비어 있으면 '지웠는가 남겼는가'의 문제다."""
+        return not self.ours or not self.theirs
+
+
+def find_conflicts(text: str, path: str = "") -> list[Conflict]:
+    """충돌 표시를 찾는다. 병합 중이 아니어도 남은 표시를 잡는다."""
+    out: list[Conflict] = []
+    current: Conflict | None = None
+    side = ""
+    for number, line in enumerate(text.splitlines(), 1):
+        if CONFLICT_START.match(line):
+            current = Conflict(path, number, label_ours=line[7:].strip())
+            side = "ours"
+            continue
+        if current is None:
+            continue
+        if CONFLICT_BASE.match(line):     # diff3 방식의 공통 조상 부분
+            side = "base"
+        elif CONFLICT_MID.match(line):
+            side = "theirs"
+        elif CONFLICT_END.match(line):
+            current.label_theirs = line[7:].strip()
+            out.append(current)
+            current, side = None, ""
+        elif side == "ours":
+            current.ours += 1
+        elif side == "theirs":
+            current.theirs += 1
+    return out
+
+
+def unmerged_files(root: Path) -> list[str]:
+    """지금 병합 중이라 충돌난 파일들."""
+    try:
+        return [n for n in run(["diff", "--name-only", "--diff-filter=U"],
+                               root).splitlines() if n]
+    except RuntimeError:
+        return []
+
+
+def scan_conflicts(root: Path, *, names: list[str] | None = None) -> list[Conflict]:
+    """파일마다 충돌 표시를 찾는다. names 를 안 주면 추적 파일 전부."""
+    if names is None:
+        names = [n for n in run(["ls-files"], root).splitlines() if n]
+    found: list[Conflict] = []
+    for name in names:
+        path = root / name
+        if not path.is_file():
+            continue
+        text = _readable(path)
+        if text is None or "<<<<<<<" not in text:
+            continue
+        found.extend(find_conflicts(text, name))
+    return found

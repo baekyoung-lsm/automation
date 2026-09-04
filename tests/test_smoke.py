@@ -291,6 +291,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("새 기능", self.run_cli("git", "release", repo))
         self.assertIn("브랜치", self.run_cli("git", "branches", repo))
         self.run_cli("git", "sweep", repo)
+        self.assertIn("충돌 표시가 없습니다", self.run_cli("git", "conflicts", repo))
 
     # ------------------------------------------------------------- doc
 

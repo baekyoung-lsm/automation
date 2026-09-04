@@ -333,6 +333,7 @@ at doc table docs/ --apply
 | `at git release [경로]` | 태그 이후 커밋으로 변경 로그 초안을 만든다 |
 | `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
+| `at git conflicts [경로]` | 충돌 표시가 남은 자리를 찾는다. 어느 쪽이 몇 줄인지까지 |
 
 ```bash
 at git sweep --fetch              # 미리보기
@@ -340,6 +341,7 @@ at git sweep --fetch --apply
 at git scan                       # 추적 중인 파일 전체
 at git scan --staged --quiet      # 커밋 직전 검사, 발견되면 exit 1
 at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
+at git conflicts                  # 병합 중이면 충돌 파일만, 아니면 전체
 at git todo                       # 오래 방치된 순
 at git todo -m FIXME -m BUG -s severity
 at git todo --no-blame -g '*.py'  # 작성자 조회 없이 빠르게
@@ -362,6 +364,12 @@ at git stats --path src/ --weekday
 아직 `git add` 하지 않은 저장소에서는 "추적하는 파일이 없다"고 분명히 알린다 —
 검사할 게 없는 것과 문제가 없는 것은 다르기 때문이다. `--all` 을 붙이면 추적 안 되는
 파일까지 본다.
+
+`at git conflicts` 는 병합 중이면 충돌난 파일만, 아니면 추적 파일 전부에서 `<<<<<<<`
+표시를 찾는다. 자리마다 우리 쪽과 저쪽이 각각 몇 줄인지 보여 주고, **한쪽이 비어 있으면**
+따로 짚는다 — 그건 "고친 내용"이 아니라 "지웠는가 남겼는가"의 문제라 판단이 다르다.
+끝 표시(`>>>>>>>`)가 없는 것은 세지 않는다(문서 안의 예시일 수 있다). 어느 쪽을 남길지는
+사람이 정한다. 남은 표시가 있으면 종료 코드 1이다.
 
 `at git todo` 는 표시가 **주석 안에 있을 때만** 센다. 문자열 리터럴의 `"TODO"` 까지 잡으면
 쓸모가 없기 때문이다. `TODO(이름)` 이나 `TODO @이름` 으로 적힌 담당자가 있으면 그것을

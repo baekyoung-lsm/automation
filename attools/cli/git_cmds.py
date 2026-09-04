@@ -195,6 +195,47 @@ def cmd_git_stats(a) -> int:
     return 0
 
 
+def cmd_git_conflicts(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    merging = gitkit.unmerged_files(root)
+    names = merging if merging and not a.all else None
+    try:
+        found = gitkit.scan_conflicts(root, names=names)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if merging:
+        _p(f"병합 중입니다. 충돌난 파일 {len(merging)}개")
+    if not found:
+        if merging:
+            _p("표시는 이미 정리된 것 같습니다. git add 로 해결을 알리세요.")
+            return 1
+        _p("남아 있는 충돌 표시가 없습니다.")
+        return 0
+
+    by_file: dict[str, list] = {}
+    for c in found:
+        by_file.setdefault(c.path, []).append(c)
+
+    for path, items in by_file.items():
+        _p(f"\n{path}  {len(items)}곳")
+        for c in items[:a.limit]:
+            sides = f"우리 {c.ours}줄 / 저쪽 {c.theirs}줄"
+            mark = "  <- 한쪽이 비었습니다" if c.one_sided else ""
+            _p(f"  {c.line}행  {sides}  ({c.label_ours} / {c.label_theirs}){mark}")
+        if len(items) > a.limit:
+            _p(f"  ... {len(items) - a.limit}곳 더")
+
+    _p(f"\n모두 {len(found)}곳. 어느 쪽을 남길지는 사람이 정합니다.")
+    if not merging:
+        _p("병합 중이 아닌데 표시가 남아 있습니다. 커밋에 섞여 들어갔을 수 있습니다.")
+    return 1
+
+
 def cmd_git_release(a) -> int:
     root = _repo(a)
     if root is None:
@@ -352,3 +393,10 @@ def add_commands(sub) -> None:
     sc.add_argument("--install-hook", nargs="?", const="at", metavar="명령경로",
                     help="pre-commit 훅으로 설치")
     sc.set_defaults(func=cmd_git_scan)
+
+    cf = gp.add_parser("conflicts", help="충돌 표시가 남은 자리 찾기")
+    cf.add_argument("dir", nargs="?", default=".")
+    cf.add_argument("--all", action="store_true",
+                    help="병합 중이어도 추적 파일 전부를 훑는다")
+    cf.add_argument("--limit", type=int, default=20, metavar="곳")
+    cf.set_defaults(func=cmd_git_conflicts)

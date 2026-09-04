@@ -267,5 +267,40 @@ class TodoTest(unittest.TestCase):
         self.assertEqual(parsed[3][0], "홍길동")
 
 
+class ConflictTest(unittest.TestCase):
+    TEXT = ("보통 줄\n"
+            "<<<<<<< HEAD\n우리 것 1\n우리 것 2\n"
+            "=======\n저쪽 것\n"
+            ">>>>>>> feature\n"
+            "끝\n"
+            "<<<<<<< HEAD\n=======\n새로 들어온 줄\n>>>>>>> other\n")
+
+    def test_finds_each_conflict_with_side_sizes(self):
+        found = gitkit.find_conflicts(self.TEXT, "a.py")
+        self.assertEqual([(c.line, c.ours, c.theirs) for c in found],
+                         [(2, 2, 1), (9, 0, 1)])
+        self.assertEqual(found[0].label_ours, "HEAD")
+        self.assertEqual(found[0].label_theirs, "feature")
+
+    def test_one_sided_conflict_is_marked(self):
+        found = gitkit.find_conflicts(self.TEXT)
+        self.assertFalse(found[0].one_sided)
+        self.assertTrue(found[1].one_sided)      # 지운 쪽과 남긴 쪽의 다툼
+
+    def test_diff3_base_section_is_not_counted(self):
+        text = ("<<<<<<< HEAD\n우리\n"
+                "||||||| 공통 조상\n원래\n원래2\n"
+                "=======\n저쪽\n>>>>>>> other\n")
+        c = gitkit.find_conflicts(text)[0]
+        self.assertEqual((c.ours, c.theirs), (1, 1))
+
+    def test_plain_text_has_no_conflicts(self):
+        self.assertEqual(gitkit.find_conflicts("보통 글\n===\n제목\n"), [])
+
+    def test_unclosed_marker_is_not_reported(self):
+        # 끝 표시가 없으면 충돌로 세지 않는다. 문서 안의 예시일 수 있다.
+        self.assertEqual(gitkit.find_conflicts("<<<<<<< HEAD\n우리\n"), [])
+
+
 if __name__ == "__main__":
     unittest.main()
