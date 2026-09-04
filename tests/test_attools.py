@@ -1211,6 +1211,64 @@ class SheetTest(unittest.TestCase):
         _, missing = sheet.fill(t, "{이름} {연차}")
         self.assertEqual(missing, {"연차"})
 
+    def test_join_left_keeps_unmatched(self):
+        left = sheet.Table(["사번", "이름"], [["E1", "홍길동"], ["E3", "이영희"]])
+        right = sheet.Table(["사번", "연봉"], [["E1", 100], ["E9", 200]])
+
+        merged, info = sheet.join(left, right, on="사번")
+        self.assertEqual(merged.headers, ["사번", "이름", "연봉"])
+        self.assertEqual(merged.rows, [["E1", "홍길동", 100], ["E3", "이영희", None]])
+        self.assertEqual((info.matched, info.left_only), (1, 1))
+
+    def test_join_inner_and_outer(self):
+        left = sheet.Table(["k", "a"], [["1", "x"], ["2", "y"]])
+        right = sheet.Table(["k", "b"], [["1", "p"], ["3", "q"]])
+
+        inner, _ = sheet.join(left, right, on="k", how="inner")
+        self.assertEqual([r[0] for r in inner.rows], ["1"])
+
+        outer, info = sheet.join(left, right, on="k", how="outer")
+        self.assertEqual(sorted(r[0] for r in outer.rows), ["1", "2", "3"])
+        self.assertEqual(info.right_only, 1)
+
+    def test_join_reports_row_multiplication(self):
+        # VLOOKUP 은 첫 짝만 가져와서 조용히 틀린다. 여기서는 늘어난 걸 알려야 한다
+        left = sheet.Table(["k"], [["1"]])
+        right = sheet.Table(["k", "v"], [["1", "a"], ["1", "b"]])
+
+        merged, info = sheet.join(left, right, on="k")
+        self.assertEqual(len(merged.rows), 2)
+        self.assertEqual(info.multiplied, 1)
+        self.assertEqual(info.duplicate_keys, ["1"])
+
+    def test_join_renames_colliding_columns(self):
+        left = sheet.Table(["k", "이름"], [["1", "가"]])
+        right = sheet.Table(["k", "이름"], [["1", "나"]])
+
+        merged, info = sheet.join(left, right, on="k")
+        self.assertEqual(merged.headers, ["k", "이름", "이름_2"])
+        self.assertEqual(info.renamed, [("이름", "이름_2")])
+        self.assertEqual(merged.rows[0], ["1", "가", "나"])
+
+    def test_join_different_key_names(self):
+        left = sheet.Table(["사번"], [["E1"]])
+        right = sheet.Table(["사원번호", "연봉"], [["E1", 100]])
+        merged, _ = sheet.join(left, right, on="사번", right_on="사원번호")
+        self.assertEqual(merged.headers, ["사번", "연봉"])
+        self.assertEqual(merged.rows[0], ["E1", 100])
+
+    def test_join_skips_blank_right_keys(self):
+        left = sheet.Table(["k"], [["1"]])
+        right = sheet.Table(["k", "v"], [["", "버릴것"], ["1", "쓸것"]])
+        merged, info = sheet.join(left, right, on="k")
+        self.assertEqual(info.blank_keys, 1)
+        self.assertEqual(merged.rows[0][1], "쓸것")
+
+    def test_join_rejects_unknown_how(self):
+        t = sheet.Table(["k"], [["1"]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.join(t, t, on="k", how="cross")
+
     def test_save_csv_has_bom_for_excel(self):
         p = self.csv("a.csv", "이름\n홍길동\n")
         out = sheet.save(sheet.load(p), self.root / "out.csv")

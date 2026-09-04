@@ -755,3 +755,86 @@ def fill(table: Table, template: str, *, name_template: str = "",
         name = render(name_template, values, missing=missing) if name_template else ""
         out.append(Filled(name.strip(), text, n))
     return out, missing
+
+
+# ----------------------------------------------------------------- 표 합치기
+
+@dataclass
+class JoinReport:
+    matched: int = 0            # 짝을 찾은 왼쪽 행
+    left_only: int = 0          # 오른쪽에 짝이 없는 왼쪽 행
+    right_only: int = 0         # 왼쪽에 짝이 없는 오른쪽 행 (outer 일 때만 들어간다)
+    multiplied: int = 0         # 오른쪽 키 중복으로 늘어난 행
+    duplicate_keys: list[str] = field(default_factory=list)
+    renamed: list[tuple[str, str]] = field(default_factory=list)
+    blank_keys: int = 0
+
+
+def join(left: Table, right: Table, *, on: str, right_on: str = "",
+         how: str = "left", suffix: str = "_2") -> tuple[Table, JoinReport]:
+    """두 표를 키로 합친다. VLOOKUP 과 달리 짝이 여럿이면 그 사실을 알린다."""
+    if how not in ("left", "inner", "outer"):
+        raise SheetError(f"알 수 없는 방식: {how} (left, inner, outer)")
+
+    right_key = right_on or on
+    li, ri = left.index_of(on), right.index_of(right_key)
+    report = JoinReport()
+
+    # 오른쪽을 키별로 모은다. 키가 여러 번 나오면 행이 불어나므로 세어 둔다.
+    lookup: dict[str, list[list]] = defaultdict(list)
+    for row in right.rows:
+        key = to_text(row[ri] if ri < len(row) else None)
+        if not key:
+            report.blank_keys += 1
+            continue
+        lookup[key].append(row)
+    report.duplicate_keys = sorted(k for k, v in lookup.items() if len(v) > 1)
+
+    # 오른쪽 열 이름이 겹치면 접미사를 붙인다. 키 열은 한 번만 남긴다.
+    right_headers: list[str] = []
+    keep_right: list[int] = []
+    for i, name in enumerate(right.headers):
+        if i == ri:
+            continue
+        keep_right.append(i)
+        if name in left.headers:
+            new_name = f"{name}{suffix}"
+            report.renamed.append((name, new_name))
+            right_headers.append(new_name)
+        else:
+            right_headers.append(name)
+
+    headers = list(left.headers) + right_headers
+    blanks = [None] * len(right_headers)
+    rows: list[list] = []
+    used: set[str] = set()
+
+    for row in left.rows:
+        key = to_text(row[li] if li < len(row) else None)
+        partners = lookup.get(key, [])
+        if not partners:
+            report.left_only += 1
+            if how != "inner":
+                rows.append(list(row) + blanks)
+            continue
+
+        used.add(key)
+        report.matched += 1
+        report.multiplied += len(partners) - 1
+        for partner in partners:
+            rows.append(list(row) + [partner[i] if i < len(partner) else None
+                                     for i in keep_right])
+
+    if how == "outer":
+        left_blanks = [None] * len(left.headers)
+        for key, partners in lookup.items():
+            if key in used:
+                continue
+            for partner in partners:
+                filled = list(left_blanks)
+                filled[li] = partner[ri] if ri < len(partner) else None
+                rows.append(filled + [partner[i] if i < len(partner) else None
+                                      for i in keep_right])
+                report.right_only += 1
+
+    return Table(headers, rows, source=f"{left.source} + {right.source}"), report

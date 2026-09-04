@@ -2413,6 +2413,52 @@ def escape_html(text: str) -> str:
     return escape(str(text))
 
 
+def cmd_sheet_join(a) -> int:
+    left = _load(a, a.left)
+    right = _load(a, a.right)
+    if left is None or right is None:
+        return 1
+
+    try:
+        merged, info = sheet.join(left, right, on=a.on, right_on=a.right_on,
+                                  how=a.how, suffix=a.suffix)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    how_names = {"left": "왼쪽 기준", "inner": "양쪽에 다 있는 것만", "outer": "양쪽 전부"}
+    _p(f"{Path(a.left).name} {len(left.rows):,}행  +  "
+       f"{Path(a.right).name} {len(right.rows):,}행"
+       f"  ->  {len(merged.rows):,}행 x {merged.width}열  ({how_names[a.how]})")
+    _p(f"  짝 찾음 {info.matched:,}  ·  오른쪽에 없음 {info.left_only:,}"
+       + (f"  ·  왼쪽에 없음 {info.right_only:,}" if a.how == "outer" else ""))
+
+    if info.multiplied:
+        _p(f"\n주의: 오른쪽 키가 겹쳐서 {info.multiplied:,}행이 늘어났습니다.")
+        _p(f"  겹친 키 {len(info.duplicate_keys)}개: "
+           + ", ".join(info.duplicate_keys[:5])
+           + (" ..." if len(info.duplicate_keys) > 5 else ""))
+        _p("  VLOOKUP 은 첫 짝만 가져오지만 여기서는 짝마다 행을 만듭니다.")
+    if info.blank_keys:
+        _p(f"  오른쪽에서 키가 빈 행 {info.blank_keys:,}개는 뺐습니다.")
+    if info.renamed:
+        _p(f"  이름이 겹쳐 바꾼 열: "
+           + ", ".join(f"{old} -> {new}" for old, new in info.renamed[:5]))
+
+    _p("")
+    _grid(merged.headers,
+          [[sheet.to_text(v) for v in row] for row in merged.rows[:a.rows]],
+          limit=a.width)
+    if len(merged.rows) > a.rows:
+        _p(f"  ... {len(merged.rows) - a.rows:,}행 더")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(merged, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3169,6 +3215,20 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    jn = common(sh.add_parser("join", help="두 표를 키로 합치기 (VLOOKUP 대신)"))
+    jn.add_argument("left", metavar="왼쪽파일")
+    jn.add_argument("right", metavar="오른쪽파일")
+    jn.add_argument("--on", required=True, metavar="열", help="맞출 키 열")
+    jn.add_argument("--right-on", default="", metavar="열",
+                    help="오른쪽 키 열 이름이 다를 때")
+    jn.add_argument("--how", default="left", choices=["left", "inner", "outer"])
+    jn.add_argument("--suffix", default="_2", metavar="접미사",
+                    help="열 이름이 겹칠 때 오른쪽에 붙인다")
+    jn.add_argument("-o", "--out", metavar="파일")
+    jn.add_argument("--rows", type=int, default=10, metavar="개", dest="rows")
+    jn.add_argument("--width", type=int, default=16, metavar="칸")
+    jn.set_defaults(func=cmd_sheet_join)
 
     rp2 = common(sh.add_parser("report", help="표를 HTML 보고서로 (요약·그래프·표)"))
     rp2.add_argument("file")
