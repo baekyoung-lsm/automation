@@ -302,5 +302,49 @@ class ConflictTest(unittest.TestCase):
         self.assertEqual(gitkit.find_conflicts("<<<<<<< HEAD\n우리\n"), [])
 
 
+class ReadyTest(unittest.TestCase):
+    def test_debug_marks_only_flag_real_leftovers(self):
+        added = {"a.js": ["console.log(x)", "const y = 1", "debugger;"],
+                 "b.py": ["breakpoint()", "print('보통 코드')"],
+                 "c.go": ['fmt.Println("이건 코드다")']}
+        found = gitkit.find_debug_marks(added)
+        self.assertEqual({(m.path, m.kind) for m in found},
+                         {("a.js", "console.log"), ("a.js", "debugger"),
+                          ("b.py", "breakpoint()")})
+
+    def test_focused_and_skipped_tests_are_caught(self):
+        found = gitkit.find_debug_marks({"t.js": ['it.only("하나", () => {})',
+                                                  'describe.skip("건너뜀", fn)']})
+        self.assertEqual(len(found), 2)
+
+    def test_ignore_mark_silences_a_line(self):
+        found = gitkit.find_debug_marks(
+            {"a.js": ["console.log(1)  // attools:ignore"]})
+        self.assertEqual(found, [])
+
+    def test_staged_added_lines_parses_diff_paths(self):
+        import subprocess
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        try:
+            def git(*args):
+                subprocess.run(["git", "-C", str(root), *args], check=True,
+                               capture_output=True)
+
+            git("init", "-q")
+            (root / "a.js").write_text("const x = 1;\n", encoding="utf-8")
+            git("add", ".")
+            git("-c", "user.email=a@b", "-c", "user.name=t", "commit", "-qm", "시작")
+            (root / "a.js").write_text("const x = 1;\nconsole.log(x);\n",
+                                       encoding="utf-8")
+            git("add", ".")
+            added = gitkit.staged_added_lines(root)
+            self.assertEqual(added, {"a.js": ["console.log(x);"]})
+            self.assertEqual(len(gitkit.find_debug_marks(added)), 1)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

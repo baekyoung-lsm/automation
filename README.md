@@ -392,6 +392,7 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 | `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 | `at git conflicts [경로]` | 충돌 표시가 남은 자리를 찾는다. 어느 쪽이 몇 줄인지까지 |
+| `at git ready [경로]` | 커밋 전 한 번에 점검 - 시크릿·충돌·디버그 흔적·큰 파일 |
 
 ```bash
 at git sweep --fetch              # 미리보기
@@ -399,6 +400,7 @@ at git sweep --fetch --apply
 at git scan                       # 추적 중인 파일 전체
 at git scan --staged --quiet      # 커밋 직전 검사, 발견되면 exit 1
 at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
+at git ready                      # 커밋 직전. 걸리면 exit 1
 at git conflicts                  # 병합 중이면 충돌 파일만, 아니면 전체
 at git todo                       # 오래 방치된 순
 at git todo -m FIXME -m BUG -s severity
@@ -422,6 +424,12 @@ at git stats --path src/ --weekday
 아직 `git add` 하지 않은 저장소에서는 "추적하는 파일이 없다"고 분명히 알린다 —
 검사할 게 없는 것과 문제가 없는 것은 다르기 때문이다. `--all` 을 붙이면 추적 안 되는
 파일까지 본다.
+
+`at git ready` 는 커밋 직전에 한 번에 본다 — 스테이징된 파일의 시크릿, 남은 충돌 표시,
+**이번에 더한 줄**의 디버그 흔적(`console.log`, `debugger`, `breakpoint()`, `it.only`),
+그리고 큰 파일. 디버그 흔적은 파일 전체가 아니라 더한 줄만 보므로 원래 있던 코드는 걸리지
+않는다. `print` 나 `fmt.Println` 처럼 실제로 쓰는 것은 규칙에 넣지 않았다 — 매번 걸리면
+사람이 결과를 안 보게 된다. 한 줄만 넘기려면 그 줄에 `attools:ignore` 를 적는다.
 
 `at git conflicts` 는 병합 중이면 충돌난 파일만, 아니면 추적 파일 전부에서 `<<<<<<<`
 표시를 찾는다. 자리마다 우리 쪽과 저쪽이 각각 몇 줄인지 보여 주고, **한쪽이 비어 있으면**

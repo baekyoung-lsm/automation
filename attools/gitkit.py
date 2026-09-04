@@ -599,3 +599,77 @@ def scan_conflicts(root: Path, *, names: list[str] | None = None) -> list[Confli
             continue
         found.extend(find_conflicts(text, name))
     return found
+
+
+# ------------------------------------------------------- 커밋 전 마지막 점검
+
+# 실수로 남기는 것들만 넣는다. print 나 fmt.Println 처럼 실제로 쓰는 것은
+# 넣지 않는다 - 매번 걸리면 사람이 결과를 안 보게 된다.
+DEBUG_MARKS = [
+    ("debugger", re.compile(r"\bdebugger\b\s*;?")),
+    ("breakpoint()", re.compile(r"\bbreakpoint\s*\(")),
+    ("pdb", re.compile(r"\b(?:pdb|ipdb)\.set_trace\s*\(")),
+    ("console.log", re.compile(r"\bconsole\.(?:log|debug|dir|table)\s*\(")),
+    ("var_dump", re.compile(r"\bvar_dump\s*\(")),
+    ("System.out.println", re.compile(r"\bSystem\.out\.print")),
+    ("한 개만 돌리기(.only)", re.compile(r"\b(?:describe|it|test|context)\.only\s*\(")),
+    ("한 개만 돌리기(f)", re.compile(r"\b(?:fdescribe|fit)\s*\(")),
+    ("건너뛰기(.skip)", re.compile(r"\b(?:describe|it|test)\.skip\s*\(")),
+]
+
+
+@dataclass
+class DebugMark:
+    path: str
+    kind: str
+    line: str
+
+
+def staged_added_lines(root: Path) -> dict[str, list[str]]:
+    """스테이징된 diff 에서 '더한 줄'만 모은다.
+
+    파일 전체를 보면 원래 있던 코드까지 걸린다. 이번에 넣은 줄만 본다.
+    """
+    out: dict[str, list[str]] = {}
+    try:
+        diff = run(["diff", "--cached", "--unified=0", "--no-color"], root)
+    except RuntimeError:
+        return out
+
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            name = line[4:].strip()
+            current = name[2:] if name.startswith("b/") else name
+            continue
+        if line.startswith("+") and not line.startswith("+++") and current:
+            out.setdefault(current, []).append(line[1:])
+    return out
+
+
+def find_debug_marks(added: dict[str, list[str]]) -> list[DebugMark]:
+    found: list[DebugMark] = []
+    for path, lines in added.items():
+        for line in lines:
+            if IGNORE_MARK.search(line):
+                continue
+            for kind, pattern in DEBUG_MARKS:
+                if pattern.search(line):
+                    found.append(DebugMark(path, kind, line.strip()[:120]))
+                    break
+    return found
+
+
+def staged_big_files(root: Path, *, limit: int = 1_000_000) -> list[tuple[str, int]]:
+    """스테이징된 파일 중 큰 것. 한번 커밋되면 히스토리에서 지우기 어렵다."""
+    out: list[tuple[str, int]] = []
+    try:
+        names = [n for n in run(["diff", "--cached", "--name-only",
+                                 "--diff-filter=ACM"], root).splitlines() if n]
+    except RuntimeError:
+        return out
+    for name in names:
+        path = root / name
+        if path.is_file() and path.stat().st_size >= limit:
+            out.append((name, path.stat().st_size))
+    return sorted(out, key=lambda x: -x[1])

@@ -236,6 +236,57 @@ def cmd_git_conflicts(a) -> int:
     return 1
 
 
+def cmd_git_ready(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    names = [n for n in gitkit.run(["diff", "--cached", "--name-only"],
+                                   root).splitlines() if n]
+    if not names:
+        _p("스테이징된 파일이 없습니다. git add 를 먼저 하세요.")
+        return 1
+
+    _p(f"스테이징된 파일 {len(names)}개")
+    problems = 0
+
+    findings = gitkit.scan_paths(root, staged=True, entropy_threshold=a.entropy)
+    if findings:
+        problems += len(findings)
+        _p(f"\n시크릿으로 보이는 값 {len(findings)}건")
+        for f in findings[:a.limit]:
+            _p(f"  {f.path}:{f.line}  [{f.kind}]  {_cut(f.excerpt, 70)}")
+
+    conflicts = gitkit.scan_conflicts(root, names=names)
+    if conflicts:
+        problems += len(conflicts)
+        _p(f"\n충돌 표시가 남은 자리 {len(conflicts)}곳")
+        for c in conflicts[:a.limit]:
+            _p(f"  {c.path}:{c.line}")
+
+    marks = gitkit.find_debug_marks(gitkit.staged_added_lines(root))
+    if marks:
+        problems += len(marks)
+        _p(f"\n이번에 더한 줄의 디버그 흔적 {len(marks)}건")
+        for m in marks[:a.limit]:
+            _p(f"  {m.path}  [{m.kind}]  {_cut(m.line, 60)}")
+
+    big = gitkit.staged_big_files(root, limit=int(a.big * 1_000_000))
+    if big:
+        problems += len(big)
+        _p(f"\n큰 파일 {len(big)}개 (히스토리에 남으면 지우기 어렵습니다)")
+        for name, size in big[:a.limit]:
+            _p(f"  {name}  {files.human_size(size)}")
+
+    if not problems:
+        _p("\n걸리는 것이 없습니다. 커밋해도 됩니다.")
+        return 0
+    _p(f"\n모두 {problems}건. 의도한 것이면 그대로 커밋하세요 - "
+       "판단은 사람이 합니다.")
+    _p("한 줄만 넘기려면 그 줄에 attools:ignore 를 적으면 됩니다.")
+    return 1
+
+
 def cmd_git_release(a) -> int:
     root = _repo(a)
     if root is None:
@@ -400,3 +451,11 @@ def add_commands(sub) -> None:
                     help="병합 중이어도 추적 파일 전부를 훑는다")
     cf.add_argument("--limit", type=int, default=20, metavar="곳")
     cf.set_defaults(func=cmd_git_conflicts)
+
+    rd = gp.add_parser("ready", help="커밋 전 점검 - 시크릿·충돌·디버그 흔적·큰 파일")
+    rd.add_argument("dir", nargs="?", default=".")
+    rd.add_argument("--big", type=float, default=1.0, metavar="MB",
+                    help="이보다 큰 파일을 알린다 (기본 1MB)")
+    rd.add_argument("--entropy", type=float, default=0.0, metavar="비트")
+    rd.add_argument("--limit", type=int, default=10)
+    rd.set_defaults(func=cmd_git_ready)
