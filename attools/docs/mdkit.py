@@ -886,3 +886,83 @@ def build_index(entries: list[DocEntry], base: Path, *, table: bool = False) -> 
     if table:
         return "\n".join(["| 문서 | 내용 | 분량 |", "| --- | --- | --- |", *rows])
     return "\n".join(rows)
+
+
+# ------------------------------------------------------------ 워드 문서로
+
+DOCX_HEADING_SIZES = {1: 36, 2: 30, 3: 26, 4: 24, 5: 22, 6: 20}
+STRIP_MARKS = re.compile(r"\*\*(.+?)\*\*|__(.+?)__|\*(.+?)\*|_(.+?)_|~~(.+?)~~")
+
+
+def plain_text(line: str) -> str:
+    """워드 문단에 넣을 글자만 남긴다. 굵게·링크 표시는 뗀다.
+
+    문단 안에서 부분 서식을 주려면 run 을 쪼개야 하는데, 그러다 표시가
+    조금이라도 어긋나면 문서가 열리지 않는다. 글자를 지키는 쪽을 골랐다.
+    """
+    body = LINK_RE.sub(lambda m: m.group("text") or m.group("target"), line)
+    body = INLINE_CODE.sub(lambda m: m.group(0).strip("`"), body)
+    body = STRIP_MARKS.sub(lambda m: next(g for g in m.groups() if g is not None),
+                           body)
+    return body.strip()
+
+
+def to_docx_parts(text: str) -> list[str]:
+    """마크다운을 워드 문단·표 조각으로. docx.write_document 에 넘긴다."""
+    from .. import docx
+
+    tables = {b.start: b for b in find_tables(text)}
+    inside = {n for b in find_tables(text) for n in range(b.start, b.end + 1)}
+    parts: list[str] = []
+    fence: str | None = None
+    code: list[str] = []
+
+    for number, line in enumerate(text.splitlines(), 1):
+        if m := FENCE_RE.match(line):
+            if fence is None:
+                fence, code = m.group(1), []
+            elif line.strip().startswith(fence):
+                for row in code or [""]:
+                    parts.append(docx.paragraph(row, mono=True, size=18,
+                                                indent=400, spacing=240))
+                parts.append(docx.paragraph(""))
+                fence = None
+            continue
+        if fence is not None:
+            code.append(line)
+            continue
+
+        if number in tables:
+            block = tables[number]
+            width = block.columns
+            rows = [[plain_text(c) for c in (block.header + [""] * width)[:width]]]
+            rows += [[plain_text(c) for c in (r + [""] * width)[:width]]
+                     for r in block.rows]
+            parts.append(docx.table(rows))
+            continue
+        if number in inside:
+            continue
+
+        if m := HEADING_RE.match(line):
+            level = len(m.group(1))
+            parts.append(docx.paragraph(plain_text(m.group(2)),
+                                        size=DOCX_HEADING_SIZES.get(level, 20),
+                                        bold=True, spacing=300))
+            continue
+        if HR_RE.match(line):
+            parts.append(docx.paragraph("─" * 30, center=True))
+            continue
+        if m := QUOTE_RE.match(line):
+            parts.append(docx.paragraph(plain_text(m.group(1)), italic=True,
+                                        indent=400))
+            continue
+        if m := LIST_RE.match(line):
+            mark = "• " if not m.group(2)[0].isdigit() else f"{m.group(2)} "
+            depth = 400 if len(m.group(1)) >= 2 else 0
+            parts.append(docx.paragraph(mark + plain_text(m.group(3)),
+                                        indent=200 + depth, spacing=280))
+            continue
+        if not line.strip():
+            continue
+        parts.append(docx.paragraph(plain_text(line)))
+    return parts

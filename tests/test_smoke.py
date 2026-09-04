@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -436,6 +437,11 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
         그림문서 = Path(self.path("그림문서.md"))
         그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        워드 = self.path("문서.docx")
+        self.run_cli("doc", "docx", md, "-o", 워드)
+        with zipfile.ZipFile(워드) as z:
+            self.assertIn("word/document.xml", z.namelist())
+
         웹문서 = Path(self.path("웹문서.html"))
         웹문서.write_text("<h1>안내</h1><p>웹에서 <b>복사</b>한 글.</p>",
                           encoding="utf-8")

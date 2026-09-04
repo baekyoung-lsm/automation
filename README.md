@@ -411,6 +411,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc slides <파일>` | 마크다운을 넘겨 보는 슬라이드로 (`---` 로 장을 나눈다) |
 | `at doc index [경로]` | 문서 목록 만들기 - 제목과 첫 문단을 모아 `<!-- index -->` 사이에 |
 | `at doc from-html <파일>` | HTML 을 마크다운으로 (사내 위키·웹 문서 옮기기) |
+| `at doc docx <파일>` | 마크다운을 워드 문서로 (보고서 제출용) |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -424,6 +425,7 @@ at doc table docs/ --apply
 at doc html 회의록.md --toc                # 브라우저로 열어 인쇄 → PDF
 at doc index docs/ -o docs/README.md --apply   # 목록 갱신
 at dev http wiki.example.com/page -o page.html && at doc from-html page.html -o page.md
+at doc docx 보고서.md -o 보고서.docx       # 제출용 워드 문서
 at doc slides 발표.md -o 발표.html         # 화살표로 넘기는 슬라이드
 at doc slides 문서.md --by 제목            # ## 마다 한 장
 at doc lint docs/ --only-errors            # CI 용. 고쳐야 할 것만
@@ -436,6 +438,11 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`docx` 는 마크다운을 워드 문서로 만든다. 제출처가 워드를 요구할 때 다른 도구 없이 낸다.
+제목·목록·인용·표·코드 블록은 서식을 살리고, **문단 안의 굵게·기울임 표시는 글자만 남긴다** —
+한 문단을 여러 조각으로 쪼개 서식을 주다 표시가 어긋나면 문서가 아예 열리지 않아서, 글자를
+지키는 쪽을 골랐다. 원고를 워드로 낼 때는 `at novel export -f docx` 를 쓴다(같은 라이터다).
 
 `from-html` 은 사내 위키나 웹 문서를 저장소로 옮길 때 쓴다. 제목·문단·목록·표·인용·코드·
 링크·이미지·굵게/기울임/취소선까지 옮기고, **그 밖의 태그는 글자만 남긴다**(무엇을 옮기는지

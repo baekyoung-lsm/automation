@@ -446,6 +446,33 @@ def cmd_doc_from_html(a) -> int:
     return 0
 
 
+def cmd_doc_docx(a) -> int:
+    from .. import docx
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = path.read_text(encoding="utf-8", errors="replace")
+    parts = mdkit.to_docx_parts(body)
+    if not parts:
+        _p("옮길 내용이 없습니다.")
+        return 1
+
+    out = Path(a.out) if a.out else path.with_suffix(".docx")
+    if out.exists() and not a.overwrite:
+        _p(f"이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+        return 1
+
+    docx.write_document(out, parts)
+    _p(f"저장: {out}  (문단·표 {len(parts):,}개)")
+    _p("워드·한글·구글 문서에서 열립니다.")
+    _p("문단 안의 굵게·기울임 표시는 글자만 남깁니다. 제목·목록·인용·표·코드는 "
+       "서식을 살립니다.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -674,3 +701,9 @@ def add_commands(sub) -> None:
     dfh.add_argument("-o", "--out", metavar="파일")
     dfh.add_argument("--overwrite", action="store_true")
     dfh.set_defaults(func=cmd_doc_from_html)
+
+    ddx = dc.add_parser("docx", help="마크다운을 워드 문서로 (보고서 제출용)")
+    ddx.add_argument("file", metavar="파일")
+    ddx.add_argument("-o", "--out", metavar="파일", help="기본: 같은 이름의 .docx")
+    ddx.add_argument("--overwrite", action="store_true")
+    ddx.set_defaults(func=cmd_doc_docx)

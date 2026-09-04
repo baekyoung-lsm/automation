@@ -64,6 +64,7 @@ attools/
   hangul.py         NFC 정규화, 파일명 정리, 받침·조사, 흔한 표기 오류
   sheet.py          표 모델과 csv/xlsx 입출력, 정리·검증·집계·필터·메일머지
   xlsx.py           의존성 없는 xlsx 리더/라이터
+  docx.py           의존성 없는 docx 라이터 (문단·표)
   keys.py keytui.py keyhtml.py   단축키 데이터·터미널 화면·HTML 내보내기
   life.py           금액·D-day·정산·대출·단위·공휴일·세금·시차
   data/shortcuts.json
