@@ -391,6 +391,12 @@ class SmokeTest(unittest.TestCase):
 
         줄 = 표.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
+        그림문서 = Path(self.path("그림문서.md"))
+        그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        이미지 = self.run_cli("doc", "images", str(그림문서), expect=1)
+        self.assertIn("없음", 이미지)
+        self.assertIn("없는 파일 1개", 이미지)
+
         뽑기 = self.path("뽑은표.csv")
         self.run_cli("doc", "tables", str(표), "-n", "1", "-o", 뽑기)
         self.assertIn("가나다", Path(뽑기).read_text(encoding="utf-8"))

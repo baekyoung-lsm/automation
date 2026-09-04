@@ -137,6 +137,74 @@ def cmd_doc_tables(a) -> int:
     return 0
 
 
+def cmd_doc_images(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    root = Path(a.root) if a.root else Path(a.paths[0])
+    root = (root if root.is_dir() else root.parent).resolve()
+
+    rows: list[list[str]] = []
+    used: set[Path] = set()
+    missing = big = 0
+    no_alt = 0
+
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        for link in mdkit.links(body):
+            if link.kind != "image":
+                continue
+            target = link.target.split("#", 1)[0]
+            if "://" in target or target.startswith("data:"):
+                continue
+            if not link.text.strip():
+                no_alt += 1
+            spot = (path.parent / target).resolve()
+            rel = str(path.relative_to(root)) if root in path.parents else str(path)
+            if not spot.is_file():
+                missing += 1
+                rows.append([rel, target, "없음", "-", "-"])
+                continue
+            used.add(spot)
+            info = files.image_info(spot)
+            size = files.human_size(spot.stat().st_size)
+            if info is None:
+                rows.append([rel, target, "헤더 못 읽음", "-", size])
+                continue
+            state = "OK"
+            if a.over and max(info.width, info.height) > a.over:
+                state, big = "큼", big + 1
+            rows.append([rel, target, state, f"{info.width:,}x{info.height:,}", size])
+
+    if not rows:
+        _p(f"파일 {len(targets)}개, 이미지 링크가 없습니다.")
+        return 0
+
+    _grid(["문서", "이미지", "상태", "크기", "용량"],
+          [r for r in rows if not a.only_bad or r[2] != "OK"][:a.limit], limit=44)
+    _p(f"\n이미지 링크 {len(rows)}개 · 없는 파일 {missing}개"
+       + (f" · {a.over:,}px 넘는 것 {big}개" if a.over else "")
+       + (f" · 설명(alt) 없는 것 {no_alt}개" if no_alt else ""))
+
+    if a.orphans:
+        every = {p.resolve() for p in root.rglob("*")
+                 if p.is_file() and p.suffix.lower() in files.IMAGE_SUFFIXES
+                 and not any(d in files.IGNORE_DIRS for d in p.parts)}
+        orphans = sorted(every - used)
+        if orphans:
+            _p(f"\n어느 문서에서도 안 쓰는 이미지 {len(orphans)}개")
+            for spot in orphans[:a.limit]:
+                _p(f"  {spot.relative_to(root)}  "
+                   f"{files.human_size(spot.stat().st_size)}")
+            _p("문서 밖에서 쓰고 있을 수 있으니 지우기 전에 확인하세요.")
+        else:
+            _p("\n안 쓰는 이미지가 없습니다.")
+
+    return 1 if missing else 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -299,3 +367,14 @@ def add_commands(sub) -> None:
                     help="여러 개 저장할 때 형식 (기본 .csv)")
     dg.add_argument("--limit", type=int, default=20)
     dg.set_defaults(func=cmd_doc_tables)
+
+    di = dc.add_parser("images", help="문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·고아 파일")
+    di.add_argument("paths", nargs="+", metavar="경로")
+    di.add_argument("--root", metavar="디렉터리", help="고아 이미지를 찾을 기준 (기본: 첫 경로)")
+    di.add_argument("--over", type=int, default=2000, metavar="px",
+                    help="긴 변이 이보다 크면 표시 (0 이면 끔)")
+    di.add_argument("--orphans", action="store_true",
+                    help="어느 문서에서도 안 쓰는 이미지도 찾는다")
+    di.add_argument("--only-bad", action="store_true", help="문제 있는 것만")
+    di.add_argument("--limit", type=int, default=30)
+    di.set_defaults(func=cmd_doc_images)

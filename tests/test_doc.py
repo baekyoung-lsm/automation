@@ -204,5 +204,27 @@ class TablesToSheetTest(unittest.TestCase):
         self.assertEqual(values, [3, 12])
 
 
+class ImageLinkTest(unittest.TestCase):
+    """문서가 가리키는 이미지를 찾을 때 지켜야 하는 것들."""
+
+    DOC = ("# 안내\n\n![표지](그림/표지.png)\n\n![](그림/작은것.png)\n\n"
+           "[문서 링크](다른.md)\n\n![바깥](https://example.com/a.png)\n")
+
+    def test_only_image_links_are_picked(self):
+        images = [l for l in mdkit.links(self.DOC) if l.kind == "image"]
+        self.assertEqual([l.target for l in images],
+                         ["그림/표지.png", "그림/작은것.png",
+                          "https://example.com/a.png"])
+
+    def test_alt_text_is_kept(self):
+        images = [l for l in mdkit.links(self.DOC) if l.kind == "image"]
+        self.assertEqual(images[0].text, "표지")
+        self.assertEqual(images[1].text, "")      # 설명 없는 이미지
+
+    def test_images_in_code_fence_are_ignored(self):
+        body = "```\n![코드 안](그림/무시.png)\n```\n"
+        self.assertEqual(mdkit.links(body), [])
+
+
 if __name__ == "__main__":
     unittest.main()

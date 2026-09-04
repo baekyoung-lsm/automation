@@ -357,6 +357,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc split <파일>` | 긴 문서를 제목 단위 파일로 쪼갠다 (번호를 앞에 붙여 순서 유지) |
 | `at doc table <경로…>` | 마크다운 표의 칸 너비를 맞춘다. 한글을 두 칸으로 센다 |
 | `at doc tables <파일>` | 문서 안의 표를 csv·xlsx 로 뽑는다 |
+| `at doc images <경로…>` | 문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·안 쓰는 그림 |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -367,6 +368,7 @@ at doc split 기획서.md -o 기획서/          # 미리보기
 at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
+at doc images docs/ --orphans --only-bad   # 깨진 그림과 안 쓰는 그림
 at doc tables 회의록.md                    # 표 목록
 at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 ```
@@ -374,6 +376,11 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`images` 는 문서가 가리키는 이미지가 실제로 있는지, 얼마나 큰지(헤더만 읽는다), 설명(alt)이
+비어 있지 않은지 본다. `--orphans` 는 어느 문서에서도 안 쓰는 이미지를 찾지만 **지우지는
+않는다** — 문서 밖에서 쓰고 있을 수 있어서다. 없는 파일이 있으면 종료 코드 1이라 CI 에
+넣을 수 있다.
 
 `tables` 는 문서에 적어 둔 표를 그대로 `sheet` 로 넘긴다. 숫자로 읽히는 칸은 숫자로 바꾸고,
 칸이 모자란 줄은 빈칸으로 채워 열이 밀리지 않게 한다. 표가 여럿이면 `-o` 에 디렉터리를 주면
