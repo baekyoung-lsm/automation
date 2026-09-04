@@ -1756,6 +1756,59 @@ def cmd_json_set(a) -> int:
     return 0
 
 
+def cmd_text_extract(a) -> int:
+    import re as _re
+
+    sources = [Path(f) for f in a.files]
+    lines: list[str] = []
+    for source in sources:
+        if str(source) == "-":
+            lines += sys.stdin.read().splitlines()
+            continue
+        if not source.is_file():
+            _p(f"파일이 없습니다: {source}")
+            return 1
+        try:
+            content, _ = text.read_text_any(source)
+        except text.TextError as e:
+            _p(f"{source}: {e}")
+            return 1
+        lines += content.splitlines()
+
+    try:
+        pattern = _re.compile(a.pattern, _re.I if a.ignore_case else 0)
+    except _re.error as e:
+        _p(f"정규식이 잘못됐습니다: {e}")
+        return 1
+
+    result = text.extract(lines, pattern)
+    if not result.rows:
+        _p(f"맞는 줄이 없습니다. ({result.total_lines:,}줄 확인)")
+        _p("이름 붙인 그룹을 쓰면 열 이름이 됩니다: (?P<시각>\\S+) (?P<레벨>\\w+)")
+        return 1
+
+    ratio = result.matched_lines / result.total_lines if result.total_lines else 0
+    _p(f"{result.matched_lines:,}줄에서 뽑았습니다 "
+       f"(전체 {result.total_lines:,}줄 중 {ratio:.0%})")
+    if result.missed and not a.quiet:
+        _p(f"  맞지 않은 줄 {result.missed:,}개" +
+           (f", 예: {result.samples_missed[0][0]}행 "
+            f"{_cut(result.samples_missed[0][1], 50)}" if result.samples_missed else ""))
+    _p("")
+
+    _grid(result.headers, result.rows[:a.rows], limit=a.width)
+    if len(result.rows) > a.rows:
+        _p(f"  ... {len(result.rows) - a.rows:,}행 더")
+
+    if a.out:
+        table = sheet.Table(result.headers,
+                            [[sheet.parse_value(c) for c in row] for row in result.rows])
+        _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name='추출')}")
+    else:
+        _p("\n표로 저장하려면 -o 로 csv 나 xlsx 를 지정하세요.")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -3601,6 +3654,17 @@ def build_parser() -> argparse.ArgumentParser:
     ln2.add_argument("--limit", type=int, default=30)
     ln2.add_argument("--width", type=int, default=80, metavar="칸")
     ln2.set_defaults(func=cmd_text_lines)
+
+    ex2 = tp.add_parser("extract", help="정규식으로 뽑아 표 만들기")
+    ex2.add_argument("pattern", metavar="정규식",
+                     help="이름 붙인 그룹이 열이 된다: '(?P<시각>\\S+) (?P<레벨>\\w+)'")
+    ex2.add_argument("files", nargs="+", metavar="파일", help="'-' 이면 표준 입력")
+    ex2.add_argument("-i", "--ignore-case", action="store_true")
+    ex2.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx")
+    ex2.add_argument("--rows", type=int, default=15, metavar="개")
+    ex2.add_argument("--width", type=int, default=22, metavar="칸")
+    ex2.add_argument("-q", "--quiet", action="store_true", help="맞지 않은 줄 안내 생략")
+    ex2.set_defaults(func=cmd_text_extract)
 
     tu = tp.add_parser("undo", help="text 명령 되돌리기")
     tu.add_argument("journal", nargs="?")

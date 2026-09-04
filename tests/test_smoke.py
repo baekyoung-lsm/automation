@@ -149,6 +149,9 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("text", "trim", self.path("문서"), "-g", "*.txt")
         self.run_cli("text", "replace", "없는말", "새말", self.path("문서"))
         self.assertIn("고유", self.run_cli("text", "lines", self.path("명단.csv")))
+        self.assertIn("레벨", self.run_cli(
+            "text", "extract", r"(?P<시각>\S+ \S+) (?P<레벨>\w+) (?P<메시지>.+)",
+            self.path("app.log")))
 
     # ----------------------------------------------------------- sheet
 

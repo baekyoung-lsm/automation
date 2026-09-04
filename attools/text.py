@@ -301,3 +301,45 @@ def sort_lines(lines: list[str], *, descending: bool = False,
         def key(line: str):
             return (0, 0.0, line)
     return sorted(lines, key=key, reverse=descending)
+
+
+# ------------------------------------------------------------------ 뽑아내기
+
+@dataclass
+class ExtractResult:
+    headers: list[str] = field(default_factory=list)
+    rows: list[list[str]] = field(default_factory=list)
+    matched_lines: int = 0
+    total_lines: int = 0
+    samples_missed: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def missed(self) -> int:
+        return self.total_lines - self.matched_lines
+
+
+def extract(lines: list[str], pattern: re.Pattern[str], *,
+            samples: int = 5) -> ExtractResult:
+    """줄마다 정규식을 맞춰 캡처한 것을 표로 만든다.
+
+    이름 붙인 그룹((?P<이름>...))이 있으면 그 이름을 열 이름으로 쓴다.
+    없으면 1, 2, 3... 을 쓴다.
+    """
+    named = sorted(pattern.groupindex, key=lambda k: pattern.groupindex[k])
+    result = ExtractResult(total_lines=len(lines))
+    result.headers = named or [str(i + 1) for i in range(pattern.groups)] or ["전체"]
+
+    for number, line in enumerate(lines, 1):
+        m = pattern.search(line)
+        if not m:
+            if len(result.samples_missed) < samples and line.strip():
+                result.samples_missed.append((number, line.strip()))
+            continue
+        result.matched_lines += 1
+        if named:
+            result.rows.append([m.group(name) or "" for name in named])
+        elif pattern.groups:
+            result.rows.append([g or "" for g in m.groups()])
+        else:
+            result.rows.append([m.group(0)])
+    return result

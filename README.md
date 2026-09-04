@@ -162,6 +162,7 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
 | `at text trim [경로]` | 줄 끝 공백 제거, 파일 끝 개행 보정, 탭 → 공백 |
+| `at text extract <정규식> <파일…>` | 정규식으로 뽑아 표로 만든다 (로그 → csv) |
 | `at text lines <파일>` | 줄 단위 정리·대조 — 중복 제거, 정렬, 빈도, 두 파일 비교 |
 | `at text undo [저널]` | 직전 작업 되돌리기 |
 
@@ -171,6 +172,7 @@ at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply
 at text encoding 인수인계자료/ --apply     # 예전 파일 무더기 utf-8 로
 at text trim . -g '*.py' --apply
+at text extract '(?P<시각>\S+ \S+) (?P<레벨>\w+) (?P<메시지>.+)' app.log -o 로그.csv
 at text lines 명단.txt --unique -o 정리본.txt
 at text lines 작년명단.txt --compare 올해명단.txt      # 빠진 사람·새로 온 사람
 at text lines 로그.txt --count 10                      # 많이 나온 줄 상위 10개
@@ -179,6 +181,10 @@ at text undo
 
 기본은 미리보기다. 바뀌는 줄을 diff 로 먼저 보여 주고, `--apply` 를 붙여야 실제로 쓴다.
 원본은 `~/.attools/text/<시각>/` 에 통째로 백업하므로 `at text undo` 로 되돌릴 수 있다.
+
+`extract` 는 이름 붙인 그룹 `(?P<이름>…)` 을 열 이름으로 쓴다. 몇 줄이 맞았고 몇 줄이
+안 맞았는지, 안 맞은 줄의 예까지 보여 주므로 정규식을 고쳐 가며 맞출 수 있다. 뽑은 표는
+`-o` 로 저장해 그대로 `at sheet pivot` 이나 `at sheet report` 에 넘길 수 있다.
 
 `lines` 는 명단·목록을 맞춰볼 때 쓴다. `--compare` 는 공통·왼쪽만·오른쪽만으로 갈라
 보여 주고, `-o` 와 `--pick` 을 함께 주면 그중 하나를 파일로 저장한다. 인코딩은

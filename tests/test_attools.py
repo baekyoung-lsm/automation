@@ -1705,6 +1705,40 @@ class TextTest(unittest.TestCase):
                          ["2 개", "10 개", "가나다"])
         self.assertEqual(text.sort_lines(["나", "가"]), ["가", "나"])
 
+    def test_extract_named_groups_become_columns(self):
+        import re
+
+        lines = ["2026-09-01 INFO 시작", "2026-09-02 ERROR 실패", "쓰레기"]
+        pattern = re.compile(r"(?P<날짜>\S+) (?P<레벨>\w+) (?P<메시지>.+)")
+        result = text.extract(lines, pattern)
+
+        self.assertEqual(result.headers, ["날짜", "레벨", "메시지"])
+        self.assertEqual(result.rows[0], ["2026-09-01", "INFO", "시작"])
+        self.assertEqual(result.matched_lines, 2)
+        self.assertEqual(result.missed, 1)
+        self.assertEqual(result.samples_missed[0], (3, "쓰레기"))
+
+    def test_extract_numbered_groups(self):
+        import re
+
+        result = text.extract(["a=1"], re.compile(r"(\w+)=(\d+)"))
+        self.assertEqual(result.headers, ["1", "2"])
+        self.assertEqual(result.rows, [["a", "1"]])
+
+    def test_extract_without_groups_keeps_whole_match(self):
+        import re
+
+        result = text.extract(["가나다", "라마바"], re.compile(r"나."))
+        self.assertEqual(result.headers, ["전체"])
+        self.assertEqual(result.rows, [["나다"]])
+
+    def test_extract_optional_group_becomes_blank(self):
+        import re
+
+        pattern = re.compile(r"(?P<이름>\w+)(?: (?P<값>\d+))?")
+        result = text.extract(["가 1", "나"], pattern)
+        self.assertEqual(result.rows, [["가", "1"], ["나", ""]])
+
     def test_diff_preview(self):
         change = text.Change(Path("a.txt"), "a\nb\n", "a\nc\n", "utf-8", 1)
         lines = change.diff()
