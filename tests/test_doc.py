@@ -263,5 +263,64 @@ class TermVariantTest(unittest.TestCase):
         self.assertEqual(mdkit.term_variants([("a.md", "API 와 API")]), [])
 
 
+class ToHtmlTest(unittest.TestCase):
+    def render(self, md: str, **kw) -> str:
+        html = mdkit.to_html(md, **kw)
+        return html.split('<div class="wrap">')[1].split("</div>")[0]
+
+    def test_headings_get_anchors(self):
+        body = self.render("# 제목\n\n## 설치 방법\n")
+        self.assertIn('<h1 id="제목">제목</h1>', body)
+        self.assertIn('<h2 id="설치-방법">', body)
+
+    def test_inline_syntax(self):
+        body = self.render("**굵게** *기울임* ~~취소~~ `코드` [링크](https://a.b)\n")
+        for piece in ("<strong>굵게</strong>", "<em>기울임</em>", "<del>취소</del>",
+                      "<code>코드</code>", '<a href="https://a.b">링크</a>'):
+            self.assertIn(piece, body)
+
+    def test_html_in_text_is_escaped(self):
+        body = self.render("문단에 <script>alert(1)</script> 가 있다.\n")
+        self.assertNotIn("<script>", body)
+        self.assertIn("&lt;script&gt;", body)
+
+    def test_code_block_keeps_markup_as_text(self):
+        body = self.render("```\n**굵게 아님** <b>태그</b>\n```\n")
+        self.assertIn("<pre><code>", body)
+        self.assertIn("**굵게 아님**", body)
+        self.assertIn("&lt;b&gt;", body)
+
+    def test_inline_code_is_not_reformatted(self):
+        body = self.render("`**별표 그대로**`\n")
+        self.assertIn("<code>**별표 그대로**</code>", body)
+
+    def test_nested_list_goes_inside_the_item(self):
+        body = self.render("- 하나\n- 둘\n  - 안쪽\n- 셋\n")
+        self.assertIn("<li>둘\n<ul>\n<li>안쪽</li>\n</ul></li>", body)
+
+    def test_ordered_list(self):
+        self.assertIn("<ol>", self.render("1. 첫째\n2. 둘째\n"))
+
+    def test_table_alignment_is_kept(self):
+        body = self.render("| 이름 | 값 |\n|---|---:|\n| 가 | 1 |\n")
+        self.assertIn('<th style="text-align:right">값</th>', body)
+        self.assertIn('<td style="text-align:right">1</td>', body)
+
+    def test_quote_and_rule(self):
+        body = self.render("> 인용\n\n---\n")
+        self.assertIn("<blockquote><p>인용</p></blockquote>", body)
+        self.assertIn("<hr/>", body)
+
+    def test_toc_lists_h2_and_h3_only(self):
+        body = self.render("# 제목\n\n## 둘\n\n### 셋\n\n#### 넷\n", toc=True)
+        toc = body.split("</nav>")[0]
+        self.assertIn("#둘", toc)
+        self.assertIn("#셋", toc)
+        self.assertNotIn("#넷", toc)
+
+    def test_print_styles_are_included(self):
+        self.assertIn("@media print", mdkit.to_html("# 가\n"))
+
+
 if __name__ == "__main__":
     unittest.main()

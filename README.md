@@ -377,6 +377,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc images <경로…>` | 문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·안 쓰는 그림 |
 | `at doc terms <경로…>` | 용어 표기 흔들림 - `API`/`api`, `데이터 베이스`/`데이터베이스` |
 | `at doc lint <경로…>` | 문서 점검 한 번에 - 링크·이미지·제목·표·용어 |
+| `at doc html <파일>` | 마크다운을 HTML 한 장으로 (브라우저에서 인쇄하면 PDF) |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -387,6 +388,7 @@ at doc split 기획서.md -o 기획서/          # 미리보기
 at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
+at doc html 회의록.md --toc                # 브라우저로 열어 인쇄 → PDF
 at doc lint docs/ --only-errors            # CI 용. 고쳐야 할 것만
 at doc terms docs/ --kind 띄어쓰기          # 붙여 쓴 곳과 띄어 쓴 곳
 at doc images docs/ --orphans --only-bad   # 깨진 그림과 안 쓰는 그림
@@ -397,6 +399,12 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`html` 은 의존성 없이 마크다운을 한 장짜리 HTML 로 만든다. 한글 글꼴 스택, 밝은/어두운
+모드, **인쇄용 CSS**(제목 뒤에서 쪽이 갈리지 않게, 표·코드는 쪽을 넘기지 않게)를 넣어 두므로
+브라우저에서 인쇄하면 그대로 PDF 가 된다. 지원하는 문법은 제목·문단·목록(중첩 한 단계)·인용·
+코드 블록·표·수평선과 인라인 서식까지다 — 그 이상은 지원하지 않는다고 화면에 적는다. 문서에
+있는 HTML 태그는 escape 해서 **글자 그대로** 보여 준다.
 
 `lint` 는 위의 검사를 한 번에 돌린다. **고쳐야 할 것**(깨진 링크·앵커, 없는 이미지, 제목
 구조)만 종료 코드 1로 보고하고, **판단이 필요한 것**(표 정렬, 용어 표기)은 보여만 준다.

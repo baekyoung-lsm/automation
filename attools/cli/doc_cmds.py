@@ -296,6 +296,33 @@ def cmd_doc_lint(a) -> int:
     return 0
 
 
+def cmd_doc_html(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = path.read_text(encoding="utf-8", errors="replace")
+    note = a.note
+    if not note and not a.no_note:
+        from datetime import date
+
+        note = f"{path.name} · {date.today():%Y-%m-%d}"
+    html = mdkit.to_html(body, title=a.title, toc=a.toc, note=note)
+
+    out = Path(a.out) if a.out else path.with_suffix(".html")
+    if out.exists() and not a.overwrite:
+        _p(f"이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    _p(f"저장: {out}  ({len(html):,}자)")
+    _p("브라우저에서 열어 인쇄하면 PDF 로 저장됩니다. 글꼴과 인쇄용 여백을 "
+       "넣어 두었습니다.")
+    _p(f"지원하는 문법: {mdkit.SUPPORTED}")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -486,3 +513,14 @@ def add_commands(sub) -> None:
                      help="용어 흔들림을 셀 최소 횟수 (기본 3)")
     dl2.add_argument("--limit", type=int, default=10)
     dl2.set_defaults(func=cmd_doc_lint)
+
+    dh2 = dc.add_parser("html", help="마크다운을 HTML 한 장으로 (인쇄·공유용)")
+    dh2.add_argument("file", metavar="파일")
+    dh2.add_argument("-o", "--out", metavar="파일", help="기본: 같은 이름의 .html")
+    dh2.add_argument("--title", default="", metavar="제목",
+                     help="맨 위에 넣을 제목 (문서에 제목이 있으면 안 줘도 된다)")
+    dh2.add_argument("--toc", action="store_true", help="목차를 넣는다")
+    dh2.add_argument("--note", default="", metavar="문구", help="아래에 넣을 한 줄")
+    dh2.add_argument("--no-note", action="store_true", help="아래 문구를 넣지 않는다")
+    dh2.add_argument("--overwrite", action="store_true")
+    dh2.set_defaults(func=cmd_doc_html)
