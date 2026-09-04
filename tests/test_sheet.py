@@ -636,5 +636,48 @@ class SheetTest(unittest.TestCase):
             sheet.validate_rules(t, [sheet.Rule("format", "번호", "주민번호")])
 
 
+class ExpandTest(unittest.TestCase):
+    TABLE = sheet.Table(["이름", "주소", "비고"],
+                        [["가", "서울시 강남구 역삼동", "A"],
+                         ["나", "부산시 해운대구", "B"],
+                         ["다", "", "C"]])
+
+    def test_expand_widens_to_the_longest_row(self):
+        new, report = sheet.expand_column(self.TABLE, "주소", sep=" ")
+        self.assertEqual(new.headers, ["이름", "주소1", "주소2", "주소3", "비고"])
+        self.assertEqual(new.rows[1], ["나", "부산시", "해운대구", "", "B"])
+        self.assertEqual(report.widest, 3)
+        self.assertTrue(report.uneven)
+        self.assertEqual(report.blanks, 1)
+
+    def test_expand_keeps_original_column_when_asked(self):
+        new, _ = sheet.expand_column(self.TABLE, "주소", sep=" ",
+                                     names=["시", "구", "동"], keep=True)
+        self.assertEqual(new.headers, ["이름", "주소", "시", "구", "동", "비고"])
+        self.assertEqual(new.rows[0][1], "서울시 강남구 역삼동")
+
+    def test_expand_needs_enough_names(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.expand_column(self.TABLE, "주소", sep=" ", names=["시", "구"])
+
+    def test_expand_limit_leaves_rest_in_last_cell(self):
+        new, _ = sheet.expand_column(self.TABLE, "주소", sep=" ", limit=2)
+        self.assertEqual(new.rows[0][1:3], ["서울시", "강남구 역삼동"])
+
+    def test_expand_by_regex(self):
+        table = sheet.Table(["값"], [["가1나22다"]])
+        new, _ = sheet.expand_column(table, "값", sep=r"\d+", regex=True)
+        self.assertEqual(new.rows[0], ["가", "나", "다"])
+
+    def test_expand_rejects_empty_separator(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.expand_column(self.TABLE, "주소", sep="")
+
+    def test_expand_even_split_is_not_flagged(self):
+        table = sheet.Table(["값"], [["가,나"], ["다,라"]])
+        _, report = sheet.expand_column(table, "값")
+        self.assertFalse(report.uneven)
+
+
 if __name__ == "__main__":
     unittest.main()

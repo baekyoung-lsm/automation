@@ -273,6 +273,37 @@ def cmd_sheet_transpose(a) -> int:
     return 0
 
 
+def cmd_sheet_expand(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, report = sheet.expand_column(
+            t, a.col, sep=a.sep, regex=a.regex,
+            names=[n.strip() for n in a.names.split(",")] if a.names else None,
+            keep=a.keep, limit=a.max)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _grid(result.headers, [[sheet.to_text(v) for v in r]
+                           for r in result.rows[:a.limit]])
+    if len(result.rows) > a.limit:
+        _p(f"  ... {len(result.rows) - a.limit}행 더")
+
+    _p(f"\n'{a.col}' 열을 {report.widest}개로 갈랐습니다.")
+    if report.uneven:
+        spread = ", ".join(f"{n}조각 {c:,}행" for n, c in
+                           sorted(report.pieces.items(), reverse=True) if n)
+        _p(f"행마다 조각 수가 다릅니다: {spread}")
+        _p("모자란 자리는 빈칸으로 뒀습니다. 잘라내면 값이 조용히 사라집니다.")
+    if report.blanks:
+        _p(f"원래 값이 비어 있던 행 {report.blanks:,}개")
+    if a.out:
+        _p(f"저장: {sheet.save(result, Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_convert(a) -> int:
     t = _load(a)
     if t is None:
@@ -892,6 +923,19 @@ def add_commands(sub) -> None:
     tp.add_argument("--limit", type=int, default=20)
     tp.add_argument("-o", "--out")
     tp.set_defaults(func=cmd_sheet_transpose)
+
+    xp = common(sh.add_parser("expand", help="한 열을 구분자로 갈라 여러 열로"))
+    xp.add_argument("file")
+    xp.add_argument("--col", required=True, metavar="열", help="가를 열")
+    xp.add_argument("--sep", default=",", metavar="구분자", help="기본은 쉼표")
+    xp.add_argument("-e", "--regex", action="store_true", help="--sep 을 정규식으로")
+    xp.add_argument("--names", metavar="이름,이름", help="새 열 이름")
+    xp.add_argument("--keep", action="store_true", help="원래 열도 남긴다")
+    xp.add_argument("--max", type=int, default=0, metavar="개",
+                    help="이 개수까지만 가른다 (나머지는 마지막 칸에)")
+    xp.add_argument("--limit", type=int, default=20)
+    xp.add_argument("-o", "--out")
+    xp.set_defaults(func=cmd_sheet_expand)
 
     def sheet_out(parser):
         parser.add_argument("-o", "--out", metavar="파일")

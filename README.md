@@ -410,6 +410,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
 | `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
+| `at sheet expand <파일> --col <열>` | 한 열을 구분자로 갈라 여러 열로 (엑셀 '텍스트 나누기') |
 | `at sheet cut <파일> -c <열>` | 열 고르기·순서 바꾸기 (`--drop` 이면 빼기) |
 | `at sheet where <파일> --eq <열=값>` | 조건에 맞는 행만. `--gte`, `--lt`, `--has` 등 |
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
@@ -434,6 +435,7 @@ at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
 at sheet melt 월별매출.xlsx --keep 부서 --keep 이름 --name 월 --value 매출 -o 긴표.csv
 at sheet transpose 요약.csv
+at sheet expand 거래처.xlsx --col 주소 --sep ' ' --names 시,구,동 -o 정리본.xlsx
 at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
@@ -461,6 +463,10 @@ at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 
 `melt` 는 피벗의 반대다. `1월 2월 3월`처럼 옆으로 늘어선 열을 `항목/값` 두 열로 눕혀서
 피벗테이블이나 `at sheet pivot` 에 그대로 넣을 수 있는 모양으로 만든다. 빈 칸은 행으로
 만들지 않는다 — 안 판 달과 0원 판 달이 섞이면 평균이 조용히 달라진다(`--keep-blank`).
+
+`expand` 는 조각 수가 행마다 다를 수 있다는 것을 전제로 한다. 열 개수는 **가장 많이
+갈라진 행**에 맞추고 모자란 자리는 빈칸으로 둔다 — 잘라내면 값이 조용히 사라진다. 행마다
+조각 수가 다르면 그 분포를 알려 주므로 주소처럼 들쭉날쭉한 자료를 눈으로 확인할 수 있다.
 
 `transpose` 는 첫 열의 값을 새 머리글로 삼아 행과 열을 바꾼다. 같은 값이 겹치면 뒤에
 번호를 붙여 열 이름이 사라지지 않게 한다.

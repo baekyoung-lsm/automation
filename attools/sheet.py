@@ -1386,3 +1386,77 @@ def transpose(table: Table, *, header: str = "항목") -> Table:
         rows.append([table.headers[i]] +
                     [r[i] if i < len(r) else None for r in table.rows])
     return Table(headers, rows, source=table.source, sheet=table.sheet)
+
+
+@dataclass
+class ExpandReport:
+    column: str
+    pieces: Counter = field(default_factory=Counter)   # 조각 수 -> 행 수
+    widest: int = 0
+    blanks: int = 0                                    # 값이 비어 있던 행
+
+    @property
+    def uneven(self) -> bool:
+        """행마다 조각 수가 다르면 사람이 봐야 한다."""
+        return len([n for n in self.pieces if n]) > 1
+
+
+def expand_column(table: Table, column: str, *, sep: str = ",",
+                  regex: bool = False, names: list[str] | None = None,
+                  keep: bool = False, limit: int = 0) -> tuple[Table, ExpandReport]:
+    """한 열을 구분자로 갈라 여러 열로 편다(엑셀의 '텍스트 나누기').
+
+    조각 수는 행마다 다를 수 있다. 열 개수는 가장 많이 갈라진 행에 맞추고
+    모자란 자리는 빈칸으로 둔다. 잘라 버리면 조용히 값이 사라진다.
+    """
+    index = table.index_of(column)
+    if regex:
+        try:
+            pattern = re.compile(sep)
+        except re.error as e:
+            raise SheetError(f"정규식이 잘못됐습니다: {e}") from None
+    elif not sep:
+        raise SheetError("구분자가 비어 있습니다.")
+
+    report = ExpandReport(column)
+    split_rows: list[list[str]] = []
+    for row in table.rows:
+        raw = to_text(row[index] if index < len(row) else None)
+        if not raw.strip():
+            report.blanks += 1
+            report.pieces[0] += 1
+            split_rows.append([])
+            continue
+        if regex:
+            parts = pattern.split(raw, maxsplit=limit - 1 if limit else 0)
+        else:
+            parts = raw.split(sep, limit - 1 if limit else -1)
+        parts = [p.strip() for p in parts]
+        report.pieces[len(parts)] += 1
+        report.widest = max(report.widest, len(parts))
+        split_rows.append(parts)
+
+    width = report.widest
+    if names:
+        if len(names) < width:
+            raise SheetError(f"이름을 {width}개 주세요. 가장 많이 갈라진 행이 "
+                             f"{width}조각입니다: {', '.join(names)}")
+        headers_new = names[:width]
+    else:
+        headers_new = [f"{column}{i}" for i in range(1, width + 1)]
+
+    headers = list(table.headers)
+    if not keep:
+        headers.pop(index)
+    at = index + 1 if keep else index
+    headers[at:at] = headers_new
+
+    rows: list[list] = []
+    for row, parts in zip(table.rows, split_rows):
+        body = list(row) + [None] * (table.width - len(row))
+        if not keep:
+            body.pop(index)
+        filled = parts + [""] * (width - len(parts))
+        body[at:at] = filled
+        rows.append(body)
+    return Table(headers, rows, source=table.source, sheet=table.sheet), report
