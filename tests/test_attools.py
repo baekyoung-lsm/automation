@@ -625,6 +625,66 @@ class GitStatsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             gitkit.by_period(commits, unit="분기")
 
+    def test_collect_changes_parses_conventional_prefixes(self):
+        self.commit("a.py", "1\n", "feat(api): 검색 추가")
+        self.commit("a.py", "1\n2\n", "fix: 널 참조 고침")
+        self.commit("a.py", "1\n2\n3\n", "feat!: 응답 형식 변경")
+
+        changes = gitkit.collect_changes(self.root)
+        self.assertEqual([c.kind for c in changes], ["feat", "fix", "feat"])
+        self.assertEqual(changes[2].scope, "api")
+        self.assertEqual(changes[2].title, "검색 추가")
+        self.assertTrue(changes[0].breaking)
+
+    def test_collect_changes_keeps_custom_prefix(self):
+        self.commit("a.py", "1\n", "attools: 새 명령 추가")
+        change = gitkit.collect_changes(self.root)[0]
+        self.assertEqual(change.kind, "attools")
+        self.assertEqual(change.title, "새 명령 추가")
+
+    def test_changes_without_prefix_group_by_directory(self):
+        self.commit("src/deep/a.py", "1\n", "접두사 없는 커밋")
+        changes = gitkit.collect_changes(self.root)
+        self.assertEqual(changes[0].kind, "")
+        groups = gitkit.group_changes(changes)
+        self.assertEqual(list(groups), ["src"])
+
+    def test_group_changes_orders_conventional_first(self):
+        self.commit("a.py", "1\n", "chore: 정리")
+        self.commit("a.py", "1\n2\n", "feat: 기능")
+        self.commit("a.py", "1\n2\n3\n", "fix: 버그")
+        groups = gitkit.group_changes(gitkit.collect_changes(self.root))
+        self.assertEqual(list(groups), ["새 기능", "고침", "잡일"])
+
+    def test_render_changelog(self):
+        self.commit("a.py", "1\n", "feat: 기능 하나")
+        self.commit("a.py", "1\n2\n", "fix!: 깨지는 변경")
+        text = gitkit.render_changelog(
+            gitkit.group_changes(gitkit.collect_changes(self.root)),
+            title="1.0.0", link_prefix="https://x/commit/")
+        self.assertIn("## 1.0.0", text)
+        self.assertIn("### 새 기능", text)
+        self.assertIn("**[호환성 주의]**", text)
+        self.assertIn("https://x/commit/", text)
+
+    def test_since_tag_limits_range(self):
+        self.commit("a.py", "1\n", "첫 커밋")
+        self.run("tag", "v0.1")
+        self.commit("a.py", "1\n2\n", "태그 뒤 커밋")
+
+        self.assertEqual(gitkit.latest_tag(self.root), "v0.1")
+        changes = gitkit.collect_changes(self.root, since="v0.1")
+        self.assertEqual([c.title for c in changes], ["태그 뒤 커밋"])
+
+    def test_latest_tag_without_tags(self):
+        self.commit("a.py", "1\n", "커밋")
+        self.assertEqual(gitkit.latest_tag(self.root), "")
+
+    def test_top_directory(self):
+        self.assertEqual(gitkit.top_directory(["src/a.py", "src/b.py"]), "src")
+        self.assertEqual(gitkit.top_directory(["src/a.py", "docs/b.md"]), "여러 곳")
+        self.assertEqual(gitkit.top_directory([]), "기타")
+
     def test_read_log_on_empty_repo(self):
         with self.assertRaises(RuntimeError):
             gitkit.read_log(self.root)

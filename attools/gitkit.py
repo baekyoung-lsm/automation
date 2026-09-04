@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -334,3 +334,125 @@ WEEKDAYS_KO = ["월", "화", "수", "목", "금", "토", "일"]
 def by_weekday(commits: list[Commit]) -> list[tuple[str, int]]:
     counts: Counter = Counter(c.when.weekday() for c in commits)
     return [(WEEKDAYS_KO[i], counts.get(i, 0)) for i in range(7)]
+
+
+# ------------------------------------------------------------------ 변경 로그
+
+# 커밋 제목 앞에 붙는 관례적 접두사. 없는 커밋은 파일 경로로 묶는다.
+CONVENTIONAL = {
+    "feat": "새 기능", "fix": "고침", "perf": "성능", "refactor": "구조 정리",
+    "docs": "문서", "test": "테스트", "build": "빌드", "ci": "CI",
+    "style": "서식", "chore": "잡일", "revert": "되돌림",
+}
+PREFIX_RE = re.compile(r"^(\w+)(?:\(([^)]+)\))?(!)?:\s*(.+)$")
+
+
+@dataclass
+class Change:
+    sha: str
+    kind: str          # 관례 접두사 또는 ""
+    scope: str
+    breaking: bool
+    title: str
+    author: str
+    when: datetime
+    files: list[str] = field(default_factory=list)
+
+
+def latest_tag(root: Path) -> str:
+    try:
+        return run(["describe", "--tags", "--abbrev=0"], root).strip()
+    except RuntimeError:
+        return ""
+
+
+def list_tags(root: Path, limit: int = 20) -> list[str]:
+    try:
+        out = run(["tag", "--sort=-creatordate"], root)
+    except RuntimeError:
+        return []
+    return [t for t in out.splitlines() if t.strip()][:limit]
+
+
+def collect_changes(root: Path, *, since: str = "", until: str = "HEAD") -> list[Change]:
+    """범위 안의 커밋을 변경 항목으로 바꾼다."""
+    span = f"{since}..{until}" if since else until
+    commits = read_log_range(root, span)
+
+    out: list[Change] = []
+    for c in commits:
+        kind = scope = ""
+        breaking = False
+        title = c.subject
+        if m := PREFIX_RE.match(c.subject):
+            # feat/fix 같은 관례 접두사가 아니어도 'attools:' 처럼 쓰는 저장소가 많다.
+            # 그런 말머리도 묶는 이름으로 살려 둔다.
+            kind, scope, breaking, title = (m.group(1).lower(), m.group(2) or "",
+                                            bool(m.group(3)), m.group(4))
+        out.append(Change(c.sha, kind, scope, breaking, title, c.author, c.when,
+                          sorted(c.files)))
+    return out
+
+
+def read_log_range(root: Path, span: str) -> list[Commit]:
+    args = ["log", f"--pretty=format:{LOG_FORMAT}", "--numstat", "--no-merges", span]
+    out = run(args, root)
+    commits: list[Commit] = []
+    for chunk in out.split("\x01"):
+        if not chunk.strip():
+            continue
+        head, _, body = chunk.partition("\n")
+        parts = head.split("\x02")
+        if len(parts) < 4:
+            continue
+        try:
+            when = datetime.fromisoformat(parts[2])
+        except ValueError:
+            continue
+        commit = Commit(parts[0][:9], parts[1], when.replace(tzinfo=None), parts[3])
+        for line in body.splitlines():
+            cells = line.split("\t")
+            if len(cells) == 3 and cells[0] != "-":
+                try:
+                    commit.files[cells[2]] = (int(cells[0]), int(cells[1]))
+                except ValueError:
+                    continue
+        commits.append(commit)
+    return commits
+
+
+def top_directory(paths: list[str], depth: int = 1) -> str:
+    """접두사가 없는 커밋을 묶을 이름. 바뀐 파일들의 공통 위치."""
+    if not paths:
+        return "기타"
+    tops = {"/".join(p.split("/")[:depth]) or p for p in paths}
+    return sorted(tops)[0] if len(tops) == 1 else "여러 곳"
+
+
+def group_changes(changes: list[Change]) -> dict[str, list[Change]]:
+    """관례 접두사가 있으면 그것으로, 없으면 바뀐 위치로 묶는다."""
+    groups: dict[str, list[Change]] = defaultdict(list)
+    for c in changes:
+        label = CONVENTIONAL.get(c.kind) or c.kind or top_directory(c.files)
+        groups[label].append(c)
+
+    order = list(CONVENTIONAL.values())
+    return dict(sorted(groups.items(),
+                       key=lambda kv: (order.index(kv[0]) if kv[0] in order else 99,
+                                       kv[0])))
+
+
+def render_changelog(groups: dict[str, list[Change]], *, title: str = "",
+                     link_prefix: str = "") -> str:
+    lines: list[str] = []
+    if title:
+        lines += [f"## {title}", ""]
+    for label, items in groups.items():
+        lines.append(f"### {label}")
+        for c in items:
+            mark = "**[호환성 주의]** " if c.breaking else ""
+            scope = f"({c.scope}) " if c.scope else ""
+            sha = f"[`{c.sha}`]({link_prefix}{c.sha})" if link_prefix else f"`{c.sha}`"
+            lines.append(f"- {mark}{scope}{c.title} {sha}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"

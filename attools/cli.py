@@ -812,6 +812,55 @@ def cmd_git_stats(a) -> int:
     return 0
 
 
+def cmd_git_release(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    since = a.since
+    if since is None:
+        since = gitkit.latest_tag(root)
+        if since:
+            _p(f"최근 태그 {since} 이후를 봅니다. (--since 로 바꿀 수 있습니다)")
+        else:
+            _p("태그가 없어 전체 이력을 봅니다.")
+
+    try:
+        changes = gitkit.collect_changes(root, since=since, until=a.until)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if not changes:
+        _p("해당 범위에 커밋이 없습니다.")
+        return 0
+
+    groups = gitkit.group_changes(changes)
+    text = gitkit.render_changelog(groups, title=a.title, link_prefix=a.link or "")
+
+    authors = sorted({c.author for c in changes})
+    touched = sorted({f for c in changes for f in c.files})
+    breaking = [c for c in changes if c.breaking]
+
+    if a.out:
+        target = Path(a.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        head = target.read_text(encoding="utf-8") if target.is_file() else ""
+        target.write_text(text + ("\n" + head if head else ""), encoding="utf-8")
+        _p(f"저장: {target}  (기존 내용 위에 붙였습니다)")
+    else:
+        _p("")
+        sys.stdout.write(text)
+
+    _p(f"\n커밋 {len(changes)}개  ·  사람 {len(authors)}명  ·  파일 {len(touched)}개")
+    if breaking:
+        _p(f"호환성 주의 {len(breaking)}건: "
+           + ", ".join(_cut(c.title, 40) for c in breaking[:5]))
+    if a.authors:
+        _p(f"기여: {', '.join(authors)}")
+    return 0
+
+
 # =================================================================== life
 
 def cmd_life_dday(a) -> int:
@@ -2425,6 +2474,17 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--rows", type=int, default=20, metavar="개")
     st.add_argument("--max-commits", type=int, default=0, metavar="개")
     st.set_defaults(func=cmd_git_stats)
+
+    rl = gp.add_parser("release", help="태그 사이 커밋으로 변경 로그 초안 만들기")
+    rl.add_argument("dir", nargs="?", default=".")
+    rl.add_argument("--since", metavar="리비전", help="기본: 최근 태그")
+    rl.add_argument("--until", default="HEAD", metavar="리비전")
+    rl.add_argument("--title", default="", metavar="제목", help="예: 0.11.0")
+    rl.add_argument("--link", metavar="주소",
+                    help="커밋 링크 앞부분 (예: https://github.com/A/B/commit/)")
+    rl.add_argument("--authors", action="store_true", help="기여자 목록도")
+    rl.add_argument("-o", "--out", metavar="파일", help="CHANGELOG.md 맨 위에 붙인다")
+    rl.set_defaults(func=cmd_git_release)
 
     sc = gp.add_parser("scan", help="코드에 하드코딩된 시크릿·개인정보 찾기")
     sc.add_argument("dir", nargs="?", default=".")
