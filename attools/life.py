@@ -376,3 +376,119 @@ def missing_lunar_warning(holidays: dict[date, str], years: list[int]) -> list[s
     return [f"{', '.join(missing)} 은(는) 음력이라 자동으로 넣지 못했습니다.",
             f"{holiday_file()} 에 '2026-02-17 설날' 처럼 적어 두면 반영됩니다.",
             f"확인한 해: {', '.join(str(y) for y in years)}"]
+
+
+# ------------------------------------------------------------------- 세금
+
+VAT_RATE = 10.0             # 부가가치세
+WITHHOLD_RATE = 3.0         # 사업소득 원천징수 소득세율(지방소득세는 그 10%)
+INTEREST_TAX = 15.4         # 이자소득세 14% + 지방소득세 1.4%
+
+
+@dataclass
+class VatSplit:
+    supply: int             # 공급가액
+    vat: int                # 부가세
+    total: int              # 합계
+
+
+def vat_add(supply: float, *, rate: float = VAT_RATE) -> VatSplit:
+    """공급가액에 부가세를 더한다. 원 미만은 버린다."""
+    base = int(supply)
+    tax = int(base * rate / 100)
+    return VatSplit(base, tax, base + tax)
+
+
+def vat_extract(total: float, *, rate: float = VAT_RATE) -> VatSplit:
+    """부가세가 포함된 금액에서 공급가액을 되뽑는다.
+
+    공급가액을 먼저 내림하고 부가세는 차액으로 둔다. 둘을 따로 반올림하면
+    합이 원래 금액과 1원씩 어긋난다.
+    """
+    whole = int(total)
+    # 1,100,000 / 1.1 이 999999.999... 로 떨어지는 부동소수 오차를 막는다.
+    base = int(whole * 100 / (100 + rate) + 1e-6)
+    return VatSplit(base, whole - base, whole)
+
+
+@dataclass
+class Withholding:
+    gross: int              # 지급액
+    income_tax: int         # 소득세
+    local_tax: int          # 지방소득세
+    net: int                # 실수령액
+
+    @property
+    def tax(self) -> int:
+        return self.income_tax + self.local_tax
+
+    @property
+    def rate(self) -> float:
+        return self.tax / self.gross * 100 if self.gross else 0.0
+
+
+def withhold(gross: float, *, rate: float = WITHHOLD_RATE) -> Withholding:
+    """원천징수. 지방소득세는 소득세의 10% 이고, 각각 원 미만을 버린다.
+
+    3.3% 를 한 번에 곱하는 것과 1~2원 다를 수 있다. 실제 원천징수는
+    소득세를 먼저 떼고 그 10% 를 지방소득세로 떼는 순서다.
+    """
+    amount = int(gross)
+    income = int(amount * rate / 100)
+    local = int(income * 0.1)
+    return Withholding(amount, income, local, amount - income - local)
+
+
+# ------------------------------------------------------------------- 적금
+
+@dataclass
+class Saving:
+    kind: str               # 적금 | 예금
+    principal: int          # 원금 합계
+    interest: int           # 세전 이자
+    tax: int                # 이자소득세
+    months: int
+    annual_rate: float
+    tax_rate: float
+
+    @property
+    def net_interest(self) -> int:
+        return self.interest - self.tax
+
+    @property
+    def total(self) -> int:
+        return self.principal + self.net_interest
+
+    @property
+    def effective(self) -> float:
+        """원금 대비 세후 수익률(연 환산). 기간이 0이면 0."""
+        if not self.principal or not self.months:
+            return 0.0
+        return self.net_interest / self.principal * (12 / self.months) * 100
+
+
+def saving_plan(*, monthly: float = 0, deposit: float = 0, months: int,
+                annual_rate: float, tax_rate: float = INTEREST_TAX) -> Saving:
+    """정기적금(매달 넣기)과 정기예금(한 번 넣기)의 단리 만기 계산.
+
+    적금 이자는 먼저 넣은 돈이 더 오래 붙으므로 월 이자 × (n(n+1)/2) 이다.
+    은행 표시 금리는 대개 이 단리 기준이다. 복리 상품은 계산이 다르다.
+    """
+    if months <= 0:
+        raise ValueError("기간은 1개월 이상이어야 합니다.")
+    if bool(monthly) == bool(deposit):
+        raise ValueError("매달 넣는 금액(적금)이나 한 번에 넣는 금액(예금) 중 하나만 주세요.")
+
+    r = annual_rate / 100 / 12
+    if monthly:
+        principal = int(monthly) * months
+        interest = int(monthly) * r * months * (months + 1) / 2
+        kind = "적금"
+    else:
+        principal = int(deposit)
+        interest = principal * r * months
+        kind = "예금"
+
+    interest = int(interest)
+    tax = int(interest * tax_rate / 100)
+    return Saving(kind, principal, interest, tax, months, annual_rate, tax_rate)

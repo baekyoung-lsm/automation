@@ -1215,6 +1215,61 @@ def cmd_life_unit(a) -> int:
     return 0
 
 
+def cmd_life_tax(a) -> int:
+    try:
+        amount = life.parse_amount(" ".join(a.amount))
+    except ValueError as e:
+        _p(str(e))
+        return 1
+    if amount <= 0:
+        _p("금액은 0보다 커야 합니다.")
+        return 1
+
+    added = life.vat_add(amount, rate=a.vat_rate)
+    taken = life.vat_extract(amount, rate=a.vat_rate)
+    _p(f"{life.format_won(amount)}")
+    _p(f"\n부가세 {a.vat_rate:g}%")
+    _p(f"  이 금액이 공급가액이면   부가세 {added.vat:,}원, 합계 {added.total:,}원")
+    _p(f"  이 금액이 합계(세금포함)면  공급가액 {taken.supply:,}원, "
+       f"부가세 {taken.vat:,}원")
+
+    w = life.withhold(amount, rate=a.withhold_rate)
+    _p(f"\n원천징수 (소득세 {a.withhold_rate:g}% + 지방소득세 그 10%)")
+    _p(f"  소득세 {w.income_tax:,}원 + 지방소득세 {w.local_tax:,}원 "
+       f"= {w.tax:,}원 ({w.rate:.2f}%)")
+    _p(f"  실수령액 {life.format_won(w.net)}")
+    _p("\n원 미만은 버립니다. 소득 종류마다 세율이 다릅니다 - 사업소득은 소득세 3%"
+       "(합계 3.3%), 기타소득은 8%(합계 8.8%). --withhold-rate 로 바꾸세요.")
+    return 0
+
+
+def cmd_life_save(a) -> int:
+    try:
+        monthly = life.parse_amount(a.monthly) if a.monthly else 0
+        deposit = life.parse_amount(a.deposit) if a.deposit else 0
+        plan = life.saving_plan(monthly=monthly, deposit=deposit,
+                                months=a.months, annual_rate=a.rate,
+                                tax_rate=a.tax)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{plan.kind}  연 {plan.annual_rate:g}%  {plan.months}개월  (단리)")
+    if monthly:
+        _p(f"  매달 {int(monthly):,}원 x {plan.months}회")
+    _p(f"  원금        {plan.principal:,}원")
+    _p(f"  세전 이자   {plan.interest:,}원")
+    _p(f"  이자소득세  -{plan.tax:,}원 ({plan.tax_rate:g}%)")
+    _p(f"  세후 이자   {plan.net_interest:,}원")
+    _p(f"  만기 수령   {life.format_won(plan.total)}")
+    _p(f"\n원금 대비 세후 수익률 연 {plan.effective:.2f}%")
+    if plan.kind == "적금":
+        _p("적금은 먼저 넣은 돈만 오래 이자가 붙어서, 같은 금리인 예금보다 "
+           "실제 수익률이 절반쯤입니다. 금리만 보고 비교하면 안 됩니다.")
+    _p("은행이 표시하는 단리 기준입니다. 월복리 상품이나 중도해지 이율은 다릅니다.")
+    return 0
+
+
 # ================================================================== sheet
 
 def _width(text: str) -> int:
@@ -3862,6 +3917,22 @@ def build_parser() -> argparse.ArgumentParser:
     un = lp.add_parser("unit", help="단위 변환 (평/㎡, 근/돈, 마일, 화씨…)")
     un.add_argument("value", nargs="+", metavar="값+단위", help="예: 84㎡, 30평, 1근, 100F")
     un.set_defaults(func=cmd_life_unit)
+
+    tx = lp.add_parser("tax", help="부가세 계산과 원천징수 실수령액")
+    tx.add_argument("amount", nargs="+", metavar="금액", help="예: 1100000, 110만")
+    tx.add_argument("--vat-rate", type=float, default=life.VAT_RATE, metavar="%")
+    tx.add_argument("--withhold-rate", type=float, default=life.WITHHOLD_RATE,
+                    metavar="%", help="소득세율 (사업소득 3, 기타소득 8)")
+    tx.set_defaults(func=cmd_life_tax)
+
+    sv = lp.add_parser("save", help="적금·예금 만기 수령액")
+    sv.add_argument("--monthly", metavar="금액", help="매달 넣는 돈 (적금)")
+    sv.add_argument("--deposit", metavar="금액", help="한 번에 넣는 돈 (예금)")
+    sv.add_argument("--months", type=int, required=True, metavar="개월")
+    sv.add_argument("--rate", type=float, required=True, metavar="%", help="연 이율")
+    sv.add_argument("--tax", type=float, default=life.INTEREST_TAX, metavar="%",
+                    help="이자소득세 (기본 15.4, 비과세면 0)")
+    sv.set_defaults(func=cmd_life_save)
 
     # ---- sheet
     sh = sub.add_parser("sheet", help="엑셀·CSV 실무 보조").add_subparsers(dest="cmd", required=True)

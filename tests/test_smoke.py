@@ -279,6 +279,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("매달", self.run_cli("life", "loan", "3억", "4.2", "30"))
         self.assertIn("평", self.run_cli("life", "unit", "84㎡"))
         self.assertIn("영업일", self.run_cli("life", "workday", "2026-08-14", "+5"))
+        self.assertIn("부가세", self.run_cli("life", "tax", "1100000"))
+        self.assertIn("만기 수령", self.run_cli(
+            "life", "save", "--monthly", "50만", "--months", "24", "--rate", "3.5"))
 
     # ------------------------------------------------------------ keys
 

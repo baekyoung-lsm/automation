@@ -1124,6 +1124,59 @@ class LifeTest(unittest.TestCase):
             life.convert("5광년")
 
 
+class TaxSavingTest(unittest.TestCase):
+    def test_vat_add(self):
+        v = life.vat_add(1_000_000)
+        self.assertEqual((v.supply, v.vat, v.total), (1_000_000, 100_000, 1_100_000))
+
+    def test_vat_extract_is_exact_for_round_amounts(self):
+        v = life.vat_extract(1_100_000)
+        self.assertEqual((v.supply, v.vat), (1_000_000, 100_000))
+
+    def test_vat_extract_parts_always_sum_to_total(self):
+        for amount in (1000, 1234567, 33333, 999, 11000):
+            v = life.vat_extract(amount)
+            self.assertEqual(v.supply + v.vat, amount, amount)
+
+    def test_vat_rate_can_change(self):
+        self.assertEqual(life.vat_add(1000, rate=0).vat, 0)
+
+    def test_withhold_takes_local_tax_from_income_tax(self):
+        w = life.withhold(3_000_000)
+        self.assertEqual((w.income_tax, w.local_tax), (90_000, 9_000))
+        self.assertEqual(w.net, 2_901_000)
+        self.assertAlmostEqual(w.rate, 3.3)
+
+    def test_withhold_other_income_rate(self):
+        w = life.withhold(1_000_000, rate=8)
+        self.assertEqual((w.income_tax, w.local_tax, w.net), (80_000, 8_000, 912_000))
+
+    def test_saving_monthly_uses_declining_periods(self):
+        s = life.saving_plan(monthly=500_000, months=24, annual_rate=3.5)
+        self.assertEqual(s.kind, "적금")
+        self.assertEqual(s.principal, 12_000_000)
+        self.assertEqual(s.interest, 437_500)      # 월이자 x 24x25/2
+        self.assertEqual(s.tax, 67_375)
+        self.assertEqual(s.total, 12_370_125)
+
+    def test_saving_deposit_is_simple_interest(self):
+        s = life.saving_plan(deposit=10_000_000, months=12, annual_rate=3.5, tax_rate=0)
+        self.assertEqual((s.kind, s.interest, s.tax), ("예금", 350_000, 0))
+        self.assertAlmostEqual(s.effective, 3.5, places=2)
+
+    def test_saving_effective_rate_is_lower_than_nominal(self):
+        s = life.saving_plan(monthly=100_000, months=12, annual_rate=4, tax_rate=0)
+        self.assertLess(s.effective, 4)
+
+    def test_saving_needs_exactly_one_kind(self):
+        with self.assertRaises(ValueError):
+            life.saving_plan(months=12, annual_rate=3)
+        with self.assertRaises(ValueError):
+            life.saving_plan(monthly=1, deposit=1, months=12, annual_rate=3)
+        with self.assertRaises(ValueError):
+            life.saving_plan(deposit=1000, months=0, annual_rate=3)
+
+
 class WatchTest(unittest.TestCase):
     def test_mtime_diff(self):
         root = Path(tempfile.mkdtemp())
