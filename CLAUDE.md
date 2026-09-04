@@ -52,7 +52,10 @@ attools/
   names.py          고유명사 추출, 표기 흔들림, 이름 뒤 조사 검사
   schedule.py       cron 해석
   data/shortcuts.json
-tests/test_attools.py
+tests/
+  test_<그룹>.py   모듈별 단위 시험 (test_sheet, test_novel …)
+  test_cli.py     모든 하위 명령의 배선과 --help
+  test_smoke.py   그룹마다 대표 명령을 실제 파일로 끝까지
 ```
 
 ## 명령을 추가할 때
@@ -64,8 +67,9 @@ tests/test_attools.py
    `cli/__init__.py` 의 `GROUP_MODULES` 에 넣는다. 그룹 사이에 함수를 직접 부르지
    않는다 - 함께 쓸 것은 `common.py` 로 올린다.
 3. 테스트를 쓴다. 세 겹이다.
-   - 로직 단위 테스트 (`tests/test_attools.py`)
-   - `CliWiringTest` 가 모든 하위 명령의 배선과 `--help` 를 자동으로 훑는다
+   - 로직 단위 테스트 (`tests/test_<그룹>.py`. 해당 모듈 파일에 넣는다)
+   - `tests/test_cli.py` 의 `CliWiringTest` 가 모든 하위 명령의 배선과
+     `--help` 를 자동으로 훑는다
    - `tests/test_smoke.py` 가 그룹마다 대표 명령을 실제 파일로 끝까지 돌린다.
      새 그룹을 만들면 여기에도 한 줄 더한다.
 4. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
