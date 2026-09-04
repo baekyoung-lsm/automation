@@ -846,6 +846,7 @@ at life save --deposit 1000만 --months 12 --rate 3.5
 | `at novel quote <경로…>` | 따옴표 짝 점검 - 안 닫힌 대사, 굽은/곧은 따옴표 섞임 |
 | `at novel split <파일>` | 한 파일에 몰아 쓴 원고를 화 단위 파일로 나눈다 |
 | `at novel say <경로…>` | 대사만 뽑아 이어 본다 (말투 점검·낭독용) |
+| `at novel notes <경로…>` | 원고에 남긴 메모 모으기 (`[[ ]]`, `※`, `TODO:`, 주석) |
 
 ```bash
 at novel stats 원고/ --each
@@ -868,6 +869,8 @@ at novel cast 원고/ --gone 5           # 5화 넘게 안 나온 인물
 at novel quote 원고/                   # 안 닫힌 대사 찾기 (있으면 exit 1)
 at novel split 통원고.txt -o 원고/ --apply
 at novel say 원고/ --who 리안 -o 리안_대사.txt   # 한 인물 말투만 이어 읽기
+at novel notes 원고/                            # 남은 메모 (있으면 exit 1)
+at novel notes 원고/ --remove --apply           # 투고 전에 지우기 (백업 남음)
 at novel tidy 원고/ --scene-mark ＊     # 미리보기 (차이까지)
 at novel tidy 원고/ --join --indent --apply
 at novel snap 원고/ --note "3부 초고 완료"
@@ -875,6 +878,11 @@ at novel snap 원고/ -l
 at novel pace 원고/ --goal 1500매 --due 2026-12-31
 at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜별 표
 ```
+
+`at novel notes` 는 원고에 남긴 메모를 모은다. `[[보강할 것]]`, `※ 순서 바꿀 것`,
+`TODO:`, `<!-- 주석 -->` 을 찾아 몇 행인지, **줄 전체인지 문장 안인지**까지 알려 준다.
+`--remove --apply` 로 지울 때 문장 한가운데 있던 메모는 그 부분만 지우고 양옆 공백을
+정리한다. 지운 파일은 백업이 남아 `at text undo` 로 되돌아간다.
 
 `at novel say` 는 대사만 뽑아 이어 놓는다. 지문을 걷어내고 읽으면 말투가 흔들리는 자리가
 눈에 띈다. 화자는 `dialogue` 와 같은 규칙으로 **같은 줄 안에서만** 찾고, 못 찾으면 비워

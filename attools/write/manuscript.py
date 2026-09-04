@@ -1112,3 +1112,70 @@ def sanitize_chapter_title(title: str) -> str:
     """파일 이름에 쓸 수 있게 다듬는다. 한글은 그대로 둔다."""
     body = re.sub(r'[\\\\/:*?"<>|]', "", title).strip()
     return re.sub(r"\s+", "_", body)[:40]
+
+
+# --------------------------------------------------------------- 작가 메모
+
+# 원고에 남기는 메모. 본문과 섞여 있어도 눈에 띄게 적는 표시들만 본다.
+NOTE_PATTERNS = [
+    ("[[ ]]", re.compile(r"\[\[(?P<body>.+?)\]\]", re.S)),
+    ("주석", re.compile(r"<!--(?P<body>.+?)-->", re.S)),
+    # 줄 앞의 공백만 건너뛴다. \s 를 쓰면 앞의 빈 줄까지 먹어 줄 번호가 밀린다.
+    ("표시", re.compile(r"^[ \t]*※[ \t]*(?P<body>.+?)[ \t]*$", re.M)),
+    ("TODO", re.compile(r"^[ \t]*(?:TODO|FIXME|메모)[ \t]*[:：][ \t]*"
+                        r"(?P<body>.+?)[ \t]*$", re.M | re.I)),
+]
+
+
+@dataclass
+class Note:
+    line: int
+    kind: str
+    text: str
+    whole_line: bool      # 줄 전체가 메모인가
+
+
+def find_notes(text: str) -> list[Note]:
+    """원고에 남긴 메모를 찾는다. 본문과 섞인 것도 자리를 짚는다."""
+    lines = text.splitlines()
+    starts: list[int] = []
+    pos = 0
+    for line in lines:
+        starts.append(pos)
+        pos += len(line) + 1
+
+    def line_of(index: int) -> int:
+        return max(1, len([s for s in starts if s <= index]))
+
+    found: list[Note] = []
+    for kind, pattern in NOTE_PATTERNS:
+        for m in pattern.finditer(text):
+            number = line_of(m.start())
+            whole = lines[number - 1].strip() == m.group(0).strip() if lines else False
+            found.append(Note(number, kind, " ".join(m.group("body").split()), whole))
+    return sorted(found, key=lambda n: (n.line, n.kind))
+
+
+def remove_notes(text: str) -> tuple[str, int]:
+    """메모를 지운다. 줄 전체가 메모면 줄째로, 아니면 그 부분만.
+
+    문장 한가운데의 메모를 지울 때 양옆 공백이 두 칸이 되지 않게 정리한다.
+    """
+    count = 0
+    body = text
+    for _kind, pattern in NOTE_PATTERNS:
+        def cut(m):
+            nonlocal count
+            count += 1
+            return ""
+        body = pattern.sub(cut, body)
+
+    cleaned: list[str] = []
+    for line in body.splitlines():
+        if not line.strip() and cleaned and not cleaned[-1].strip():
+            continue                      # 메모를 지우며 생긴 빈 줄이 겹치지 않게
+        cleaned.append(re.sub(r"[ \t]{2,}", " ", line).rstrip())
+    out = "\n".join(cleaned)
+    if text.endswith("\n"):
+        out += "\n"
+    return out, count

@@ -641,5 +641,42 @@ class ChapterSplitTest(unittest.TestCase):
         self.assertEqual(chapters[0].chars, len("제1화만남첫문단."))
 
 
+class NoteTest(unittest.TestCase):
+    RAW = ("# 1화\n\n첫 문단이다. [[여기 묘사 보강]] 이어지는 문장.\n\n"
+           "※ 이 장면은 순서를 바꿀 것\n\n둘째 문단.\nTODO: 이름 통일\n"
+           "<!-- 편집자 메모 -->\n끝 문단.\n")
+
+    def test_finds_every_kind(self):
+        kinds = [n.kind for n in manuscript.find_notes(self.RAW)]
+        self.assertEqual(sorted(set(kinds)), sorted(["[[ ]]", "표시", "TODO", "주석"]))
+
+    def test_line_numbers_are_not_shifted_by_blank_lines(self):
+        notes = {n.kind: n.line for n in manuscript.find_notes(self.RAW)}
+        self.assertEqual(notes["[[ ]]"], 3)
+        self.assertEqual(notes["표시"], 5)      # 앞의 빈 줄을 먹지 않는다
+        self.assertEqual(notes["TODO"], 8)
+
+    def test_whole_line_flag(self):
+        notes = {n.kind: n.whole_line for n in manuscript.find_notes(self.RAW)}
+        self.assertFalse(notes["[[ ]]"])
+        self.assertTrue(notes["표시"])
+
+    def test_remove_keeps_the_sentence_readable(self):
+        cleaned, count = manuscript.remove_notes(self.RAW)
+        self.assertEqual(count, 4)
+        self.assertIn("첫 문단이다. 이어지는 문장.", cleaned)
+        self.assertNotIn("[[", cleaned)
+        self.assertNotIn("※", cleaned)
+
+    def test_remove_does_not_pile_up_blank_lines(self):
+        cleaned, _ = manuscript.remove_notes(self.RAW)
+        self.assertNotIn("\n\n\n", cleaned)
+
+    def test_text_without_notes_is_unchanged(self):
+        body = "# 1화\n\n그냥 글이다.\n"
+        self.assertEqual(manuscript.remove_notes(body), (body, 0))
+        self.assertEqual(manuscript.find_notes(body), [])
+
+
 if __name__ == "__main__":
     unittest.main()

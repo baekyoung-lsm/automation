@@ -656,6 +656,55 @@ def cmd_novel_say(a) -> int:
     return 0
 
 
+def cmd_novel_notes(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    total = 0
+    changes: list[text.Change] = []
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError:
+            continue
+        notes = manuscript.find_notes(body)
+        if not notes:
+            continue
+        total += len(notes)
+        _p(f"{path}  {len(notes)}건")
+        for note in notes[:a.limit]:
+            spot = "줄 전체" if note.whole_line else "문장 안"
+            _p(f"  {note.line}행  [{note.kind}·{spot}] {_cut(note.text, 60)}")
+        if len(notes) > a.limit:
+            _p(f"  ... {len(notes) - a.limit}건 더")
+        _p("")
+
+        if a.remove:
+            cleaned, _count = manuscript.remove_notes(body)
+            if cleaned != body:
+                changes.append(text.Change(path, body, cleaned, encoding,
+                                           hits=len(notes)))
+
+    if not total:
+        _p(f"파일 {len(targets)}개, 남은 메모가 없습니다.")
+        return 0
+
+    _p(f"모두 {total}건")
+    if not a.remove:
+        _p("지우려면 --remove 를, 실제로 쓰려면 --remove --apply 를 붙이세요.")
+        return 1
+    if not a.apply:
+        _p(f"파일 {len(changes)}개에서 메모를 지웁니다. 실제로 쓰려면 --apply 를 붙이세요.")
+        return 1
+
+    journal = text.apply_changes(changes)
+    _p(f"파일 {len(changes)}개에서 메모를 지웠습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -993,3 +1042,10 @@ def add_commands(sub) -> None:
     sy.add_argument("-o", "--out", metavar="파일")
     sy.add_argument("--limit", type=int, default=30)
     sy.set_defaults(func=cmd_novel_say)
+
+    nt = np_.add_parser("notes", help="원고에 남긴 메모 모으기 ([[ ]], ※, TODO:, 주석)")
+    nt.add_argument("paths", nargs="+")
+    nt.add_argument("--remove", action="store_true", help="찾은 메모를 지운다")
+    nt.add_argument("--apply", action="store_true", help="--remove 와 함께 실제로 쓴다")
+    nt.add_argument("--limit", type=int, default=20)
+    nt.set_defaults(func=cmd_novel_notes)

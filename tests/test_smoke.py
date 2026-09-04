@@ -506,6 +506,12 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
+        메모원고 = Path(self.path("원고")) / "메모화.md"
+        메모원고.write_text("# 9화\n\n첫 문단. [[보강]]\n", encoding="utf-8")
+        self.assertIn("보강", self.run_cli("novel", "notes", str(메모원고), expect=1))
+        self.run_cli("novel", "notes", str(메모원고), "--remove", "--apply")
+        self.assertNotIn("[[", 메모원고.read_text(encoding="utf-8"))
+
         대사 = self.run_cli("novel", "say", 원고, "--min", "1")
         self.assertIn("인물", 대사)
 
