@@ -34,5 +34,8 @@ jobs:
       - name: 시크릿 검사 (자기 자신에게)
         run: python at git scan --quiet
 
-      - name: 문서 링크 검사
-        run: python at doc links README.md
+      - name: 문서 점검 (링크·이미지·제목)
+        run: python at doc lint README.md --only-errors
+
+      - name: 안 쓰는 import 검사 (자기 자신에게)
+        run: python at dev unused attools tests

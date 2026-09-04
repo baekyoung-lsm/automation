@@ -97,7 +97,8 @@ tests/
 ```bash
 python3 -W error::ResourceWarning -m unittest discover -s tests   # 전부 통과해야 한다
 ./at git scan                            # 자기 저장소 시크릿 검사
-./at doc links README.md                 # 링크 검사
+./at doc lint README.md --only-errors    # 깨진 링크·이미지·제목 구조
+./at dev unused attools tests            # 안 쓰는 import
 ```
 
 커밋 전에 셋 다 돌린다. CI 도 같은 것을 돌린다.

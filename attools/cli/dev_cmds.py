@@ -426,16 +426,18 @@ def cmd_dev_lock(a) -> int:
 
 
 def cmd_dev_unused(a) -> int:
-    root = Path(a.dir)
-    if not root.is_dir():
-        _p(f"디렉터리가 아닙니다: {root}")
-        return 1
+    roots = [Path(p) for p in a.dirs]
+    for root in roots:
+        if not root.is_dir():
+            _p(f"디렉터리가 아닙니다: {root}")
+            return 1
 
     found: list = []
     checked = 0
-    for path in pyscan.iter_python(root):
-        checked += 1
-        found += pyscan.unused_imports(path, skip_init=not a.init)
+    for root in roots:
+        for path in pyscan.iter_python(root):
+            checked += 1
+            found += pyscan.unused_imports(path, skip_init=not a.init)
 
     if found:
         _p(f"안 쓰는 import {len(found)}건 (파일 {checked}개 훑음)")
@@ -448,7 +450,7 @@ def cmd_dev_unused(a) -> int:
         _p(f"파일 {checked}개, 안 쓰는 import 가 없습니다.")
 
     if a.modules:
-        orphans = [m for m in pyscan.module_uses(root) if m.orphan]
+        orphans = [m for root in roots for m in pyscan.module_uses(root) if m.orphan]
         _p(f"\n아무도 import 하지 않는 모듈 {len(orphans)}개")
         for item in orphans[:a.limit]:
             _p(f"  {item.path}")
@@ -890,7 +892,7 @@ def add_commands(sub) -> None:
     lk.set_defaults(func=cmd_dev_lock)
 
     un = dp.add_parser("unused", help="안 쓰는 import 찾기 (파이썬)")
-    un.add_argument("dir", nargs="?", default=".")
+    un.add_argument("dirs", nargs="*", default=["."], metavar="경로")
     un.add_argument("--modules", action="store_true",
                     help="아무도 import 하지 않는 모듈도 찾는다")
     un.add_argument("--init", action="store_true",
