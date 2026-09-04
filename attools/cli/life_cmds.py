@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .. import life, text
-from .common import _pad, _p
+from .common import _pad, _p, _grid
 
 
 def cmd_life_dday(a) -> int:
@@ -180,6 +180,54 @@ def cmd_life_save(a) -> int:
         _p("적금은 먼저 넣은 돈만 오래 이자가 붙어서, 같은 금리인 예금보다 "
            "실제 수익률이 절반쯤입니다. 금리만 보고 비교하면 안 됩니다.")
     _p("은행이 표시하는 단리 기준입니다. 월복리 상품이나 중도해지 이율은 다릅니다.")
+    return 0
+
+
+def cmd_life_tz(a) -> int:
+    from datetime import datetime
+
+    if a.list:
+        _p("별칭")
+        names = sorted(set(life.ZONE_ALIASES))
+        for i in range(0, len(names), 4):
+            _p("  " + "  ".join(_pad(n, 14) for n in names[i:i + 4]).rstrip())
+        _p("\n별칭에 없으면 Asia/Seoul 처럼 IANA 이름을 그대로 적으면 됩니다.")
+        return 0
+
+    try:
+        home = life.zone_of(a.zone)
+        moment = life.parse_when(" ".join(a.when), home) if a.when else datetime.now(home)
+        names = list(a.to or []) or [n for n in life.DEFAULT_ZONES]
+        if a.zone not in names:
+            names = [a.zone, *names]
+        times = life.zone_times(moment, names)
+    except life.ZoneError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{a.zone} {moment:%Y-%m-%d %H:%M}({life.weekday_ko(moment.date())}) 기준")
+    _grid(["곳", "시간대", "현지 시각", "요일", "시차", "근무 시간"],
+          [[z.name, z.zone, f"{z.when:%m-%d %H:%M}", life.weekday_ko(z.when.date()),
+            z.offset, "예" if z.is_work else "아니오"] for z in times])
+
+    if a.overlap:
+        try:
+            rows = life.work_overlap(a.zone, a.overlap, day=moment.date())
+        except life.ZoneError as e:
+            _p(str(e))
+            return 1
+        both = [(mine, yours) for mine, yours, ok in rows if ok]
+        _p(f"\n{a.zone} ↔ {a.overlap}  (양쪽 09~18시 기준)")
+        if both:
+            _p(f"  겹치는 시간 {len(both)}시간: " +
+               ", ".join(f"{m:02d}시(상대 {y:02d}시)" for m, y in both))
+        else:
+            near = [m for m, y, _ in rows if life.WORK_START <= y < life.WORK_END]
+            _p("  겹치는 근무 시간이 없습니다.")
+            for begin, end in life.hour_ranges(near):
+                _p(f"  상대 근무 시간은 내 {begin:02d}시~{end:02d}시입니다"
+                   + ("(자정을 넘습니다)." if end < begin else "."))
+    _p("\n서머타임은 시간대 자료(IANA)를 그대로 따릅니다.")
     return 0
 
 
@@ -374,3 +422,12 @@ def add_commands(sub) -> None:
     cl.add_argument("--holidays", metavar="파일",
                     help="음력 명절 등을 적어 둔 파일 (기본 ~/.attools/holidays.txt)")
     cl.set_defaults(func=cmd_life_cal)
+
+    tz = lp.add_parser("tz", help="시차 - 여러 도시의 같은 시각, 겹치는 근무 시간")
+    tz.add_argument("when", nargs="*", metavar="시각",
+                    help="예: '2026-09-05 14:00' 또는 '14:00' (기본: 지금)")
+    tz.add_argument("--zone", default="서울", metavar="곳", help="기준 시간대")
+    tz.add_argument("--to", action="append", metavar="곳", help="볼 곳 (여러 번)")
+    tz.add_argument("--overlap", metavar="곳", help="이곳과 겹치는 근무 시간")
+    tz.add_argument("-l", "--list", action="store_true", help="쓸 수 있는 별칭")
+    tz.set_defaults(func=cmd_life_tz)

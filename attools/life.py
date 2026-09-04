@@ -492,3 +492,128 @@ def saving_plan(*, monthly: float = 0, deposit: float = 0, months: int,
     interest = int(interest)
     tax = int(interest * tax_rate / 100)
     return Saving(kind, principal, interest, tax, months, annual_rate, tax_rate)
+
+
+# ------------------------------------------------------------------- 시차
+
+# 자주 보는 곳만 별칭으로 둔다. 나머지는 Asia/Seoul 처럼 그대로 적으면 된다.
+ZONE_ALIASES = {
+    "서울": "Asia/Seoul", "한국": "Asia/Seoul",
+    "도쿄": "Asia/Tokyo", "일본": "Asia/Tokyo",
+    "베이징": "Asia/Shanghai", "상하이": "Asia/Shanghai", "중국": "Asia/Shanghai",
+    "싱가포르": "Asia/Singapore", "인도": "Asia/Kolkata", "두바이": "Asia/Dubai",
+    "런던": "Europe/London", "파리": "Europe/Paris", "베를린": "Europe/Berlin",
+    "암스테르담": "Europe/Amsterdam", "모스크바": "Europe/Moscow",
+    "뉴욕": "America/New_York", "시카고": "America/Chicago",
+    "덴버": "America/Denver", "샌프란시스코": "America/Los_Angeles",
+    "로스앤젤레스": "America/Los_Angeles", "시애틀": "America/Los_Angeles",
+    "밴쿠버": "America/Vancouver", "토론토": "America/Toronto",
+    "상파울루": "America/Sao_Paulo", "시드니": "Australia/Sydney",
+    "오클랜드": "Pacific/Auckland", "호놀룰루": "Pacific/Honolulu",
+    "UTC": "UTC", "협정시": "UTC",
+}
+DEFAULT_ZONES = ["서울", "뉴욕", "샌프란시스코", "런던", "베를린", "싱가포르", "UTC"]
+WORK_START, WORK_END = 9, 18       # 겹치는 시간을 볼 때 기준으로 삼는 근무 시간
+
+
+class ZoneError(Exception):
+    pass
+
+
+def zone_of(name: str):
+    """별칭이나 IANA 이름으로 시간대를 찾는다."""
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    key = ZONE_ALIASES.get(name.strip(), name.strip())
+    try:
+        return ZoneInfo(key)
+    except ZoneInfoNotFoundError:
+        raise ZoneError(f"모르는 시간대입니다: {name} "
+                        "(Asia/Seoul 처럼 적거나 at life tz --list 를 보세요)") from None
+    except Exception as e:                       # 잘못된 형식 등
+        raise ZoneError(f"시간대를 읽지 못했습니다: {name} ({e})") from None
+
+
+@dataclass
+class ZoneTime:
+    name: str                # 부른 이름
+    zone: str                # 실제 시간대
+    when: datetime
+    offset_minutes: int
+    is_work: bool
+
+    @property
+    def offset(self) -> str:
+        sign = "+" if self.offset_minutes >= 0 else "-"
+        hours, minutes = divmod(abs(self.offset_minutes), 60)
+        return f"UTC{sign}{hours}" + (f":{minutes:02d}" if minutes else "")
+
+
+def zone_times(moment: datetime, names: list[str]) -> list[ZoneTime]:
+    """같은 순간을 여러 시간대에서 본다. moment 는 시간대가 붙어 있어야 한다."""
+    if moment.tzinfo is None:
+        raise ZoneError("어느 시간대의 시각인지 정해야 합니다.")
+    out: list[ZoneTime] = []
+    for name in names:
+        zone = zone_of(name)
+        local = moment.astimezone(zone)
+        offset = int((local.utcoffset() or timedelta()).total_seconds() // 60)
+        out.append(ZoneTime(name, str(zone), local, offset,
+                            local.weekday() < 5 and WORK_START <= local.hour < WORK_END))
+    return sorted(out, key=lambda z: z.offset_minutes)
+
+
+def parse_when(text: str, zone) -> datetime:
+    """'2026-09-05 14:00' 이나 '14:00'(오늘) 을 그 시간대의 시각으로."""
+    body = text.strip()
+    now = datetime.now(zone)
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H", "%Y-%m-%d",
+                "%m-%d %H:%M", "%H:%M", "%H"):
+        try:
+            parsed = datetime.strptime(body, fmt)
+        except ValueError:
+            continue
+        if "%Y" not in fmt:
+            parsed = parsed.replace(year=now.year)
+            if "%m" not in fmt:
+                parsed = parsed.replace(month=now.month, day=now.day)
+        return parsed.replace(tzinfo=zone)
+    raise ZoneError(f"시각을 읽지 못했습니다: {text} (예: '2026-09-05 14:00' 또는 '14:00')")
+
+
+def work_overlap(here: str, there: str, *, day: date | None = None,
+                 start: int = WORK_START, end: int = WORK_END) -> list[tuple[int, int, bool]]:
+    """내 하루 24시간마다 상대 쪽 시각과 둘 다 근무 시간인지.
+
+    (내 시각, 상대 시각, 둘 다 근무 시간) 목록. 요일이 다를 수 있으므로
+    상대 쪽 주말이면 겹치지 않는 것으로 본다.
+    """
+    home, away = zone_of(here), zone_of(there)
+    base = day or datetime.now(home).date()
+    out: list[tuple[int, int, bool]] = []
+    for hour in range(24):
+        mine = datetime(base.year, base.month, base.day, hour, tzinfo=home)
+        yours = mine.astimezone(away)
+        both = (start <= hour < end and mine.weekday() < 5
+                and start <= yours.hour < end and yours.weekday() < 5)
+        out.append((hour, yours.hour, both))
+    return out
+
+
+def hour_ranges(hours: list[int]) -> list[tuple[int, int]]:
+    """시각 목록을 이어지는 구간으로 묶는다. 자정을 넘어가는 것도 한 구간이다.
+
+    22,23,0,1 을 '22~1' 로 보여줘야 한다. 정렬만 하면 '0~23' 처럼 보인다.
+    """
+    have = set(hours)
+    if not have or len(have) == 24:
+        return [(0, 23)] if have else []
+    out: list[tuple[int, int]] = []
+    for hour in sorted(have):
+        if (hour - 1) % 24 in have:
+            continue                       # 구간 한가운데
+        end = hour
+        while (end + 1) % 24 in have:
+            end = (end + 1) % 24
+        out.append((hour, end))
+    return out

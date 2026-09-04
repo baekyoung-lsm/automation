@@ -171,5 +171,66 @@ class TaxSavingTest(unittest.TestCase):
             life.saving_plan(deposit=1000, months=0, annual_rate=3)
 
 
+class TimezoneTest(unittest.TestCase):
+    def test_alias_and_iana_names_both_work(self):
+        self.assertEqual(str(life.zone_of("서울")), "Asia/Seoul")
+        self.assertEqual(str(life.zone_of("Asia/Tokyo")), "Asia/Tokyo")
+
+    def test_unknown_zone_is_reported(self):
+        with self.assertRaises(life.ZoneError):
+            life.zone_of("어딘가")
+
+    def test_zone_times_sorted_by_offset(self):
+        from datetime import datetime
+
+        moment = datetime(2026, 9, 4, 14, 0, tzinfo=life.zone_of("서울"))
+        times = life.zone_times(moment, ["서울", "뉴욕", "런던"])
+        self.assertEqual([z.name for z in times], ["뉴욕", "런던", "서울"])
+        seoul = times[-1]
+        self.assertEqual(seoul.offset, "UTC+9")
+        self.assertTrue(seoul.is_work)                 # 금요일 14시
+
+    def test_zone_times_needs_a_zone_on_the_moment(self):
+        from datetime import datetime
+
+        with self.assertRaises(life.ZoneError):
+            life.zone_times(datetime(2026, 9, 4, 14, 0), ["서울"])
+
+    def test_parse_when_accepts_date_and_bare_time(self):
+        seoul = life.zone_of("서울")
+        parsed = life.parse_when("2026-09-05 14:00", seoul)
+        self.assertEqual((parsed.year, parsed.hour), (2026, 14))
+        self.assertEqual(life.parse_when("09:30", seoul).minute, 30)
+        with self.assertRaises(life.ZoneError):
+            life.parse_when("내일 낮", seoul)
+
+    def test_work_overlap_marks_shared_hours(self):
+        from datetime import date
+
+        rows = life.work_overlap("서울", "싱가포르", day=date(2026, 9, 4))
+        both = [(mine, yours) for mine, yours, ok in rows if ok]
+        self.assertEqual(both[0], (10, 9))             # 시차 1시간
+        self.assertEqual(len(both), 8)
+
+    def test_work_overlap_can_be_empty(self):
+        from datetime import date
+
+        rows = life.work_overlap("서울", "뉴욕", day=date(2026, 9, 4))
+        self.assertEqual([r for r in rows if r[2]], [])
+
+    def test_weekend_is_not_work_time(self):
+        from datetime import date
+
+        rows = life.work_overlap("서울", "도쿄", day=date(2026, 9, 5))   # 토요일
+        self.assertEqual([r for r in rows if r[2]], [])
+
+    def test_hour_ranges_wrap_around_midnight(self):
+        self.assertEqual(life.hour_ranges([22, 23, 0, 1]), [(22, 1)])
+        self.assertEqual(life.hour_ranges([9, 10, 11]), [(9, 11)])
+        self.assertEqual(life.hour_ranges([1, 5]), [(1, 1), (5, 5)])
+        self.assertEqual(life.hour_ranges([]), [])
+        self.assertEqual(life.hour_ranges(list(range(24))), [(0, 23)])
+
+
 if __name__ == "__main__":
     unittest.main()
