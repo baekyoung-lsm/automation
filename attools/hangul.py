@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass
 
 # macOS(HFS+/APFS)에서 만들어진 한글 파일명은 자모가 분리된 NFD로 저장된다.
 # 리눅스/윈도우로 옮기면 "ㅎㅏㄴㄱㅡㄹ"처럼 깨져 보이거나 검색이 안 된다.
@@ -130,3 +131,132 @@ def josa(word: str, pair: str = "은/는") -> str:
     if flag and with_batchim.startswith("으") and is_riul_batchim(word):
         return word + without
     return word + (with_batchim if flag else without)
+
+
+# ------------------------------------------------------------ 흔한 표기 오류
+
+# 맞춤법 검사기가 아니다. 문맥을 봐야 하는 것(되/돼 전반, 낳다/낫다,
+# 들리다/들르다, 바램)은 넣지 않았다. 어떤 문맥에서도 틀린 표기만 넣는다.
+# '찌게'(살이 찌게), '일부로'(일부로 나뉘다)처럼 다른 뜻으로 쓰일 수 있는 말은
+# 통째로 빼거나 '김치찌게'처럼 앞말을 붙여 좁혔다.
+# (틀린 표기, 바른 표기, 설명)
+TYPO_RULES: list[tuple[str, str, str]] = [
+    ("몇일", "며칠", "'며칠'만 맞는 표기다"),
+    ("왠만", "웬만", "'웬만하다'"),
+    ("웬지", "왠지", "'왜인지'가 줄어 '왠지'"),
+    ("어떻해", "어떡해", "'어떻게 해'가 줄면 '어떡해'"),
+    ("됬", "됐", "'되었'이 줄면 '됐'"),
+    ("되요", "돼요", "'되어요'가 줄면 '돼요'"),
+    ("뵈요", "봬요", "'뵈어요'가 줄면 '봬요'"),
+    ("뭐에요", "뭐예요", "받침 없는 말 뒤에는 '예요'"),
+    ("역활", "역할", ""),
+    ("설레임", "설렘", "'설레다'의 명사형"),
+    ("희안", "희한", ""),
+    ("오랫만", "오랜만", "'오래간만'이 줄면 '오랜만'"),
+    ("어의없", "어이없", ""),
+    ("뇌졸증", "뇌졸중", ""),
+    ("궁시렁", "구시렁", ""),
+    ("짜집기", "짜깁기", ""),
+    ("무릎쓰", "무릅쓰", "'무릅쓰다'. 신체 무릎과 다르다"),
+    ("곰곰히", "곰곰이", ""),
+    ("일일히", "일일이", ""),
+    ("틈틈히", "틈틈이", ""),
+    ("깨끗히", "깨끗이", ""),
+    ("솔직이", "솔직히", ""),
+    ("잠궈", "잠가", "'잠그다'라서 '잠가'"),
+    ("잠궜", "잠갔", "'잠그다'라서 '잠갔'"),
+    ("담궈", "담가", "'담그다'라서 '담가'"),
+    ("담궜", "담갔", "'담그다'라서 '담갔'"),
+    ("치뤘", "치렀", "'치르다'라서 '치렀'"),
+    ("치룰", "치를", "'치르다'라서 '치를'"),
+    ("설겆이", "설거지", ""),
+    ("육계장", "육개장", ""),
+    ("떡볶기", "떡볶이", ""),
+    ("김치찌게", "김치찌개", ""),
+    ("된장찌게", "된장찌개", ""),
+    ("부대찌게", "부대찌개", ""),
+    ("순두부찌게", "순두부찌개", ""),
+    ("베게를", "베개를", "베는 물건은 '베개'"),
+    ("베게가", "베개가", "베는 물건은 '베개'"),
+    ("베게에", "베개에", "베는 물건은 '베개'"),
+    ("갯수", "개수", "한자어 사이에는 사이시옷을 넣지 않는다"),
+    ("촛점", "초점", "한자어 사이에는 사이시옷을 넣지 않는다"),
+    ("읍니다", "습니다", "1988년에 '습니다'로 통일됐다"),
+    ("나름데로", "나름대로", ""),
+]
+
+# 약속의 어미는 '-ㄹ게' 다. '할께, 갈께' 처럼 ㄹ 받침 뒤의 '께' 만 본다
+# ('선생님께' 같은 조사는 건드리면 안 된다).
+RIUL_KKE = re.compile(r"([가-힣])께(?![\w가-힣])")
+
+
+@dataclass
+class Typo:
+    line: int
+    column: int
+    wrong: str
+    right: str
+    note: str
+    context: str
+
+
+def _kke_fix(text: str) -> list[tuple[int, str, str, str]]:
+    """(위치, 틀린 표기, 바른 표기, 설명) 목록."""
+    out = []
+    for m in RIUL_KKE.finditer(text):
+        if not is_riul_batchim(m.group(1)):
+            continue
+        out.append((m.start(), m.group(0), m.group(1) + "게",
+                    "약속의 어미는 '-ㄹ게'"))
+    return out
+
+
+def find_typos(text: str) -> list[Typo]:
+    """확인한 규칙에 걸리는 자리를 찾는다. 맞춤법 검사기가 아니다."""
+    starts: list[int] = []
+    pos = 0
+    for line in text.splitlines(keepends=True):
+        starts.append(pos)
+        pos += len(line)
+
+    def where(index: int) -> tuple[int, int, str]:
+        line_no = max(0, len([s for s in starts if s <= index]) - 1)
+        begin = starts[line_no] if starts else 0
+        body = text[begin:].split("\n", 1)[0]
+        return line_no + 1, index - begin + 1, body.strip()
+
+    hits: list[tuple[int, str, str, str]] = []
+    for wrong, right, note in TYPO_RULES:
+        start = 0
+        while (found := text.find(wrong, start)) != -1:
+            hits.append((found, wrong, right, note))
+            start = found + len(wrong)
+    hits.extend(_kke_fix(text))
+
+    out: list[Typo] = []
+    for index, wrong, right, note in sorted(hits):
+        line, column, context = where(index)
+        out.append(Typo(line, column, wrong, right, note, context))
+    return out
+
+
+def fix_typos(text: str) -> tuple[str, int]:
+    """찾은 자리를 바른 표기로 바꾼다. (새 글, 고친 수)"""
+    found = find_typos(text)
+    if not found:
+        return text, 0
+
+    # 뒤에서부터 바꿔야 앞의 위치가 밀리지 않는다. 위치는 줄·칸으로만 들고
+    # 있으므로 같은 글을 다시 찾아 인덱스를 얻는다.
+    hits: list[tuple[int, str, str]] = []
+    for wrong, right, _ in TYPO_RULES:
+        start = 0
+        while (index := text.find(wrong, start)) != -1:
+            hits.append((index, wrong, right))
+            start = index + len(wrong)
+    hits += [(i, w, r) for i, w, r, _ in _kke_fix(text)]
+
+    body = text
+    for index, wrong, right in sorted(hits, reverse=True):
+        body = body[:index] + right + body[index + len(wrong):]
+    return body, len(hits)

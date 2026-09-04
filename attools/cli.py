@@ -2581,6 +2581,61 @@ def cmd_text_diff(a) -> int:
     return 1
 
 
+def cmd_text_typo(a) -> int:
+    targets = [Path(p) for p in a.paths]
+    files_list: list[Path] = []
+    for path in targets:
+        if path.is_dir():
+            files_list += [q for q in text.iter_files([path], glob=a.glob)]
+        elif path.is_file():
+            files_list.append(path)
+        else:
+            _p(f"파일이 없습니다: {path}")
+            return 1
+    if not files_list:
+        _p("검사할 파일이 없습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    total = 0
+    for path in files_list:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError:
+            continue
+        found = hangul.find_typos(body)
+        if not found:
+            continue
+        total += len(found)
+        _p(f"{path}  {len(found)}건")
+        for t in found[:a.limit]:
+            note = f"  ({t.note})" if t.note else ""
+            _p(f"  {t.line}행 {t.column}칸  {t.wrong} -> {t.right}{note}")
+            _p(f"      {_cut(t.context, 72)}")
+        if len(found) > a.limit:
+            _p(f"  ... {len(found) - a.limit}건 더")
+        _p("")
+
+        fixed, _count = hangul.fix_typos(body)
+        if fixed != body:
+            changes.append(text.Change(path, body, fixed, encoding, hits=len(found)))
+
+    if not total:
+        _p(f"파일 {len(files_list)}개, 걸리는 표기가 없습니다.")
+        _p(f"확인한 규칙 {len(hangul.TYPO_RULES) + 1}개만 봅니다. 맞춤법 검사기가 아닙니다.")
+        return 0
+
+    _p(f"모두 {total}건")
+    if not a.apply:
+        _p("고치려면 --apply 를 붙이세요. 되돌리기는 at text undo 입니다.")
+        return 1
+
+    journal = text.apply_changes(changes)
+    _p(f"파일 {len(changes)}개를 고쳤습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_text_undo(a) -> int:
     journal = Path(a.journal) if a.journal else text.latest_journal()
     if journal is None or not journal.is_file():
@@ -4521,6 +4576,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="이만큼 닮아야 '수정' 으로 묶는다 (기본 0.5)")
     td.add_argument("--limit", type=int, default=40)
     td.set_defaults(func=cmd_text_diff)
+
+    ty = tp.add_parser("typo", help="흔한 한글 표기 오류 찾기 (며칠, 웬만, 됐…)")
+    ty.add_argument("paths", nargs="+", metavar="경로")
+    ty.add_argument("-g", "--glob", action="append", metavar="패턴")
+    ty.add_argument("--limit", type=int, default=20)
+    ty.add_argument("--apply", action="store_true")
+    ty.set_defaults(func=cmd_text_typo)
 
     ex2 = tp.add_parser("extract", help="정규식으로 뽑아 표 만들기")
     ex2.add_argument("pattern", metavar="정규식",

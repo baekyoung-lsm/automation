@@ -181,6 +181,12 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("다른 곳이 없습니다",
                       self.run_cli("text", "diff", str(원본), str(원본)))
 
+        오타 = Path(self.path("문서")) / "오타.txt"
+        오타.write_text("몇일 전에 문을 잠궈 놨다.\n", encoding="utf-8")
+        self.assertIn("며칠", self.run_cli("text", "typo", str(오타), expect=1))
+        self.run_cli("text", "typo", str(오타), "--apply")
+        self.assertIn("며칠 전에 문을 잠가", 오타.read_text(encoding="utf-8"))
+
     # ----------------------------------------------------------- sheet
 
     def test_sheet_group(self):

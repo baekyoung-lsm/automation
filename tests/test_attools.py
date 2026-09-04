@@ -49,6 +49,35 @@ class HangulTest(unittest.TestCase):
         self.assertEqual(hangul.josa("Kim", "은/는"), "Kim은")
 
 
+    def test_find_typos_reports_place_and_fix(self):
+        found = hangul.find_typos("몇일 전에\n문을 잠궈 놨다.")
+        self.assertEqual([(t.line, t.wrong, t.right) for t in found],
+                         [(1, "몇일", "며칠"), (2, "잠궈", "잠가")])
+        self.assertEqual(found[0].column, 1)
+        self.assertEqual(found[1].column, 4)
+
+    def test_riul_kke_only_after_riul_batchim(self):
+        found = hangul.find_typos("금방 갈께. 선생님께 드렸다.")
+        self.assertEqual([t.wrong for t in found], ["갈께"])
+
+    def test_typo_rules_skip_words_with_other_meanings(self):
+        # '찌게'(살이 찌게), '일부로'(일부로 나뉘다)는 규칙에 넣지 않았다
+        self.assertEqual(hangul.find_typos("살이 찌게 두면 일부로 나뉜다."), [])
+
+    def test_narrowed_rules_still_catch_real_typos(self):
+        self.assertEqual(hangul.fix_typos("김치찌게에 베게를 뒀다")[0],
+                         "김치찌개에 베개를 뒀다")
+
+    def test_fix_typos_counts_and_keeps_rest(self):
+        body, count = hangul.fix_typos("역활이 됬다. 그대로 둘 말.")
+        self.assertEqual(body, "역할이 됐다. 그대로 둘 말.")
+        self.assertEqual(count, 2)
+
+    def test_fix_typos_leaves_clean_text_alone(self):
+        self.assertEqual(hangul.fix_typos("며칠 전에 문을 잠갔다."),
+                         ("며칠 전에 문을 잠갔다.", 0))
+
+
 class FilesTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
