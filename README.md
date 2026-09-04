@@ -148,6 +148,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
+| `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -182,6 +183,9 @@ at dev fake -c 이름 -c 연락처=전화 -c 금액=금액:1000:9000 -n 200 -o �
 at dev fake -c 이름 -c 가입일=날짜:365 --seed 7        # 씨앗을 주면 같은 자료가 다시
 git show HEAD~1:package-lock.json > /tmp/전.json
 at dev lock /tmp/전.json package-lock.json --major     # 맨 앞 숫자가 바뀐 것만
+at dev http localhost:8080/api/users                   # 2xx 아니면 exit 1
+at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
+at dev http localhost:8080/health --head               # 헤더만
 at dev unused src/ --modules                           # 걸리면 exit 1
 at dev api openapi.json                                # 엔드포인트 한눈에
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
@@ -214,6 +218,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
 숫자를 지어내게 된다.
+
+`at dev http` 는 4xx·5xx 도 **결과로** 보여 준다. 오류 응답의 본문에 원인이 적혀 있는 일이
+많은데, 예외로 끊으면 그걸 못 본다(종료 코드로는 실패를 알린다). 응답이 JSON 이면 한글을
+그대로 두고 들여써서 보여 주고, `Authorization` 같은 헤더 값은 가려서 찍는다 — 터미널
+기록이나 화면 공유로 새는 것을 막으려는 것이다.
 
 `at dev unused` 는 `ast` 로 읽으므로 문자열 검색보다 정확하다. 별칭(`import numpy as np`),
 속성 사용(`os.path.join`), `__all__` 에 적힌 이름, 문자열 타입 주석까지 쓴 것으로 센다.

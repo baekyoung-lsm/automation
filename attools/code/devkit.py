@@ -546,3 +546,84 @@ def retry(command, *, tries: int = 5, delay: float = 1.0, backoff: float = 2.0,
             break
         wait = min(max_delay, delay if n == 1 else wait * backoff)
     return attempts
+
+
+# ------------------------------------------------------------------ HTTP 호출
+
+SECRET_HEADERS = {"authorization", "cookie", "set-cookie", "x-api-key",
+                  "x-auth-token", "proxy-authorization"}
+
+
+@dataclass
+class HttpResult:
+    status: int
+    reason: str
+    url: str                     # 따라간 뒤의 주소
+    headers: list                # (이름, 값)
+    body: bytes
+    seconds: float
+
+    @property
+    def ok(self) -> bool:
+        return 200 <= self.status < 300
+
+    @property
+    def charset(self) -> str:
+        for name, value in self.headers:
+            if name.lower() == "content-type" and "charset=" in value.lower():
+                return value.lower().split("charset=")[-1].split(";")[0].strip()
+        return "utf-8"
+
+    @property
+    def kind(self) -> str:
+        for name, value in self.headers:
+            if name.lower() == "content-type":
+                return value.split(";")[0].strip()
+        return ""
+
+    def text(self) -> str:
+        for encoding in (self.charset, "utf-8", "cp949"):
+            try:
+                return self.body.decode(encoding)
+            except (UnicodeDecodeError, LookupError):
+                continue
+        return self.body.decode("utf-8", "replace")
+
+    def safe_headers(self) -> list:
+        """화면에 보여줄 헤더. 비밀 값은 가린다."""
+        return [(name, mask_value(value) if name.lower() in SECRET_HEADERS
+                 else value) for name, value in self.headers]
+
+
+def fetch(url: str, *, method: str = "GET", headers: dict | None = None,
+          body: bytes | None = None, timeout: float = 10.0) -> HttpResult:
+    """한 번 부르고 결과를 그대로 돌려준다. 실패 응답(4xx·5xx)도 결과다.
+
+    urllib 는 4xx 를 예외로 던지는데, 그러면 본문을 못 본다. 오류 응답의
+    본문에 원인이 적혀 있는 일이 많아서 예외를 잡아 같은 모양으로 돌린다.
+    """
+    import time as _time
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url, data=body, method=method.upper(),
+                                     headers=headers or {})
+    started = _time.perf_counter()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            content = response.read()
+            return HttpResult(response.status, response.reason or "",
+                              response.geturl(), list(response.headers.items()),
+                              content, _time.perf_counter() - started)
+    except urllib.error.HTTPError as e:
+        content = e.read()
+        return HttpResult(e.code, e.reason or "", url, list(e.headers.items()),
+                          content, _time.perf_counter() - started)
+
+
+def parse_header(text: str) -> tuple[str, str]:
+    """'Key: Value' 를 (이름, 값). 콜론이 없으면 오류."""
+    name, sep, value = text.partition(":")
+    if not sep:
+        raise ValueError(f"'이름: 값' 꼴로 적어 주세요: {text}")
+    return name.strip(), value.strip()

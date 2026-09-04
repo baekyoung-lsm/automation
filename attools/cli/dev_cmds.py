@@ -464,6 +464,74 @@ def cmd_dev_unused(a) -> int:
     return 0
 
 
+def cmd_dev_http(a) -> int:
+    import json as _json
+
+    headers: dict[str, str] = {}
+    try:
+        for item in a.header or []:
+            name, value = devkit.parse_header(item)
+            headers[name] = value
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    body = None
+    method = a.method
+    if a.json:
+        body = a.json.encode("utf-8")
+        headers.setdefault("Content-Type", "application/json; charset=utf-8")
+        method = method or "POST"
+    elif a.data:
+        body = a.data.encode("utf-8")
+        method = method or "POST"
+    method = method or "GET"
+
+    url = a.url if "://" in a.url else f"http://{a.url}"
+    try:
+        result = devkit.fetch(url, method=method, headers=headers, body=body,
+                              timeout=a.timeout)
+    except OSError as e:
+        _p(f"부르지 못했습니다: {e}")
+        _p("주소와 포트를 확인하세요. 사내망이면 프록시 설정도 봅니다.")
+        return 1
+
+    mark = "" if result.ok else "  <- 실패"
+    _p(f"{method} {url}")
+    _p(f"  {result.status} {result.reason}{mark}  ·  {result.seconds * 1000:,.0f}ms"
+       f"  ·  {files.human_size(len(result.body))}  ·  {result.kind or '형식 없음'}")
+    if result.url != url:
+        _p(f"  따라간 주소: {result.url}")
+
+    if a.headers or a.head:
+        _p("")
+        for name, value in result.safe_headers():
+            _p(f"  {name}: {_cut(value, 70)}")
+        _p("  (Authorization 같은 값은 가려서 보여줍니다)")
+    if a.head:
+        return 0 if result.ok else 1
+
+    text = result.text()
+    if a.out:
+        Path(a.out).write_bytes(result.body)
+        _p(f"\n본문 저장: {a.out}")
+        return 0 if result.ok else 1
+
+    _p("")
+    if "json" in result.kind.lower() or text.lstrip()[:1] in "[{":
+        try:
+            data = _json.loads(text)
+            text = _json.dumps(data, ensure_ascii=False, indent=2)
+        except _json.JSONDecodeError:
+            pass                      # JSON 이 아니면 그대로 보여준다
+    lines = text.splitlines()
+    for line in lines[:a.limit]:
+        _p(line)
+    if len(lines) > a.limit:
+        _p(f"... {len(lines) - a.limit}줄 더 (--limit 로 늘리거나 -o 로 저장하세요)")
+    return 0 if result.ok else 1
+
+
 def cmd_dev_mask(a) -> int:
     try:
         text = _read_input(a.file)
@@ -899,6 +967,19 @@ def add_commands(sub) -> None:
                     help="__init__.py 도 본다 (다시 내보내기가 많아 오탐이 늘어난다)")
     un.add_argument("--limit", type=int, default=30)
     un.set_defaults(func=cmd_dev_unused)
+
+    ht = dp.add_parser("http", help="HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐)")
+    ht.add_argument("url", metavar="주소")
+    ht.add_argument("-X", "--method", metavar="메서드", help="기본 GET (본문 주면 POST)")
+    ht.add_argument("-H", "--header", action="append", metavar="이름: 값")
+    ht.add_argument("-d", "--data", metavar="본문")
+    ht.add_argument("--json", metavar="JSON", help="본문을 JSON 으로 보낸다")
+    ht.add_argument("--headers", action="store_true", help="응답 헤더도 보여준다")
+    ht.add_argument("--head", action="store_true", help="헤더만 보고 본문은 안 본다")
+    ht.add_argument("--timeout", type=float, default=10.0, metavar="초")
+    ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
+    ht.add_argument("--limit", type=int, default=40, metavar="줄")
+    ht.set_defaults(func=cmd_dev_http)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")
