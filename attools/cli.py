@@ -2913,6 +2913,36 @@ def cmd_sheet_from_json(a) -> int:
     return 0
 
 
+def cmd_sheet_to_json(a) -> int:
+    import json as _json
+
+    t = _load(a)
+    if t is None:
+        return 1
+
+    records = sheet.to_records(t, nest=a.nest, skip_blank=not a.keep_blank,
+                               parse_json=a.parse_json)
+    if a.lines:
+        text_out = "\n".join(_json.dumps(r, ensure_ascii=False) for r in records) + "\n"
+    else:
+        text_out = _json.dumps(records, ensure_ascii=False,
+                               indent=None if a.compact else 2) + "\n"
+
+    if a.out:
+        target = Path(a.out)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text_out, encoding="utf-8")
+        _p(f"{len(records):,}개 객체를 저장: {target}")
+        if a.nest:
+            _p("  '부모.자식' 열은 중첩 객체로 되돌렸습니다.")
+        if not a.keep_blank:
+            _p("  빈 칸은 키 자체를 넣지 않았습니다. (--keep-blank 로 null 로 둡니다)")
+        return 0
+
+    sys.stdout.write(text_out)
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3776,6 +3806,19 @@ def build_parser() -> argparse.ArgumentParser:
     fj.add_argument("--rows", type=int, default=10, metavar="개")
     fj.add_argument("--width", type=int, default=18, metavar="칸")
     fj.set_defaults(func=cmd_sheet_from_json)
+
+    tj = common(sh.add_parser("to-json", help="표를 JSON 배열로 (엑셀 -> API)"))
+    tj.add_argument("file")
+    tj.add_argument("-o", "--out", metavar="파일", help="생략하면 화면으로")
+    tj.add_argument("--lines", action="store_true", help="JSON Lines 로")
+    tj.add_argument("--compact", action="store_true", help="들여쓰기 없이")
+    tj.add_argument("--nest", action="store_true",
+                    help="'meta.부서' 열을 중첩 객체로 되돌린다")
+    tj.add_argument("--keep-blank", action="store_true",
+                    help="빈 칸도 null 로 넣는다 (기본은 키를 빼고 넣는다)")
+    tj.add_argument("--parse-json", action="store_true",
+                    help="[..] {..} 처럼 생긴 칸을 JSON 으로 되돌린다")
+    tj.set_defaults(func=cmd_sheet_to_json)
 
     vd = common(sh.add_parser("validate", help="규칙으로 검증 (납품·수령 데이터)"))
     vd.add_argument("file")

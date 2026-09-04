@@ -1343,6 +1343,36 @@ class SheetTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.find_records({"a": 1})
 
+    def test_unflatten(self):
+        self.assertEqual(sheet.unflatten({"a.b": 1, "a.c": 2, "d": 3}),
+                         {"a": {"b": 1, "c": 2}, "d": 3})
+
+    def test_unflatten_overwrites_scalar_parent(self):
+        # 'a' 와 'a.b' 가 함께 오면 중첩 쪽을 살린다
+        self.assertEqual(sheet.unflatten({"a": 1, "a.b": 2}), {"a": {"b": 2}})
+
+    def test_to_records_skips_blanks_by_default(self):
+        t = sheet.Table(["a", "b"], [[1, None], [2, ""]])
+        self.assertEqual(sheet.to_records(t), [{"a": 1}, {"a": 2}])
+        self.assertEqual(sheet.to_records(t, skip_blank=False),
+                         [{"a": 1, "b": None}, {"a": 2, "b": ""}])
+
+    def test_to_records_dates_become_iso(self):
+        from datetime import date, datetime
+
+        t = sheet.Table(["날", "때"], [[date(2026, 3, 2), datetime(2026, 3, 2, 9, 30)]])
+        record = sheet.to_records(t)[0]
+        self.assertEqual(record["날"], "2026-03-02")
+        self.assertEqual(record["때"], "2026-03-02 09:30:00")
+
+    def test_json_table_round_trip(self):
+        original = [{"id": 1, "name": "홍길동", "meta": {"부서": "영업"},
+                     "태그": ["a", "b"]},
+                    {"id": 2, "name": "김철수", "meta": {"부서": "개발"}}]
+        table, _ = sheet.from_records(original)
+        back = sheet.to_records(table, nest=True, parse_json=True)
+        self.assertEqual(back, original)
+
     def rule_table(self):
         from datetime import date
 

@@ -1246,3 +1246,46 @@ def find_records(data, path: str = "") -> list:
     if not best:
         raise SheetError("객체들의 배열을 찾지 못했습니다. --path 로 자리를 알려 주세요.")
     return best
+
+
+def unflatten(row: dict[str, object], *, separator: str = ".") -> dict:
+    """'meta.부서' 같은 열 이름을 다시 중첩 객체로 되돌린다."""
+    out: dict = {}
+    for key, value in row.items():
+        parts = [p for p in key.split(separator) if p]
+        if not parts:
+            continue
+        current = out
+        for part in parts[:-1]:
+            nested = current.get(part)
+            if not isinstance(nested, dict):
+                nested = {}
+                current[part] = nested
+            current = nested
+        current[parts[-1]] = value
+    return out
+
+
+def to_records(table: Table, *, nest: bool = False, skip_blank: bool = True,
+               parse_json: bool = False) -> list[dict]:
+    """표를 객체 배열로. 날짜는 ISO 글자, 빈 칸은 기본적으로 빼고 넣는다."""
+    records: list[dict] = []
+    for row in table.rows:
+        item: dict[str, object] = {}
+        for i, header in enumerate(table.headers):
+            value = row[i] if i < len(row) else None
+            if skip_blank and (value is None or value == ""):
+                continue
+            if isinstance(value, datetime):
+                value = value.isoformat(sep=" ")
+            elif isinstance(value, date):
+                value = value.isoformat()
+            elif parse_json and isinstance(value, str) \
+                    and value[:1] in "[{" and value[-1:] in "]}":
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError:
+                    pass
+            item[header] = value
+        records.append(unflatten(item) if nest else item)
+    return records

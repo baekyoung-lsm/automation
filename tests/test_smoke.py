@@ -178,6 +178,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("users", self.run_cli("sheet", "from-json",
                                             self.path("응답1.json"),
                                             "--path", "users"))
+        self.assertIn("이름", self.run_cli("sheet", "to-json", csv, "--lines"))
         self.assertIn("통과", self.run_cli("sheet", "validate", csv,
                                           "--required", "이름"))
         self.assertIn("겹치지", self.run_cli("sheet", "validate", csv,
