@@ -751,6 +751,7 @@ at life save --deposit 1000만 --months 12 --rate 3.5
 | `at novel pace <디렉터리>` | 스냅샷으로 집필 속도를 재고 목표·마감까지 하루 몇 자인지 계산 |
 | `at novel cast <경로…>` | 화별 인물 등장 흐름. 오래 안 나온 인물을 짚는다 |
 | `at novel tidy <경로…>` | 원고 파일 정리 - 문단 사이 빈 줄, 들여쓰기, 장면 구분선 통일 |
+| `at novel quote <경로…>` | 따옴표 짝 점검 - 안 닫힌 대사, 굽은/곧은 따옴표 섞임 |
 
 ```bash
 at novel stats 원고/ --each
@@ -770,6 +771,7 @@ at novel find "붉은 열쇠" 원고/          # 복선이 언제 깔리고 언�
 at novel names 원고/ --min 3
 at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직접 지정
 at novel cast 원고/ --gone 5           # 5화 넘게 안 나온 인물
+at novel quote 원고/                   # 안 닫힌 대사 찾기 (있으면 exit 1)
 at novel tidy 원고/ --scene-mark ＊     # 미리보기 (차이까지)
 at novel tidy 원고/ --join --indent --apply
 at novel snap 원고/ --note "3부 초고 완료"
@@ -777,6 +779,11 @@ at novel snap 원고/ -l
 at novel pace 원고/ --goal 1500매 --due 2026-12-31
 at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜별 표
 ```
+
+`at novel quote` 는 따옴표 짝을 **문단 단위**로 센다. 글 전체로 세면 어디서 어긋났는지
+못 짚고, 줄 단위로 세면 여러 줄에 걸친 대사를 전부 오류로 신고한다. 굽은 따옴표(`“ ”`)와
+곧은 따옴표(`" "`)가 섞여 있으면 그 사실도 알려 준다 — 투고본에서는 한쪽으로 통일하는
+편이 좋다.
 
 `at novel tidy` 는 편집기를 옮겨 다니며 생긴 빈 줄과 줄 끝 공백을 정리하고, 장면 구분선을
 하나로 통일한다. **화 제목 줄은 남긴다** — 내보내기용 정리(`export`)는 제목을 떼지만, 원본

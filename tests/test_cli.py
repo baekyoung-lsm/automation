@@ -173,5 +173,31 @@ class CompletionTest(unittest.TestCase):
         self.assertIn("compdef _at_complete at", self.output("zsh"))
 
 
+class InputErrorTest(unittest.TestCase):
+    """파일 하나를 받는 명령에 디렉터리를 주면 한국어로 알려야 한다."""
+
+    def setUp(self):
+        from attools import cli
+
+        self.cli = cli
+
+    def test_directory_instead_of_file(self):
+        import tempfile
+
+        root = tempfile.mkdtemp()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["novel", "check", root])
+        self.assertEqual(code, 1)
+        self.assertIn("디렉터리입니다", out.getvalue())
+
+    def test_missing_file(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["novel", "check", "없는파일.md"])
+        self.assertEqual(code, 1)
+        self.assertIn("파일이 없습니다", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

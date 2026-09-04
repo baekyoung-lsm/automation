@@ -24,8 +24,20 @@ def _confirm(question: str) -> bool:
     return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+class InputError(Exception):
+    """읽을 것을 못 찾았을 때. 사람이 읽을 문구는 부르는 쪽에서 만든다."""
+
+
 def _read_input(target: str) -> str:
-    return sys.stdin.read() if target == "-" else manuscript.read_text(Path(target))
+    """'-' 면 표준 입력, 아니면 파일 하나. 디렉터리는 여기서 막는다."""
+    if target == "-":
+        return sys.stdin.read()
+    path = Path(target)
+    if path.is_dir():
+        raise InputError(f"파일 하나를 주세요. 디렉터리입니다: {path}")
+    if not path.is_file():
+        raise InputError(f"파일이 없습니다: {path}")
+    return manuscript.read_text(path)
 
 
 def _width(text: str) -> int:

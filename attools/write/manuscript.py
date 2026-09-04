@@ -962,3 +962,82 @@ def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "
         for name, (chapter, body) in zip(names, chapters):
             z.writestr(f"OEBPS/{name}", epub_chapter(chapter, body, indent=indent))
     return dest
+
+
+# ------------------------------------------------------------- 따옴표 점검
+
+QUOTE_PAIRS = {"“": "”", "‘": "’", "「": "」", "『": "』", "《": "》", "〈": "〉"}
+CLOSERS = {close: open_ for open_, close in QUOTE_PAIRS.items()}
+STRAIGHT = {'"': "큰따옴표", "'": "작은따옴표"}
+
+
+@dataclass
+class QuoteIssue:
+    line: int
+    kind: str
+    detail: str
+    excerpt: str
+
+
+def _paragraphs_with_lines(text: str) -> list[tuple[int, str]]:
+    """(첫 줄 번호, 문단). 빈 줄로 나눈다."""
+    out: list[tuple[int, str]] = []
+    start = 0
+    buffer: list[str] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if line.strip():
+            if not buffer:
+                start = number
+            buffer.append(line)
+        elif buffer:
+            out.append((start, "\n".join(buffer)))
+            buffer = []
+    if buffer:
+        out.append((start, "\n".join(buffer)))
+    return out
+
+
+def check_quotes(text: str) -> list[QuoteIssue]:
+    """따옴표 짝이 맞는지 문단 단위로 본다.
+
+    문단 단위인 이유: 한국 소설의 대사는 보통 한 문단 안에서 열고 닫는다.
+    글 전체로 세면 어디서 어긋났는지 못 짚고, 줄 단위로 세면 여러 줄로
+    이어지는 대사를 전부 오류로 신고한다.
+    """
+    issues: list[QuoteIssue] = []
+    for start_line, block in _paragraphs_with_lines(text):
+        stack: list[tuple[str, int]] = []
+        straight: dict[str, int] = {}
+        for ch in block:
+            if ch in QUOTE_PAIRS:
+                stack.append((ch, start_line))
+            elif ch in CLOSERS:
+                if stack and stack[-1][0] == CLOSERS[ch]:
+                    stack.pop()
+                else:
+                    issues.append(QuoteIssue(
+                        start_line, "닫는 따옴표가 먼저", f"'{ch}' 앞에 여는 짝이 없습니다",
+                        block.strip()[:60]))
+            elif ch in STRAIGHT:
+                straight[ch] = straight.get(ch, 0) + 1
+
+        for opener, where in stack:
+            issues.append(QuoteIssue(where, "닫히지 않은 따옴표",
+                                     f"'{opener}' 를 열고 닫지 않았습니다",
+                                     block.strip()[:60]))
+        for ch, count in straight.items():
+            if count % 2:
+                issues.append(QuoteIssue(start_line, "곧은 따옴표 홀수",
+                                         f"{STRAIGHT[ch]}({ch}) 가 {count}개입니다",
+                                         block.strip()[:60]))
+    return issues
+
+
+def quote_styles(text: str) -> dict[str, int]:
+    """어떤 따옴표를 몇 번 썼는지. 한 원고에 여러 방식이 섞이는 것을 본다."""
+    out: dict[str, int] = {}
+    for ch in list(QUOTE_PAIRS) + list(STRAIGHT):
+        count = text.count(ch)
+        if count:
+            out[ch] = count
+    return out

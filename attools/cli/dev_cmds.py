@@ -9,7 +9,8 @@ from .. import files, hangul, life, sheet, text
 from ..code import dbkit, deps, devkit, fakedata, jsonkit, logkit, openapi
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
-from .common import _pad, _p, _confirm, _read_input, _cut, _grid
+from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
+                     _grid)
 
 
 def _read_log_lines(sources: list[str]) -> list[str] | None:
@@ -378,7 +379,11 @@ def cmd_dev_fake(a) -> int:
 
 
 def cmd_dev_mask(a) -> int:
-    text = _read_input(a.file)
+    try:
+        text = _read_input(a.file)
+    except InputError as e:
+        _p(str(e))
+        return 1
     masked, counts = devkit.mask_text(text)
 
     if a.in_place and a.file != "-":

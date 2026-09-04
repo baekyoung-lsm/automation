@@ -449,6 +449,7 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("novel", "style", 원고)
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
+        self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
         self.run_cli("novel", "snap", 원고, "--note", "시험")
         out = self.run_cli("novel", "pace", 원고, "--goal", "100매")
         self.assertIn("스냅샷 1개", out)

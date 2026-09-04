@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import sheet, text
 from ..write import manuscript, names
-from .common import _pad, _p, _read_input, _cut, _grid
+from .common import InputError, _pad, _p, _read_input, _cut, _grid
 
 
 def _print_stats(s: manuscript.Stats, *, name: str | None = None) -> None:
@@ -49,7 +49,11 @@ def cmd_novel_stats(a) -> int:
 
 
 def cmd_novel_check(a) -> int:
-    text = _read_input(a.file)
+    try:
+        text = _read_input(a.file)
+    except InputError as e:
+        _p(str(e))
+        return 1
     f = manuscript.inspect(text, top=a.top, long_limit=a.long,
                            run_threshold=a.run)
     empty = True
@@ -515,6 +519,46 @@ def cmd_novel_tidy(a) -> int:
     return 0
 
 
+def cmd_novel_quote(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    total = 0
+    styles: dict[str, int] = {}
+    for path in targets:
+        body = manuscript.read_text(path)
+        for mark, count in manuscript.quote_styles(body).items():
+            styles[mark] = styles.get(mark, 0) + count
+        issues = manuscript.check_quotes(body)
+        if not issues:
+            continue
+        total += len(issues)
+        _p(f"{path}  {len(issues)}건")
+        for issue in issues[:a.limit]:
+            _p(f"  {issue.line}행  [{issue.kind}] {issue.detail}")
+            _p(f"      {_cut(issue.excerpt, 66)}")
+        if len(issues) > a.limit:
+            _p(f"  ... {len(issues) - a.limit}건 더")
+        _p("")
+
+    if styles:
+        _p("따옴표 사용  " + "  ".join(f"{mark} {n:,}" for mark, n in
+                                       sorted(styles.items(), key=lambda kv: -kv[1])))
+        curly = sum(n for mark, n in styles.items() if mark in manuscript.QUOTE_PAIRS)
+        plain = sum(n for mark, n in styles.items() if mark in manuscript.STRAIGHT)
+        if curly and plain:
+            _p("굽은 따옴표와 곧은 따옴표가 섞여 있습니다. "
+               "투고본에서는 한쪽으로 통일하는 편이 좋습니다.")
+
+    if not total:
+        _p(f"\n파일 {len(targets)}개, 짝이 안 맞는 따옴표가 없습니다.")
+        return 0
+    _p(f"\n모두 {total}건. 문단 단위로 셉니다 - 여러 줄 대사는 오류가 아닙니다.")
+    return 1
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -826,3 +870,8 @@ def add_commands(sub) -> None:
                     help="미리보기에서 보여줄 차이 줄 수")
     td.add_argument("--apply", action="store_true")
     td.set_defaults(func=cmd_novel_tidy)
+
+    qt = np_.add_parser("quote", help="따옴표 짝 점검 - 안 닫힌 대사, 섞인 표기")
+    qt.add_argument("paths", nargs="+")
+    qt.add_argument("--limit", type=int, default=20)
+    qt.set_defaults(func=cmd_novel_quote)

@@ -571,5 +571,40 @@ class TidyTest(unittest.TestCase):
         self.assertEqual(manuscript.tidy_text("\n\n"), "")
 
 
+class QuoteTest(unittest.TestCase):
+    def test_unclosed_quote_is_found(self):
+        issues = manuscript.check_quotes("“여는 대사만 있다.\n")
+        self.assertEqual([i.kind for i in issues], ["닫히지 않은 따옴표"])
+        self.assertEqual(issues[0].line, 1)
+
+    def test_multiline_dialogue_is_not_an_error(self):
+        # 문단 안에서 열고 닫으면 줄이 나뉘어도 괜찮다
+        body = "“여러 줄에 걸친\n대사도 있다.” 지문이 이어진다.\n"
+        self.assertEqual(manuscript.check_quotes(body), [])
+
+    def test_closing_without_opening(self):
+        issues = manuscript.check_quotes("닫는 것만 있다.”\n")
+        self.assertEqual([i.kind for i in issues], ["닫는 따옴표가 먼저"])
+
+    def test_odd_straight_quote_is_reported(self):
+        issues = manuscript.check_quotes('"곧은 따옴표 하나.\n')
+        self.assertEqual([i.kind for i in issues], ["곧은 따옴표 홀수"])
+
+    def test_even_straight_quotes_pass(self):
+        self.assertEqual(manuscript.check_quotes('"대사다." 지문.\n'), [])
+
+    def test_nested_quotes_pair_up(self):
+        self.assertEqual(manuscript.check_quotes("“그가 ‘안녕’ 이라 했다.”\n"), [])
+
+    def test_line_numbers_point_at_the_paragraph(self):
+        body = "첫 문단.\n\n둘째 문단.\n\n“안 닫힌 대사.\n"
+        self.assertEqual(manuscript.check_quotes(body)[0].line, 5)
+
+    def test_quote_styles_counts_each_mark(self):
+        styles = manuscript.quote_styles('“가”와 "나"')
+        self.assertEqual(styles["“"], 1)
+        self.assertEqual(styles['"'], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
