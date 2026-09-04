@@ -1640,17 +1640,17 @@ def rename_columns(table: Table, mapping: dict, *,
     거래처마다 열 이름이 달라서 합치기 전에 맞춰야 한다. 없는 이름을 조용히
     넘기지 않고 돌려주므로, 매핑이 낡았는지 바로 안다.
     """
-    lookup = {h.strip().lower(): h for h in table.headers}
-    missing = [old for old in mapping if old not in table.headers
-               and old.strip().lower() not in lookup]
+    # 엑셀에서 온 헤더에는 공백이 붙어 있는 일이 흔해 느슨하게도 찾는다.
+    loose = {str(k).strip().lower(): v for k, v in mapping.items()}
+    known = {h.strip().lower() for h in table.headers}
+    missing = [old for old in mapping
+               if old not in table.headers and str(old).strip().lower() not in known]
 
     headers: list[str] = []
     for name in table.headers:
         new = mapping.get(name)
         if new is None:
-            key = name.strip().lower()
-            found = lookup.get(key)
-            new = mapping.get(found) if found and found != name else None
+            new = loose.get(name.strip().lower())
         head = new if new is not None else name
         headers.append(head.strip() if strip else head)
 
