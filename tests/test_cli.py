@@ -78,5 +78,54 @@ class CliWiringTest(unittest.TestCase):
         self.assertIn("attools", out.getvalue())
 
 
+class FindCommandTest(unittest.TestCase):
+    """at find 가 명령 목록을 실제 파서에서 가져오는지."""
+
+    def setUp(self):
+        from attools import cli
+
+        self.cli = cli
+
+    def run_find(self, *args) -> tuple[int, str]:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["find", *args])
+        return code, out.getvalue()
+
+    def test_finds_by_help_text(self):
+        code, out = self.run_find("중복")
+        self.assertEqual(code, 0)
+        self.assertIn("at file dupes", out)
+
+    def test_finds_by_command_name(self):
+        _, out = self.run_find("unzip")
+        self.assertIn("at file unzip", out)
+
+    def test_groups_are_not_listed_as_commands(self):
+        _, out = self.run_find("파일")
+        self.assertNotIn("at file\n", out)      # 그룹 자체는 실행할 명령이 아니다
+
+    def test_no_match_returns_one(self):
+        code, out = self.run_find("없는말123")
+        self.assertEqual(code, 1)
+        self.assertIn("걸리는 명령이 없습니다", out)
+
+    def test_deep_searches_option_help(self):
+        code, _ = self.run_find("--deep", "pre-commit")
+        self.assertEqual(code, 0)
+
+    def test_empty_query_asks_for_one(self):
+        code, out = self.run_find()
+        self.assertEqual(code, 1)
+        self.assertIn("찾을 말", out)
+
+    def test_walk_reaches_every_leaf(self):
+        leaves = [path for path, _, parser in
+                  self.cli.walk_commands(self.cli.build_parser())
+                  if not any(isinstance(a, argparse._SubParsersAction)
+                             for a in parser._actions)]
+        self.assertGreater(len(leaves), 80)
+
+
 if __name__ == "__main__":
     unittest.main()
