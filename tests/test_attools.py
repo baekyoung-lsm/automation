@@ -2653,6 +2653,59 @@ class MdkitTest(unittest.TestCase):
         _, secs = mdkit.split_sections("# ...\n\n내용\n")
         self.assertEqual(mdkit.section_filename(secs[0]), "01-절1.md")
 
+    TABLE_DOC = ("# 문서\n\n| 이름 | 값 | 비고 |\n|---|:-:|---:|\n"
+                 "| 가나다 | 1 | 짧음 |\n| 라 | 22222 | 긴 설명 |\n\n끝.\n")
+
+    def test_display_width_counts_hangul_as_two(self):
+        self.assertEqual(mdkit.display_width("가나"), 4)
+        self.assertEqual(mdkit.display_width("ab"), 2)
+
+    def test_find_tables_reads_header_and_aligns(self):
+        blocks = mdkit.find_tables(self.TABLE_DOC)
+        self.assertEqual(len(blocks), 1)
+        t = blocks[0]
+        self.assertEqual(t.header, ["이름", "값", "비고"])
+        self.assertEqual(t.aligns, ["왼쪽", "가운데", "오른쪽"])
+        self.assertEqual(len(t.rows), 2)
+        self.assertEqual((t.start, t.end), (3, 6))
+
+    def test_find_tables_ignores_code_fence_and_lone_pipes(self):
+        doc = "```\n| 코드 | 안 |\n|---|---|\n```\n\n그냥 | 막대\n"
+        self.assertEqual(mdkit.find_tables(doc), [])
+
+    def test_format_table_pads_by_display_width(self):
+        block = mdkit.find_tables(self.TABLE_DOC)[0]
+        lines = mdkit.format_table(block)
+        widths = {mdkit.display_width(l) for l in lines}
+        self.assertEqual(len(widths), 1)          # 모든 줄이 같은 너비
+
+    def test_format_table_keeps_alignment_marks(self):
+        lines = mdkit.format_table(mdkit.find_tables(self.TABLE_DOC)[0])
+        marks = [c.strip() for c in lines[1].strip("| ").split("|")]
+        self.assertTrue(marks[0].startswith("-") and not marks[0].endswith(":"))
+        self.assertTrue(marks[1].startswith(":") and marks[1].endswith(":"))
+        self.assertTrue(marks[2].endswith(":") and not marks[2].startswith(":"))
+
+    def test_split_row_keeps_escaped_pipe(self):
+        self.assertEqual(mdkit.split_row(r"| 가\|나 | 다 |"), [r"가\|나", "다"])
+
+    def test_format_tables_is_idempotent(self):
+        once, touched = mdkit.format_tables(self.TABLE_DOC)
+        self.assertEqual(touched, 1)
+        twice, again = mdkit.format_tables(once)
+        self.assertEqual((twice, again), (once, 0))
+
+    def test_format_tables_keeps_text_around_and_trailing_newline(self):
+        new, _ = mdkit.format_tables(self.TABLE_DOC)
+        self.assertTrue(new.startswith("# 문서\n"))
+        self.assertTrue(new.endswith("끝.\n"))
+
+    def test_format_tables_fills_short_rows(self):
+        doc = "| 가 | 나 |\n|---|---|\n| 하나 |\n"
+        new, _ = mdkit.format_tables(doc)
+        self.assertEqual(len(new.splitlines()), 3)
+        self.assertEqual({mdkit.display_width(l) for l in new.splitlines()}, {14})
+
 
 class CliWiringTest(unittest.TestCase):
     """모든 하위 명령이 제대로 연결돼 있는지 훑는다.

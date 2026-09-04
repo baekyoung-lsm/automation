@@ -270,6 +270,16 @@ class SmokeTest(unittest.TestCase):
         made = sorted(q.name for q in Path(out).iterdir())
         self.assertTrue(made and made[0].startswith("01-"), made)
 
+        표 = Path(self.path("표.md"))
+        표.write_text("| 이름 | 값 |\n|---|---|\n| 가나다 | 1 |\n",
+                      encoding="utf-8")
+        self.assertIn("--apply", self.run_cli("doc", "table", str(표)))
+        self.run_cli("doc", "table", str(표), "--apply")
+        from attools.mdkit import display_width
+
+        줄 = 표.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len({display_width(l) for l in 줄}), 1)
+
     # ------------------------------------------------------------ life
 
     def test_life_group(self):

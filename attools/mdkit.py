@@ -228,3 +228,143 @@ def section_filename(section: Section, *, digits: int = 2,
     """번호를 앞에 붙여 순서가 유지되게 한다."""
     slug = section.slug or f"절{section.number}"
     return f"{section.number:0{digits}d}-{slug}{suffix}"
+
+
+# ------------------------------------------------------------------ 표 정렬
+
+SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$")
+CELL_SPLIT = re.compile(r"(?<!\\)\|")
+
+
+def display_width(text: str) -> int:
+    """터미널·고정폭 글꼴에서 차지하는 칸 수. 한글·한자·전각은 두 칸."""
+    import unicodedata
+
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def split_row(line: str) -> list[str]:
+    """한 줄을 칸으로 쪼갠다. `\\|` 는 칸 구분이 아니다."""
+    body = line.strip()
+    cells = CELL_SPLIT.split(body)
+    if cells and not cells[0].strip():
+        cells = cells[1:]
+    if cells and not cells[-1].strip():
+        cells = cells[:-1]
+    return [c.strip() for c in cells]
+
+
+def read_aligns(line: str) -> list[str]:
+    out: list[str] = []
+    for cell in split_row(line):
+        left, right = cell.startswith(":"), cell.endswith(":")
+        out.append("가운데" if left and right else
+                   "오른쪽" if right else "왼쪽")
+    return out
+
+
+@dataclass
+class TableBlock:
+    start: int                                  # 1부터
+    end: int
+    header: list[str]
+    aligns: list[str]
+    rows: list[list[str]] = field(default_factory=list)
+
+    @property
+    def columns(self) -> int:
+        return max([len(self.header)] + [len(r) for r in self.rows])
+
+
+def find_tables(text: str) -> list[TableBlock]:
+    """머리글 + 구분줄로 시작하는 표만 찾는다. 코드 블록 안은 보지 않는다."""
+    lines = list(_outside_fences(text))
+    blocks: list[TableBlock] = []
+    i = 0
+    while i < len(lines) - 1:
+        lineno, line = lines[i]
+        nextno, nextline = lines[i + 1]
+        if "|" not in line or nextno != lineno + 1 or not SEPARATOR_RE.match(nextline):
+            i += 1
+            continue
+
+        header = split_row(line)
+        aligns = read_aligns(nextline)
+        if len(header) != len(aligns):
+            i += 1                              # 칸 수가 안 맞으면 표로 보지 않는다
+            continue
+
+        rows: list[list[str]] = []
+        end = nextno
+        j = i + 2
+        while j < len(lines):
+            no, body = lines[j]
+            if no != end + 1 or "|" not in body or not body.strip():
+                break
+            rows.append(split_row(body))
+            end = no
+            j += 1
+        blocks.append(TableBlock(lineno, end, header, aligns, rows))
+        i = j
+    return blocks
+
+
+def format_table(block: TableBlock) -> list[str]:
+    """칸 너비를 맞춰 다시 그린다. 한글은 두 칸으로 센다."""
+    count = block.columns
+    def fit(row: list[str]) -> list[str]:
+        return (row + [""] * count)[:count]
+
+    header = fit(block.header)
+    aligns = (block.aligns + ["왼쪽"] * count)[:count]
+    rows = [fit(r) for r in block.rows]
+
+    widths = [max(3, display_width(header[c]),
+                  *[display_width(r[c]) for r in rows] or [0])
+              for c in range(count)]
+
+    def cell(value: str, width: int, align: str) -> str:
+        pad = width - display_width(value)
+        if align == "오른쪽":
+            return " " * pad + value
+        if align == "가운데":
+            left = pad // 2
+            return " " * left + value + " " * (pad - left)
+        return value + " " * pad
+
+    out = ["| " + " | ".join(cell(v, w, a)
+                             for v, w, a in zip(header, widths, aligns)) + " |"]
+    marks = []
+    for width, align in zip(widths, aligns):
+        if align == "가운데":
+            marks.append(":" + "-" * (width - 2) + ":")
+        elif align == "오른쪽":
+            marks.append("-" * (width - 1) + ":")
+        else:
+            marks.append("-" * width)
+    out.append("| " + " | ".join(marks) + " |")
+    for row in rows:
+        out.append("| " + " | ".join(cell(v, w, a)
+                                     for v, w, a in zip(row, widths, aligns)) + " |")
+    return out
+
+
+def format_tables(text: str) -> tuple[str, int]:
+    """문서 안의 표를 모두 다시 그린다. (새 내용, 손댄 표 수)"""
+    blocks = find_tables(text)
+    if not blocks:
+        return text, 0
+
+    lines = text.splitlines()
+    touched = 0
+    for block in reversed(blocks):              # 뒤에서부터 갈아 끼워야 줄 번호가 안 밀린다
+        old = lines[block.start - 1:block.end]
+        new = format_table(block)
+        if old != new:
+            touched += 1
+        lines[block.start - 1:block.end] = new
+
+    body = "\n".join(lines)
+    if text.endswith("\n"):
+        body += "\n"
+    return body, touched

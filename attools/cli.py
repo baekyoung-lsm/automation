@@ -3281,6 +3281,44 @@ def cmd_doc_split(a) -> int:
     return 0
 
 
+def cmd_doc_table(a) -> int:
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"{path}: 건너뜀 ({e})")
+            continue
+        new, touched = mdkit.format_tables(body)
+        if not touched or new == body:
+            continue
+        changes.append(text.Change(path, body, new, encoding, hits=touched))
+
+    if not changes:
+        _p(f"파일 {len(targets)}개, 이미 칸이 맞아 있습니다.")
+        return 0
+
+    for c in changes:
+        _p(f"{c.path}  표 {c.hits}개")
+        for line in c.diff(limit=a.limit):
+            _p(f"  {line}")
+        _p("")
+
+    if not a.apply:
+        _p("실제로 고치려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = text.apply_changes(changes)
+    _p(f"파일 {len(changes)}개를 고쳤습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_dev_bench(a) -> int:
     commands: list[tuple[object, bool, str]] = []
     for text in a.cmd or []:
@@ -4225,7 +4263,7 @@ def build_parser() -> argparse.ArgumentParser:
     tu.set_defaults(func=cmd_text_undo)
 
     # ---- doc
-    dc = sub.add_parser("doc", help="마크다운 목차·링크·쪼개기").add_subparsers(
+    dc = sub.add_parser("doc", help="마크다운 목차·링크·표 정리").add_subparsers(
         dest="cmd", required=True)
 
     dt = dc.add_parser("toc", help="제목에서 목차 만들기·갱신")
@@ -4257,6 +4295,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="첫 제목 앞 머리말을 버린다")
     ds.add_argument("--apply", action="store_true")
     ds.set_defaults(func=cmd_doc_split)
+
+    dtb = dc.add_parser("table", help="마크다운 표의 칸 너비 맞추기 (한글 두 칸)")
+    dtb.add_argument("paths", nargs="+", metavar="경로")
+    dtb.add_argument("--limit", type=int, default=12, metavar="줄",
+                     help="미리보기에서 보여줄 차이 줄 수")
+    dtb.add_argument("--apply", action="store_true")
+    dtb.set_defaults(func=cmd_doc_table)
 
     # ---- json
     jp = sub.add_parser("json", help="JSON 훑기·비교").add_subparsers(dest="cmd", required=True)
