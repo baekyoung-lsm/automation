@@ -606,5 +606,40 @@ class QuoteTest(unittest.TestCase):
         self.assertEqual(styles['"'], 2)
 
 
+class ChapterSplitTest(unittest.TestCase):
+    RAW = ("들어가는 말이다.\n\n제1화 만남\n\n첫 문단.\n\n2화 이별\n\n"
+           "둘째 문단.\n3화 때 그랬다는 문장.\n\n### 후일담\n\n끝.\n")
+
+    def test_splits_on_chapter_lines_and_headings(self):
+        preface, chapters = manuscript.split_chapters(self.RAW)
+        self.assertEqual(preface, "들어가는 말이다.")
+        self.assertEqual([c.title for c in chapters], ["만남", "이별", "후일담"])
+        self.assertEqual([c.label for c in chapters], ["1화", "2화", ""])
+
+    def test_sentence_in_the_middle_is_not_a_chapter(self):
+        # '3화 때 그랬다는 문장.' 은 본문이다. 앞 줄이 비어 있지 않고 문장으로 끝난다
+        _, chapters = manuscript.split_chapters(self.RAW)
+        self.assertIn("3화 때 그랬다는 문장.", chapters[1].body)
+
+    def test_no_marks_means_no_split(self):
+        preface, chapters = manuscript.split_chapters("제목 없는 글\n계속.\n")
+        self.assertEqual(chapters, [])
+        self.assertTrue(preface)
+
+    def test_filename_keeps_order_and_hangul(self):
+        _, chapters = manuscript.split_chapters(self.RAW)
+        self.assertEqual(manuscript.chapter_filename(chapters[0]), "01-만남.md")
+        self.assertEqual(manuscript.chapter_filename(chapters[2], suffix=".txt"),
+                         "03-후일담.txt")
+
+    def test_filename_drops_forbidden_characters(self):
+        self.assertEqual(manuscript.sanitize_chapter_title('만남/이별: "끝"'),
+                         "만남이별_끝")
+
+    def test_chapter_chars_ignore_whitespace(self):
+        _, chapters = manuscript.split_chapters(self.RAW)
+        self.assertEqual(chapters[0].chars, len("제1화만남첫문단."))
+
+
 if __name__ == "__main__":
     unittest.main()

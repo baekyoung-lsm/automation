@@ -1041,3 +1041,74 @@ def quote_styles(text: str) -> dict[str, int]:
         if count:
             out[ch] = count
     return out
+
+
+# --------------------------------------------------------------- 화 나누기
+
+# '제12화', '12화', '12장', '#12' 처럼 화를 여는 줄. 본문 한가운데의 '3화 때'
+# 같은 말을 잡지 않도록 줄 전체가 그 꼴일 때만 본다.
+CHAPTER_LINE = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:제\s*)?(\d+)\s*(?:화|장|편|부)\b[.:）)]?\s*(.*)$")
+
+
+@dataclass
+class Chapter:
+    number: int          # 파일 안에서 몇 번째인지 (1부터)
+    label: str           # 화 번호 표시. 못 찾으면 빈 문자열
+    title: str
+    line: int
+    body: str
+
+    @property
+    def chars(self) -> int:
+        return len("".join(self.body.split()))
+
+
+def split_chapters(text: str, *, keep_heading: bool = True) -> tuple[str, list[Chapter]]:
+    """한 파일에 몰아 쓴 원고를 화 단위로 나눈다. (머리말, 화 목록)
+
+    마크다운 제목 줄과 '제12화' 꼴을 모두 화의 시작으로 본다. 어느 쪽도
+    없으면 나누지 않는다 - 임의로 길이를 잘라 나누면 문단이 끊긴다.
+    """
+    lines = text.splitlines()
+    marks: list[tuple[int, str, str]] = []      # 줄 번호(0부터), 표시, 제목
+    for number, line in enumerate(lines):
+        if m := HEADING_LINE.match(line):
+            marks.append((number, "", m.group(2).strip()))
+            continue
+        m = CHAPTER_LINE.match(line)
+        if not m:
+            continue
+        # 본문 한가운데의 '3화 때 그랬다' 같은 문장을 화 제목으로 보지 않는다.
+        # 화를 여는 줄은 앞이 비어 있고, 뒤에 문장이 아니라 짧은 제목만 온다.
+        rest = m.group(2).strip()
+        if len(rest) > 20 or rest.endswith((".", "!", "?", "…", "다", "요")):
+            continue
+        if number and lines[number - 1].strip():
+            continue
+        marks.append((number, f"{m.group(1)}화", rest))
+
+    if not marks:
+        return text.strip(), []
+
+    preface = "\n".join(lines[:marks[0][0]]).strip()
+    chapters: list[Chapter] = []
+    for i, (start, label, title) in enumerate(marks):
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(lines)
+        block = lines[start:end] if keep_heading else lines[start + 1:end]
+        chapters.append(Chapter(i + 1, label, title or label or f"{i + 1}번째",
+                                start + 1, "\n".join(block).strip() + "\n"))
+    return preface, chapters
+
+
+def chapter_filename(chapter: Chapter, *, digits: int = 2,
+                     suffix: str = ".md") -> str:
+    """번호를 앞에 붙여 파일 이름 순서가 원고 순서와 같게 한다."""
+    name = sanitize_chapter_title(chapter.title) or f"화{chapter.number}"
+    return f"{chapter.number:0{digits}d}-{name}{suffix}"
+
+
+def sanitize_chapter_title(title: str) -> str:
+    """파일 이름에 쓸 수 있게 다듬는다. 한글은 그대로 둔다."""
+    body = re.sub(r'[\\\\/:*?"<>|]', "", title).strip()
+    return re.sub(r"\s+", "_", body)[:40]

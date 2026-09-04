@@ -559,6 +559,52 @@ def cmd_novel_quote(a) -> int:
     return 1
 
 
+def cmd_novel_split(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = manuscript.read_text(path)
+    preface, chapters = manuscript.split_chapters(body)
+    if not chapters:
+        _p("화를 나눌 표시를 찾지 못했습니다.")
+        _p("'제1화', '2화 이별' 같은 줄이나 마크다운 제목(#)이 있어야 합니다.")
+        _p("본문 한가운데의 '3화 때…' 같은 문장은 화로 보지 않습니다.")
+        return 1
+
+    out_dir = Path(a.out) if a.out else path.with_suffix("")
+    suffix = a.suffix if a.suffix.startswith(".") else f".{a.suffix}"
+    plan: list[tuple[Path, str, str]] = []
+    if preface and not a.drop_preface:
+        plan.append((out_dir / f"{0:0{a.digits}d}-머리말{suffix}", "머리말",
+                     preface + "\n"))
+    for chapter in chapters:
+        plan.append((out_dir / manuscript.chapter_filename(
+            chapter, digits=a.digits, suffix=suffix),
+            f"{chapter.label or '제목'} {chapter.line}행", chapter.body))
+
+    _p(f"{path} -> {out_dir}/")
+    _grid(["파일", "자리", "분량", "상태"],
+          [[f.name, note, f"{len(''.join(text.split())):,}자",
+            "이미 있음" if f.exists() else ""] for f, note, text in plan],
+          limit=40)
+
+    exists = [f for f, _, _ in plan if f.exists()]
+    if not a.apply:
+        _p(f"\n파일 {len(plan)}개를 만듭니다. 실제로 쓰려면 --apply 를 붙이세요.")
+        return 0
+    if exists:
+        _p(f"\n이미 있는 파일 {len(exists)}개가 있어 아무것도 쓰지 않았습니다.")
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for f, _, body_text in plan:
+        f.write_text(body_text, encoding="utf-8")
+    _p(f"\n{out_dir}/ 에 {len(plan)}개를 썼습니다. 원본은 그대로 둡니다.")
+    return 0
+
+
 def cmd_novel_dialogue(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -875,3 +921,12 @@ def add_commands(sub) -> None:
     qt.add_argument("paths", nargs="+")
     qt.add_argument("--limit", type=int, default=20)
     qt.set_defaults(func=cmd_novel_quote)
+
+    sp = np_.add_parser("split", help="한 파일에 몰아 쓴 원고를 화 단위로 나누기")
+    sp.add_argument("file", metavar="파일")
+    sp.add_argument("-o", "--out", metavar="디렉터리", help="기본은 파일 이름과 같은 폴더")
+    sp.add_argument("--suffix", default=".md", metavar="확장자")
+    sp.add_argument("--digits", type=int, default=2, metavar="자리")
+    sp.add_argument("--drop-preface", action="store_true", help="첫 화 앞의 글을 버린다")
+    sp.add_argument("--apply", action="store_true")
+    sp.set_defaults(func=cmd_novel_split)

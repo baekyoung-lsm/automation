@@ -472,6 +472,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
+
+        통원고 = Path(self.path("통원고.txt"))
+        통원고.write_text("들어가는 말.\n\n제1화 만남\n\n첫 문단.\n\n"
+                          "2화 이별\n\n둘째 문단.\n", encoding="utf-8")
+        화별 = self.path("화별")
+        self.assertIn("--apply", self.run_cli("novel", "split", str(통원고),
+                                              "-o", 화별))
+        self.run_cli("novel", "split", str(통원고), "-o", 화별, "--apply")
+        self.assertTrue((Path(화별) / "01-만남.md").is_file())
         self.run_cli("novel", "snap", 원고, "--note", "시험")
         out = self.run_cli("novel", "pace", 원고, "--goal", "100매")
         self.assertIn("스냅샷 1개", out)
