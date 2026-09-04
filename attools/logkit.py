@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -168,3 +169,110 @@ def spikes(series: list[tuple[datetime, int]], *, factor: float = 3.0,
 def span(entries: list[Entry]) -> tuple[datetime | None, datetime | None]:
     stamps = [e.when for e in entries if e.when]
     return (min(stamps), max(stamps)) if stamps else (None, None)
+
+
+# ------------------------------------------------------------------ 응답 시간
+
+# 12ms, 1.5s, 340 ms 처럼 적힌 값을 찾는다. 단위 없는 숫자는 세지 않는다 -
+# 상태 코드나 바이트 수를 응답 시간으로 잘못 세는 것보다 못 세는 게 낫다.
+DURATION_RE = re.compile(
+    r"(?<![\w.])(\d+(?:\.\d+)?)\s*(ms|밀리초|s|sec|secs|seconds|초)(?![\w가-힣])",
+    re.IGNORECASE)
+UNIT_MS = {"ms": 1.0, "밀리초": 1.0, "s": 1000.0, "sec": 1000.0,
+           "secs": 1000.0, "seconds": 1000.0, "초": 1000.0}
+ROUTE_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\S+)",
+                      re.IGNORECASE)
+PATH_NUM = re.compile(r"/(?:\d+|[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{16,})", re.IGNORECASE)
+
+
+@dataclass
+class Timed:
+    entry: "Entry"
+    ms: float
+    route: str = ""
+
+
+@dataclass
+class RouteStat:
+    route: str
+    values: list[float] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        return len(self.values)
+
+    @property
+    def total(self) -> float:
+        return sum(self.values)
+
+    @property
+    def avg(self) -> float:
+        return self.total / self.count if self.values else 0.0
+
+    def p(self, percent: float) -> float:
+        return percentile(self.values, percent)
+
+
+def percentile(values: list[float], percent: float) -> float:
+    """가장 가까운 순위 방식. 값이 적을 때 보간하면 없는 값을 지어내게 된다."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if percent <= 0:
+        return ordered[0]
+    rank = max(1, min(len(ordered), math.ceil(percent / 100 * len(ordered))))
+    return ordered[rank - 1]
+
+
+def duration_ms(line: str) -> float | None:
+    """한 줄에서 응답 시간을 찾는다. 여러 개면 마지막 것(대개 총 소요)."""
+    found = DURATION_RE.findall(line)
+    if not found:
+        return None
+    value, unit = found[-1]
+    return float(value) * UNIT_MS[unit.lower()]
+
+
+def route_of(line: str) -> str:
+    """GET /api/users/12 -> GET /api/users/{n}. 못 찾으면 빈 문자열."""
+    m = ROUTE_RE.search(line)
+    if not m:
+        return ""
+    path = m.group(2).split("?", 1)[0]
+    return f"{m.group(1).upper()} {PATH_NUM.sub('/{n}', path)}"
+
+
+def timings(entries: list["Entry"], *,
+            pattern: "re.Pattern | None" = None) -> list[Timed]:
+    """응답 시간이 적힌 줄만 골라낸다. pattern 을 주면 그 첫 그룹을 ms 로 본다."""
+    out: list[Timed] = []
+    for e in entries:
+        if pattern:
+            m = pattern.search(e.raw)
+            if not m:
+                continue
+            try:
+                ms = float(m.group(1) if m.groups() else m.group(0))
+            except ValueError:
+                continue
+        else:
+            found = duration_ms(e.raw)
+            if found is None:
+                continue
+            ms = found
+        out.append(Timed(e, ms, route_of(e.raw)))
+    return out
+
+
+def by_route(timed: list[Timed], *, top: int = 10,
+             sort: str = "p95") -> list[RouteStat]:
+    """경로별로 묶는다. 경로를 못 찾은 줄은 '(경로 없음)' 으로 함께 센다."""
+    buckets: dict[str, RouteStat] = {}
+    for t in timed:
+        key = t.route or "(경로 없음)"
+        buckets.setdefault(key, RouteStat(key)).values.append(t.ms)
+
+    keys = {"p95": lambda s: -s.p(95), "p50": lambda s: -s.p(50),
+            "avg": lambda s: -s.avg, "count": lambda s: -s.count,
+            "total": lambda s: -s.total}
+    return sorted(buckets.values(), key=keys.get(sort, keys["p95"]))[:top]

@@ -264,6 +264,77 @@ def cmd_dev_time(a) -> int:
     return 0
 
 
+def _read_log_lines(sources: list[str]) -> list[str] | None:
+    lines: list[str] = []
+    for source in sources:
+        if source == "-":
+            lines += sys.stdin.read().splitlines()
+            continue
+        path = Path(source)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return None
+        lines += manuscript.read_text(path).splitlines()
+    return lines
+
+
+def cmd_dev_slow(a) -> int:
+    import re as _re
+
+    lines = _read_log_lines(a.files)
+    if lines is None:
+        return 1
+    if not lines:
+        _p("읽을 내용이 없습니다.")
+        return 1
+
+    pattern = None
+    if a.pattern:
+        try:
+            pattern = _re.compile(a.pattern)
+        except _re.error as e:
+            _p(f"정규식이 잘못됐습니다: {e}")
+            return 1
+
+    entries = logkit.parse(lines)
+    timed = logkit.timings(entries, pattern=pattern)
+    if not timed:
+        _p(f"{len(entries):,}줄에서 응답 시간을 찾지 못했습니다.")
+        _p("34ms, 1.2s 처럼 단위가 붙은 값을 찾습니다. 형식이 다르면 "
+           "--pattern '지연=(\\d+)' 처럼 정규식으로 알려 주세요.")
+        return 1
+
+    values = [t.ms for t in timed]
+    rate = len(timed) / len(entries)
+    _p(f"{len(entries):,}줄 중 {len(timed):,}줄에서 시간을 읽었습니다 ({rate:.0%})")
+    _p(f"  p50 {logkit.percentile(values, 50):,.0f}ms · "
+       f"p95 {logkit.percentile(values, 95):,.0f}ms · "
+       f"p99 {logkit.percentile(values, 99):,.0f}ms · "
+       f"최대 {max(values):,.0f}ms")
+    if a.over:
+        slow = [v for v in values if v >= a.over]
+        _p(f"  {a.over:,}ms 이상 {len(slow):,}건 ({len(slow) / len(values):.1%})")
+
+    stats = logkit.by_route(timed, top=a.top, sort=a.sort)
+    _p("")
+    _grid(["경로", "건수", "p50", "p95", "최대", "합계"],
+          [[s.route, f"{s.count:,}", f"{s.p(50):,.0f}", f"{s.p(95):,.0f}",
+            f"{max(s.values):,.0f}", f"{s.total / 1000:,.1f}s"] for s in stats],
+          limit=40)
+
+    worst = sorted(timed, key=lambda t: -t.ms)[:a.limit]
+    if worst:
+        _p("\n가장 느린 줄")
+        for t in worst:
+            _p(f"  {t.ms:>9,.0f}ms  {t.entry.line}행  {_cut(t.entry.raw.strip(), 70)}")
+
+    if rate < 0.5 and not pattern:
+        _p(f"\n시간을 읽은 줄이 절반이 안 됩니다({rate:.0%}). 형식이 다르면 "
+           "--pattern 으로 알려 주세요. 못 읽은 줄은 통계에 들어가지 않았습니다.")
+    _p("\n백분위는 보간 없이 실제 값 중에서 고릅니다. 표본이 적으면 그대로 참고만 하세요.")
+    return 0
+
+
 def cmd_dev_mask(a) -> int:
     text = _read_input(a.file)
     masked, counts = devkit.mask_text(text)
@@ -3942,6 +4013,19 @@ def build_parser() -> argparse.ArgumentParser:
     lg.add_argument("--width", type=int, default=90, metavar="칸")
     lg.add_argument("--lines", action="store_true", help="해당 줄 번호도 표시")
     lg.set_defaults(func=cmd_dev_log)
+
+    sl = dp.add_parser("slow", help="로그의 응답 시간 - 경로별 p50/p95 와 느린 요청")
+    sl.add_argument("files", nargs="+", metavar="파일")
+    sl.add_argument("--pattern", metavar="정규식",
+                    help="시간을 뽑을 정규식 (첫 그룹을 ms 로 본다)")
+    sl.add_argument("--sort", default="p95",
+                    choices=["p95", "p50", "avg", "count", "total"])
+    sl.add_argument("--top", type=int, default=10, metavar="개", help="경로 상위 N개")
+    sl.add_argument("--over", type=float, default=0, metavar="ms",
+                    help="이 시간을 넘는 요청 비율도 센다")
+    sl.add_argument("--limit", type=int, default=5, metavar="줄",
+                    help="가장 느린 줄 N개")
+    sl.set_defaults(func=cmd_dev_slow)
 
     m = dp.add_parser("mask", help="로그의 개인정보·시크릿 가리기")
     m.add_argument("file", nargs="?", default="-")

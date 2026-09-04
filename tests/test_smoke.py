@@ -237,6 +237,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("DB_PASSWORD=<db_password>", synced)
         self.assertNotIn("비밀", synced)          # 비밀값이 새어 나가면 안 된다
         self.assertIn("ERROR", self.run_cli("dev", "log", self.path("app.log")))
+        느림 = self.run_cli("dev", "slow", self.path("app.log"))
+        self.assertIn("p95", 느림)
+        self.assertIn("900", 느림)
         # django 는 ==4.2 로 고정돼 있으니 열린 목록에는 requests 만 나온다
         loose = self.run_cli("dev", "deps", self.path(), "--loose")
         self.assertIn("requests", loose)

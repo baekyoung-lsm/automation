@@ -113,6 +113,7 @@ zip 파일에는 덮어쓰지 않는다.
 | `at dev ports [이름\|번호]` | 지금 열려 있는 포트 전부 (프로세스·PID와 함께) |
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
 | `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기 |
+| `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
@@ -140,6 +141,9 @@ at dev bench --cmd "sort a.txt" --cmd "sort -S1M a.txt"   # 두 방식 비교
 at dev log app.log                      # 전체 요약
 at dev log app.log -l ERROR -b 10m      # 에러만 10분 단위로
 kubectl logs pod | at dev log -
+at dev slow app.log --over 500          # 500ms 넘는 요청 비율까지
+at dev slow app.log --sort total        # 총 소요 시간이 큰 경로부터
+at dev slow app.log --pattern 'took=(\d+)'
 ```
 
 `at dev deps` 는 `pyproject.toml`, `package.json`, `go.mod`, `requirements*.txt` 를 읽는다.
@@ -154,6 +158,15 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 같은 사고끼리 묶는다. `결제 실패 order=8821` 과 `order=8822` 가 한 줄로 합쳐지므로
 "무엇이 몇 번 터졌는지"가 바로 보인다. 스택 트레이스 줄은 앞 항목에 붙이고,
 평소 건수의 3배 이상 튄 구간은 급증으로 따로 알려 준다.
+
+`at dev slow` 는 `34ms`, `1.2s` 처럼 **단위가 붙은 값만** 응답 시간으로 센다. 상태 코드나
+바이트 수를 시간으로 잘못 세는 것보다 못 세는 편이 낫다고 봤다. 형식이 다르면 `--pattern`
+으로 알려 준다. `GET /api/users/12` 는 `GET /api/users/{n}` 으로 묶어 경로별로 집계하고,
+경로를 못 찾은 줄도 버리지 않고 `(경로 없음)` 으로 함께 센다. 시간을 읽은 줄이 절반이 안
+되면 그 사실을 알려 준다 — 통계가 일부만 보고 나온 값일 수 있어서다.
+
+백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
+숫자를 지어내게 된다.
 
 `at dev env` 는 문제가 있으면 종료 코드 1을 돌려주므로 CI나 배포 스크립트에 그대로 넣을 수 있다.
 

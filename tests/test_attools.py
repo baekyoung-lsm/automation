@@ -2604,6 +2604,61 @@ class LogkitTest(unittest.TestCase):
         self.assertEqual(logkit.span([]), (None, None))
 
 
+    LOG = [
+        "2026-09-01 10:00:01 INFO GET /api/users/12 200 34ms",
+        "2026-09-01 10:00:02 INFO GET /api/users/13 200 1.2s",
+        "2026-09-01 10:00:03 INFO POST /api/orders 201 250 ms",
+        "2026-09-01 10:00:04 INFO 시간 없는 줄",
+    ]
+
+    def test_duration_reads_units(self):
+        self.assertEqual(logkit.duration_ms("걸린 시간 34ms"), 34.0)
+        self.assertEqual(logkit.duration_ms("1.2s 걸림"), 1200.0)
+        self.assertEqual(logkit.duration_ms("30 seconds"), 30000.0)
+        self.assertEqual(logkit.duration_ms("250 ms"), 250.0)
+
+    def test_duration_ignores_bare_numbers(self):
+        self.assertIsNone(logkit.duration_ms("status 200 bytes 1234"))
+
+    def test_duration_takes_last_value(self):
+        self.assertEqual(logkit.duration_ms("db 10ms 총 50ms"), 50.0)
+
+    def test_route_normalizes_ids(self):
+        self.assertEqual(logkit.route_of("GET /api/users/12?x=1 200"),
+                         "GET /api/users/{n}")
+        self.assertEqual(logkit.route_of("post /orders 201"), "POST /orders")
+        self.assertEqual(logkit.route_of("그냥 줄"), "")
+
+    def test_percentile_picks_real_values(self):
+        values = [float(n) for n in range(1, 11)]
+        self.assertEqual(logkit.percentile(values, 50), 5)
+        self.assertEqual(logkit.percentile(values, 95), 10)
+        self.assertEqual(logkit.percentile(values, 100), 10)
+        self.assertEqual(logkit.percentile([], 50), 0.0)
+
+    def test_timings_skips_lines_without_duration(self):
+        timed = logkit.timings(logkit.parse(self.LOG))
+        self.assertEqual([t.ms for t in timed], [34.0, 1200.0, 250.0])
+
+    def test_timings_with_custom_pattern(self):
+        import re
+
+        lines = ["요청 처리 지연=120 완료", "지연 없음"]
+        timed = logkit.timings(logkit.parse(lines), pattern=re.compile(r"지연=(\d+)"))
+        self.assertEqual([t.ms for t in timed], [120.0])
+
+    def test_by_route_groups_and_sorts(self):
+        stats = logkit.by_route(logkit.timings(logkit.parse(self.LOG)), sort="p95")
+        self.assertEqual(stats[0].route, "GET /api/users/{n}")
+        self.assertEqual(stats[0].count, 2)
+        self.assertEqual(stats[0].p(50), 34.0)
+        self.assertEqual(stats[0].avg, 617.0)
+
+    def test_by_route_keeps_unmatched_lines_visible(self):
+        timed = logkit.timings(logkit.parse(["작업 완료 30s"]))
+        self.assertEqual(logkit.by_route(timed)[0].route, "(경로 없음)")
+
+
 class MdkitTest(unittest.TestCase):
     DOC = ("# 문서 제목\n\n## 설치 방법\n### 요구 사항\n##### 너무 깊음\n"
            "## 설치 방법\n```\n# 코드 안 제목\n```\n")
