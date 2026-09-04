@@ -11,8 +11,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import text
-
-
 class CliWiringTest(unittest.TestCase):
     """모든 하위 명령이 제대로 연결돼 있는지 훑는다.
 

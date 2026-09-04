@@ -9,9 +9,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import files, gitkit, names, text, todo
-
-
+from attools import files, text
+from attools.code import gitkit, todo
+from attools.write import names
 class GitkitTest(unittest.TestCase):
     def test_detects_real_secrets(self):
         text = (

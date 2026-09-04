@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import files, mdkit, sheet, text
+from .. import files, sheet, text
+from ..docs import mdkit
 from .common import _p, _grid, MD_SUFFIXES
 
 

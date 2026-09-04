@@ -9,9 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import jsonkit
-
-
+from attools.code import jsonkit
 class JsonkitTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

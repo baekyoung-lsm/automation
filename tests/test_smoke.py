@@ -21,8 +21,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import cli, sheet, xlsx
-
-
 class SmokeTest(unittest.TestCase):
     """모든 그룹에서 대표 명령을 하나씩 실제로 돌린다."""
 
@@ -389,7 +387,7 @@ class SmokeTest(unittest.TestCase):
                       encoding="utf-8")
         self.assertIn("--apply", self.run_cli("doc", "table", str(표)))
         self.run_cli("doc", "table", str(표), "--apply")
-        from attools.mdkit import display_width
+        from attools.docs.mdkit import display_width
 
         줄 = 표.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len({display_width(l) for l in 줄}), 1)

@@ -5,9 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import manuscript
-
-
+from ..write import manuscript
 def _pad(text: str, width: int) -> str:
     """한글처럼 두 칸을 차지하는 문자를 고려한 왼쪽 정렬."""
     import unicodedata

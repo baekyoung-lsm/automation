@@ -35,25 +35,35 @@ attools/
     __init__.py     build_parser 와 main. 그룹 모듈을 불러 붙인다
     common.py       _p, _grid, _pad 처럼 여러 그룹이 함께 쓰는 출력 도우미
     <그룹>_cmds.py   그룹마다 한 파일: 핸들러 + add_commands(sub) 배선
-  files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교
-  text.py           여러 파일 찾아 바꾸기·인코딩·줄바꿈·공백
-  hangul.py         NFC 정규화, 파일명 정리, 받침·조사
-  devkit.py         .env, 포트, JWT, 시각, 마스킹, 대기, 생성기, 벤치, 재시도
-  dbkit.py          sqlite 훑기 (읽기 전용)
-  openapi.py        OpenAPI(json) 엔드포인트·인자·응답 정리
-  fakedata.py       시험용 가짜 표 (한글 이름·전화·주소)
-  gitkit.py         브랜치 정리, 시크릿 검사, 커밋 통계
-  todo.py           TODO/FIXME 수집 (주석 안에 있을 때만)
-  logkit.py         로그 집계·분포·반복 에러 묶기
-  jsonkit.py        JSON 스키마·비교·평탄화
-  mdkit.py          마크다운 목차·링크·제목 점검
+
+  code/             코드 작업 - 개발 잡일, git, 로그, JSON, 의존성
+    devkit.py       .env, 포트, JWT, 시각, 마스킹, 대기, 생성기, 벤치, 재시도
+    dbkit.py        sqlite 훑기 (읽기 전용)
+    openapi.py      OpenAPI(json) 엔드포인트·인자·응답 정리
+    fakedata.py     시험용 가짜 표 (한글 이름·전화·주소)
+    gitkit.py       브랜치 정리, 시크릿 검사, 커밋 통계, 충돌 표시
+    todo.py         TODO/FIXME 수집 (주석 안에 있을 때만)
+    logkit.py       로그 집계·분포·반복 에러 묶기, 응답 시간 백분위
+    jsonkit.py      JSON 스키마·비교·평탄화·합치기
+    deps.py         의존성 파일 훑기
+    schedule.py     cron 해석
+
+  docs/             문서 작업 - 마크다운과 보고서
+    mdkit.py        목차·링크·제목 점검, 표 정렬, 절 나누기
+    report.py       표를 HTML 보고서로 (차트 포함)
+
+  write/            집필 - 사람이 쓰는 글
+    manuscript.py   원고 분량·반복·장면·시간선·문체·EPUB
+    names.py        고유명사 추출, 표기 흔들림, 조사 검사, 인물 등장 흐름
+
+  아래는 세 갈래가 함께 쓰는 것들이다.
+  files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교·zip·이미지
+  text.py           여러 파일 찾아 바꾸기·인코딩·줄바꿈·공백·대조·줄 접기
+  hangul.py         NFC 정규화, 파일명 정리, 받침·조사, 흔한 표기 오류
   sheet.py          표 모델과 csv/xlsx 입출력, 정리·검증·집계·필터·메일머지
   xlsx.py           의존성 없는 xlsx 리더/라이터
   keys.py keytui.py keyhtml.py   단축키 데이터·터미널 화면·HTML 내보내기
-  life.py           금액·D-day·정산·대출·단위·공휴일
-  manuscript.py     원고 분량·반복·장면·시간선·문체
-  names.py          고유명사 추출, 표기 흔들림, 이름 뒤 조사 검사
-  schedule.py       cron 해석
+  life.py           금액·D-day·정산·대출·단위·공휴일·세금·시차
   data/shortcuts.json
 tests/
   test_<그룹>.py   모듈별 단위 시험 (test_sheet, test_novel …)
@@ -64,6 +74,9 @@ tests/
 ## 명령을 추가할 때
 
 1. 로직은 해당 모듈에 순수 함수·데이터클래스로 넣는다. 출력(`print`)은 하지 않는다.
+   집필이면 `write/`, 문서면 `docs/`, 코드·개발이면 `code/`. 세 갈래가 다 쓰는 것만
+   최상단에 둔다(`files`, `text`, `hangul`, `sheet`, `life`). 갈래끼리 서로 부르지
+   않는다 - `code/` 가 `write/` 를 부르게 되면 자리를 잘못 고른 것이다.
 2. `cli/<그룹>_cmds.py` 에 `cmd_<그룹>_<이름>` 핸들러를 쓰고, 같은 파일의
    `add_commands` 안에 서브파서를 더한다. 표는 `_grid`, 한글 폭 맞춤은
    `_pad`·`_cut` 를 쓴다(`cli/common.py`). 새 그룹을 만들면 파일을 하나 더 만들고

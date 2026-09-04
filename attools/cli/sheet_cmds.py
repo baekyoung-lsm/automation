@@ -5,7 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import devkit, files, hangul, jsonkit, names, report, sheet, text
+from .. import files, hangul, sheet, text
+from ..code import devkit, jsonkit
+from ..docs import report
+from ..write import names
 from .common import _pad, _p, _cut, _grid
 
 

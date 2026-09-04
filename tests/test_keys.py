@@ -9,9 +9,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import keyhtml, keys, names
-
-
+from attools import keyhtml, keys
+from attools.write import names
 class KeysTest(unittest.TestCase):
     def setUp(self):
         self.groups, self.sources = keys.load_groups()

@@ -9,9 +9,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import report, sheet, text, xlsx
-
-
+from attools import sheet, text, xlsx
+from attools.docs import report
 class XlsxTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

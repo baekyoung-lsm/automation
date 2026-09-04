@@ -6,7 +6,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
-from .hangul import has_batchim
+from ..hangul import has_batchim
 
 # 어간 뒤에 붙는 조사. 긴 것부터 떼어내야 '에게서'를 '에'로 자르지 않는다.
 PARTICLES = [

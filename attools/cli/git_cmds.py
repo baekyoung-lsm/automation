@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import files, gitkit, text, todo
+from .. import files, text
+from ..code import gitkit, todo
 from .common import _p, _cut, _grid
 
 

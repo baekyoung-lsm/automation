@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import devkit, files
+from .. import files
+from ..code import devkit
 from ..hangul import is_decomposed
 from .common import _pad, _p, _confirm, _grid
 

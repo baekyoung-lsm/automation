@@ -8,9 +8,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import fakedata, sheet
-
-
+from attools import sheet
+from attools.code import fakedata
 class FakeDataTest(unittest.TestCase):
     def test_seed_repeats_the_same_rows(self):
         fields = [fakedata.parse_field("이름"), fakedata.parse_field("금액=금액:1000:2000")]

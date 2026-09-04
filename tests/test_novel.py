@@ -9,9 +9,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import manuscript, names, text
-
-
+from attools import text
+from attools.write import manuscript, names
 class ManuscriptTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

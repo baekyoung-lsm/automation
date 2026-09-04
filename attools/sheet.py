@@ -1273,7 +1273,7 @@ def from_records(records: list, *, depth: int = 2) -> tuple[Table, FlattenReport
 def find_records(data, path: str = "") -> list:
     """표로 만들 배열을 찾는다. path 를 주면 그 자리, 없으면 가장 큰 객체 배열."""
     if path:
-        from . import jsonkit
+        from .code import jsonkit
 
         found = jsonkit.get_path(data, path)
         if not isinstance(found, list):

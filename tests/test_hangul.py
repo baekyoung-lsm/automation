@@ -9,8 +9,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import hangul
-
-
 class HangulTest(unittest.TestCase):
     def test_nfd_detected_and_composed(self):
         decomposed = unicodedata.normalize("NFD", "한글파일.txt")

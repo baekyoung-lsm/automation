@@ -6,7 +6,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from .. import files, hangul, report, sheet, text
+from .. import files, hangul, sheet, text
+from ..docs import report
 from .common import _p, _cut, _grid
 
 

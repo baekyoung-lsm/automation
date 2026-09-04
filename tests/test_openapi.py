@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import openapi
+from attools.code import openapi
 
 
 SPEC = {

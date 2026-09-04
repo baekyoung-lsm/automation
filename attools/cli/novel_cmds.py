@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from .. import manuscript, names, sheet, text
+from .. import sheet, text
+from ..write import manuscript, names
 from .common import _pad, _p, _read_input, _cut, _grid
 
 

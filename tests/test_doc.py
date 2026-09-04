@@ -9,9 +9,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import mdkit, sheet
-
-
+from attools import sheet
+from attools.docs import mdkit
 class MdkitTest(unittest.TestCase):
     DOC = ("# 문서 제목\n\n## 설치 방법\n### 요구 사항\n##### 너무 깊음\n"
            "## 설치 방법\n```\n# 코드 안 제목\n```\n")

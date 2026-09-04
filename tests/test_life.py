@@ -10,8 +10,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import life
-
-
 class LifeTest(unittest.TestCase):
     def test_parse_amount(self):
         self.assertEqual(life.parse_amount("3억5000만"), 350_000_000)

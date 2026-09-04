@@ -9,8 +9,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import deps, devkit, logkit, names, text
-from attools.schedule import Cron, CronError
+from attools import text
+from attools.code import deps, devkit, logkit
+from attools.write import names
+from attools.code.schedule import Cron, CronError
 
 
 class DevkitTest(unittest.TestCase):

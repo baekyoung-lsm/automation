@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import files, jsonkit, text
+from .. import files, text
+from ..code import jsonkit
 from .common import _p, _grid
 
 

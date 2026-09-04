@@ -5,9 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import (dbkit, deps, devkit, fakedata, files, hangul, jsonkit, life,
-                logkit, manuscript, openapi, sheet, text)
-from ..schedule import Cron, CronError
+from .. import files, hangul, life, sheet, text
+from ..code import dbkit, deps, devkit, fakedata, jsonkit, logkit, openapi
+from ..code.schedule import Cron, CronError
+from ..write import manuscript
 from .common import _pad, _p, _confirm, _read_input, _cut, _grid
 
 

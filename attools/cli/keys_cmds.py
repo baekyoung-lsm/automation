@@ -5,7 +5,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import keys, names
+from .. import keys
+from ..write import names
 from .common import _pad, _p, _cut, _grid
 
 

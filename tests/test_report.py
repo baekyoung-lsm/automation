@@ -7,9 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import report
-
-
+from attools.docs import report
 class ReportTest(unittest.TestCase):
     def test_bar_path_rounds_only_the_far_end(self):
         path = report._bar_path(0, 0, 100, 20, radius=4)
