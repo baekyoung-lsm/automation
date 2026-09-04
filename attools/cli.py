@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import (__version__, devkit, files, gitkit, jsonkit, keys, life, logkit,
-               manuscript, mdkit, names, sheet, text, todo)
+               manuscript, mdkit, names, report, sheet, text, todo)
 from .schedule import Cron, CronError
 from . import hangul
 from .hangul import is_decomposed
@@ -2265,6 +2265,154 @@ def cmd_life_workday(a) -> int:
     return 0
 
 
+def cmd_sheet_report(a) -> int:
+    from datetime import date as _date, datetime as _datetime
+
+    t = _load(a)
+    if t is None:
+        return 1
+    if not t.rows:
+        _p("행이 없습니다.")
+        return 1
+
+    source = Path(a.file)
+    profiles = sheet.profile(t)
+    blanks = sum(p.missing for p in profiles)
+    cells = len(t.rows) * t.width
+
+    tiles = [report.Tile("행", f"{len(t.rows):,}"),
+             report.Tile("열", f"{t.width:,}"),
+             report.Tile("빈 칸", f"{blanks / cells:.1%}" if cells else "-",
+                         f"{blanks:,}칸")]
+
+    sections: list[str] = []
+
+    if a.value:
+        try:
+            numbers = [v for v in t.column(a.value)
+                       if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        if numbers:
+            tiles.append(report.Tile(f"{a.value} 합계", f"{sum(numbers):,.0f}",
+                                     f"평균 {sum(numbers) / len(numbers):,.0f}"))
+    sections.append(f"<section>{report.tiles_html(tiles)}</section>")
+
+    if a.by:
+        try:
+            grouped = sheet.pivot(t, rows=[a.by], values=a.value, agg=a.agg)
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        pairs = [(str(r[0]), float(r[1])) for r in grouped.rows
+                 if isinstance(r[1], (int, float))]
+        pairs.sort(key=lambda x: -x[1])
+        top = pairs[:a.top]
+        agg_names = {"sum": "합계", "avg": "평균", "count": "건수",
+                     "min": "최소", "max": "최대"}
+        label = f"{a.value} {agg_names[a.agg]}" if a.value else "건수"
+        note = f"상위 {len(top)}개" + (f" / 전체 {len(pairs)}개" if len(pairs) > len(top) else "")
+        sections.append(
+            f'<section><h2>{escape_html(a.by)}별 {escape_html(label)}'
+            f'<span class="note">{escape_html(note)}</span></h2>'
+            + report.bar_chart(top)
+            + '<details><summary>값을 표로 보기</summary>'
+            + report.table_html([a.by, label],
+                                [[name, f"{value:,.0f}"] for name, value in top],
+                                numeric={1})
+            + "</details></section>")
+
+    if a.date:
+        try:
+            index = t.index_of(a.date)
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        buckets: dict[str, float] = {}
+        fmt = {"day": "%Y-%m-%d", "month": "%Y-%m", "year": "%Y"}[a.period]
+        period_name = {"day": "일", "month": "월", "year": "연"}[a.period]
+        for row in t.rows:
+            when = row[index] if index < len(row) else None
+            if isinstance(when, _datetime):
+                when = when.date()
+            if not isinstance(when, _date):
+                continue
+            key = when.strftime(fmt)
+            if a.value:
+                cell = row[t.index_of(a.value)]
+                buckets[key] = buckets.get(key, 0.0) + (
+                    float(cell) if isinstance(cell, (int, float))
+                    and not isinstance(cell, bool) else 0.0)
+            else:
+                buckets[key] = buckets.get(key, 0.0) + 1
+
+        series = sorted(buckets.items())
+        if series:
+            label = f"{a.value} 합계" if a.value else "건수"
+            sections.append(
+                f'<section><h2>{escape_html(a.date)} 기준 {escape_html(label)} 추이'
+                f'<span class="note">{period_name} 단위 · {len(series)}구간</span></h2>'
+                + report.line_chart(series)
+                + '<details><summary>값을 표로 보기</summary>'
+                + report.table_html([a.date, label],
+                                    [[k, f"{v:,.0f}"] for k, v in series], numeric={1})
+                + "</details></section>")
+        else:
+            _p(f"'{a.date}' 열에서 날짜를 찾지 못해 추이는 넣지 않았습니다.")
+
+    sections.append(
+        "<section><h2>열 요약</h2>"
+        + report.table_html(
+            ["열", "타입", "빈 칸", "고유", "최소", "최대"],
+            [[p.name, p.main_kind + ("(혼재)" if p.mixed else ""),
+              f"{p.missing:,}", f"{p.unique:,}",
+              _report_value(p.minimum), _report_value(p.maximum)]
+             for p in profiles], numeric={2, 3})
+        + "</section>")
+
+    preview = t.rows[:a.rows]
+    sections.append(
+        f'<section><h2>데이터<span class="note">앞 {len(preview):,}행</span></h2>'
+        + report.table_html(t.headers,
+                            [[sheet.to_text(v) for v in row] for row in preview])
+        + "</section>")
+
+    title = a.title or source.stem
+    subtitle = (f"{source.name}"
+                + (f" · {t.sheet}" if t.sheet else "")
+                + f" · {len(t.rows):,}행 × {t.width}열"
+                + f" · {devkit.datetime.now():%Y-%m-%d %H:%M} 기준")
+    html = report.page(title, subtitle, sections,
+                       note="attools 로 만든 보고서입니다.")
+
+    out = Path(a.out or f"{source.stem}-보고서.html")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    _p(f"저장: {out}")
+    _p(f"  {len(sections)}개 절 · {len(t.rows):,}행에서 뽑았습니다.")
+    return 0
+
+
+def _report_value(value) -> str:
+    """보고서 표에 넣을 값. 큰 숫자는 천 단위를 넣어야 읽힌다."""
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return sheet.to_text(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{value:,.2f}".rstrip("0").rstrip(".")
+    return sheet.to_text(value)
+
+
+def escape_html(text: str) -> str:
+    from html import escape
+
+    return escape(str(text))
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -2943,6 +3091,19 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    rp2 = common(sh.add_parser("report", help="표를 HTML 보고서로 (요약·그래프·표)"))
+    rp2.add_argument("file")
+    rp2.add_argument("-o", "--out", metavar="파일", help="기본: <파일이름>-보고서.html")
+    rp2.add_argument("--title", default="", metavar="제목")
+    rp2.add_argument("--by", metavar="열", help="이 열로 묶어 막대 그래프")
+    rp2.add_argument("--value", metavar="열", help="집계할 숫자 열 (없으면 건수)")
+    rp2.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
+    rp2.add_argument("--date", metavar="열", help="이 날짜 열로 추이 그래프")
+    rp2.add_argument("--period", default="month", choices=["day", "month", "year"])
+    rp2.add_argument("--top", type=int, default=12, metavar="개")
+    rp2.add_argument("--rows", type=int, default=30, metavar="행", help="데이터 표에 넣을 행")
+    rp2.set_defaults(func=cmd_sheet_report)
 
     cv = common(sh.add_parser("convert", help="csv <-> xlsx 변환 (인코딩 정리)"))
     cv.add_argument("file")

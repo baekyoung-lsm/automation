@@ -283,6 +283,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
+| `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
@@ -299,9 +300,15 @@ at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
+at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고서.html
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`report` 는 KPI 타일, 그룹별 가로 막대, 기간별 추이, 열 요약, 데이터 표를 한 장으로 묶는다.
+그래프는 의존성 없이 SVG 를 직접 그리고, 계열이 하나뿐이라 색은 파란색 한 가지만 쓴다.
+그래프마다 값을 직접 붙이고 "값을 표로 보기"를 함께 넣어, 색을 못 보거나 인쇄한 경우에도
+읽을 수 있게 했다. 밝은/어두운 모드 각각의 색을 따로 정해 두었다.
 
 `fill` 은 틀 안의 `{열이름}` 을 행 값으로 바꾼다. `{번호:03d}` 처럼 형식도 쓸 수 있고
 `{{` 와 `}}` 는 중괄호 자체를 뜻한다. 표에 없는 자리표시자가 있으면 **먼저 알려 주고 멈춘다** —
