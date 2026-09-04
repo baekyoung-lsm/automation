@@ -365,6 +365,59 @@ def cmd_sheet_combine(a) -> int:
     return 0
 
 
+def cmd_sheet_rename(a) -> int:
+    import json as _json
+
+    t = _load(a)
+    if t is None:
+        return 1
+
+    mapping: dict[str, str] = {}
+    if a.map_file:
+        path = Path(a.map_file)
+        if not path.is_file():
+            _p(f"매핑 파일이 없습니다: {path}")
+            return 1
+        try:
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except _json.JSONDecodeError as e:
+            _p(f"매핑 파일을 읽지 못했습니다: {e}")
+            return 1
+        if not isinstance(data, dict):
+            _p("매핑 파일은 {\"옛이름\": \"새이름\"} 꼴이어야 합니다.")
+            return 1
+        mapping.update({str(k): str(v) for k, v in data.items()})
+
+    for spec in a.map or []:
+        old, sep, new = spec.partition("=")
+        if not sep:
+            _p(f"'옛이름=새이름' 꼴로 적어 주세요: {spec}")
+            return 1
+        mapping[old.strip()] = new.strip()
+
+    if not mapping and not a.strip:
+        _p("바꿀 이름을 주세요. 예: --map '수량=개수' --map '금액=총액'")
+        _p("또는 --strip 만 주면 열 이름의 앞뒤 공백을 정리합니다.")
+        return 1
+
+    result, missing = sheet.rename_columns(t, mapping, strip=a.strip)
+    changed = [(a1, b1) for a1, b1 in zip(t.headers, result.headers) if a1 != b1]
+
+    if changed:
+        _grid(["전", "후"], [[a1, b1] for a1, b1 in changed])
+    else:
+        _p("바뀐 열 이름이 없습니다.")
+    if missing:
+        _p(f"\n표에 없는 이름 {len(missing)}개: {', '.join(missing)}")
+        _p("매핑이 낡았거나 파일이 다릅니다. 조용히 넘기지 않습니다.")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(result, Path(a.out))}")
+    elif changed:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 1 if missing else 0
+
+
 def cmd_sheet_convert(a) -> int:
     t = _load(a)
     if t is None:
@@ -1053,6 +1106,14 @@ def add_commands(sub) -> None:
     cb.add_argument("--limit", type=int, default=20)
     cb.add_argument("-o", "--out")
     cb.set_defaults(func=cmd_sheet_combine)
+
+    rn2 = common(sh.add_parser("rename", help="열 이름 바꾸기 (합치기 전에 맞추기)"))
+    rn2.add_argument("file")
+    rn2.add_argument("--map", action="append", metavar="옛이름=새이름")
+    rn2.add_argument("--map-file", metavar="파일", help='{"옛이름": "새이름"} JSON')
+    rn2.add_argument("--strip", action="store_true", help="열 이름의 앞뒤 공백 정리")
+    rn2.add_argument("-o", "--out")
+    rn2.set_defaults(func=cmd_sheet_rename)
 
     def sheet_out(parser):
         parser.add_argument("-o", "--out", metavar="파일")

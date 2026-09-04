@@ -1631,3 +1631,34 @@ def column_diff(before: Table, after: Table) -> ColumnDiff:
             out.retyped.append((name, old_kinds.get(name, "?"),
                                 new_kinds.get(name, "?")))
     return out
+
+
+def rename_columns(table: Table, mapping: dict, *,
+                   strip: bool = False) -> tuple[Table, list[str]]:
+    """열 이름을 바꾼다. (새 표, 표에 없던 이름들)
+
+    거래처마다 열 이름이 달라서 합치기 전에 맞춰야 한다. 없는 이름을 조용히
+    넘기지 않고 돌려주므로, 매핑이 낡았는지 바로 안다.
+    """
+    lookup = {h.strip().lower(): h for h in table.headers}
+    missing = [old for old in mapping if old not in table.headers
+               and old.strip().lower() not in lookup]
+
+    headers: list[str] = []
+    for name in table.headers:
+        new = mapping.get(name)
+        if new is None:
+            key = name.strip().lower()
+            found = lookup.get(key)
+            new = mapping.get(found) if found and found != name else None
+        head = new if new is not None else name
+        headers.append(head.strip() if strip else head)
+
+    seen: dict[str, int] = {}
+    unique: list[str] = []
+    for head in headers:                  # 바꾸다 이름이 겹치면 번호를 붙인다
+        seen[head] = seen.get(head, 0) + 1
+        unique.append(head if seen[head] == 1 else f"{head}-{seen[head]}")
+
+    return Table(unique, [list(r) for r in table.rows],
+                 source=table.source, sheet=table.sheet), missing

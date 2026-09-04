@@ -877,5 +877,33 @@ class WhereBlankTest(unittest.TestCase):
             sheet.Condition.parse("eq", "연봉")
 
 
+class RenameColumnTest(unittest.TestCase):
+    TABLE = sheet.Table([" 수량 ", "금액", "비고"], [[1, 100, "x"]])
+
+    def test_renames_and_reports_missing(self):
+        new, missing = sheet.rename_columns(self.TABLE, {"수량": "개수",
+                                                         "없는열": "무엇"})
+        self.assertEqual(new.headers[0], "개수")
+        self.assertEqual(missing, ["없는열"])
+
+    def test_matches_ignoring_spaces_and_case(self):
+        new, missing = sheet.rename_columns(sheet.Table(["Qty"], [[1]]),
+                                            {"qty": "개수"})
+        self.assertEqual(new.headers, ["개수"])
+        self.assertEqual(missing, [])
+
+    def test_strip_cleans_untouched_headers(self):
+        new, _ = sheet.rename_columns(self.TABLE, {}, strip=True)
+        self.assertEqual(new.headers[0], "수량")
+
+    def test_clash_gets_a_number(self):
+        new, _ = sheet.rename_columns(self.TABLE, {"금액": "비고"})
+        self.assertEqual(new.headers, [" 수량 ", "비고", "비고-2"])
+
+    def test_rows_are_untouched(self):
+        new, _ = sheet.rename_columns(self.TABLE, {"수량": "개수"})
+        self.assertEqual(new.rows, self.TABLE.rows)
+
+
 if __name__ == "__main__":
     unittest.main()
