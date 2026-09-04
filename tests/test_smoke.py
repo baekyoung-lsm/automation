@@ -392,6 +392,8 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("평", self.run_cli("life", "unit", "84㎡"))
         self.assertIn("영업일", self.run_cli("life", "workday", "2026-08-14", "+5"))
         self.assertIn("부가세", self.run_cli("life", "tax", "1100000"))
+        self.assertIn("월세", self.run_cli("life", "rent", "--deposit", "5억",
+                                           "--keep", "1억"))
         시차 = self.run_cli("life", "tz", "14:00", "--to", "뉴욕", "--overlap", "뉴욕")
         self.assertIn("America/New_York", 시차)
         self.assertIn("겹치는", 시차)

@@ -232,5 +232,32 @@ class TimezoneTest(unittest.TestCase):
         self.assertEqual(life.hour_ranges(list(range(24))), [(0, 23)])
 
 
+class RentTest(unittest.TestCase):
+    def test_deposit_to_monthly(self):
+        plan = life.to_monthly(500_000_000, 100_000_000, 5.5)
+        self.assertEqual(plan.moved, 400_000_000)
+        self.assertEqual(plan.monthly, 1_833_333)     # 4억 x 5.5% / 12
+        self.assertEqual(plan.deposit, 100_000_000)
+
+    def test_monthly_to_deposit_is_the_inverse(self):
+        plan = life.to_deposit(1_833_333, 100_000_000, 5.5)
+        self.assertAlmostEqual(plan.moved, 400_000_000, delta=100)
+        self.assertAlmostEqual(plan.deposit, 500_000_000, delta=100)
+
+    def test_yearly_is_twelve_months(self):
+        self.assertEqual(life.to_monthly(120_000_000, 0, 10).yearly,
+                         life.to_monthly(120_000_000, 0, 10).monthly * 12)
+
+    def test_zero_rate_is_refused(self):
+        with self.assertRaises(ValueError):
+            life.to_monthly(100_000_000, 0, 0)
+        with self.assertRaises(ValueError):
+            life.to_deposit(500_000, 0, 0)
+
+    def test_keeping_more_than_the_deposit_is_refused(self):
+        with self.assertRaises(ValueError):
+            life.to_monthly(100_000_000, 200_000_000, 5)
+
+
 if __name__ == "__main__":
     unittest.main()

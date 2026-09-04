@@ -231,6 +231,39 @@ def cmd_life_tz(a) -> int:
     return 0
 
 
+def cmd_life_rent(a) -> int:
+    try:
+        rate = a.rate
+        if a.monthly:
+            monthly = life.parse_amount(a.monthly)
+            base = life.parse_amount(a.deposit) if a.deposit else 0
+            plan = life.to_deposit(monthly, base, rate)
+            _p(f"월세 {life.format_won(monthly)} -> 보증금 (연 {rate:g}%)")
+            _p(f"  보증금에 더할 금액   {life.format_won(plan.moved)}")
+            _p(f"  바꾼 뒤 보증금       {life.format_won(plan.deposit)}")
+            _p(f"  한 해 월세 {life.format_won(monthly * 12)} 만큼 안 냅니다.")
+        else:
+            if not a.deposit:
+                _p("전세보증금을 주세요. 예: at life rent --deposit 5억 --keep 1억")
+                return 1
+            full = life.parse_amount(a.deposit)
+            keep = life.parse_amount(a.keep) if a.keep else 0
+            plan = life.to_monthly(full, keep, rate)
+            _p(f"전세 {life.format_won(full)} 중 "
+               f"{life.format_won(plan.deposit)} 만 남기기 (연 {rate:g}%)")
+            _p(f"  월세로 돌리는 금액   {life.format_won(plan.moved)}")
+            _p(f"  월세                 {life.format_won(plan.monthly)}")
+            _p(f"  한 해                {life.format_won(plan.yearly)}")
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p("\n전환율은 계약마다 다릅니다. 주택임대차보호법에는 상한(기준금리 + 일정 %)이 "
+       "있으니 지금 기준금리를 확인해 넣으세요.")
+    _p("여기서는 준 전환율로만 계산하고, 세금이나 관리비는 보지 않습니다.")
+    return 0
+
+
 def cmd_life_cal(a) -> int:
     import calendar
     from datetime import date as _date
@@ -431,3 +464,11 @@ def add_commands(sub) -> None:
     tz.add_argument("--overlap", metavar="곳", help="이곳과 겹치는 근무 시간")
     tz.add_argument("-l", "--list", action="store_true", help="쓸 수 있는 별칭")
     tz.set_defaults(func=cmd_life_tz)
+
+    rn = lp.add_parser("rent", help="전월세 전환 - 보증금 <-> 월세")
+    rn.add_argument("--deposit", metavar="금액", help="전세보증금 (또는 기준 보증금)")
+    rn.add_argument("--keep", metavar="금액", help="남길 보증금 (기본 0)")
+    rn.add_argument("--monthly", metavar="금액", help="이걸 주면 월세를 보증금으로")
+    rn.add_argument("--rate", type=float, default=5.5, metavar="%",
+                    help="연 전환율 (기본 5.5)")
+    rn.set_defaults(func=cmd_life_rent)

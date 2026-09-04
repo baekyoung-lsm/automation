@@ -617,3 +617,36 @@ def hour_ranges(hours: list[int]) -> list[tuple[int, int]]:
             end = (end + 1) % 24
         out.append((hour, end))
     return out
+
+
+# ---------------------------------------------------------- 전월세 전환
+
+@dataclass
+class RentPlan:
+    deposit: int            # 바꾼 뒤 보증금
+    monthly: int            # 바꾼 뒤 월세
+    moved: int              # 보증금에서 뺀(또는 더한) 금액
+    rate: float             # 연 전환율 %
+
+    @property
+    def yearly(self) -> int:
+        return self.monthly * 12
+
+
+def to_monthly(full_deposit: float, keep_deposit: float, rate: float) -> RentPlan:
+    """전세보증금 일부를 월세로 돌린다. 월세 = 뺀 보증금 x 전환율 / 12."""
+    if rate <= 0:
+        raise ValueError("전환율은 0보다 커야 합니다.")
+    if keep_deposit > full_deposit:
+        raise ValueError("남길 보증금이 전세보증금보다 큽니다.")
+    moved = int(full_deposit - keep_deposit)
+    monthly = int(moved * rate / 100 / 12)
+    return RentPlan(int(keep_deposit), monthly, moved, rate)
+
+
+def to_deposit(monthly: float, base_deposit: float, rate: float) -> RentPlan:
+    """월세를 보증금으로 돌린다. 보증금 = 월세 x 12 / 전환율."""
+    if rate <= 0:
+        raise ValueError("전환율은 0보다 커야 합니다.")
+    moved = int(monthly * 12 / (rate / 100))
+    return RentPlan(int(base_deposit) + moved, 0, moved, rate)
