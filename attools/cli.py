@@ -2565,6 +2565,70 @@ def cmd_dev_bench(a) -> int:
     return 0
 
 
+def cmd_dev_ports(a) -> int:
+    try:
+        ports = devkit.listening_ports()
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if a.filter:
+        needle = a.filter.lower()
+        ports = [p for p in ports
+                 if needle in p.name.lower() or needle == str(p.port)]
+    if not ports:
+        _p("열려 있는 포트가 없습니다." if not a.filter else "맞는 포트가 없습니다.")
+        return 0
+
+    _grid(["포트", "프로세스", "PID", "주소"],
+          [[str(p.port), p.name, str(p.pid) if p.pid else "-", p.address or "-"]
+           for p in ports[:a.limit]], limit=24)
+    if len(ports) > a.limit:
+        _p(f"  ... {len(ports) - a.limit}개 더")
+    _p(f"\n{len(ports)}개.  하나를 종료하려면: at dev port <번호> --kill")
+    return 0
+
+
+def cmd_git_branches(a) -> int:
+    root = _repo(a)
+    if root is None:
+        return 1
+    try:
+        branches = gitkit.list_branches(root, remote=a.remote)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if not branches:
+        _p("브랜치가 없습니다.")
+        return 0
+    if a.stale:
+        branches = [b for b in branches
+                    if b.age_days is not None and b.age_days >= a.stale]
+        if not branches:
+            _p(f"{a.stale}일 넘게 손대지 않은 브랜치가 없습니다.")
+            return 0
+
+    rows = []
+    for b in branches[:a.limit]:
+        mark = "*" if b.current else ""
+        track = "원격 사라짐" if b.gone else (
+            " ".join(filter(None, [f"앞 {b.ahead}" if b.ahead else "",
+                                   f"뒤 {b.behind}" if b.behind else ""]))
+            or ("맞춰짐" if b.upstream else "-"))
+        rows.append([mark + b.name,
+                     f"{b.age_days}일" if b.age_days is not None else "-",
+                     b.author, track, b.subject])
+    _grid(["브랜치", "마지막", "사람", "원격", "마지막 커밋"], rows, limit=34)
+    if len(branches) > a.limit:
+        _p(f"  ... {len(branches) - a.limit}개 더")
+
+    gone = [b for b in branches if b.gone]
+    _p(f"\n{len(branches)}개" + (f"  ·  원격이 사라진 것 {len(gone)}개"
+                                  "  ·  정리하려면 at git sweep --fetch" if gone else ""))
+    return 0
+
+
 # =================================================================== json
 
 def _json_load(a, source):
@@ -2822,6 +2886,12 @@ def build_parser() -> argparse.ArgumentParser:
     pt.add_argument("-y", "--yes", action="store_true", help="확인 없이 종료")
     pt.set_defaults(func=cmd_dev_port)
 
+    pl = dp.add_parser("ports", help="열려 있는 포트 전부 보기")
+    pl.add_argument("filter", nargs="?", metavar="이름|번호",
+                    help="프로세스 이름이나 포트 번호로 거르기")
+    pl.add_argument("--limit", type=int, default=40)
+    pl.set_defaults(func=cmd_dev_ports)
+
     j = dp.add_parser("jwt", help="JWT 내용 확인 (서명 검증 안 함)")
     j.add_argument("token", nargs="?", default="-")
     j.set_defaults(func=cmd_dev_jwt)
@@ -2883,6 +2953,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     # ---- git
     gp = sub.add_parser("git", help="git 저장소 정리·검사").add_subparsers(dest="cmd", required=True)
+
+    br = gp.add_parser("branches", help="브랜치 목록 - 마지막 커밋·사람·원격 차이")
+    br.add_argument("dir", nargs="?", default=".")
+    br.add_argument("--remote", action="store_true", help="원격 브랜치를 본다")
+    br.add_argument("--stale", type=int, default=0, metavar="일",
+                    help="이만큼 손대지 않은 것만")
+    br.add_argument("--limit", type=int, default=40)
+    br.set_defaults(func=cmd_git_branches)
 
     sw = gp.add_parser("sweep", help="병합 끝난 브랜치, 원격 사라진 브랜치 정리")
     sw.add_argument("dir", nargs="?", default=".")

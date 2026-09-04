@@ -462,3 +462,48 @@ def build_example(actual: Path, *, existing: Path | None = None,
         lines.append(f"{key}={placeholder(key, values[key])}")
 
     return "\n".join(lines).rstrip() + "\n", added
+
+
+@dataclass
+class OpenPort:
+    port: int
+    pid: int
+    name: str
+    address: str = ""
+
+
+def listening_ports() -> list[OpenPort]:
+    """지금 열려 있는 TCP 포트 전부. lsof -> ss 순으로 시도한다."""
+    if shutil.which("lsof"):
+        proc = subprocess.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"],
+                              capture_output=True, text=True)
+        found: list[OpenPort] = []
+        pid, name = 0, "?"
+        for line in proc.stdout.splitlines():
+            tag, value = line[:1], line[1:]
+            if tag == "p":
+                pid = int(value) if value.isdigit() else 0
+            elif tag == "c":
+                name = value
+            elif tag == "n":
+                address, _, port = value.rpartition(":")
+                if port.isdigit():
+                    found.append(OpenPort(int(port), pid, name, address))
+        return sorted(found, key=lambda p: (p.port, p.pid))
+
+    if shutil.which("ss"):
+        proc = subprocess.run(["ss", "-ltnp"], capture_output=True, text=True)
+        found = []
+        for line in proc.stdout.splitlines()[1:]:
+            cells = line.split()
+            if len(cells) < 4:
+                continue
+            address, _, port = cells[3].rpartition(":")
+            if not port.isdigit():
+                continue
+            m = re.search(r'users:\(\("([^"]+)",pid=(\d+)', line)
+            found.append(OpenPort(int(port), int(m.group(2)) if m else 0,
+                                  m.group(1) if m else "?", address))
+        return sorted(found, key=lambda p: (p.port, p.pid))
+
+    raise RuntimeError("lsof 또는 ss 가 필요합니다.")

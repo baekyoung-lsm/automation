@@ -353,6 +353,19 @@ class DevkitTest(unittest.TestCase):
         self.assertTrue(info["expired"])
         self.assertTrue(info["signed"])
 
+    def test_open_port_dataclass(self):
+        port = devkit.OpenPort(8080, 123, "python3", "127.0.0.1")
+        self.assertEqual((port.port, port.pid, port.name), (8080, 123, "python3"))
+
+    def test_listening_ports_returns_sorted_list(self):
+        import shutil as _shutil
+
+        if not (_shutil.which("lsof") or _shutil.which("ss")):
+            self.skipTest("lsof 도 ss 도 없습니다")
+        ports = devkit.listening_ports()
+        self.assertEqual(ports, sorted(ports, key=lambda p: (p.port, p.pid)))
+        self.assertTrue(all(p.port > 0 for p in ports))
+
     def test_bench_statistics(self):
         r = devkit.BenchResult("x", times=[0.10, 0.20, 0.30, 0.40])
         self.assertEqual(r.runs, 4)
@@ -795,6 +808,30 @@ class GitStatsTest(unittest.TestCase):
         self.assertEqual(gitkit.top_directory(["src/a.py", "src/b.py"]), "src")
         self.assertEqual(gitkit.top_directory(["src/a.py", "docs/b.md"]), "여러 곳")
         self.assertEqual(gitkit.top_directory([]), "기타")
+
+    def test_list_branches_reports_age_and_tracking(self):
+        self.commit("a.py", "1\n", "첫 커밋")
+        self.run("branch", "기능/새것")
+        branches = gitkit.list_branches(self.root)
+
+        names = {b.name for b in branches}
+        self.assertIn("기능/새것", names)
+        current = [b for b in branches if b.current]
+        self.assertEqual(len(current), 1)
+        self.assertEqual(current[0].author, "테스터")
+        self.assertEqual(current[0].subject, "첫 커밋")
+        self.assertEqual(current[0].age_days, 0)
+        self.assertEqual(current[0].upstream, "")   # 원격 없음
+
+    def test_list_branches_sorted_by_recency(self):
+        self.commit("a.py", "1\n", "커밋")
+        self.run("branch", "오래된것")
+        self.commit("a.py", "1\n2\n", "나중 커밋")
+        branches = gitkit.list_branches(self.root)
+        self.assertTrue(branches[0].when >= branches[-1].when)
+
+    def test_list_branches_on_empty_repo(self):
+        self.assertEqual(gitkit.list_branches(self.root), [])
 
     def test_tracked_count_distinguishes_empty_index(self):
         self.assertEqual(gitkit.tracked_count(self.root), 0)   # 저장소지만 add 전

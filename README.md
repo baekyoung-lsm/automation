@@ -99,6 +99,7 @@ zip 파일에는 덮어쓰지 않는다.
 | `at dev port <포트>` | 포트를 잡고 있는 프로세스를 찾고 `--kill` 로 종료한다 |
 | `at dev jwt <토큰>` | JWT 헤더·페이로드를 디코드하고 `exp`/`iat` 를 KST로 보여준다 (서명 검증 안 함) |
 | `at dev time [값]` | epoch(초/밀리초)·ISO 문자열·`now` 를 KST/UTC/epoch 로 상호 변환한다 |
+| `at dev ports [이름\|번호]` | 지금 열려 있는 포트 전부 (프로세스·PID와 함께) |
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
 | `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
@@ -111,6 +112,8 @@ zip 파일에는 덮어쓰지 않는다.
 at dev env                       # 배포 전 .env 점검, 문제 있으면 exit 1
 at dev env --sync                # .env 에서 .env.example 을 만든다 (미리보기)
 at dev env --sync --apply
+at dev ports                     # 지금 뭐가 떠 있나
+at dev ports node                # 이름으로 거르기
 at dev port 8080 --kill
 at dev time 1750000000
 kubectl logs pod | at dev mask > 공유용.log
@@ -224,6 +227,7 @@ at doc check README.md --outline
 | --- | --- |
 | `at git sweep [경로]` | 기준 브랜치에 병합이 끝난 로컬 브랜치, 원격이 사라진 추적 브랜치를 찾아 지운다 |
 | `at git scan [경로]` | 코드에 하드코딩된 API 키·토큰·개인 키·접속 문자열 비밀번호·주민등록번호를 찾는다 |
+| `at git branches [경로]` | 브랜치별 마지막 커밋·사람·원격 차이. `--stale 30` 으로 방치된 것만 |
 | `at git release [경로]` | 태그 이후 커밋으로 변경 로그 초안을 만든다 |
 | `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
@@ -237,6 +241,7 @@ at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
 at git todo                       # 오래 방치된 순
 at git todo -m FIXME -m BUG -s severity
 at git todo --no-blame -g '*.py'  # 작성자 조회 없이 빠르게
+at git branches --stale 30
 at git release --title 0.12.0 --authors
 at git release --since v0.11.0 -o CHANGELOG.md
 at git stats --since '30 days ago' --by week

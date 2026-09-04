@@ -473,3 +473,54 @@ def render_changelog(groups: dict[str, list[Change]], *, title: str = "",
             lines.append(f"- {mark}{scope}{c.title} {sha}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+@dataclass
+class Branch:
+    name: str
+    current: bool
+    when: datetime | None
+    author: str
+    subject: str
+    upstream: str = ""
+    ahead: int = 0
+    behind: int = 0
+    gone: bool = False
+
+    @property
+    def age_days(self) -> int | None:
+        return (datetime.now() - self.when).days if self.when else None
+
+
+BRANCH_FORMAT = ("%(HEAD)\x02%(refname:short)\x02%(committerdate:iso-strict)"
+                 "\x02%(authorname)\x02%(contents:subject)\x02%(upstream:short)"
+                 "\x02%(upstream:track)")
+
+
+def list_branches(root: Path, *, remote: bool = False) -> list[Branch]:
+    """브랜치마다 마지막 커밋 시각·사람·앞뒤 차이를 모은다."""
+    ref = "refs/remotes" if remote else "refs/heads"
+    out = run(["for-each-ref", f"--format={BRANCH_FORMAT}", ref], root)
+
+    branches: list[Branch] = []
+    for line in out.splitlines():
+        cells = line.split("\x02")
+        if len(cells) < 7:
+            continue
+        head, name, stamp, author, subject, upstream, track = cells[:7]
+        try:
+            when = datetime.fromisoformat(stamp).replace(tzinfo=None)
+        except ValueError:
+            when = None
+
+        branch = Branch(name, head.strip() == "*", when, author, subject, upstream)
+        if "gone" in track:
+            branch.gone = True
+        if m := re.search(r"ahead (\d+)", track):
+            branch.ahead = int(m.group(1))
+        if m := re.search(r"behind (\d+)", track):
+            branch.behind = int(m.group(1))
+        branches.append(branch)
+
+    return sorted(branches, key=lambda b: (b.when is None, -(b.when.timestamp()
+                                                             if b.when else 0)))
