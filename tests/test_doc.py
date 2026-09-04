@@ -322,5 +322,36 @@ class ToHtmlTest(unittest.TestCase):
         self.assertIn("@media print", mdkit.to_html("# 가\n"))
 
 
+class SlideTest(unittest.TestCase):
+    MD = ("# 제목\n\n발표자\n\n---\n\n## 첫 장\n\n- 하나\n\n---\n\n"
+          "## 코드\n\n```python\nprint(1)\n---\n```\n")
+
+    def test_splits_on_rules(self):
+        slides = mdkit.split_slides(self.MD)
+        self.assertEqual(len(slides), 3)
+        self.assertTrue(slides[0].startswith("# 제목"))
+
+    def test_rule_inside_code_fence_does_not_split(self):
+        slides = mdkit.split_slides(self.MD)
+        self.assertIn("---", slides[2])          # 코드 블록 안의 --- 는 그대로
+
+    def test_split_by_heading(self):
+        slides = mdkit.split_slides("머리말\n\n## 가\n\n글\n\n## 나\n\n글\n",
+                                    by="heading")
+        self.assertEqual(len(slides), 3)         # 머리말 + 두 절
+
+    def test_html_has_one_section_per_slide(self):
+        html = mdkit.to_slides(self.MD, title="시험")
+        self.assertEqual(html.count("<section>"), 3)
+        self.assertIn("<title>시험</title>", html)
+
+    def test_print_css_puts_one_slide_per_page(self):
+        html = mdkit.to_slides(self.MD)
+        self.assertIn("page-break-after:always", html.replace(" ", ""))
+
+    def test_keyboard_script_is_included(self):
+        self.assertIn("ArrowRight", mdkit.to_slides(self.MD))
+
+
 if __name__ == "__main__":
     unittest.main()

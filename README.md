@@ -390,6 +390,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc terms <경로…>` | 용어 표기 흔들림 - `API`/`api`, `데이터 베이스`/`데이터베이스` |
 | `at doc lint <경로…>` | 문서 점검 한 번에 - 링크·이미지·제목·표·용어 |
 | `at doc html <파일>` | 마크다운을 HTML 한 장으로 (브라우저에서 인쇄하면 PDF) |
+| `at doc slides <파일>` | 마크다운을 넘겨 보는 슬라이드로 (`---` 로 장을 나눈다) |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -401,6 +402,8 @@ at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
 at doc html 회의록.md --toc                # 브라우저로 열어 인쇄 → PDF
+at doc slides 발표.md -o 발표.html         # 화살표로 넘기는 슬라이드
+at doc slides 문서.md --by 제목            # ## 마다 한 장
 at doc lint docs/ --only-errors            # CI 용. 고쳐야 할 것만
 at doc terms docs/ --kind 띄어쓰기          # 붙여 쓴 곳과 띄어 쓴 곳
 at doc images docs/ --orphans --only-bad   # 깨진 그림과 안 쓰는 그림
@@ -411,6 +414,10 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`slides` 는 같은 문법으로 발표 자료를 만든다. `---` 로 장을 나누고(코드 블록 안의 `---` 는
+그대로 둔다), 화살표·스페이스로 넘긴다. 인쇄하면 한 장에 한 쪽씩 나오므로 그대로 PDF 로
+돌린다. 주소 끝에 `#3` 을 붙이면 그 장부터 열린다.
 
 `html` 은 의존성 없이 마크다운을 한 장짜리 HTML 로 만든다. 한글 글꼴 스택, 밝은/어두운
 모드, **인쇄용 CSS**(제목 뒤에서 쪽이 갈리지 않게, 표·코드는 쪽을 넘기지 않게)를 넣어 두므로

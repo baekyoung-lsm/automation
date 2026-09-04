@@ -323,6 +323,34 @@ def cmd_doc_html(a) -> int:
     return 0
 
 
+def cmd_doc_slides(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = path.read_text(encoding="utf-8", errors="replace")
+    by = "heading" if a.by == "제목" else "rule"
+    slides = mdkit.split_slides(body, by=by, level=a.level)
+    if len(slides) < 2:
+        _p("슬라이드를 나눌 표시를 찾지 못했습니다.")
+        _p("--- 로 나누거나 --by 제목 을 주세요.")
+        return 1
+
+    html = mdkit.to_slides(body, title=a.title or path.stem, by=by, level=a.level)
+    out = Path(a.out) if a.out else path.with_suffix(".슬라이드.html")
+    if out.exists() and not a.overwrite:
+        _p(f"이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+
+    _p(f"저장: {out}  ({len(slides)}장)")
+    _p("화살표·스페이스로 넘기고, 인쇄하면 한 장에 한 쪽씩 나옵니다.")
+    _p("주소 끝의 #3 처럼 쪽 번호를 붙이면 그 장부터 열립니다.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -524,3 +552,14 @@ def add_commands(sub) -> None:
     dh2.add_argument("--no-note", action="store_true", help="아래 문구를 넣지 않는다")
     dh2.add_argument("--overwrite", action="store_true")
     dh2.set_defaults(func=cmd_doc_html)
+
+    ds2 = dc.add_parser("slides", help="마크다운을 넘겨 보는 슬라이드 HTML 로")
+    ds2.add_argument("file", metavar="파일")
+    ds2.add_argument("-o", "--out", metavar="파일")
+    ds2.add_argument("--by", default="구분선", choices=["구분선", "제목"],
+                     help="--- 로 나눌지 제목으로 나눌지")
+    ds2.add_argument("--level", type=int, default=2, metavar="단계",
+                     help="--by 제목 일 때 어느 단계까지 (기본 2)")
+    ds2.add_argument("--title", default="", metavar="제목")
+    ds2.add_argument("--overwrite", action="store_true")
+    ds2.set_defaults(func=cmd_doc_slides)

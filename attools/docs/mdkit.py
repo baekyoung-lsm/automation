@@ -552,9 +552,8 @@ def _table_html(block: "TableBlock") -> str:
             f"<tbody>\n{chr(10).join(rows)}\n</tbody>\n</table>")
 
 
-def to_html(text: str, *, title: str = "", toc: bool = False,
-            note: str = "") -> str:
-    """마크다운을 HTML 한 장으로. 지원하는 문법은 SUPPORTED 에 적어 둔 만큼이다."""
+def render_body(text: str) -> tuple[str, list[str]]:
+    """마크다운 본문만 HTML 로. (본문, 목차 항목들)"""
     from html import escape
 
     lines = text.splitlines()
@@ -665,7 +664,15 @@ def to_html(text: str, *, title: str = "", toc: bool = False,
         paragraph.append(line.strip())
 
     flush_all()
+    return "\n".join(out), toc_rows
 
+
+def to_html(text: str, *, title: str = "", toc: bool = False,
+            note: str = "") -> str:
+    """마크다운을 HTML 한 장으로. 지원하는 문법은 SUPPORTED 에 적어 둔 만큼이다."""
+    from html import escape
+
+    body, toc_rows = render_body(text)
     head = f"<h1>{escape(title)}</h1>" if title else ""
     nav = (f'<nav class="toc"><ol>{"".join(toc_rows)}</ol></nav>'
            if toc and toc_rows else "")
@@ -682,9 +689,118 @@ def to_html(text: str, *, title: str = "", toc: bool = False,
 <div class="wrap">
 {head}
 {nav}
-{chr(10).join(out)}
+{body}
 {footer}
 </div>
+</body>
+</html>
+"""
+
+
+# ------------------------------------------------------------ 발표 슬라이드
+
+SLIDE_CSS = """
+:root { --ink:#1c1b19; --dim:#6b6862; --paper:#fff; --line:#e5e2dc;
+  --mark:#f3f1ec; --link:#2a78d6; }
+@media (prefers-color-scheme: dark) {
+  :root { --ink:#ece9e3; --dim:#a49e95; --paper:#141312; --line:#33302a;
+    --mark:#201e1b; --link:#7fb0f0; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--paper); color:var(--ink); word-break:keep-all;
+  font:clamp(18px, 2.2vw, 30px)/1.6 "Pretendard","Apple SD Gothic Neo",
+  "Malgun Gothic","Noto Sans KR",system-ui,sans-serif; }
+section { display:none; min-height:100vh; padding:8vh 8vw 12vh; }
+section.on { display:block; }
+h1 { font-size:1.9em; margin:0 0 .6em; line-height:1.25; }
+h2 { font-size:1.5em; margin:0 0 .6em; }
+h3 { font-size:1.2em; }
+li { margin:.35em 0; }
+code { background:var(--mark); padding:.08em .3em; border-radius:4px;
+  font:0.9em/1.5 "D2Coding",ui-monospace,Menlo,Consolas,monospace; }
+pre { background:var(--mark); padding:1em; border-radius:8px; overflow-x:auto;
+  font-size:.8em; }
+table { border-collapse:collapse; }
+th, td { border:1px solid var(--line); padding:.4em .6em; }
+blockquote { border-left:4px solid var(--line); margin:1em 0; padding:.2em 1em;
+  color:var(--dim); }
+img { max-width:100%; height:auto; }
+footer { position:fixed; right:2.5vw; bottom:2vh; color:var(--dim);
+  font-size:.6em; }
+@media print {
+  body { background:#fff; color:#000; }
+  section { display:block; min-height:auto; page-break-after:always;
+    padding:6% 8%; }
+  footer { display:none; }
+}
+"""
+
+SLIDE_JS = """
+(function () {
+  var slides = document.querySelectorAll("section");
+  var at = 0;
+  function show(next) {
+    at = Math.max(0, Math.min(slides.length - 1, next));
+    slides.forEach(function (s, i) { s.classList.toggle("on", i === at); });
+    document.getElementById("쪽").textContent = (at + 1) + " / " + slides.length;
+    location.hash = at + 1;
+  }
+  document.addEventListener("keydown", function (e) {
+    if (["ArrowRight", "PageDown", " ", "Enter"].indexOf(e.key) >= 0) show(at + 1);
+    else if (["ArrowLeft", "PageUp", "Backspace"].indexOf(e.key) >= 0) show(at - 1);
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+  });
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest("a")) show(at + 1);
+  });
+  show(parseInt(location.hash.slice(1), 10) - 1 || 0);
+})();
+"""
+
+
+def split_slides(text: str, *, by: str = "rule", level: int = 2) -> list[str]:
+    """발표용으로 쪼갠다. by: rule(---) 또는 heading(제목)."""
+    if by == "rule":
+        chunks: list[list[str]] = [[]]
+        fence: str | None = None
+        for line in text.splitlines():
+            m = FENCE_RE.match(line)
+            if m:
+                fence = None if fence else m.group(1)
+            if fence is None and HR_RE.match(line):
+                chunks.append([])
+                continue
+            chunks[-1].append(line)
+        return [c for c in ("\n".join(chunk).strip() for chunk in chunks) if c]
+
+    preface, sections = split_sections(text, level=level)
+    out = [preface] if preface.strip() else []
+    return out + [s.body for s in sections]
+
+
+def to_slides(text: str, *, title: str = "", by: str = "rule",
+              level: int = 2) -> str:
+    """마크다운을 넘겨 보는 슬라이드 HTML 로. 인쇄하면 한 장에 한 쪽씩."""
+    from html import escape
+
+    slides = split_slides(text, by=by, level=level)
+    if not slides:
+        slides = [text]
+    body = "\n".join(f"<section>{render_body(chunk)[0]}</section>"
+                     for chunk in slides)
+    return f"""<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title or "슬라이드")}</title>
+<style>{SLIDE_CSS}</style>
+</head>
+<body>
+{body}
+<footer><span id="쪽"></span></footer>
+<script>{SLIDE_JS}</script>
 </body>
 </html>
 """

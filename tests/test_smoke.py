@@ -416,6 +416,13 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(len({display_width(l) for l in 줄}), 1)
         그림문서 = Path(self.path("그림문서.md"))
         그림문서.write_text("# 안내\n\n![없음](그림/사라진것.png)\n", encoding="utf-8")
+        발표 = Path(self.path("발표.md"))
+        발표.write_text("# 제목\n\n발표자\n\n---\n\n## 첫 장\n\n- 하나\n",
+                        encoding="utf-8")
+        슬라이드 = self.path("발표.html")
+        self.assertIn("2장", self.run_cli("doc", "slides", str(발표), "-o", 슬라이드))
+        self.assertIn("<section>", Path(슬라이드).read_text(encoding="utf-8"))
+
         html출력 = self.path("문서.html")
         self.run_cli("doc", "html", md, "-o", html출력, "--toc")
         만든것 = Path(html출력).read_text(encoding="utf-8")
