@@ -3050,6 +3050,48 @@ def cmd_doc_check(a) -> int:
     return 1
 
 
+def cmd_doc_split(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    body = path.read_text(encoding="utf-8", errors="replace")
+    preface, sections = mdkit.split_sections(body, level=a.level)
+    if not sections:
+        _p(f"H{a.level} 이하 제목이 없어 쪼갤 수 없습니다.")
+        return 1
+
+    out_dir = Path(a.out) if a.out else path.with_suffix("")
+    plan: list[tuple[Path, str, str]] = []      # 파일, 설명, 내용
+    if preface and not a.drop_preface:
+        plan.append((out_dir / f"{0:0{a.digits}d}-머리말.md", "머리말", preface + "\n"))
+    for s in sections:
+        plan.append((out_dir / mdkit.section_filename(s, digits=a.digits),
+                     f"H{s.level} {s.line}행", s.body))
+
+    exists = [f for f, _, _ in plan if f.exists()]
+    rows = [[f.name, note, f"{len(text.splitlines()):,}행",
+             "이미 있음" if f.exists() else ""]
+            for f, note, text in plan]
+    _p(f"{path} -> {out_dir}/")
+    _grid(["파일", "자리", "분량", "상태"], rows, limit=40)
+
+    if not a.apply:
+        _p(f"\n파일 {len(plan)}개를 만듭니다. 실제로 쓰려면 --apply 를 붙이세요.")
+        return 0
+    if exists:
+        _p(f"\n이미 있는 파일 {len(exists)}개가 있어 아무것도 쓰지 않았습니다. "
+           "다른 디렉터리를 -o 로 지정하세요.")
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for f, _, text in plan:
+        f.write_text(text, encoding="utf-8")
+    _p(f"\n{out_dir}/ 에 {len(plan)}개를 썼습니다. 원본은 그대로 둡니다.")
+    return 0
+
+
 def cmd_dev_bench(a) -> int:
     commands: list[tuple[object, bool, str]] = []
     for text in a.cmd or []:
@@ -3966,7 +4008,7 @@ def build_parser() -> argparse.ArgumentParser:
     tu.set_defaults(func=cmd_text_undo)
 
     # ---- doc
-    dc = sub.add_parser("doc", help="마크다운 목차·링크 관리").add_subparsers(
+    dc = sub.add_parser("doc", help="마크다운 목차·링크·쪼개기").add_subparsers(
         dest="cmd", required=True)
 
     dt = dc.add_parser("toc", help="제목에서 목차 만들기·갱신")
@@ -3986,6 +4028,18 @@ def build_parser() -> argparse.ArgumentParser:
     dh.add_argument("--outline", action="store_true", help="제목 구조도 출력")
     dh.add_argument("--limit", type=int, default=40)
     dh.set_defaults(func=cmd_doc_check)
+
+    ds = dc.add_parser("split", help="긴 문서를 제목 단위 파일로 쪼개기")
+    ds.add_argument("file", metavar="파일")
+    ds.add_argument("-o", "--out", metavar="디렉터리", help="기본은 파일 이름과 같은 디렉터리")
+    ds.add_argument("--level", type=int, default=2, metavar="단계",
+                    help="이 단계까지의 제목에서 자른다 (기본 2)")
+    ds.add_argument("--digits", type=int, default=2, metavar="자리",
+                    help="파일 이름 앞 번호 자릿수 (기본 2)")
+    ds.add_argument("--drop-preface", action="store_true",
+                    help="첫 제목 앞 머리말을 버린다")
+    ds.add_argument("--apply", action="store_true")
+    ds.set_defaults(func=cmd_doc_split)
 
     # ---- json
     jp = sub.add_parser("json", help="JSON 훑기·비교").add_subparsers(dest="cmd", required=True)

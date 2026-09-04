@@ -2457,6 +2457,42 @@ class MdkitTest(unittest.TestCase):
     def test_check_headings_clean_doc(self):
         self.assertEqual(mdkit.check_headings("# 제목\n\n## 하나\n\n## 둘\n"), [])
 
+    SPLIT_DOC = ("머리말입니다.\n\n# 안내서\n\n첫 절.\n\n## 설치\n\n"
+                 "```\n## 코드 안 제목은 무시\n```\n\n## 사용법\n\n끝.\n")
+
+    def test_split_sections_keeps_order_and_preface(self):
+        preface, secs = mdkit.split_sections(self.SPLIT_DOC, level=2)
+        self.assertEqual(preface, "머리말입니다.")
+        self.assertEqual([s.title for s in secs], ["안내서", "설치", "사용법"])
+        self.assertEqual([s.number for s in secs], [1, 2, 3])
+        self.assertEqual([s.level for s in secs], [1, 2, 2])
+
+    def test_split_sections_ignores_headings_in_code_fence(self):
+        _, secs = mdkit.split_sections(self.SPLIT_DOC, level=2)
+        설치 = secs[1]
+        self.assertIn("## 코드 안 제목은 무시", 설치.body)
+        self.assertEqual(len(secs), 3)
+
+    def test_split_sections_level_limits_cut_points(self):
+        doc = "# 하나\n\n## 둘\n\n### 셋\n"
+        _, secs = mdkit.split_sections(doc, level=1)
+        self.assertEqual([s.title for s in secs], ["하나"])
+        self.assertIn("## 둘", secs[0].body)
+
+    def test_split_sections_without_headings(self):
+        preface, secs = mdkit.split_sections("제목 없는 글\n")
+        self.assertEqual(preface, "제목 없는 글")
+        self.assertEqual(secs, [])
+
+    def test_section_filename_numbers_and_slugs(self):
+        _, secs = mdkit.split_sections(self.SPLIT_DOC, level=2)
+        self.assertEqual(mdkit.section_filename(secs[0]), "01-안내서.md")
+        self.assertEqual(mdkit.section_filename(secs[2], digits=3), "003-사용법.md")
+
+    def test_section_filename_falls_back_when_slug_empty(self):
+        _, secs = mdkit.split_sections("# ...\n\n내용\n")
+        self.assertEqual(mdkit.section_filename(secs[0]), "01-절1.md")
+
 
 class CliWiringTest(unittest.TestCase):
     """모든 하위 명령이 제대로 연결돼 있는지 훑는다.

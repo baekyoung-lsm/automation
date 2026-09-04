@@ -184,3 +184,47 @@ def check_headings(text: str) -> list[Issue]:
         else:
             seen[key] = h.line
     return issues
+
+
+@dataclass
+class Section:
+    number: int
+    title: str
+    level: int
+    line: int
+    body: str
+
+    @property
+    def slug(self) -> str:
+        return github_slug(self.title)
+
+
+def split_sections(text: str, *, level: int = 2,
+                   keep_heading: bool = True) -> tuple[str, list[Section]]:
+    """제목 수준을 기준으로 쪼갠다. (첫 제목 앞의 머리말, 절 목록)"""
+    lines = text.splitlines()
+    marks: list[tuple[int, int, str]] = []      # 줄 번호(0부터), 수준, 제목
+    for lineno, line in _outside_fences(text):
+        if m := HEADING_RE.match(line):
+            depth = len(m.group(1))
+            if depth <= level:
+                marks.append((lineno - 1, depth, m.group(2).strip()))
+
+    if not marks:
+        return text.strip(), []
+
+    preface = "\n".join(lines[:marks[0][0]]).strip()
+    sections: list[Section] = []
+    for i, (start, depth, title) in enumerate(marks):
+        end = marks[i + 1][0] if i + 1 < len(marks) else len(lines)
+        block = lines[start:end] if keep_heading else lines[start + 1:end]
+        sections.append(Section(i + 1, title, depth, start + 1,
+                                "\n".join(block).strip() + "\n"))
+    return preface, sections
+
+
+def section_filename(section: Section, *, digits: int = 2,
+                     suffix: str = ".md") -> str:
+    """번호를 앞에 붙여 순서가 유지되게 한다."""
+    slug = section.slug or f"절{section.number}"
+    return f"{section.number:0{digits}d}-{slug}{suffix}"

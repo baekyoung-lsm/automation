@@ -240,17 +240,24 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc toc <경로…>` | 제목에서 목차를 만들어 `<!-- toc -->` 사이를 갈아 끼운다 |
 | `at doc links <경로…>` | 깨진 상대 경로 링크와 없는 앵커(`#제목`)를 찾는다 |
 | `at doc check <경로…>` | 제목 단계 건너뜀(H2 → H4), 같은 제목 반복, H1 중복 |
+| `at doc split <파일>` | 긴 문서를 제목 단위 파일로 쪼갠다 (번호를 앞에 붙여 순서 유지) |
 
 ```bash
 at doc toc README.md              # 미리보기
 at doc toc docs/ --apply --depth 2
 at doc links docs/                # 깨진 게 있으면 exit 1
 at doc check README.md --outline
+at doc split 기획서.md -o 기획서/          # 미리보기
+at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 ```
 
 앵커는 GitHub 규칙과 같게 만든다 — 소문자로 바꾸고 구두점을 떼고 공백을 `-` 로,
 같은 제목이 또 나오면 `-1` 을 붙인다. 한글은 그대로 남는다. 코드 블록 안의 `#` 는
 제목으로 세지 않는다. 외부 URL 은 확인하지 않는다(네트워크를 쓰지 않는다).
+
+`split` 은 원본을 건드리지 않고 새 파일만 만든다. 쓰려는 자리에 같은 이름이 하나라도
+있으면 아무것도 쓰지 않고 멈춘다 — 덮어쓴 것을 되돌릴 방법이 없기 때문이다.
+첫 제목 앞의 글은 `00-머리말.md` 로 따로 남는다(`--drop-preface` 로 버릴 수 있다).
 
 이 README 의 목차도 `at doc toc README.md --apply` 로 만든 것이다.
 

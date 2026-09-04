@@ -254,6 +254,13 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("doc", "links", md)
         self.run_cli("doc", "check", md)
 
+        out = self.path("쪼갠글")
+        self.assertIn("--apply", self.run_cli("doc", "split", md, "-o", out))
+        self.assertFalse(Path(out).exists())
+        self.run_cli("doc", "split", md, "-o", out, "--apply")
+        made = sorted(q.name for q in Path(out).iterdir())
+        self.assertTrue(made and made[0].startswith("01-"), made)
+
     # ------------------------------------------------------------ life
 
     def test_life_group(self):
