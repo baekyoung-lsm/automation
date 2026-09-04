@@ -1460,3 +1460,39 @@ def expand_column(table: Table, column: str, *, sep: str = ",",
         body[at:at] = filled
         rows.append(body)
     return Table(headers, rows, source=table.source, sheet=table.sheet), report
+
+
+def combine_columns(table: Table, columns: list[str], *, into: str = "합침",
+                    sep: str = " ", keep: bool = False,
+                    skip_blank: bool = True) -> Table:
+    """여러 열을 하나로 합친다(expand 의 반대).
+
+    빈 칸은 건너뛰므로 '서울시  역삼동' 처럼 구분자가 겹치지 않는다.
+    """
+    if not columns:
+        raise SheetError("합칠 열을 주세요.")
+    index = [table.index_of(c) for c in columns]
+
+    headers = list(table.headers)
+    at = min(index)
+    if not keep:
+        for i in sorted(index, reverse=True):
+            headers.pop(i)
+        at = min(index)
+    else:
+        at = len(headers)
+    headers.insert(at, into)
+
+    rows: list[list] = []
+    for row in table.rows:
+        body = list(row) + [None] * (table.width - len(row))
+        parts = [to_text(body[i]) for i in index]
+        if skip_blank:
+            parts = [p for p in parts if p.strip()]
+        value = sep.join(parts)
+        if not keep:
+            for i in sorted(index, reverse=True):
+                body.pop(i)
+        body.insert(at, value)
+        rows.append(body)
+    return Table(headers, rows, source=table.source, sheet=table.sheet)

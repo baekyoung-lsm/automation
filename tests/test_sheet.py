@@ -679,5 +679,41 @@ class ExpandTest(unittest.TestCase):
         self.assertFalse(report.uneven)
 
 
+class CombineTest(unittest.TestCase):
+    TABLE = sheet.Table(["시", "구", "동", "비고"],
+                        [["서울시", "강남구", "역삼동", "A"],
+                         ["부산시", "", "해운대", "B"]])
+
+    def test_combine_replaces_source_columns_in_place(self):
+        new = sheet.combine_columns(self.TABLE, ["시", "구", "동"], into="주소")
+        self.assertEqual(new.headers, ["주소", "비고"])
+        self.assertEqual(new.rows[0], ["서울시 강남구 역삼동", "A"])
+
+    def test_combine_skips_blank_cells(self):
+        new = sheet.combine_columns(self.TABLE, ["시", "구", "동"], into="주소")
+        self.assertEqual(new.rows[1][0], "부산시 해운대")     # 구분자가 겹치지 않는다
+
+    def test_combine_can_keep_blanks(self):
+        new = sheet.combine_columns(self.TABLE, ["시", "구", "동"], into="주소",
+                                    skip_blank=False)
+        self.assertEqual(new.rows[1][0], "부산시  해운대")
+
+    def test_combine_keep_puts_new_column_at_the_end(self):
+        new = sheet.combine_columns(self.TABLE, ["시", "구"], into="주소", keep=True)
+        self.assertEqual(new.headers, ["시", "구", "동", "비고", "주소"])
+        self.assertEqual(new.rows[0][-1], "서울시 강남구")
+
+    def test_combine_round_trips_with_expand(self):
+        joined = sheet.combine_columns(self.TABLE, ["시", "구", "동"], into="주소",
+                                       skip_blank=False)
+        back, _ = sheet.expand_column(joined, "주소", sep=" ",
+                                      names=["시", "구", "동"])
+        self.assertEqual(back.rows[0][:3], ["서울시", "강남구", "역삼동"])
+
+    def test_combine_needs_columns(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.combine_columns(self.TABLE, [], into="주소")
+
+
 if __name__ == "__main__":
     unittest.main()

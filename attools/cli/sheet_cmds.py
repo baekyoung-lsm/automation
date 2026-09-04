@@ -304,6 +304,30 @@ def cmd_sheet_expand(a) -> int:
     return 0
 
 
+def cmd_sheet_combine(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    cols = [c.strip() for spec in a.cols for c in spec.split(",") if c.strip()]
+    try:
+        result = sheet.combine_columns(t, cols, into=a.into, sep=a.sep,
+                                       keep=a.keep, skip_blank=not a.keep_blank)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _grid(result.headers, [[sheet.to_text(v) for v in r]
+                           for r in result.rows[:a.limit]])
+    if len(result.rows) > a.limit:
+        _p(f"  ... {len(result.rows) - a.limit}행 더")
+    _p(f"\n{len(cols)}개 열을 '{a.into}' 하나로 합쳤습니다.")
+    if not a.keep_blank:
+        _p("빈 칸은 건너뛰어 구분자가 겹치지 않게 했습니다.")
+    if a.out:
+        _p(f"저장: {sheet.save(result, Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_convert(a) -> int:
     t = _load(a)
     if t is None:
@@ -936,6 +960,19 @@ def add_commands(sub) -> None:
     xp.add_argument("--limit", type=int, default=20)
     xp.add_argument("-o", "--out")
     xp.set_defaults(func=cmd_sheet_expand)
+
+    cb = common(sh.add_parser("combine", help="여러 열을 한 열로 합치기 (expand 의 반대)"))
+    cb.add_argument("file")
+    cb.add_argument("--cols", action="append", required=True, metavar="열,열",
+                    help="합칠 열 (쉼표로 여러 개, 여러 번 써도 된다)")
+    cb.add_argument("--into", default="합침", metavar="열이름")
+    cb.add_argument("--sep", default=" ", metavar="구분자")
+    cb.add_argument("--keep", action="store_true", help="원래 열도 남긴다")
+    cb.add_argument("--keep-blank", action="store_true",
+                    help="빈 칸도 자리를 차지하게 둔다")
+    cb.add_argument("--limit", type=int, default=20)
+    cb.add_argument("-o", "--out")
+    cb.set_defaults(func=cmd_sheet_combine)
 
     def sheet_out(parser):
         parser.add_argument("-o", "--out", metavar="파일")
