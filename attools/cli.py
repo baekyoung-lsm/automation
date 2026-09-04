@@ -548,6 +548,36 @@ def cmd_file_tree(a) -> int:
     return 0
 
 
+def cmd_file_recent(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    found = files.recent_files(root, days=a.days, glob=a.glob,
+                               include_hidden=a.hidden, use_git=a.git)
+    if not found:
+        _p(f"{a.days:g}일 안에 바뀐 파일이 없습니다.")
+        return 0
+
+    total = sum(size for _, _, size in found)
+    _p(f"{a.days:g}일 안에 바뀐 파일 {len(found):,}개  ·  {files.human_size(total)}\n")
+
+    shown = found[:a.limit]
+    current = ""
+    for path, stamp, size in shown:
+        label = files.day_label(stamp)
+        if label != current:
+            current = label
+            _p(f"[{label}]")
+        when = devkit.datetime.fromtimestamp(stamp)
+        _p(f"  {when:%H:%M}  {_pad(files.human_size(size), 11)}"
+           f"{path.relative_to(root)}")
+    if len(found) > a.limit:
+        _p(f"\n... {len(found) - a.limit:,}개 더 (--limit 로 조절)")
+    return 0
+
+
 # ================================================================ file 추가
 
 def cmd_file_watch(a) -> int:
@@ -2968,6 +2998,16 @@ def build_parser() -> argparse.ArgumentParser:
                      help="git 에 묻지 않고 이름으로만 거른다")
     tr2.add_argument("--limit", type=int, default=200)
     tr2.set_defaults(func=cmd_file_tree)
+
+    rc = fp.add_parser("recent", help="최근에 손댄 파일 (오늘·어제별로)")
+    rc.add_argument("dir", nargs="?", default=".")
+    rc.add_argument("-d", "--days", type=float, default=1.0, metavar="일")
+    rc.add_argument("-g", "--glob", action="append", metavar="패턴")
+    rc.add_argument("--hidden", action="store_true")
+    rc.add_argument("--git", action="store_true",
+                    help="git 이 추적하는 파일만 (.gitignore 존중)")
+    rc.add_argument("--limit", type=int, default=40)
+    rc.set_defaults(func=cmd_file_recent)
 
     b = fp.add_parser("big", help="용량 차지하는 디렉터리/파일 찾기")
     b.add_argument("dir", nargs="?", default=".")

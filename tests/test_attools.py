@@ -125,6 +125,51 @@ class FilesTest(unittest.TestCase):
         with zipfile.ZipFile(self.root / "z.zip") as z:
             self.assertEqual(z.namelist(), ["sub/deep/c.log"])
 
+    def test_recent_files_filters_by_age(self):
+        import os
+        import time
+
+        fresh = self.make("새것.txt", "x")
+        old = self.make("옛것.txt", "x")
+        os.utime(old, (time.time() - 10 * 86400,) * 2)
+
+        found = files.recent_files(self.root, days=1)
+        self.assertEqual([p.name for p, _, _ in found], ["새것.txt"])
+
+        both = files.recent_files(self.root, days=30)
+        self.assertEqual(len(both), 2)
+
+    def test_recent_files_newest_first(self):
+        import os
+        import time
+
+        a = self.make("a.txt", "x")
+        b = self.make("b.txt", "x")
+        os.utime(a, (time.time() - 3600,) * 2)
+        found = files.recent_files(self.root, days=1)
+        self.assertEqual([p.name for p, _, _ in found], ["b.txt", "a.txt"])
+
+    def test_recent_files_glob_and_limit(self):
+        self.make("a.py", "x")
+        self.make("b.txt", "x")
+        self.assertEqual(
+            [p.name for p, _, _ in files.recent_files(self.root, glob=["*.py"])],
+            ["a.py"])
+        self.assertEqual(len(files.recent_files(self.root, limit=1)), 1)
+
+    def test_day_label(self):
+        from datetime import datetime, timedelta
+
+        today = datetime(2026, 9, 4, 12, 0)
+        self.assertEqual(files.day_label(today.timestamp(), today=today), "오늘")
+        self.assertEqual(
+            files.day_label((today - timedelta(days=1)).timestamp(), today=today), "어제")
+        self.assertEqual(
+            files.day_label((today - timedelta(days=2)).timestamp(), today=today), "그저께")
+        self.assertEqual(
+            files.day_label((today - timedelta(days=9)).timestamp(), today=today),
+            "2026-08-26")
+
     def test_tree_structure_and_counts(self):
         self.make("src/a.py", "1\n2\n3\n")
         self.make("src/deep/b.py", "1\n")

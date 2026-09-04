@@ -646,3 +646,50 @@ def language_summary(node: TreeNode) -> list[tuple[str, int, int]]:
 
     visit(node)
     return sorted(((k, *v) for k, v in table.items()), key=lambda x: (-x[2], -x[1]))
+
+
+def recent_files(root: Path, *, days: float = 1.0, glob: list[str] | None = None,
+                 include_hidden: bool = False, use_git: bool = False,
+                 limit: int = 0) -> list[tuple[Path, float, int]]:
+    """최근에 손댄 파일. (경로, 수정 시각, 크기) 를 최신 순으로."""
+    cutoff = time.time() - days * 86400
+    candidates: list[Path]
+
+    tracked = tracked_paths(root) if use_git else None
+    if tracked is not None:
+        candidates = tracked
+    else:
+        candidates = [p for p in root.rglob("*")
+                      if p.is_file() and not p.is_symlink()
+                      and not any(part in IGNORE_DIRS
+                                  for part in p.relative_to(root).parts[:-1])]
+
+    if glob:
+        from fnmatch import fnmatch
+
+        candidates = [p for p in candidates
+                      if any(fnmatch(p.name, g) for g in glob)]
+
+    found: list[tuple[Path, float, int]] = []
+    for path in candidates:
+        rel = path.relative_to(root).parts
+        if not include_hidden and any(part.startswith(".") for part in rel):
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        if stat.st_mtime < cutoff:
+            continue
+        found.append((path, stat.st_mtime, stat.st_size))
+
+    found.sort(key=lambda item: -item[1])
+    return found[:limit] if limit else found
+
+
+def day_label(stamp: float, *, today: datetime | None = None) -> str:
+    """오늘·어제·그저께는 이름으로, 그보다 오래면 날짜로."""
+    when = datetime.fromtimestamp(stamp)
+    today = today or datetime.now()
+    delta = (today.date() - when.date()).days
+    return {0: "오늘", 1: "어제", 2: "그저께"}.get(delta, f"{when:%Y-%m-%d}")

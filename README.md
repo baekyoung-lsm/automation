@@ -50,6 +50,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사) |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
+| `at file recent [경로]` | 최근에 손댄 파일을 오늘·어제별로 |
 | `at file tree [경로]` | 프로젝트 구조. `.gitignore` 를 그대로 따르고 줄 수·크기도 |
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
@@ -68,6 +69,8 @@ at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
 at file dupes ~/Pictures --script > 삭제후보.sh
 at file watch src -p '*.py' -- pytest -q
+at file recent ~/문서 -d 3          # 사흘 안에 건드린 것
+at file recent . --git             # 이 저장소에서 오늘 바꾼 것
 at file tree -d 2 --lines --summary      # LLM 에 붙여넣기 좋은 구조 요약
 at file big ~/Downloads --depth 2
 at file undo
