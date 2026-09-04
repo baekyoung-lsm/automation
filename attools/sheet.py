@@ -656,30 +656,48 @@ def where(table: Table, conditions: list[Condition], *, contains: list[Condition
                  source=table.source, sheet=table.sheet)
 
 
-def sort_rows(table: Table, columns: list[str], *, descending: bool = False) -> Table:
+def _is_blank(cell) -> bool:
+    return cell is None or cell == ""
+
+
+def _sort_key(cell) -> tuple:
+    """정렬용 값. 빈 칸 여부는 여기 넣지 않는다(방향과 무관해야 한다)."""
+    if _is_blank(cell):
+        return (0, 0.0, "")
+    if isinstance(cell, bool):
+        return (1, 0.0, to_text(cell))
+    if isinstance(cell, (int, float)):
+        return (0, float(cell), "")
+    if isinstance(cell, (datetime, date)):
+        stamp = cell if isinstance(cell, datetime) else datetime(
+            cell.year, cell.month, cell.day)
+        return (0, stamp.timestamp(), "")
+    return (1, 0.0, to_text(cell))
+
+
+def sort_rows(table: Table, columns: list[str], *, descending: bool = False,
+              order: list[bool] | None = None) -> Table:
+    """여러 열로 정렬한다. order 로 열마다 방향을 따로 줄 수 있다.
+
+    열마다 방향이 다르면 뒤 열부터 차례로 정렬한다. 파이썬 정렬은 안정
+    정렬이라 앞 열의 순서가 유지되고, 문자열을 뒤집는 꼼수도 필요 없다.
+    """
     indexes = [table.index_of(c) for c in columns]
+    flags = list(order or [descending] * len(indexes))
+    flags += [descending] * (len(indexes) - len(flags))
 
-    def key(row: list):
-        out = []
-        for i in indexes:
-            cell = row[i] if i < len(row) else None
-            # 빈 칸은 항상 뒤로 보낸다
-            if cell is None or cell == "":
-                out.append((2, 0.0, ""))
-            elif isinstance(cell, bool):
-                out.append((1, 0.0, to_text(cell)))
-            elif isinstance(cell, (int, float)):
-                out.append((0, float(cell), ""))
-            elif isinstance(cell, (datetime, date)):
-                stamp = cell if isinstance(cell, datetime) else datetime(
-                    cell.year, cell.month, cell.day)
-                out.append((0, stamp.timestamp(), ""))
-            else:
-                out.append((1, 0.0, to_text(cell)))
-        return out
+    rows = list(table.rows)
 
-    return Table(table.headers, sorted(table.rows, key=key, reverse=descending),
-                 source=table.source, sheet=table.sheet)
+    def cell_of(row: list, index: int):
+        return row[index] if index < len(row) else None
+
+    # 뒤 열부터 차례로 정렬한다. 파이썬 정렬은 안정 정렬이라 앞 열의 순서가
+    # 유지된다. 열마다 방향이 달라도 되고, 빈 칸을 늘 뒤로 보낼 수 있다.
+    for index, down in reversed(list(zip(indexes, flags))):
+        rows.sort(key=lambda row, i=index: _sort_key(cell_of(row, i)), reverse=down)
+        rows.sort(key=lambda row, i=index: _is_blank(cell_of(row, i)))
+
+    return Table(table.headers, rows, source=table.source, sheet=table.sheet)
 
 
 def sample(table: Table, count: int, *, seed: int | None = None,

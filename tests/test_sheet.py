@@ -191,7 +191,9 @@ class SheetTest(unittest.TestCase):
         self.assertEqual([r[1] for r in result.rows],
                          ["김철수", "홍길동", "이영희", "최수진"])
         desc = sheet.sort_rows(self.table(), ["연봉"], descending=True)
-        self.assertEqual(desc.rows[0][1], "최수진")   # 내림차순이면 빈 칸이 먼저
+        # 내림차순에서도 빈 칸은 맨 뒤다. 연봉 높은 순으로 볼 때 값이 없는
+        # 행이 맨 위를 차지하면 표를 못 읽는다.
+        self.assertEqual(desc.rows[-1][1], "최수진")
 
     def test_sample_is_reproducible_with_seed(self):
         t = self.table()
@@ -821,6 +823,35 @@ class SaveSheetsTest(unittest.TestCase):
     def test_empty_input_is_refused(self):
         with self.assertRaises(sheet.SheetError):
             sheet.save_sheets({}, self.root / "빈것.xlsx")
+
+
+class SortDirectionTest(unittest.TestCase):
+    TABLE = sheet.Table(["부서", "이름", "연봉"],
+                        [["영업", "가", 5000], ["개발", "나", 6000],
+                         ["개발", "다", 7000], ["영업", "라", 4000]])
+
+    def test_single_direction(self):
+        rows = sheet.sort_rows(self.TABLE, ["연봉"], descending=True).rows
+        self.assertEqual([r[2] for r in rows], [7000, 6000, 5000, 4000])
+
+    def test_per_column_direction(self):
+        rows = sheet.sort_rows(self.TABLE, ["부서", "연봉"],
+                               order=[False, True]).rows
+        self.assertEqual([(r[0], r[2]) for r in rows],
+                         [("개발", 7000), ("개발", 6000),
+                          ("영업", 5000), ("영업", 4000)])
+
+    def test_blank_cells_go_last_in_both_directions(self):
+        table = sheet.Table(["값"], [[3], [None], [1]])
+        self.assertEqual([r[0] for r in sheet.sort_rows(table, ["값"]).rows],
+                         [1, 3, None])
+        # 내림차순에서도 빈 칸이 맨 앞으로 올라오지 않아야 자료가 읽힌다
+        rows = sheet.sort_rows(table, ["값"], order=[True]).rows
+        self.assertEqual(rows[-1][0], None)
+
+    def test_order_shorter_than_columns_falls_back(self):
+        rows = sheet.sort_rows(self.TABLE, ["부서", "연봉"], order=[True]).rows
+        self.assertEqual(rows[0][0], "영업")
 
 
 if __name__ == "__main__":

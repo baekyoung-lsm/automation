@@ -599,6 +599,7 @@ at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
+at sheet sort 직원.xlsx --by 부서 --by 연봉:내림      # 열마다 방향을 다르게
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 전체.xlsx --by 부서 --sheets 부서별.xlsx --apply   # 한 파일 여러 탭
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
@@ -688,6 +689,9 @@ at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 
 `서울로`·`부산으로`(ㄹ 받침), `2를`·`3을`(숫자는 읽는 소리로)까지 맞춘다. "홍길동님이(가)"
 같은 괄호 표기를 안 써도 된다. 한글 한두 글자 `/` 한글 한두 글자 꼴만 조사로 보므로
 `{번호:03d}` 같은 형식 지정과 섞이지 않는다.
+
+`sort` 는 열마다 방향을 다르게 줄 수 있다(`--by 부서 --by 연봉:내림`). 빈 칸은 **오름차순이든
+내림차순이든 맨 뒤**다 — 연봉 높은 순으로 볼 때 값이 없는 행이 맨 위를 차지하면 표를 못 읽는다.
 
 `where` 의 값은 열 타입에 맞춰 비교한다. 숫자 열이면 `--gte 연봉=6000만` 처럼 한글 단위도
 숫자로 읽고, 날짜 열이면 `--gte 입사일=2024-01-01` 로 날짜끼리 비교한다. 조건 여러 개는

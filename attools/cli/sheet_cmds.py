@@ -417,13 +417,32 @@ def cmd_sheet_sort(a) -> int:
     t = _load(a)
     if t is None:
         return 1
+    columns: list[str] = []
+    flags: list[bool] = []
+    for spec in a.by:
+        name = spec.strip()
+        down = a.desc
+        if name.startswith("-"):             # --by=-연봉 은 그 열만 내림차순
+            name, down = name[1:].strip(), True
+        elif name.startswith("+"):
+            name, down = name[1:].strip(), False
+        elif ":" in name:                    # --by 연봉:내림 (앞의 - 는 argparse 가 먹는다)
+            head, _, mark = name.rpartition(":")
+            if mark.strip() in ("desc", "내림", "역순"):
+                name, down = head.strip(), True
+            elif mark.strip() in ("asc", "오름"):
+                name, down = head.strip(), False
+        columns.append(name)
+        flags.append(down)
+
     try:
-        result = sheet.sort_rows(t, a.by, descending=a.desc)
+        result = sheet.sort_rows(t, columns, descending=a.desc, order=flags)
     except sheet.SheetError as e:
         _p(str(e))
         return 1
-    order = "내림차순" if a.desc else "오름차순"
-    return _sheet_result(a, result, f"{', '.join(a.by)} {order} 정렬")
+    shown = ", ".join(f"{name}{' 내림' if down else ' 오름'}"
+                      for name, down in zip(columns, flags))
+    return _sheet_result(a, result, f"{shown} 정렬")
 
 
 def cmd_sheet_sample(a) -> int:
@@ -1057,8 +1076,9 @@ def add_commands(sub) -> None:
 
     so = sheet_out(common(sh.add_parser("sort", help="정렬")))
     so.add_argument("file")
-    so.add_argument("--by", action="append", required=True, metavar="열")
-    so.add_argument("--desc", action="store_true", help="내림차순")
+    so.add_argument("--by", action="append", required=True, metavar="열",
+                    help="여러 번 쓸 수 있다. '연봉:내림' 또는 --by=-연봉 이면 그 열만 내림차순")
+    so.add_argument("--desc", action="store_true", help="전부 내림차순")
     so.set_defaults(func=cmd_sheet_sort)
 
     sp2 = sheet_out(common(sh.add_parser("sample", help="표본 뽑기")))
