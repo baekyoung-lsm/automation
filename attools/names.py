@@ -273,3 +273,97 @@ def voice_profiles(speeches: list[Speech]) -> tuple[list[VoiceProfile], int]:
             profile.endings[m.group(1)] += 1
 
     return sorted(table.values(), key=lambda p: -p.count), unknown
+
+
+# ------------------------------------------------------------------ 어휘 목록
+
+@dataclass
+class Word:
+    text: str
+    count: int = 0
+    sources: Counter = field(default_factory=Counter)   # 파일 이름 -> 횟수
+
+    @property
+    def first_source(self) -> str:
+        return next(iter(self.sources), "")
+
+    @property
+    def spread(self) -> int:
+        """몇 개 파일에 걸쳐 나왔는지."""
+        return len(self.sources)
+
+
+def merge_short_stems(table: dict[str, Word]) -> dict[str, Word]:
+    """'탑에·탑은·탑을' 처럼 한 글자 어간에 조사가 붙은 것들을 합친다.
+
+    strip_particle 은 어간이 두 글자 미만이면 조사를 떼지 않는다. '가을'을
+    '가'+'을'로 자르는 사고를 막기 위해서다. 그래서 두 글자 낱말은 조사가
+    붙은 채로 남는데, 같은 한 글자 뒤에 서로 다른 조사가 두 종류 넘게 붙어
+    나오면 그건 낱말이 아니라 어간이라고 볼 수 있다.
+    """
+    candidates: dict[str, set[str]] = defaultdict(set)
+    for text in table:
+        if len(text) != 2:
+            continue
+        head, tail = text[0], text[1]
+        if tail in PARTICLES:
+            candidates[head].add(tail)
+
+    merged = dict(table)
+    for head, particles in candidates.items():
+        if len(particles) < 2:
+            continue
+        # 한 글자 어간이 확인됐으니 그 뒤에 붙은 조사는 길이에 상관없이 떼어 낸다
+        # ('탑에·탑은'으로 어간을 알았으면 '탑에서'도 같은 말이다)
+        attached = [w for w in merged
+                    if w.startswith(head) and len(w) > 1 and w[1:] in PARTICLES]
+        target = merged.setdefault(head, Word(head))
+        for word in attached:
+            piece = merged.pop(word, None)
+            if piece is None:
+                continue
+            target.count += piece.count
+            target.sources.update(piece.sources)
+    return merged
+
+
+def build_wordlist(documents: list[tuple[str, str]], *, max_len: int = 6,
+                   min_count: int = 1, skip_common: bool = True) -> list[Word]:
+    """(이름, 본문) 목록에서 어간별 빈도와 처음 나온 곳을 모은다.
+
+    파일 순서를 그대로 지켜야 '어느 화에서 처음 나왔는지'가 맞다.
+    skip_common 이면 '마을·얼굴' 같은 흔한 말은 빼는데, 어휘 목록을 통째로
+    보고 싶으면 끌 수 있다.
+    """
+    table: dict[str, Word] = {}
+    for name, text in documents:
+        for word in WORD_RE.findall(text):
+            stem, _ = strip_particle(word)
+            if not (2 <= len(stem) <= max_len):
+                continue
+            if skip_common and stem in STOPWORDS:
+                continue
+            entry = table.setdefault(stem, Word(stem))
+            entry.count += 1
+            entry.sources[name] += 1
+
+    table = merge_short_stems(table)
+    return sorted((w for w in table.values() if w.count >= min_count),
+                  key=lambda w: (-w.count, w.text))
+
+
+def words_only_in(words: list[Word], source: str) -> list[Word]:
+    """그 문서에서만 쓰인 말."""
+    return [w for w in words if w.spread == 1 and w.first_source == source]
+
+
+def first_appearances(words: list[Word], order: list[str]) -> dict[str, list[Word]]:
+    """문서마다 그 문서에서 처음 나온 말을 모은다."""
+    out: dict[str, list[Word]] = {name: [] for name in order}
+    for word in words:
+        source = word.first_source
+        if source in out:
+            out[source].append(word)
+    for rows in out.values():
+        rows.sort(key=lambda w: -w.count)
+    return out

@@ -1806,6 +1806,51 @@ class NamesTest(unittest.TestCase):
     def test_voice_profiles_empty(self):
         self.assertEqual(names.voice_profiles([]), ([], 0))
 
+    DOCS = [("1화", "리안은 성문을 지났다. 성문 앞에 눈이 쌓였다."),
+            ("2화", "카일은 탑에 올랐다. 탑은 높았다. 리안도 탑을 보았다."),
+            ("3화", "세드릭이 성문을 열었다.")]
+
+    def test_wordlist_counts_and_first_source(self):
+        words = {w.text: w for w in names.build_wordlist(self.DOCS)}
+        self.assertEqual(words["성문"].count, 3)
+        self.assertEqual(words["성문"].first_source, "1화")
+        self.assertEqual(words["성문"].spread, 2)
+        self.assertEqual(words["세드릭"].first_source, "3화")
+
+    def test_wordlist_merges_one_char_stems(self):
+        # '탑에·탑은·탑을·탑에서'는 한 낱말이다
+        words = {w.text: w for w in names.build_wordlist(self.DOCS)}
+        self.assertEqual(words["탑"].count, 3)
+        self.assertNotIn("탑에", words)
+        self.assertNotIn("탑을", words)
+
+    def test_wordlist_does_not_split_real_two_char_words(self):
+        # '가을'을 '가'+'을'로 자르면 안 된다
+        docs = [("a", "가을이 왔다. 가을은 짧다. 서울로 갔다.")]
+        words = {w.text for w in names.build_wordlist(docs)}
+        self.assertIn("가을", words)
+        self.assertIn("서울", words)
+        self.assertNotIn("가", words)
+
+    def test_wordlist_skip_common_toggle(self):
+        docs = [("a", "마을에 눈이 온다. 마을은 조용하다.")]
+        self.assertNotIn("마을", {w.text for w in names.build_wordlist(docs)})
+        self.assertIn("마을",
+                      {w.text for w in names.build_wordlist(docs, skip_common=False)})
+
+    def test_words_only_in(self):
+        words = names.build_wordlist(self.DOCS)
+        only = {w.text for w in names.words_only_in(words, "2화")}
+        self.assertIn("카일", only)
+        self.assertNotIn("성문", only)
+
+    def test_first_appearances_follows_document_order(self):
+        words = names.build_wordlist(self.DOCS)
+        firsts = names.first_appearances(words, ["1화", "2화", "3화"])
+        self.assertEqual(list(firsts), ["1화", "2화", "3화"])
+        self.assertIn("성문", [w.text for w in firsts["1화"]])
+        self.assertIn("세드릭", [w.text for w in firsts["3화"]])
+
     def test_dialogue_speakers(self):
         text = '"늦었어." 카일이 말했다.\n"응." 리안이 답했다.\n'
         counts = names.dialogue_speakers(text, ["카일", "리안"])

@@ -1596,6 +1596,63 @@ def cmd_text_lines(a) -> int:
     return 0
 
 
+def cmd_novel_wordlist(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    documents = [(p.stem, manuscript.strip_markup(manuscript.read_text(p)))
+                 for p in targets]
+    words = names.build_wordlist(documents, min_count=a.min, max_len=a.max_len,
+                                 skip_common=not a.all)
+    if not words:
+        _p(f"{a.min}회 이상 나오는 말이 없습니다.")
+        return 1
+
+    order = [name for name, _ in documents]
+    _p(f"어휘 {len(words):,}개  ·  파일 {len(documents)}개  ·  "
+       f"{a.min}회 이상만\n")
+
+    if a.only:
+        if a.only not in order:
+            _p(f"'{a.only}' 파일이 없습니다. 있는 것: {', '.join(order)}")
+            return 1
+        picked = names.words_only_in(words, a.only)
+        _p(f"'{a.only}' 에서만 쓰인 말 {len(picked):,}개")
+        _grid(["말", "횟수"], [[w.text, f"{w.count:,}"] for w in picked[:a.limit]],
+              limit=20)
+        if len(picked) > a.limit:
+            _p(f"  ... {len(picked) - a.limit:,}개 더")
+        return 0
+
+    if a.new:
+        firsts = names.first_appearances(words, order)
+        for name in order:
+            rows = firsts[name]
+            _p(f"{name}  처음 나온 말 {len(rows):,}개")
+            _p("  " + _cut(", ".join(w.text for w in rows[:a.limit]), a.width * 3))
+            _p("")
+        return 0
+
+    table_rows = [[w.text, f"{w.count:,}", w.first_source, f"{w.spread}개"]
+                  for w in words]
+    _grid(["말", "횟수", "처음 나온 곳", "쓰인 곳"], table_rows[:a.limit], limit=20)
+    if len(words) > a.limit:
+        _p(f"  ... {len(words) - a.limit:,}개 더 (--limit 로 조절)")
+
+    once = [w for w in words if w.spread == 1]
+    _p(f"\n한 곳에서만 쓰인 말 {len(once):,}개"
+       f"  ·  --only <파일이름> 으로 어느 편의 고유 어휘인지 봅니다.")
+
+    if a.out:
+        out_table = sheet.Table(["말", "횟수", "처음 나온 곳", "쓰인 곳 수"],
+                                [[w.text, w.count, w.first_source, w.spread]
+                                 for w in words])
+        _p(f"저장: {sheet.save(out_table, Path(a.out), sheet_name='어휘')}")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -3537,6 +3594,20 @@ def build_parser() -> argparse.ArgumentParser:
     dg.add_argument("--limit", type=int, default=20)
     dg.add_argument("--width", type=int, default=70, metavar="칸")
     dg.set_defaults(func=cmd_novel_dialogue)
+
+    wl = np_.add_parser("wordlist", help="어휘 목록 - 빈도·처음 나온 화·고유 어휘")
+    wl.add_argument("paths", nargs="+")
+    wl.add_argument("--min", type=int, default=2, metavar="회")
+    wl.add_argument("--max-len", type=int, default=6, metavar="자",
+                    help="이보다 긴 어절은 세지 않는다")
+    wl.add_argument("--new", action="store_true", help="화마다 처음 나온 말")
+    wl.add_argument("--all", action="store_true",
+                    help="'마을·얼굴' 같은 흔한 말도 포함")
+    wl.add_argument("--only", metavar="파일이름", help="그 파일에서만 쓰인 말")
+    wl.add_argument("--limit", type=int, default=40)
+    wl.add_argument("--width", type=int, default=24, metavar="칸")
+    wl.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    wl.set_defaults(func=cmd_novel_wordlist)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")
