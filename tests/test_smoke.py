@@ -140,6 +140,19 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
 
+        import struct
+        import zlib
+
+        def png_chunk(tag, body):
+            return (struct.pack(">I", len(body)) + tag + body
+                    + struct.pack(">I", zlib.crc32(tag + body)))
+
+        그림 = Path(self.path("문서")) / "표지.png"
+        그림.write_bytes(b"\x89PNG\r\n\x1a\n"
+                         + png_chunk(b"IHDR", struct.pack(">IIBBBBB", 800, 600, 8, 2, 0, 0, 0))
+                         + png_chunk(b"IEND", b""))
+        self.assertIn("800x600", self.run_cli("file", "image", self.path("문서")))
+
         import zipfile
 
         class Cp949Info(zipfile.ZipInfo):

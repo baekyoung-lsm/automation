@@ -848,3 +848,115 @@ def extract_zip(archive: Path, dest: Path, entries: list[ZipEntry], *,
                 shutil.copyfileobj(src, out)
             written.append(target)
     return written, skipped
+
+
+# ------------------------------------------------------------------ 이미지
+
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+# 크기만 헤더에서 읽는다. 픽셀은 건드리지 않으므로 의존성이 필요 없다.
+JPEG_SOF = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+            0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+
+
+@dataclass
+class ImageInfo:
+    path: Path
+    kind: str
+    width: int
+    height: int
+    size: int
+
+    @property
+    def pixels(self) -> int:
+        return self.width * self.height
+
+    @property
+    def ratio(self) -> str:
+        if not self.height:
+            return "?"
+        from math import gcd
+
+        g = gcd(self.width, self.height) or 1
+        w, h = self.width // g, self.height // g
+        return f"{w}:{h}" if w <= 40 and h <= 40 else f"{self.width / self.height:.2f}:1"
+
+
+def _jpeg_size(data: bytes) -> tuple[int, int] | None:
+    i = 2
+    while i + 9 < len(data):
+        if data[i] != 0xFF:
+            i += 1
+            continue
+        marker = data[i + 1]
+        if marker in JPEG_SOF:
+            height = int.from_bytes(data[i + 5:i + 7], "big")
+            width = int.from_bytes(data[i + 7:i + 9], "big")
+            return width, height
+        if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+            i += 2
+            continue
+        length = int.from_bytes(data[i + 2:i + 4], "big")
+        if length < 2:
+            return None
+        i += 2 + length
+    return None
+
+
+def image_info(path: Path, *, head: int = 65536) -> ImageInfo | None:
+    """헤더만 읽어 형식과 크기를 알아낸다. 모르는 형식이면 None."""
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(head)
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if len(data) < 16:
+        return None
+
+    def made(kind: str, w: int, h: int) -> ImageInfo:
+        return ImageInfo(path, kind, w, h, size)
+
+    if data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+        return made("PNG", int.from_bytes(data[16:20], "big"),
+                    int.from_bytes(data[20:24], "big"))
+    if data[:3] == b"GIF":
+        return made("GIF", int.from_bytes(data[6:8], "little"),
+                    int.from_bytes(data[8:10], "little"))
+    if data[:2] == b"BM":
+        return made("BMP", int.from_bytes(data[18:22], "little", signed=True),
+                    abs(int.from_bytes(data[22:26], "little", signed=True)))
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        chunk = data[12:16]
+        if chunk == b"VP8X":
+            width = int.from_bytes(data[24:27], "little") + 1
+            height = int.from_bytes(data[27:30], "little") + 1
+            return made("WebP", width, height)
+        if chunk == b"VP8 ":
+            return made("WebP", int.from_bytes(data[26:28], "little") & 0x3FFF,
+                        int.from_bytes(data[28:30], "little") & 0x3FFF)
+        if chunk == b"VP8L":
+            bits = int.from_bytes(data[21:25], "little")
+            return made("WebP", (bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
+        return None
+    if data[:2] == b"\xff\xd8":
+        found = _jpeg_size(data)
+        return made("JPEG", *found) if found else None
+    return None
+
+
+def scan_images(root: Path, *, recursive: bool = True,
+                hidden: bool = False) -> tuple[list[ImageInfo], list[Path]]:
+    """이미지 목록과, 이미지 같은데 못 읽은 파일 목록."""
+    walker = root.rglob("*") if recursive else root.glob("*")
+    found: list[ImageInfo] = []
+    unknown: list[Path] = []
+    for path in sorted(walker):
+        if not path.is_file() or path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        if not hidden and any(p.startswith(".") for p in path.parts):
+            continue
+        if any(d in IGNORE_DIRS for d in path.parts):
+            continue
+        info = image_info(path)
+        (found if info else unknown).append(info or path)
+    return found, unknown

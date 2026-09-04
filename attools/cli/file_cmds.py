@@ -373,6 +373,42 @@ def cmd_file_unzip(a) -> int:
     return 0
 
 
+def cmd_file_image(a) -> int:
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    found, unknown = files.scan_images(root, recursive=not a.no_recursive,
+                                       hidden=a.hidden)
+    if not found and not unknown:
+        _p("이미지 파일을 찾지 못했습니다.")
+        return 0
+
+    order = {"size": lambda i: -i.size, "pixel": lambda i: -i.pixels,
+             "name": lambda i: str(i.path)}
+    rows = sorted(found, key=order[a.sort])
+    if a.over:
+        rows = [i for i in rows if i.width > a.over or i.height > a.over]
+
+    _grid(["파일", "형식", "크기", "비율", "용량"],
+          [[str(i.path.relative_to(root)), i.kind, f"{i.width:,}x{i.height:,}",
+            i.ratio, files.human_size(i.size)] for i in rows[:a.limit]])
+    if len(rows) > a.limit:
+        _p(f"  ... {len(rows) - a.limit}개 더")
+
+    total = sum(i.size for i in found)
+    _p(f"\n이미지 {len(found)}개  ·  {files.human_size(total)}")
+    if a.over:
+        _p(f"긴 변이 {a.over:,}px 를 넘는 것 {len(rows)}개")
+    if unknown:
+        _p(f"\n헤더를 읽지 못한 파일 {len(unknown)}개 (형식이 다르거나 깨졌을 수 있습니다)")
+        for path in unknown[:5]:
+            _p(f"  {path.relative_to(root)}")
+    _p("크기는 헤더만 읽어 봅니다. 화질이나 회전 정보는 보지 않습니다.")
+    return 0
+
+
 def cmd_file_hash(a) -> int:
     root = Path(a.dir)
 
@@ -619,6 +655,16 @@ def add_commands(sub) -> None:
     uz.add_argument("--limit", type=int, default=20)
     uz.add_argument("--apply", action="store_true")
     uz.set_defaults(func=cmd_file_unzip)
+
+    im = fp.add_parser("image", help="이미지 크기·용량 훑기 (png·jpg·gif·bmp·webp)")
+    im.add_argument("dir", nargs="?", default=".")
+    im.add_argument("--sort", default="size", choices=["size", "pixel", "name"])
+    im.add_argument("--over", type=int, default=0, metavar="px",
+                    help="긴 변이 이보다 큰 것만 (예: 2000)")
+    im.add_argument("--hidden", action="store_true")
+    im.add_argument("--no-recursive", action="store_true")
+    im.add_argument("--limit", type=int, default=20)
+    im.set_defaults(func=cmd_file_image)
 
     hs = fp.add_parser("hash", help="체크섬 만들기·검증 (배포·백업 무결성)")
     hs.add_argument("dir", nargs="?", default=".")

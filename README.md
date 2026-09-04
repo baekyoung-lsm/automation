@@ -57,6 +57,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
 | `at file unzip <zip>` | 윈도우에서 만든 zip 의 깨진 한글 이름(cp949)을 되살려 푼다 |
+| `at file image [경로]` | 이미지 크기·비율·용량 훑기 (png·jpg·gif·bmp·webp) |
 | `at file undo [저널]` | 직전 organize/fixname 을 되돌린다 |
 
 ```bash
@@ -71,6 +72,7 @@ at file hash dist/ --check SHA256SUMS.txt      # 달라진 게 있으면 exit 1
 at file diff 배포전/ 배포후/ -g '*.py'
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
+at file image ~/블로그 --over 2000        # 긴 변이 2000px 넘는 것만
 at file unzip 첨부파일.zip                # 미리보기 (고친 이름까지)
 at file unzip 첨부파일.zip -o 받은자료/ --apply
 at file dupes ~/Pictures --script > 삭제후보.sh
@@ -96,6 +98,10 @@ at file undo
 `archive` 는 압축한 뒤 zip 을 다시 열어 **모든 파일이 같은 크기로 들어갔는지 확인한 다음에만**
 원본을 지운다. 확인에 실패하면 원본을 그대로 두고 무엇이 문제인지 알려 준다. 이미 있는
 zip 파일에는 덮어쓰지 않는다.
+
+`image` 는 파일 **헤더만** 읽어 크기를 알아낸다. 픽셀을 건드리지 않으므로 의존성 없이
+빠르다. 대신 화질이나 회전(EXIF) 정보는 보지 않는다. 확장자가 이미지인데 헤더를 못 읽은
+파일은 따로 모아 알려 준다 — 확장자만 바뀐 파일이나 깨진 파일이다.
 
 `unzip` 은 윈도우에서 만든 zip 을 푼다. 표준 zip 에는 파일명 인코딩을 적는 칸이 없어서
 UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한글이 `║╕░φ╝¡` 처럼 깨진다.

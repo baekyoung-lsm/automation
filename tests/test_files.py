@@ -416,5 +416,76 @@ class WatchTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+class ImageTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _png(self, width, height):
+        import struct
+        import zlib
+
+        def chunk(tag, body):
+            return (struct.pack(">I", len(body)) + tag + body
+                    + struct.pack(">I", zlib.crc32(tag + body)))
+
+        head = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        path = self.root / "a.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
+                         + chunk(b"IEND", b""))
+        return path
+
+    def test_png_size(self):
+        info = files.image_info(self._png(1920, 1080))
+        self.assertEqual((info.kind, info.width, info.height), ("PNG", 1920, 1080))
+        self.assertEqual(info.ratio, "16:9")
+
+    def test_gif_and_bmp_are_little_endian(self):
+        import struct
+
+        gif = self.root / "b.gif"
+        gif.write_bytes(b"GIF89a" + struct.pack("<HH", 640, 480) + b"\x00" * 8)
+        self.assertEqual((files.image_info(gif).width, files.image_info(gif).height),
+                         (640, 480))
+        bmp = self.root / "c.bmp"
+        # 높이가 음수면 위에서 아래로 그리는 그림이다. 크기는 절댓값이다.
+        bmp.write_bytes(b"BM" + b"\x00" * 16 + struct.pack("<ii", 300, -200)
+                        + b"\x00" * 8)
+        info = files.image_info(bmp)
+        self.assertEqual((info.width, info.height), (300, 200))
+
+    def test_jpeg_reads_frame_header(self):
+        import struct
+
+        path = self.root / "d.jpg"
+        path.write_bytes(b"\xff\xd8" + b"\xff\xe0" + struct.pack(">H", 16)
+                         + b"\x00" * 14 + b"\xff\xc0" + struct.pack(">H", 17)
+                         + b"\x08" + struct.pack(">HH", 768, 1024) + b"\x00" * 10)
+        info = files.image_info(path)
+        self.assertEqual((info.kind, info.width, info.height), ("JPEG", 1024, 768))
+
+    def test_webp_vp8x_size(self):
+        path = self.root / "e.webp"
+        path.write_bytes(b"RIFF" + b"\x00" * 4 + b"WEBPVP8X" + b"\x00" * 8
+                         + (799).to_bytes(3, "little") + (599).to_bytes(3, "little"))
+        info = files.image_info(path)
+        self.assertEqual((info.kind, info.width, info.height), ("WebP", 800, 600))
+
+    def test_unknown_or_broken_file_returns_none(self):
+        broken = self.root / "f.png"
+        broken.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+        self.assertIsNone(files.image_info(broken))
+        self.assertIsNone(files.image_info(self.root / "없는파일.png"))
+
+    def test_scan_separates_unreadable_files(self):
+        self._png(10, 20)
+        (self.root / "g.jpg").write_text("이건 그림이 아니다", encoding="utf-8")
+        found, unknown = files.scan_images(self.root)
+        self.assertEqual([i.kind for i in found], ["PNG"])
+        self.assertEqual([p.name for p in unknown], ["g.jpg"])
+
+
 if __name__ == "__main__":
     unittest.main()
