@@ -355,6 +355,50 @@ def cmd_text_wrap(a) -> int:
     return 0
 
 
+def cmd_text_repeat(a) -> int:
+    targets: list[Path] = []
+    for name in a.paths:
+        path = Path(name)
+        if path.is_dir():
+            targets += list(text.iter_files([path], glob=a.glob))
+        elif path.is_file():
+            targets.append(path)
+        else:
+            _p(f"파일이 없습니다: {path}")
+            return 1
+    if not targets:
+        _p("읽을 파일이 없습니다.")
+        return 1
+
+    sources: list[tuple[str, str]] = []
+    for path in targets:
+        try:
+            body, _ = text.read_text_any(path)
+        except text.TextError:
+            continue
+        sources.append((str(path), body))
+
+    found = text.repeated_sentences(sources, min_chars=a.min_chars,
+                                    min_count=a.min_count)
+    if a.same_file:
+        found = [r for r in found if r.same_file]
+    if not found:
+        _p(f"파일 {len(sources)}개, {a.min_chars}자 넘게 똑같이 반복되는 문장이 없습니다.")
+        return 0
+
+    _p(f"반복되는 문장 {len(found)}개")
+    for r in found[:a.limit]:
+        _p(f"\n  {r.count}번  {_cut(r.text, 70)}")
+        for name, line in r.places[:6]:
+            _p(f"    {name}:{line}")
+        if len(r.places) > 6:
+            _p(f"    ... {len(r.places) - 6}곳 더")
+    if len(found) > a.limit:
+        _p(f"\n... {len(found) - a.limit}개 더 (--limit 로 늘리세요)")
+    _p("\n일부러 반복한 문장일 수 있습니다. 판단은 사람이 합니다.")
+    return 1
+
+
 def cmd_text_undo(a) -> int:
     journal = Path(a.journal) if a.journal else text.latest_journal()
     if journal is None or not journal.is_file():
@@ -458,6 +502,17 @@ def add_commands(sub) -> None:
     tw.add_argument("--limit", type=int, default=12, metavar="줄")
     tw.add_argument("--apply", action="store_true")
     tw.set_defaults(func=cmd_text_wrap)
+
+    tr = tp.add_parser("repeat", help="똑같이 반복되는 문장 찾기 (복붙 흔적·중복 설명)")
+    tr.add_argument("paths", nargs="+", metavar="경로")
+    tr.add_argument("-g", "--glob", action="append", metavar="패턴")
+    tr.add_argument("--min-chars", type=int, default=12, metavar="자",
+                    help="이보다 짧은 문장은 세지 않는다 (기본 12)")
+    tr.add_argument("--min-count", type=int, default=2, metavar="번")
+    tr.add_argument("--same-file", action="store_true",
+                    help="한 파일 안에서 반복된 것만")
+    tr.add_argument("--limit", type=int, default=20)
+    tr.set_defaults(func=cmd_text_repeat)
 
     ex2 = tp.add_parser("extract", help="정규식으로 뽑아 표 만들기")
     ex2.add_argument("pattern", metavar="정규식",

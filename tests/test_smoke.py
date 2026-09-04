@@ -214,6 +214,9 @@ class SmokeTest(unittest.TestCase):
         긴글.write_text("한국어 문장이 아주 길게 이어지는 경우에 줄을 접어야 한다.\n",
                         encoding="utf-8")
         self.assertIn("--apply", self.run_cli("text", "wrap", str(긴글), "-w", "20"))
+        self.assertIn("반복되는 문장",
+                      self.run_cli("text", "repeat", str(긴글), str(긴글),
+                                   "--min-chars", "10", expect=1))
         self.run_cli("text", "wrap", str(긴글), "-w", "20", "--apply")
         self.assertGreater(len(긴글.read_text(encoding="utf-8").splitlines()), 1)
         self.run_cli("text", "typo", str(오타), "--apply")

@@ -505,3 +505,55 @@ def wrap_text(body: str, *, width: int = 80, skip_code: bool = True,
         out.extend(wrap_line(line, width))
     text = "\n".join(out)
     return text + "\n" if body.endswith("\n") else text
+
+
+# --------------------------------------------------------------- 반복 문장
+
+@dataclass
+class Repeat:
+    text: str
+    places: list[tuple[str, int]] = field(default_factory=list)   # 파일, 줄
+
+    @property
+    def count(self) -> int:
+        return len(self.places)
+
+    @property
+    def same_file(self) -> bool:
+        return len({name for name, _ in self.places}) == 1
+
+
+def normalize_sentence(text: str) -> str:
+    """비교용으로만 쓰는 형태. 공백과 문장부호 차이는 무시한다."""
+    body = re.sub(r"[\s]+", " ", text).strip()
+    return re.sub(r"[\"'“”‘’.,!?·…\-—~()\[\]]", "", body).lower()
+
+
+def repeated_sentences(sources: list[tuple[str, str]], *, min_chars: int = 12,
+                       min_count: int = 2) -> list[Repeat]:
+    """여러 글에서 똑같이 반복되는 문장을 찾는다.
+
+    복사해 붙이다 남은 문장이나, 원고에서 같은 설명을 두 번 한 자리를 찾는다.
+    짧은 문장('그렇다.')은 자연스럽게 반복되므로 길이로 거른다. 코드 블록과
+    표의 줄은 보지 않는다 - 거기서 같은 줄이 나오는 것은 반복이 아니다.
+    """
+    seen: dict[str, Repeat] = {}
+    for name, body in sources:
+        line_no = 0
+        fence: str | None = None
+        for line in body.splitlines():
+            line_no += 1
+            m = FENCE.match(line)
+            if m:                       # 코드 블록 안은 반복이 당연하다
+                fence = None if fence else m.group(1)
+                continue
+            if fence or line.lstrip().startswith("|"):   # 표의 머리글 줄도 뺀다
+                continue
+            for piece in split_units(line, "sentence"):
+                key = normalize_sentence(piece)
+                if len(key) < min_chars:
+                    continue
+                spot = seen.setdefault(key, Repeat(piece.strip()))
+                spot.places.append((name, line_no))
+    return sorted((r for r in seen.values() if r.count >= min_count),
+                  key=lambda r: (-r.count, r.text))

@@ -273,5 +273,40 @@ class WrapTest(unittest.TestCase):
         self.assertEqual(text.wrap_text(once, width=20), once)
 
 
+class RepeatTest(unittest.TestCase):
+    DOCS = [("a.md", "같은 설명을 여기서 한 번 한다.\n다른 문장이다.\n"
+                     "같은 설명을 여기서 한 번 한다."),
+            ("b.md", "같은 설명을 여기서 한 번 한다!\n짧다.\n짧다.")]
+
+    def test_finds_repeats_across_files(self):
+        found = text.repeated_sentences(self.DOCS)
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].count, 3)
+        self.assertEqual([n for n, _ in found[0].places], ["a.md", "a.md", "b.md"])
+
+    def test_punctuation_and_case_do_not_matter(self):
+        found = text.repeated_sentences([("a", "충분히 긴 문장을 여기에 쓴다."),
+                                         ("b", "충분히  긴 문장을 여기에 쓴다!")])
+        self.assertEqual(len(found), 1)
+
+    def test_short_sentences_are_ignored(self):
+        self.assertEqual(text.repeated_sentences([("a", "짧다.\n짧다.")]), [])
+
+    def test_same_file_flag(self):
+        found = text.repeated_sentences(self.DOCS)
+        self.assertFalse(found[0].same_file)
+        only_a = text.repeated_sentences([self.DOCS[0]])
+        self.assertTrue(only_a[0].same_file)
+
+    def test_code_blocks_and_table_rows_are_skipped(self):
+        body = ("```\n같은 코드 줄을 여기 쓴다\n같은 코드 줄을 여기 쓴다\n```\n"
+                "| 같은 표의 머리글이다 |\n| 같은 표의 머리글이다 |\n")
+        self.assertEqual(text.repeated_sentences([("a.md", body)]), [])
+
+    def test_min_count_can_be_raised(self):
+        found = text.repeated_sentences(self.DOCS, min_count=4)
+        self.assertEqual(found, [])
+
+
 if __name__ == "__main__":
     unittest.main()
