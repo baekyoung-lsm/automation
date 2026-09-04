@@ -2709,6 +2709,48 @@ def cmd_sheet_dedupe(a) -> int:
     return 0
 
 
+def cmd_sheet_fx(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+
+    reports: list[sheet.FxReport] = []
+    for spec in a.add:
+        name, sep, expression = spec.partition("=")
+        if not sep or not name.strip() or not expression.strip():
+            _p(f"'새열=수식' 형태로 적으세요: {spec}")
+            _p("  예: --add '월급=연봉/12'  --add '등급=\"A\" if 연봉>5000만 else \"B\"'")
+            return 1
+        try:
+            t, report = sheet.add_column(t, name.strip(), expression.strip(),
+                                         digits=a.round)
+        except sheet.SheetError as e:
+            _p(f"{name.strip()}: {e}")
+            return 1
+        reports.append(report)
+
+    for report in reports:
+        line = f"{report.name} = {report.expression}  ·  계산 {report.computed:,}행"
+        if report.failed:
+            line += f"  ·  비운 행 {report.failed:,}"
+        _p(line)
+        for reason, count in report.reasons.most_common():
+            _p(f"    {reason} {count:,}행"
+               + (f" (예: {report.samples[0][0]}행)" if report.samples else ""))
+    _p("")
+
+    _grid(t.headers, [[sheet.to_text(v) for v in row] for row in t.rows[:a.rows]],
+          limit=a.width)
+    if len(t.rows) > a.rows:
+        _p(f"  ... {len(t.rows) - a.rows:,}행 더")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(t, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
 # ==================================================================== doc
 
 MD_SUFFIXES = {".md", ".markdown"}
@@ -3549,6 +3591,17 @@ def build_parser() -> argparse.ArgumentParser:
     fl.add_argument("--limit", type=int, default=10)
     fl.add_argument("--apply", action="store_true")
     fl.set_defaults(func=cmd_sheet_fill)
+
+    fx = common(sh.add_parser("fx", help="수식으로 계산한 열 붙이기"))
+    fx.add_argument("file")
+    fx.add_argument("--add", action="append", required=True, metavar="새열=수식",
+                    help="예: '월급=연봉/12'. 여러 번 주면 순서대로 계산한다")
+    fx.add_argument("--round", type=int, default=None, metavar="자리",
+                    help="숫자 결과를 이 자리에서 반올림")
+    fx.add_argument("-o", "--out", metavar="파일")
+    fx.add_argument("--rows", type=int, default=10, metavar="개")
+    fx.add_argument("--width", type=int, default=16, metavar="칸")
+    fx.set_defaults(func=cmd_sheet_fx)
 
     dd = common(sh.add_parser("dedupe", help="키가 같은 행 중 하나만 남기기"))
     dd.add_argument("file")

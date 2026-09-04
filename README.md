@@ -314,6 +314,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
+| `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
@@ -333,6 +334,7 @@ at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
+at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv
 at sheet join 직원.xlsx 급여.csv --on 사번 -o 통합.xlsx
 at sheet join 주문.csv 고객.csv --on 고객번호 --how inner -o 매칭본.csv
@@ -340,6 +342,12 @@ at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`fx` 의 수식은 파이썬 문법이지만 **쓸 수 있는 문법만 열어 뒀다**. 사칙연산, 비교, `and/or`,
+`A if 조건 else B`, 그리고 `abs round min max int float len str` 만 된다. `__import__` 나
+`open` 같은 것은 파싱 단계에서 막힌다 — 표 하나로 아무 코드나 돌게 두면 안 되기 때문이다.
+열 이름에 공백이 있으면 `{매출 합계}` 처럼 감싼다. 빈 칸이나 0으로 나누는 행은 그 행만
+비우고 **왜 비었는지, 몇 행인지** 알려 준다.
 
 `dedupe` 는 `clean --dedupe` 와 다르다. `clean` 은 완전히 똑같은 행만 지우고, `dedupe` 는
 **키가 같으면 나머지가 달라도** 하나만 남긴다. 사번이 같은 여러 행에서 수정일이 가장

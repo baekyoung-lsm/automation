@@ -905,3 +905,131 @@ def dedupe(table: Table, keys: list[str], *, keep: str = "first",
     report.kept = len(rows)
     report.duplicate_keys.sort(key=lambda x: -x[1])
     return Table(table.headers, rows, source=table.source, sheet=table.sheet), report
+
+
+# ------------------------------------------------------------------ 파생 열
+
+import ast as _ast
+
+# 허용할 문법만 열어 둔다. eval 에 아무거나 넣으면 표 하나로 무슨 일이든 할 수 있다.
+ALLOWED_NODES = (
+    _ast.Expression, _ast.BinOp, _ast.UnaryOp, _ast.BoolOp, _ast.Compare,
+    _ast.IfExp, _ast.Name, _ast.Load, _ast.Constant, _ast.Call,
+    _ast.Add, _ast.Sub, _ast.Mult, _ast.Div, _ast.FloorDiv, _ast.Mod, _ast.Pow,
+    _ast.USub, _ast.UAdd, _ast.Not, _ast.And, _ast.Or,
+    _ast.Eq, _ast.NotEq, _ast.Lt, _ast.LtE, _ast.Gt, _ast.GtE,
+)
+ALLOWED_CALLS = {
+    "abs": abs, "round": round, "min": min, "max": max,
+    "int": int, "float": float, "len": len, "str": str,
+}
+BRACED = re.compile(r"\{([^{}]+)\}")
+
+
+@dataclass
+class FxReport:
+    name: str
+    expression: str
+    computed: int = 0
+    failed: int = 0
+    reasons: Counter = field(default_factory=Counter)
+    samples: list[tuple[int, str]] = field(default_factory=list)
+
+
+def _check_expression(tree: _ast.AST, allowed_names: set[str]) -> None:
+    for node in _ast.walk(tree):
+        if not isinstance(node, ALLOWED_NODES):
+            raise SheetError(f"수식에 쓸 수 없는 문법입니다: {type(node).__name__}")
+        if isinstance(node, _ast.Call):
+            if not isinstance(node.func, _ast.Name) or node.func.id not in ALLOWED_CALLS:
+                raise SheetError(
+                    f"쓸 수 있는 함수: {', '.join(sorted(ALLOWED_CALLS))}")
+        if isinstance(node, _ast.Name) and node.id not in allowed_names:
+            if node.id in ALLOWED_CALLS:
+                continue
+            raise SheetError(f"'{node.id}' 는 열 이름도 함수도 아닙니다")
+
+
+def compile_expression(expression: str, headers: list[str]):
+    """수식을 확인하고 (실행 코드, 자리표시자 대응표) 를 돌려준다.
+
+    열 이름에 공백이 있으면 {매출 합계} 처럼 중괄호로 감싼다.
+    """
+    aliases: dict[str, str] = {}
+    body = expression
+
+    def swap(m: re.Match) -> str:
+        name = m.group(1).strip()
+        key = f"_열{len(aliases)}"
+        aliases[key] = name
+        return key
+
+    body = BRACED.sub(swap, body)
+    for header in headers:
+        if header and not header.isidentifier() and header in body:
+            key = f"_열{len(aliases)}"
+            aliases[key] = header
+            body = body.replace(header, key)
+
+    try:
+        tree = _ast.parse(body, mode="eval")
+    except SyntaxError as e:
+        raise SheetError(f"수식을 읽지 못했습니다: {e.msg}") from None
+
+    names = {h for h in headers if h.isidentifier()} | set(aliases)
+    _check_expression(tree, names)
+    unknown = [aliases[k] for k in aliases if aliases[k] not in headers]
+    if unknown:
+        raise SheetError(f"없는 열: {', '.join(unknown)}")
+    return compile(tree, "<수식>", "eval"), aliases
+
+
+def add_column(table: Table, name: str, expression: str, *,
+               digits: int | None = None) -> tuple[Table, FxReport]:
+    """수식으로 계산한 열을 붙인다. 이름이 이미 있으면 그 열을 바꾼다."""
+    code, aliases = compile_expression(expression, table.headers)
+    report = FxReport(name, expression)
+
+    headers = list(table.headers)
+    if name in headers:
+        target = headers.index(name)
+    else:
+        headers.append(name)
+        target = len(headers) - 1
+
+    rows: list[list] = []
+    for number, row in enumerate(table.rows, 2):     # 헤더가 1행
+        scope = {h: (row[i] if i < len(row) else None)
+                 for i, h in enumerate(table.headers) if h.isidentifier()}
+        for key, header in aliases.items():
+            index = table.headers.index(header)
+            scope[key] = row[index] if index < len(row) else None
+        scope.update(ALLOWED_CALLS)
+
+        try:
+            value = eval(code, {"__builtins__": {}}, scope)  # noqa: S307 - 문법을 미리 걸렀다
+            if digits is not None and isinstance(value, (int, float)) \
+                    and not isinstance(value, bool):
+                # round(x, 0) 은 4333333.0 처럼 실수를 돌려준다. 0자리면 정수가 낫다.
+                value = round(value) if digits == 0 else round(value, digits)
+            report.computed += 1
+        except ZeroDivisionError:
+            value, reason = None, "0으로 나눔"
+        except TypeError:
+            value, reason = None, "값 종류가 맞지 않음(빈 칸이거나 문자)"
+        except Exception as e:                       # 남은 것도 행 하나만 비운다
+            value, reason = None, type(e).__name__
+        else:
+            reason = ""
+
+        if reason:
+            report.failed += 1
+            report.reasons[reason] += 1
+            if len(report.samples) < 3:
+                report.samples.append((number, reason))
+
+        new_row = list(row) + [None] * (len(headers) - len(row))
+        new_row[target] = value
+        rows.append(new_row)
+
+    return Table(headers, rows, source=table.source, sheet=table.sheet), report

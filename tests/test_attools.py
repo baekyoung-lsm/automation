@@ -1256,6 +1256,57 @@ class SheetTest(unittest.TestCase):
         _, missing = sheet.fill(t, "{이름} {연차}")
         self.assertEqual(missing, {"연차"})
 
+    def test_fx_adds_computed_column(self):
+        t = sheet.Table(["이름", "연봉"], [["가", 1200], ["나", 2400]])
+        out, report = sheet.add_column(t, "월급", "연봉/12", digits=0)
+        self.assertEqual(out.headers, ["이름", "연봉", "월급"])
+        self.assertEqual([r[2] for r in out.rows], [100, 200])
+        self.assertEqual((report.computed, report.failed), (2, 0))
+
+    def test_fx_replaces_existing_column(self):
+        t = sheet.Table(["a", "b"], [[1, 2]])
+        out, _ = sheet.add_column(t, "b", "a * 10")
+        self.assertEqual(out.headers, ["a", "b"])
+        self.assertEqual(out.rows[0], [1, 10])
+
+    def test_fx_blanks_failing_rows_and_reports_why(self):
+        t = sheet.Table(["a", "b"], [[10, 2], [10, 0], [10, None]])
+        out, report = sheet.add_column(t, "몫", "a / b")
+        self.assertEqual([r[2] for r in out.rows], [5.0, None, None])
+        self.assertEqual(report.failed, 2)
+        self.assertIn("0으로 나눔", report.reasons)
+
+    def test_fx_rejects_dangerous_expressions(self):
+        t = sheet.Table(["a"], [[1]])
+        for bad in ("__import__('os')", "open('x')", "a.__class__",
+                    "[x for x in a]", "a 1"):
+            with self.assertRaises(sheet.SheetError, msg=bad):
+                sheet.add_column(t, "x", bad)
+
+    def test_fx_rejects_unknown_column(self):
+        t = sheet.Table(["a"], [[1]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.add_column(t, "x", "a + 없는열")
+
+    def test_fx_allows_whitelisted_functions_and_conditions(self):
+        t = sheet.Table(["a"], [[-3], [5]])
+        out, _ = sheet.add_column(t, "절댓값", "abs(a)")
+        self.assertEqual([r[1] for r in out.rows], [3, 5])
+
+        out2, _ = sheet.add_column(t, "등급", '"큼" if a > 0 else "작음"')
+        self.assertEqual([r[1] for r in out2.rows], ["작음", "큼"])
+
+    def test_fx_column_name_with_space(self):
+        t = sheet.Table(["매출 합계", "건수"], [[100, 4]])
+        out, _ = sheet.add_column(t, "평균", "{매출 합계} / 건수")
+        self.assertEqual(out.rows[0][2], 25.0)
+
+    def test_fx_chained_columns(self):
+        t = sheet.Table(["a"], [[12]])
+        step1, _ = sheet.add_column(t, "b", "a / 2")
+        step2, _ = sheet.add_column(step1, "c", "b + 1")
+        self.assertEqual(step2.rows[0], [12, 6.0, 7.0])
+
     def test_dedupe_keep_first_and_last(self):
         t = sheet.Table(["k", "v"], [["1", "가"], ["1", "나"], ["2", "다"]])
         first, info = sheet.dedupe(t, ["k"], keep="first")
