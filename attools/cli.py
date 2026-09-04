@@ -1482,6 +1482,53 @@ def cmd_novel_export(a) -> int:
     return 0
 
 
+def cmd_novel_dialogue(a) -> int:
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    body = "\n".join(manuscript.strip_headings(manuscript.read_text(p))
+                     for p in targets)
+    # 대사 화자는 대부분 '이름이 말했다' 꼴이라 조사 종류가 하나뿐이다.
+    # 이름 후보를 뽑을 때 조사 다양성 조건을 걸면 주요 인물이 통째로 빠진다.
+    people = list(a.name or []) or [n.text for n in names.extract(body, min_count=a.min,
+                                                                  min_variety=1)]
+    if not people:
+        _p(f"{a.min}회 이상 나오는 인물을 찾지 못했습니다. --min 을 낮추거나 "
+           "--name 으로 지정하세요.")
+        return 1
+
+    speeches = names.extract_speech(body, people)
+    if not speeches:
+        _p("대사를 찾지 못했습니다. 따옴표로 묶인 부분을 대사로 봅니다.")
+        return 1
+
+    profiles, unknown = names.voice_profiles(speeches)
+    total = len(speeches)
+    _p(f"대사 {total:,}개  ·  인물 {len(profiles)}명"
+       f"  ·  화자 못 찾음 {unknown:,}개 ({unknown / total:.0%})\n")
+
+    _grid(["인물", "대사", "비중", "평균", "존댓말", "자주 쓰는 어미"],
+          [[p.name, f"{p.count:,}", f"{p.count / total:.0%}",
+            f"{p.avg_length:.0f}자", f"{p.polite_ratio:.0%}",
+            " ".join(f"{e}{n}" for e, n in p.top_endings) or "-"]
+           for p in profiles[:a.limit]], limit=22)
+
+    if unknown / total > 0.3:
+        _p(f"\n화자를 못 찾은 대사가 {unknown / total:.0%} 입니다. 같은 줄에 이름이 "
+           "없으면 비워 둡니다 - 억지로 채우면 집계가 어긋나서입니다.")
+
+    if a.samples:
+        _p("")
+        for profile in profiles[:a.limit]:
+            lines = [s.text for s in speeches if s.speaker == profile.name][:a.samples]
+            _p(f"{profile.name}")
+            for line in lines:
+                _p(f"  \"{_cut(line, a.width)}\"")
+    return 0
+
+
 # =================================================================== keys
 
 def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
@@ -2967,6 +3014,17 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("--scene-mark", default="", metavar="표시",
                     help="장면 구분선을 이걸로 바꾼다 (예: ＊)")
     ex.set_defaults(func=cmd_novel_export)
+
+    dg = np_.add_parser("dialogue", help="인물별 대사량과 말투 (존댓말·어미)")
+    dg.add_argument("paths", nargs="+")
+    dg.add_argument("--name", action="append", metavar="이름", help="인물 직접 지정")
+    dg.add_argument("--min", type=int, default=3, metavar="회",
+                    help="인물로 볼 최소 등장 횟수")
+    dg.add_argument("--samples", type=int, default=0, metavar="개",
+                    help="인물마다 대사 예시를 이만큼 보여준다")
+    dg.add_argument("--limit", type=int, default=20)
+    dg.add_argument("--width", type=int, default=70, metavar="칸")
+    dg.set_defaults(func=cmd_novel_dialogue)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
     sn.add_argument("dir", nargs="?", default=".")

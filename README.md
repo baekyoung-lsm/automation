@@ -409,6 +409,7 @@ at life unit 100F        # 37.78℃
 | `at novel stats <파일/디렉터리…>` | 공백 포함·제외 글자수, 200자 원고지 매수, 문장·문단 수, 평균 문장 길이, 대사 비율, 읽는 시간, 단행본 환산 |
 | `at novel check <파일>` | 상투 표현, 군더더기 부사, 반복 어구, 같은 종결 어미 연속, 같은 말로 시작하는 문장 연속, 너무 긴 문장 |
 | `at novel outline <경로…>` | 장면 목록 — 분량, 대사 비율, 등장인물, 첫 문장 (`-o` 로 xlsx 저장) |
+| `at novel dialogue <경로…>` | 인물별 대사량과 말투 — 존댓말 비율, 자주 쓰는 어미 |
 | `at novel export <경로…>` | 여러 화를 한 파일로 — 투고·인쇄용 html / txt / md |
 | `at novel style <경로…>` | 화별 문체 지표를 나란히 놓고 유난히 다른 화를 짚는다 |
 | `at novel timeline <경로…>` | 시간 표현을 모아 보고, 한 장면 안에서 시간대·계절이 어긋난 곳을 짚는다 |
@@ -420,6 +421,7 @@ at life unit 100F        # 37.78℃
 at novel stats 원고/ --each
 at novel check 원고/12화.txt --run 3 --long 80
 at novel outline 원고/ -o 장면목록.xlsx
+at novel dialogue 원고/ --samples 3
 at novel export 원고/ --title "겨울 성문" --author 필명 --indent -o 투고본.html
 at novel export 원고/ -f txt -o 투고본.txt
 at novel style 원고/               # 화별 비교
@@ -431,6 +433,11 @@ at novel names 원고/12화.txt --name 리안 --name 세드릭   # 이름을 직
 at novel snap 원고/ --note "3부 초고 완료"
 at novel snap 원고/ -l
 ```
+
+`at novel dialogue` 는 인물마다 대사 수·평균 길이·존댓말 비율·자주 쓰는 종결 어미를 낸다.
+"카일만 유독 반말인가", "두 인물의 말투가 구별되는가"를 숫자로 본다. 화자는 **같은 줄
+안에서만** 찾고 못 찾으면 비워 둔다 — 줄을 넘어가 다음 문단의 이름을 집으면 인물별
+집계가 통째로 어긋나기 때문이다. 못 찾은 비율이 30%를 넘으면 그 사실을 알려 준다.
 
 `at novel export` 는 화마다 첫 제목 줄을 장 제목으로 삼아 한 파일로 묶는다. HTML 은
 목차와 인쇄용 CSS(화마다 쪽 나눔)를 넣고, 들여쓰기는 공백 문자가 아니라 `text-indent` 로

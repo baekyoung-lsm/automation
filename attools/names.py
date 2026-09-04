@@ -172,3 +172,104 @@ def dialogue_speakers(text: str, names: list[str], *, window: int = 20) -> Count
         if found := pattern.search(tail):
             counts[found.group(0)] += 1
     return counts
+
+
+# --------------------------------------------------------------------- 대사
+
+DIALOGUE_RE = re.compile(r"[\"“](.+?)[\"”]|[「『](.+?)[」』]", re.S)
+
+# 존댓말 종결. 대사 끝을 보고 가른다.
+POLITE_END = re.compile(
+    r"(?:요|니다|니까|세요|십시오|시죠|시오|습니까|답니다|군요|네요|데요|지요|죠)"
+    r"[.!?…\s]*$")
+# 화자를 알려 주는 서술: "…" 하고 이름이 말했다 / 이름이 물었다
+SPEECH_VERB = re.compile(
+    r"(?:말했|물었|답했|외쳤|중얼|속삭|덧붙였|되뇌|내뱉|웃었|읊조)")
+
+
+@dataclass
+class Speech:
+    text: str
+    speaker: str
+    line: int
+    polite: bool
+
+
+@dataclass
+class VoiceProfile:
+    name: str
+    count: int = 0
+    chars: int = 0
+    polite: int = 0
+    endings: Counter = field(default_factory=Counter)
+
+    @property
+    def avg_length(self) -> float:
+        return self.chars / self.count if self.count else 0.0
+
+    @property
+    def polite_ratio(self) -> float:
+        return self.polite / self.count if self.count else 0.0
+
+    @property
+    def top_endings(self) -> list[tuple[str, int]]:
+        return self.endings.most_common(3)
+
+
+def _line_of(text: str, index: int) -> int:
+    return text.count("\n", 0, index) + 1
+
+
+def extract_speech(text: str, people: list[str], *, window: int = 40) -> list[Speech]:
+    """대사를 뽑고 화자를 찾는다.
+
+    찾는 범위를 같은 줄로 제한한다. 줄을 넘어가면 다음 문단에 나오는 이름을
+    화자로 잘못 집는다. 한국어 소설은 "…" 하고 이름이 말했다 꼴이 많아
+    대사 뒤를 먼저 보고, 없으면 같은 줄의 앞부분을 본다. 둘 다 없으면
+    화자를 비워 둔다. 억지로 채우면 인물별 집계가 통째로 어긋난다.
+    """
+    finder = (re.compile("|".join(sorted(map(re.escape, people), key=len, reverse=True)))
+              if people else None)
+    out: list[Speech] = []
+
+    for m in DIALOGUE_RE.finditer(text):
+        body = (m.group(1) or m.group(2) or "").strip()
+        if not body:
+            continue
+
+        speaker = ""
+        if finder:
+            line_end = text.find("\n", m.end())
+            line_end = len(text) if line_end < 0 else line_end
+            tail = text[m.end(): min(line_end, m.end() + window)]
+
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            head = text[max(line_start, m.start() - window): m.start()]
+
+            if found := finder.search(tail):
+                speaker = found.group(0)
+            elif found := finder.search(head):
+                speaker = found.group(0)
+
+        out.append(Speech(body, speaker, _line_of(text, m.start()),
+                          bool(POLITE_END.search(body))))
+    return out
+
+
+def voice_profiles(speeches: list[Speech]) -> tuple[list[VoiceProfile], int]:
+    """인물별 말투 요약과, 화자를 못 찾은 대사 수."""
+    table: dict[str, VoiceProfile] = {}
+    unknown = 0
+
+    for s in speeches:
+        if not s.speaker:
+            unknown += 1
+            continue
+        profile = table.setdefault(s.speaker, VoiceProfile(s.speaker))
+        profile.count += 1
+        profile.chars += len(re.sub(r"\s", "", s.text))
+        profile.polite += int(s.polite)
+        if m := re.search(r"([가-힣]{2})[.!?…\"'”’」』)\s]*$", s.text):
+            profile.endings[m.group(1)] += 1
+
+    return sorted(table.values(), key=lambda p: -p.count), unknown

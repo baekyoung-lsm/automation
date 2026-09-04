@@ -1547,6 +1547,43 @@ class NamesTest(unittest.TestCase):
         clean = "리안이 웃었다. 리안은 갔다. 리안을 봤다. 리안과 함께."
         self.assertEqual(names.check_josa(clean, ["리안"]), [])
 
+    SPEECH = ('"늦었어." 카일이 말했다.\n'
+              '리안이 고개를 저었다. "괜찮습니다."\n'
+              '"그럴 수 없어." 카일이 다시 말했다.\n'
+              '"모르겠어."\n')
+
+    def test_extract_speech_finds_speaker_after_quote(self):
+        found = names.extract_speech(self.SPEECH, ["리안", "카일"])
+        self.assertEqual([s.speaker for s in found], ["카일", "리안", "카일", ""])
+
+    def test_extract_speech_does_not_cross_lines(self):
+        # 다음 줄의 이름을 화자로 집으면 안 된다
+        text = '"대사."\n카일이 다음 줄에서 말했다.\n'
+        self.assertEqual(names.extract_speech(text, ["카일"])[0].speaker, "")
+
+    def test_extract_speech_detects_politeness(self):
+        found = names.extract_speech(self.SPEECH, ["리안", "카일"])
+        self.assertEqual([s.polite for s in found], [False, True, False, False])
+
+    def test_extract_speech_line_numbers(self):
+        found = names.extract_speech(self.SPEECH, ["리안", "카일"])
+        self.assertEqual([s.line for s in found], [1, 2, 3, 4])
+
+    def test_voice_profiles(self):
+        profiles, unknown = names.voice_profiles(
+            names.extract_speech(self.SPEECH, ["리안", "카일"]))
+        self.assertEqual(unknown, 1)
+        self.assertEqual(profiles[0].name, "카일")
+        self.assertEqual(profiles[0].count, 2)
+        self.assertEqual(profiles[0].polite_ratio, 0.0)
+
+        polite = [p for p in profiles if p.name == "리안"][0]
+        self.assertEqual(polite.polite_ratio, 1.0)
+        self.assertEqual(polite.top_endings[0][0], "니다")
+
+    def test_voice_profiles_empty(self):
+        self.assertEqual(names.voice_profiles([]), ([], 0))
+
     def test_dialogue_speakers(self):
         text = '"늦었어." 카일이 말했다.\n"응." 리안이 답했다.\n'
         counts = names.dialogue_speakers(text, ["카일", "리안"])
