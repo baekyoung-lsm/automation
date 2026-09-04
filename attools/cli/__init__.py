@@ -7,12 +7,13 @@ import sys
 
 from .. import __version__
 from . import (dev_cmds, doc_cmds, file_cmds, git_cmds, json_cmds, keys_cmds,
-               life_cmds, novel_cmds, sheet_cmds, text_cmds)
+               life_cmds, novel_cmds, sheet_cmds, text_cmds, ui_cmds)
 from .common import _cut, _grid, _p
 
 # 도움말에 나오는 순서다.
 GROUP_MODULES = (file_cmds, dev_cmds, git_cmds, life_cmds, sheet_cmds,
-                 text_cmds, doc_cmds, json_cmds, keys_cmds, novel_cmds)
+                 text_cmds, doc_cmds, json_cmds, keys_cmds, novel_cmds,
+                 ui_cmds)
 
 
 def walk_commands(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()):

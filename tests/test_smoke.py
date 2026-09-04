@@ -590,6 +590,13 @@ class SmokeTest(unittest.TestCase):
             self.assertEqual(z.infolist()[0].filename, "mimetype")
             self.assertIn("OEBPS/content.opf", z.namelist())
 
+    # -------------------------------------------------------------- ui
+
+    def test_ui_group(self):
+        out = self.run_cli("ui", "--list")
+        self.assertIn("파일 정리", out)
+        self.run_cli("ui", "없는화면", expect=1)
+
     def test_novel_export(self):
         out = self.path("투고본.html")
         self.run_cli("novel", "export", self.path("원고"), "--title", "제목",
