@@ -468,6 +468,82 @@ class KeysAppTest(WebUiTest):
         self.assertNotIn("", marks)
 
 
+class DevAppTest(WebUiTest):
+    """개발 잡일 화면. 읽고 계산만 한다."""
+
+    def token(self, payload):
+        import base64
+
+        def part(obj):
+            raw = json.dumps(obj).encode("utf-8")
+            return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+        return part({"alg": "HS256", "typ": "JWT"}) + "." + part(payload) + ".sig"
+
+    def test_jwt(self):
+        _, data = self.post("/api/dev/jwt",
+                            {"token": self.token({"sub": "1", "exp": 1700000000})})
+        self.assertIn("만료", data["state"])
+        self.assertIn("HS256", data["header"])
+
+    def test_jwt_garbage(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/jwt", {"token": "아무거나"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_when(self):
+        _, data = self.post("/api/dev/when", {"value": "1735689600"})
+        pairs = dict(data["rows"])
+        self.assertEqual(pairs["epoch"], "1735689600")
+        self.assertTrue(pairs["KST"].startswith("2025-01-01"))
+
+    def test_cron(self):
+        _, data = self.post("/api/dev/cron", {"expression": "0 9 * * 1-5"})
+        self.assertIn("9시", data["describe"])
+        self.assertEqual(len(data["rows"]), 8)
+        for _when, weekday in data["rows"]:
+            self.assertIn(weekday, "월화수목금")
+
+    def test_cron_bad(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/cron", {"expression": "엉터리"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_mask(self):
+        _, data = self.post("/api/dev/mask",
+                            {"text": "연락처 010-1234-5678, token=abcdef123456"})
+        self.assertNotIn("1234-5678", data["text"])
+        self.assertEqual(data["found"], 2)
+
+    def test_encode(self):
+        _, data = self.post("/api/dev/encode", {"value": "가나"})
+        pairs = dict(data["rows"])
+        self.assertEqual(pairs["base64"], "6rCA64KY")
+
+    def test_secret_length_and_count(self):
+        _, data = self.post("/api/dev/secret",
+                            {"kind": "pin", "length": "6", "count": "3"})
+        self.assertEqual(len(data["values"]), 3)
+        self.assertTrue(all(len(v) == 6 and v.isdigit() for v in data["values"]))
+
+    def test_secret_rejects_unknown_kind(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/secret", {"kind": "개인키"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_env_diff(self):
+        (self.work / ".env.example").write_text("API_KEY=changeme\nDB=1\n",
+                                                encoding="utf-8")
+        (self.work / ".env").write_text("API_KEY=changeme\nEXTRA=2\n",
+                                        encoding="utf-8")
+        _, data = self.post("/api/dev/env",
+                            {"example": str(self.work / ".env.example"),
+                             "actual": str(self.work / ".env")})
+        self.assertFalse(data["ok"])
+        found = {name for _label, name in data["rows"]}
+        self.assertEqual(found, {"DB", "API_KEY", "EXTRA"})
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

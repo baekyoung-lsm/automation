@@ -4,8 +4,9 @@ from __future__ import annotations
 
 
 def all_apps():
-    from . import (files_app, keys_app, life_app, novel_app, sheet_app,
-                   text_app)
+    from . import (dev_app, files_app, keys_app, life_app, novel_app,
+                   sheet_app, text_app)
 
     return [files_app.make(), text_app.make(), sheet_app.make(),
-            novel_app.make(), keys_app.make(), life_app.make()]
+            novel_app.make(), keys_app.make(), life_app.make(),
+            dev_app.make()]
