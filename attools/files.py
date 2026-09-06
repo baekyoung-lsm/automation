@@ -945,6 +945,143 @@ def image_info(path: Path, *, head: int = 65536) -> ImageInfo | None:
     return None
 
 
+# ------------------------------------------------------------- 촬영 시각
+
+# EXIF 태그. 촬영 시각을 알려 주는 것만 본다.
+EXIF_SUB_IFD = 0x8769
+EXIF_DATETIME_ORIGINAL = 0x9003
+EXIF_DATETIME_DIGITIZED = 0x9004
+TIFF_DATETIME = 0x0132
+
+
+def _exif_ascii(data: bytes, base: int, order: str, want: set[int],
+                depth: int = 0) -> dict[int, str]:
+    """IFD 하나에서 찾는 태그의 ASCII 값을 뽑는다. 하위 IFD 도 한 번 따라간다."""
+    out: dict[int, str] = {}
+    if depth > 1 or base + 2 > len(data):
+        return out
+    count = int.from_bytes(data[base:base + 2], order)
+    for i in range(count):
+        entry = base + 2 + i * 12
+        if entry + 12 > len(data):
+            break
+        tag = int.from_bytes(data[entry:entry + 2], order)
+        kind = int.from_bytes(data[entry + 2:entry + 4], order)
+        length = int.from_bytes(data[entry + 4:entry + 8], order)
+        raw = data[entry + 8:entry + 12]
+
+        if tag == EXIF_SUB_IFD and kind == 4:
+            out.update(_exif_ascii(data, int.from_bytes(raw, order), order,
+                                   want, depth + 1))
+            continue
+        if tag not in want or kind != 2 or not 0 < length <= 64:
+            continue
+        if length > 4:
+            offset = int.from_bytes(raw, order)
+            chunk = data[offset:offset + length]
+        else:
+            chunk = raw[:length]
+        text = chunk.split(b"\x00")[0].decode("ascii", "replace").strip()
+        if text:
+            out[tag] = text
+    return out
+
+
+def exif_datetime(path: Path, *, head: int = 262144) -> datetime | None:
+    """JPEG 의 촬영 시각(EXIF DateTimeOriginal). 없으면 None.
+
+    파일을 복사하면 수정 시각은 복사한 날로 바뀌지만 EXIF 는 찍은 날 그대로다.
+    사진을 날짜별로 묶을 때는 이쪽이 맞다. HEIC·RAW 는 읽지 못하므로 None 을
+    돌려주고, 부르는 쪽이 수정 시각으로 물러설지 정한다.
+    """
+    try:
+        with path.open("rb") as fh:
+            data = fh.read(head)
+    except OSError:
+        return None
+    if data[:2] != b"\xff\xd8":
+        return None
+
+    start = data.find(b"Exif\x00\x00")
+    if start < 0:
+        return None
+    tiff = start + 6
+    mark = data[tiff:tiff + 2]
+    if mark not in (b"II", b"MM"):
+        return None
+    order = "little" if mark == b"II" else "big"
+
+    body = data[tiff:]
+    if len(body) < 8:
+        return None
+    first = int.from_bytes(body[4:8], order)
+    found = _exif_ascii(body, first, order,
+                        {EXIF_DATETIME_ORIGINAL, EXIF_DATETIME_DIGITIZED,
+                         TIFF_DATETIME})
+
+    for tag in (EXIF_DATETIME_ORIGINAL, EXIF_DATETIME_DIGITIZED, TIFF_DATETIME):
+        text = found.get(tag)
+        if not text:
+            continue
+        try:
+            return datetime.strptime(text[:19], "%Y:%m:%d %H:%M:%S")
+        except ValueError:
+            continue
+    return None
+
+
+PHOTO_SUFFIXES = {".jpg", ".jpeg", ".jpe", ".png", ".gif", ".bmp", ".webp",
+                  ".heic", ".heif", ".tif", ".tiff", ".dng", ".raw", ".cr2",
+                  ".nef", ".arw"}
+PHOTO_BUCKETS = {"year": "%Y", "month": "%Y-%m", "day": "%Y-%m-%d"}
+
+
+@dataclass
+class PhotoPlan:
+    moves: list[Move] = field(default_factory=list)
+    from_exif: int = 0
+    from_mtime: list[Path] = field(default_factory=list)   # 촬영 시각을 못 읽음
+    left: list[Path] = field(default_factory=list)         # 그래서 두고 온 것
+
+
+def plan_photos(root: Path, *, by: str = "month", recursive: bool = True,
+                include_hidden: bool = False, use_mtime: bool = False) -> PhotoPlan:
+    """사진을 찍은 날짜별 폴더로 옮기는 계획.
+
+    수정 시각이 아니라 EXIF 촬영 시각을 쓴다. 사진은 옮겨 담는 사이 수정
+    시각이 복사한 날로 바뀌어 있기 일쑤다. 촬영 시각을 못 읽은 것은 기본으로
+    건드리지 않고, use_mtime 을 켠 사람에게만 수정 시각으로 물러선다.
+    """
+    if by not in PHOTO_BUCKETS:
+        raise ValueError(f"알 수 없는 기준: {by} ({', '.join(PHOTO_BUCKETS)})")
+
+    root = root.resolve()
+    plan = PhotoPlan()
+    planned: set[Path] = set()
+    for src in sorted(iter_targets(root, recursive=recursive,
+                                   include_hidden=include_hidden)):
+        if src.suffix.lower() not in PHOTO_SUFFIXES:
+            continue
+        taken = exif_datetime(src)
+        if taken is not None:
+            plan.from_exif += 1
+        else:
+            if not use_mtime:
+                plan.left.append(src)
+                continue
+            plan.from_mtime.append(src)
+            taken = datetime.fromtimestamp(src.stat().st_mtime)
+
+        folder = root / taken.strftime(PHOTO_BUCKETS[by])
+        if src.parent == folder:
+            continue
+        dst = unique_path(folder / to_nfc(src.name), planned)
+        planned.add(dst)
+        plan.moves.append(Move(str(src), str(dst)))
+
+    return plan
+
+
 def scan_images(root: Path, *, recursive: bool = True,
                 hidden: bool = False) -> tuple[list[ImageInfo], list[Path]]:
     """이미지 목록과, 이미지 같은데 못 읽은 파일 목록."""

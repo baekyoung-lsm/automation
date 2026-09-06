@@ -130,6 +130,7 @@ class SmokeTest(unittest.TestCase):
     # ------------------------------------------------------------ file
 
     def test_file_group(self):
+        self.run_cli("file", "photos", self.path("문서"))
         self.assertIn("문서", self.run_cli("file", "organize", self.path("문서")))
         self.run_cli("file", "fixname", self.path("문서"))
         self.run_cli("file", "dupes", self.path("문서"), "--min-size", "1")

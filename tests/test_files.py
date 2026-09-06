@@ -4,6 +4,7 @@ import shutil
 import tempfile
 import unicodedata
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import sys
@@ -583,6 +584,95 @@ class FlattenTest(unittest.TestCase):
         (self.root / "빈것" / "안쪽").mkdir(parents=True)
         found = files.empty_dirs(self.root)
         self.assertEqual(found[0].name, "안쪽")
+
+
+class PhotoTest(unittest.TestCase):
+    """촬영 시각(EXIF)으로 사진 묶기."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    @staticmethod
+    def jpeg(taken: bytes | None) -> bytes:
+        """EXIF DateTimeOriginal 만 든 최소 JPEG."""
+        import struct
+
+        body = b"\xff\xd8"
+        if taken is not None:
+            tiff = b"II" + struct.pack("<HI", 42, 8)          # 리틀엔디언, IFD0 은 8
+            ifd0 = (struct.pack("<H", 1)
+                    + struct.pack("<HHII", 0x8769, 4, 1, 26)  # ExifIFD 는 26
+                    + struct.pack("<I", 0))
+            sub = (struct.pack("<H", 1)
+                   + struct.pack("<HHII", 0x9003, 2, 20, 44)  # 글자는 44부터
+                   + struct.pack("<I", 0))
+            exif = b"Exif\x00\x00" + tiff + ifd0 + sub + taken
+            body += b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
+        return body + b"\xff\xd9"
+
+    def make(self, name, taken=b"2024:03:15 14:30:00\x00"):
+        path = self.root / name
+        path.write_bytes(self.jpeg(taken))
+        return path
+
+    def test_reads_exif(self):
+        path = self.make("가.jpg")
+        self.assertEqual(files.exif_datetime(path),
+                         datetime(2024, 3, 15, 14, 30, 0))
+
+    def test_no_exif_is_none(self):
+        self.assertIsNone(files.exif_datetime(self.make("나.jpg", None)))
+
+    def test_not_a_jpeg_is_none(self):
+        path = self.root / "메모.txt"
+        path.write_text("사진이 아님", encoding="utf-8")
+        self.assertIsNone(files.exif_datetime(path))
+
+    def test_broken_exif_is_none(self):
+        """망가진 EXIF 에 무엇을 지어내지 않는다."""
+        path = self.root / "깨짐.jpg"
+        path.write_bytes(b"\xff\xd8" + b"Exif\x00\x00" + b"\x00" * 40 + b"\xff\xd9")
+        self.assertIsNone(files.exif_datetime(path))
+
+    def test_plan_uses_taken_date(self):
+        self.make("가.jpg")
+        self.make("나.jpg", b"2024:04:02 09:00:00\x00")
+        plan = files.plan_photos(self.root)
+        buckets = sorted(Path(m.dst).parent.name for m in plan.moves)
+        self.assertEqual(buckets, ["2024-03", "2024-04"])
+        self.assertEqual(plan.from_exif, 2)
+
+    def test_leaves_unknown_alone_by_default(self):
+        """촬영 시각을 모르면 건드리지 않는다. 수정 시각은 복사한 날일 수 있다."""
+        self.make("가.jpg")
+        self.make("모름.jpg", None)
+        plan = files.plan_photos(self.root)
+        self.assertEqual(len(plan.moves), 1)
+        self.assertEqual([p.name for p in plan.left], ["모름.jpg"])
+
+    def test_mtime_fallback_is_reported(self):
+        self.make("모름.jpg", None)
+        plan = files.plan_photos(self.root, use_mtime=True)
+        self.assertEqual(len(plan.moves), 1)
+        self.assertEqual([p.name for p in plan.from_mtime], ["모름.jpg"])
+        self.assertEqual(plan.left, [])
+
+    def test_already_in_place_is_skipped(self):
+        folder = self.root / "2024-03"
+        folder.mkdir()
+        (folder / "가.jpg").write_bytes(self.jpeg(b"2024:03:15 14:30:00\x00"))
+        self.assertEqual(files.plan_photos(self.root).moves, [])
+
+    def test_unknown_bucket(self):
+        with self.assertRaises(ValueError):
+            files.plan_photos(self.root, by="시간")
+
+    def test_non_photos_are_ignored(self):
+        (self.root / "메모.txt").write_text("x", encoding="utf-8")
+        self.assertEqual(files.plan_photos(self.root).moves, [])
 
 
 if __name__ == "__main__":

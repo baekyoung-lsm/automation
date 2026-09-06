@@ -49,6 +49,57 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def cmd_file_photos(a) -> int:
+    """사진을 찍은 날짜별로 묶는다. 수정 시각이 아니라 EXIF 촬영 시각을 쓴다."""
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    try:
+        plan = files.plan_photos(root, by=a.by, recursive=not a.flat,
+                                 include_hidden=a.hidden, use_mtime=a.mtime)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    if plan.left:
+        _p(f"촬영 시각을 못 읽어 두고 온 사진 {len(plan.left)}개")
+        for path in plan.left[:a.limit]:
+            _p(f"  {path.relative_to(root.resolve())}")
+        if len(plan.left) > a.limit:
+            _p(f"  ... {len(plan.left) - a.limit}개 더")
+        _p("  (JPEG 의 EXIF 만 읽습니다. HEIC·RAW 는 못 읽습니다.)")
+        _p("  수정 시각으로라도 묶으려면 --mtime 을 붙이세요.\n")
+
+    if not plan.moves:
+        _p("옮길 사진이 없습니다.")
+        return 0
+
+    buckets: dict[str, int] = {}
+    for mv in plan.moves:
+        rel = str(Path(mv.dst).parent.relative_to(root.resolve()))
+        buckets[rel] = buckets.get(rel, 0) + 1
+
+    prefix = "" if a.apply else DRY + " "
+    for bucket in sorted(buckets):
+        _p(f"{prefix}{bucket}/  <- {buckets[bucket]}개")
+
+    _p(f"\n촬영 시각으로 {plan.from_exif}개"
+       + (f", 수정 시각으로 {len(plan.from_mtime)}개" if plan.from_mtime else ""))
+    if plan.from_mtime:
+        _p("  수정 시각은 파일을 복사한 날일 수 있어 실제 촬영일과 다를 수 있습니다.")
+
+    if not a.apply:
+        _p(f"\n총 {len(plan.moves)}개. 실제로 옮기려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves(plan.moves)
+    _p(f"\n{len(plan.moves)}개를 옮겼습니다.")
+    _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
 def cmd_file_route(a) -> int:
     import json as _json
 
@@ -678,6 +729,19 @@ def add_commands(sub) -> None:
     o.add_argument("--fixname", action="store_true", help="옮기면서 파일명도 정리")
     o.add_argument("-v", "--verbose", action="store_true")
     o.set_defaults(func=cmd_file_organize)
+
+    ph = fp.add_parser("photos", help="사진을 촬영 날짜별로 (EXIF)")
+    ph.add_argument("dir")
+    ph.add_argument("--by", default="month", choices=["year", "month", "day"],
+                    help="폴더 단위 (기본 month)")
+    ph.add_argument("--apply", action="store_true", help="실제로 옮긴다 (기본은 미리보기)")
+    ph.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
+    ph.add_argument("--hidden", action="store_true", help="숨김 파일도 포함")
+    ph.add_argument("--mtime", action="store_true",
+                    help="촬영 시각이 없으면 수정 시각으로라도 묶는다")
+    ph.add_argument("--limit", type=int, default=10, metavar="개",
+                    help="두고 온 사진을 몇 개까지 보일지")
+    ph.set_defaults(func=cmd_file_photos)
 
     n = fp.add_parser("fixname", help="한글 자모 분리·특수문자 파일명 정리")
     n.add_argument("dir")

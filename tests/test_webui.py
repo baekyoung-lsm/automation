@@ -133,6 +133,40 @@ class WebUiTest(unittest.TestCase):
         self.assertEqual(undone["errors"], [])
         self.assertTrue((self.work / "사진.jpg").exists())
 
+    def jpeg(self, name, taken=b"2024:03:15 14:30:00\x00"):
+        import struct
+
+        body = b"\xff\xd8"
+        if taken is not None:
+            tiff = b"II" + struct.pack("<HI", 42, 8)
+            ifd0 = (struct.pack("<H", 1)
+                    + struct.pack("<HHII", 0x8769, 4, 1, 26)
+                    + struct.pack("<I", 0))
+            sub = (struct.pack("<H", 1)
+                   + struct.pack("<HHII", 0x9003, 2, 20, 44)
+                   + struct.pack("<I", 0))
+            exif = b"Exif\x00\x00" + tiff + ifd0 + sub + taken
+            body += b"\xff\xe1" + struct.pack(">H", len(exif) + 2) + exif
+        path = self.work / name
+        path.write_bytes(body + b"\xff\xd9")
+        return path
+
+    def test_photo_mode_uses_taken_date(self):
+        self.jpeg("가.jpg")
+        self.jpeg("모름.jpg", None)
+        _, data = self.post("/api/files/preview",
+                            {"path": str(self.work), "mode": "photo-month"})
+        self.assertEqual(data["rows"], [["가.jpg", "2024-03/가.jpg"]])
+        self.assertTrue(any("두고 온" in note for note in data["notes"]))
+
+    def test_photo_mode_mtime_fallback_is_flagged(self):
+        self.jpeg("모름.jpg", None)
+        _, data = self.post("/api/files/preview",
+                            {"path": str(self.work), "mode": "photo-year",
+                             "mtime": True})
+        self.assertEqual(data["count"], 1)
+        self.assertTrue(any("수정 시각" in note for note in data["notes"]))
+
     def test_apply_with_nothing_to_move(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/apply", {"path": str(self.work)})

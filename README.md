@@ -51,6 +51,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | 명령 | 하는 일 |
 | --- | --- |
 | `at file organize <디렉터리>` | 확장자 종류(문서/이미지/영상/압축/코드…)나 날짜별로 분류해 옮긴다 |
+| `at file photos <디렉터리>` | 사진을 **찍은 날짜**(EXIF)별로 묶는다. 촬영 시각을 못 읽은 사진은 두고 온다 |
 | `at file fixname <디렉터리>` | macOS에서 넘어온 한글 자모 분리(NFD) 파일명을 완성형으로 고치고, 윈도우 금지문자·중복 공백을 정리한다 |
 | `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사) |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--script` 로 삭제 명령만 출력한다 |
@@ -70,6 +71,8 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 ```bash
 at file organize ~/Downloads --by ext-date --min-age 7 -v   # 미리보기
 at file organize ~/Downloads --by ext-date --min-age 7 --apply
+at file photos ~/사진 --by month                             # 촬영일별 미리보기
+at file photos ~/사진 --by month --apply
 at file fixname ~/Documents -r --apply
 at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply
 at file rename ~/문서 --prefix '기획팀_' --replace '최종(수정)=v2' --apply
@@ -1041,7 +1044,7 @@ at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜�
 | 명령 | 하는 일 |
 | --- | --- |
 | `at ui` | 어떤 화면이 있는지 고른다 |
-| `at ui 파일정리` | 파일 정리 화면만 띄운다 |
+| `at ui 파일정리` | 파일 정리 화면만 띄운다 (사진 촬영일별 포함) |
 | `at ui 바꾸기` | 여러 파일의 글자·인코딩·줄바꿈을 한꺼번에 |
 | `at ui 엑셀` | 엑셀·CSV 를 열어 보고 점검·표기 통일·정리한다 |
 | `at ui 문서` | 마크다운 점검·목차·표 정렬·HTML/워드 내보내기 |

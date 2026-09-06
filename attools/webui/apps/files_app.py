@@ -12,25 +12,43 @@ MODES = {
     "date": "날짜별 (2026-09)",
     "ext-date": "종류별 → 날짜별",
     "date-ext": "날짜별 → 종류별",
+    "photo-month": "사진을 찍은 달별 (EXIF)",
+    "photo-year": "사진을 찍은 해별 (EXIF)",
     "fixname": "옮기지 않고 이름만 다듬기",
 }
 
 
-def _plan(payload: dict) -> tuple[Path, list[files.Move]]:
+def _plan(payload: dict) -> tuple[Path, list[files.Move], list[str]]:
+    """계획과 함께 «못 한 것»을 돌려준다. 조용히 빼놓지 않기 위해서다."""
     root = form.folder(payload)
     mode = form.choice(payload, "mode", MODES, "ext")
     recursive = form.flag(payload, "recursive")
     hidden = form.flag(payload, "hidden")
+    notes: list[str] = []
+
     if mode == "fixname":
-        moves = files.plan_fixname(root, recursive=recursive,
-                                   include_hidden=hidden,
-                                   space="underscore" if form.flag(payload, "underscore") else "keep")
+        moves = files.plan_fixname(
+            root, recursive=recursive, include_hidden=hidden,
+            space="underscore" if form.flag(payload, "underscore") else "keep")
+    elif mode.startswith("photo-"):
+        plan = files.plan_photos(
+            root, by=mode.split("-", 1)[1], recursive=recursive,
+            include_hidden=hidden, use_mtime=form.flag(payload, "mtime"))
+        moves = plan.moves
+        if plan.from_exif:
+            notes.append(f"촬영 시각으로 {plan.from_exif}개")
+        if plan.from_mtime:
+            notes.append(f"수정 시각으로 {len(plan.from_mtime)}개 "
+                         "(복사한 날일 수 있습니다)")
+        if plan.left:
+            notes.append(f"촬영 시각을 못 읽어 두고 온 사진 {len(plan.left)}개 "
+                         "(JPEG 의 EXIF 만 읽습니다)")
     else:
         moves = files.plan_organize(
             root, by=mode, recursive=recursive, include_hidden=hidden,
             min_age_days=form.number(payload, "min_age", 0.0, low=0.0, high=36500.0),
             fixname=form.flag(payload, "fixname"))
-    return root, moves
+    return root, moves, notes
 
 
 def _rows(root: Path, moves: list[files.Move]) -> list[list[str]]:
@@ -47,20 +65,20 @@ def _rows(root: Path, moves: list[files.Move]) -> list[list[str]]:
 
 
 def preview(payload: dict) -> dict:
-    root, moves = _plan(payload)
+    root, moves, notes = _plan(payload)
     return {"root": str(root), "count": len(moves),
-            "rows": _rows(root, moves)}
+            "rows": _rows(root, moves), "notes": notes}
 
 
 def apply(payload: dict) -> dict:
     """계획을 여기서 다시 세운다. 화면이 보낸 경로를 그대로 옮기지 않는다."""
-    root, moves = _plan(payload)
+    root, moves, notes = _plan(payload)
     if not moves:
         raise UiError("옮길 것이 없습니다. 먼저 미리보기로 확인해 주세요.")
     journal = files.apply_moves(moves)
     return {"applied": len(moves), "root": str(root),
             "journal": journal.name if journal else "",
-            "rows": _rows(root, moves)}
+            "rows": _rows(root, moves), "notes": notes}
 
 
 def journals(payload: dict) -> dict:
@@ -108,6 +126,7 @@ BODY = """
     <label><input type="checkbox" id="recursive"> 하위 폴더까지</label>
     <label><input type="checkbox" id="hidden"> 숨김 파일도</label>
     <label><input type="checkbox" id="fixname"> 옮기면서 이름도 다듬기</label>
+    <label><input type="checkbox" id="mtime"> 사진: 촬영 시각이 없으면 수정 시각으로</label>
   </div>
   <div class="actions">
     <button class="primary" id="btn-preview">미리보기</button>
@@ -150,11 +169,15 @@ BODY = """
       recursive: $("recursive").checked,
       hidden: $("hidden").checked,
       fixname: $("fixname").checked,
+      mtime: $("mtime").checked,
     };
   }
 
   function draw(data) {
-    plan.innerHTML = AT.table(["지금 이름", "옮길 곳"], data.rows);
+    plan.innerHTML = AT.table(["지금 이름", "옮길 곳"], data.rows) +
+      (data.notes && data.notes.length
+        ? '<p class="note">' + data.notes.map(AT.esc).join(" · ") + "</p>"
+        : "");
   }
 
   function lock(state) {
@@ -165,7 +188,7 @@ BODY = """
   ["path", "mode", "min_age"].forEach(function (id) {
     $(id).addEventListener("input", function () { lock(false); });
   });
-  ["recursive", "hidden", "fixname"].forEach(function (id) {
+  ["recursive", "hidden", "fixname", "mtime"].forEach(function (id) {
     $(id).addEventListener("change", function () { lock(false); });
   });
 
