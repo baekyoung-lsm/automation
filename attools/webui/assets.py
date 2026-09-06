@@ -74,6 +74,7 @@ pre.diff { margin:.4rem 0 1rem; padding:.6rem .8rem; overflow-x:auto;
 pre.diff .add { color:var(--green); }
 pre.diff .del { color:var(--red); }
 pre.diff .at { color:var(--dim); }
+button.spec { padding:.25rem .6rem; font-size:.85rem; margin:.15rem 0; }
 .file { font-weight:600; font-size:.9rem; margin:.9rem 0 .2rem; }
 .msg { padding:.7rem .9rem; border-radius:8px; margin-top:1rem; font-size:.9rem;
   border:1px solid var(--line); background:var(--mark); }

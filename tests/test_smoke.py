@@ -234,6 +234,8 @@ class SmokeTest(unittest.TestCase):
 
     def test_sheet_group(self):
         csv = self.path("명단.csv")
+        self.assertIn("형식", self.run_cli("sheet", "format", csv,
+                                           "--date", "입사일", "--number", "연봉"))
         self.assertIn("사번", self.run_cli("sheet", "peek", csv))
         self.assertIn("중앙값", self.run_cli("sheet", "peek", csv, "--stats"))
         self.assertIn("중복 키", self.run_cli("sheet", "check", csv, "--key", "사번",

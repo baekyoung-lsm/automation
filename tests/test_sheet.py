@@ -933,5 +933,67 @@ class SaveDocxTest(unittest.TestCase):
             self.assertIn("1234", z.read("word/document.xml").decode("utf-8"))
 
 
+class FormatColumnTest(unittest.TestCase):
+    """열 표기 통일. 모르는 값을 억지로 고치지 않는지가 핵심이다."""
+
+    def test_phone_shapes(self):
+        cases = {
+            "01012345678": "010-1234-5678",
+            "010-1234-5678": "010-1234-5678",
+            "+82-10-1234-5678": "010-1234-5678",
+            "021234567": "02-123-4567",
+            "0212345678": "02-1234-5678",
+            "0311234567": "031-123-4567",
+            "07012345678": "070-1234-5678",
+            "15881588": "1588-1588",
+        }
+        for raw, want in cases.items():
+            self.assertEqual(sheet.format_phone(raw), want, raw)
+
+    def test_phone_leaves_unknown_alone(self):
+        """규칙을 모르는 번호는 None. 억지로 자르면 조용히 틀린 번호가 된다."""
+        for raw in ("0100000", "12345", "abc", "099-1234-5678", ""):
+            self.assertIsNone(sheet.format_phone(raw), raw)
+
+    def test_bizno_and_postcode(self):
+        self.assertEqual(sheet.format_bizno("1234567890"), "123-45-67890")
+        self.assertIsNone(sheet.format_bizno("12345"))
+        self.assertEqual(sheet.format_postcode("06236"), "06236")
+        self.assertIsNone(sheet.format_postcode("135-080"))   # 옛 여섯 자리
+
+    def test_date_and_number(self):
+        self.assertEqual(sheet.format_date_cell("2026.1.2"), "2026-01-02")
+        self.assertIsNone(sheet.format_date_cell("2026/2/29"))  # 없는 날짜
+        self.assertEqual(sheet.format_number_cell("1,234원"), 1234)
+        self.assertIsNone(sheet.format_number_cell("없음"))
+
+    def test_column_report(self):
+        table = sheet.Table(["연락처"],
+                            [["01012345678"], ["010-1111-2222"], [""], ["0100"]])
+        new, rep = sheet.format_column(table, "연락처", "전화")
+        self.assertEqual(new.rows[0][0], "010-1234-5678")
+        self.assertEqual(rep.changed, 1)
+        self.assertEqual(rep.already, 1)
+        self.assertEqual(rep.blank, 1)
+        self.assertEqual(rep.failed, [(5, "0100")])           # 머리글이 1행
+
+    def test_original_table_is_untouched(self):
+        table = sheet.Table(["연락처"], [["01012345678"]])
+        sheet.format_column(table, "연락처", "전화")
+        self.assertEqual(table.rows[0][0], "01012345678")
+
+    def test_bizno_checksum_is_reported_separately(self):
+        """꼴을 맞추는 것과 옳은 번호인지는 다른 문제다."""
+        table = sheet.Table(["사업자"], [["1234567890"], ["1208147521"]])
+        _new, rep = sheet.format_column(table, "사업자", "사업자번호")
+        self.assertEqual(rep.changed, 2)
+        self.assertEqual([line for line, _v in rep.invalid], [2])
+
+    def test_unknown_kind(self):
+        table = sheet.Table(["값"], [["1"]])
+        with self.assertRaises(sheet.SheetError):
+            sheet.format_column(table, "값", "주민번호")
+
+
 if __name__ == "__main__":
     unittest.main()

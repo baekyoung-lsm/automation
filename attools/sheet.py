@@ -1136,6 +1136,137 @@ def check_bizno(value: object) -> bool:
     return (10 - total % 10) % 10 == numbers[9]
 
 
+# ------------------------------------------------------------- 열 형식 통일
+
+# 지역번호. 여기 없는 번호는 규칙을 모르는 것으로 보고 손대지 않는다.
+AREA_CODES = {"02", "031", "032", "033", "041", "042", "043", "044",
+              "051", "052", "053", "054", "055",
+              "061", "062", "063", "064"}
+
+
+def format_phone(value: object) -> str | None:
+    """전화번호를 하이픈 표기로. 규칙을 모르면 None 을 돌려 원래 값을 남긴다.
+
+    모르는 번호를 억지로 3-4-4 로 자르면 조용히 틀린 번호가 된다.
+    """
+    raw = to_text(value).strip()
+    if not raw:
+        return None
+    digits = re.sub(r"\D", "", raw)
+    if raw.startswith("+82") and digits.startswith("82"):
+        digits = "0" + digits[2:]
+    if not digits.startswith("0") and not digits.startswith("1"):
+        return None
+
+    if MOBILE_RE.fullmatch(digits) and len(digits) in (10, 11):
+        head, tail = digits[:3], digits[3:]
+        return f"{head}-{tail[:-4]}-{tail[-4:]}"
+    if digits[:3] in ("070", "080") and len(digits) in (10, 11):
+        head, tail = digits[:3], digits[3:]
+        return f"{head}-{tail[:-4]}-{tail[-4:]}"
+    if re.fullmatch(r"1[5-9]\d{2}\d{4}", digits):        # 15xx·16xx·18xx 대표번호
+        return f"{digits[:4]}-{digits[4:]}"
+    if digits.startswith("02") and len(digits) in (9, 10):
+        tail = digits[2:]
+        return f"02-{tail[:-4]}-{tail[-4:]}"
+    if digits[:3] in AREA_CODES and len(digits) in (10, 11):
+        head, tail = digits[:3], digits[3:]
+        return f"{head}-{tail[:-4]}-{tail[-4:]}"
+    return None
+
+
+def format_bizno(value: object) -> str | None:
+    digits = re.sub(r"\D", "", to_text(value))
+    return f"{digits[:3]}-{digits[3:5]}-{digits[5:]}" if len(digits) == 10 else None
+
+
+def format_postcode(value: object) -> str | None:
+    """다섯 자리 새 우편번호만 본다. 여섯 자리 옛 번호는 바꿔 줄 수 없다."""
+    digits = re.sub(r"\D", "", to_text(value))
+    return digits if len(digits) == 5 else None
+
+
+def format_date_cell(value: object) -> str | None:
+    if isinstance(value, datetime):
+        return f"{value:%Y-%m-%d}"
+    if isinstance(value, date):
+        return f"{value:%Y-%m-%d}"
+    parsed = parse_date(to_text(value))
+    return f"{parsed:%Y-%m-%d}" if parsed else None
+
+
+def format_number_cell(value: object):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    return parse_number(to_text(value))
+
+
+COLUMN_FORMATS = {
+    "전화": (format_phone, "010-1234-5678 꼴로"),
+    "사업자번호": (format_bizno, "123-45-67890 꼴로"),
+    "우편번호": (format_postcode, "다섯 자리 숫자로"),
+    "날짜": (format_date_cell, "2026-01-02 꼴로"),
+    "숫자": (format_number_cell, "쉼표·«원»을 떼고 숫자로"),
+}
+
+# 형식을 맞춘 뒤 한 번 더 보는 검사. 맞추기와 옳은지는 다른 문제다.
+FORMAT_VERIFY = {"사업자번호": check_bizno}
+
+
+@dataclass
+class FormatReport:
+    column: str
+    kind: str
+    changed: int = 0
+    already: int = 0
+    blank: int = 0
+    failed: list[tuple[int, str]] = field(default_factory=list)   # (행, 원래 값)
+    invalid: list[tuple[int, str]] = field(default_factory=list)  # 꼴은 맞으나 검증 실패
+
+
+def format_column(table: Table, column: str, kind: str) -> tuple[Table, FormatReport]:
+    """한 열의 표기를 통일한다. 못 알아본 값은 그대로 두고 따로 알려준다.
+
+    실무 파일에서 전화번호·사업자번호는 사람마다 다르게 적혀 있어 그대로는
+    합치거나 대조할 수 없다. 다만 규칙을 모르는 값까지 억지로 자르면 조용히
+    틀린 값이 생기므로, 못 알아본 것은 손대지 않고 몇 행인지 알려 준다.
+    """
+    if kind not in COLUMN_FORMATS:
+        raise SheetError(f"알 수 없는 형식: {kind} ({', '.join(COLUMN_FORMATS)})")
+
+    index = table.index_of(column)
+    convert, _desc = COLUMN_FORMATS[kind]
+    verify = FORMAT_VERIFY.get(kind)
+    report = FormatReport(table.headers[index], kind)
+
+    rows = []
+    for number, row in enumerate(table.rows, 2):     # 머리글이 1행
+        row = list(row)
+        cell = row[index] if index < len(row) else None
+        if _is_blank(cell):
+            report.blank += 1
+            rows.append(row)
+            continue
+
+        new = convert(cell)
+        if new is None:
+            report.failed.append((number, to_text(cell)))
+        else:
+            if to_text(new) != to_text(cell):
+                report.changed += 1
+                row[index] = new
+            else:
+                report.already += 1
+            if verify and not verify(new):
+                report.invalid.append((number, to_text(new)))
+        rows.append(row)
+
+    return Table(list(table.headers), rows, source=table.source,
+                 sheet=table.sheet), report
+
+
 FORMAT_CHECKS = {
     "사업자번호": check_bizno,
     "휴대폰": lambda v: bool(MOBILE_RE.fullmatch(to_text(v).replace(" ", ""))),

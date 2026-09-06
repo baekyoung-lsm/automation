@@ -161,6 +161,60 @@ def cmd_sheet_clean(a) -> int:
     return 0
 
 
+def cmd_sheet_format(a) -> int:
+    """열마다 표기를 통일한다. 못 알아본 값은 손대지 않고 알려 준다."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    wanted: list[tuple[str, str]] = []
+    for kind, names_ in (("전화", a.phone), ("사업자번호", a.bizno),
+                         ("우편번호", a.post), ("날짜", a.date),
+                         ("숫자", a.number)):
+        for name in names_ or []:
+            wanted.append((name, kind))
+    if not wanted:
+        _p("어느 열을 어떤 형식으로 맞출지 골라 주세요.")
+        _p("  예: at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호")
+        _p(f"  쓸 수 있는 형식: {', '.join(sheet.COLUMN_FORMATS)}")
+        return 1
+
+    reports = []
+    for name, kind in wanted:
+        try:
+            t, rep = sheet.format_column(t, name, kind)
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        reports.append(rep)
+
+    _p(f"{Path(a.file).name}  {len(t.rows):,}행")
+    _grid(["열", "형식", "바꾼 값", "이미 맞음", "빈칸", "못 알아봄"],
+          [[r.column, r.kind, f"{r.changed:,}", f"{r.already:,}",
+            f"{r.blank:,}", f"{len(r.failed):,}"] for r in reports], limit=40)
+
+    bad = False
+    for rep in reports:
+        if rep.failed:
+            bad = True
+            _p(f"\n{rep.column}: 규칙을 몰라 그대로 둔 값 {len(rep.failed):,}개")
+            for line, value in rep.failed[:a.limit]:
+                _p(f"  {line}행  {_cut(value, 40)}")
+            if len(rep.failed) > a.limit:
+                _p(f"  ... {len(rep.failed) - a.limit:,}개 더")
+        if rep.invalid:
+            bad = True
+            _p(f"\n{rep.column}: 꼴은 맞췄지만 검증에 걸린 값 {len(rep.invalid):,}개")
+            for line, value in rep.invalid[:a.limit]:
+                _p(f"  {line}행  {value}")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(t, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요. (원본은 건드리지 않습니다)")
+    return 1 if bad and a.strict else 0
+
+
 def cmd_sheet_merge(a) -> int:
     tables = []
     for name in a.files:
@@ -1034,6 +1088,20 @@ def add_commands(sub) -> None:
     cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
     cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
     cl.set_defaults(func=cmd_sheet_clean)
+
+    fm = common(sh.add_parser("format", help="열 표기 통일 (전화·사업자번호·날짜)"))
+    fm.add_argument("file")
+    fm.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
+    fm.add_argument("--phone", action="append", metavar="열", help="전화번호 열")
+    fm.add_argument("--bizno", action="append", metavar="열", help="사업자등록번호 열")
+    fm.add_argument("--post", action="append", metavar="열", help="우편번호 열")
+    fm.add_argument("--date", action="append", metavar="열", help="날짜 열")
+    fm.add_argument("--number", action="append", metavar="열", help="숫자 열")
+    fm.add_argument("--limit", type=int, default=10, metavar="개",
+                    help="못 알아본 값을 몇 개까지 보일지")
+    fm.add_argument("--strict", action="store_true",
+                    help="못 알아본 값이 있으면 1로 끝낸다")
+    fm.set_defaults(func=cmd_sheet_format)
 
     mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
     mg.add_argument("files", nargs="+")

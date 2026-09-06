@@ -72,6 +72,70 @@ def check(payload: dict) -> dict:
     return {"rows": rows, "clean": not rows, "count": len(table.rows)}
 
 
+def _specs(payload: dict) -> list[tuple[str, str]]:
+    raw = payload.get("specs")
+    if not isinstance(raw, list) or not raw:
+        raise UiError("어느 열을 어떤 형식으로 맞출지 골라 주세요.")
+    out = []
+    for item in raw:
+        if not (isinstance(item, list) and len(item) == 2
+                and all(isinstance(x, str) for x in item)):
+            raise UiError("고른 목록이 깨졌습니다. 화면을 새로 고쳐 주세요.")
+        column, kind = item[0].strip(), item[1].strip()
+        if kind not in sheet.COLUMN_FORMATS:
+            raise UiError(f"알 수 없는 형식: {kind}")
+        out.append((column, kind))
+    return out
+
+
+def _formatted(payload: dict):
+    table = _open(payload)
+    reports = []
+    for column, kind in _specs(payload):
+        try:
+            table, rep = sheet.format_column(table, column, kind)
+        except sheet.SheetError as exc:
+            raise UiError(str(exc)) from None
+        reports.append(rep)
+    return table, reports
+
+
+def _format_rows(reports) -> list[list[str]]:
+    return [[r.column, r.kind, str(r.changed), str(r.already), str(r.blank),
+             str(len(r.failed)), str(len(r.invalid))] for r in reports]
+
+
+def _left_alone(reports) -> list[list[str]]:
+    rows = []
+    for rep in reports:
+        for line, value in rep.failed[:20]:
+            rows.append([rep.column, str(line), value[:40], "규칙을 모름"])
+        for line, value in rep.invalid[:20]:
+            rows.append([rep.column, str(line), value[:40], "검증에 걸림"])
+    return rows
+
+
+def format_preview(payload: dict) -> dict:
+    table, reports = _formatted(payload)
+    return {"report": _format_rows(reports), "left": _left_alone(reports),
+            "headers": table.headers,
+            "rows": _cells(table, PEEK_ROWS),
+            "shown": min(len(table.rows), PEEK_ROWS)}
+
+
+def format_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 새 파일을 만든다."""
+    table, reports = _formatted(payload)
+    source = Path(table.source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (형식){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "report": _format_rows(reports),
+            "left": _left_alone(reports)}
+
+
 def _cleaned(payload: dict):
     table = _open(payload)
     return table, sheet.clean(
@@ -166,6 +230,24 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>표기 통일</h2>
+  <p class="note">전화번호·사업자번호처럼 사람마다 다르게 적은 열을 한 꼴로
+     맞춥니다. <b>규칙을 모르는 값은 손대지 않고</b> 몇 행인지 알려 줍니다.</p>
+  <div class="row">
+    <div><label for="fcol">열</label><select id="fcol"></select></div>
+    <div><label for="fkind">형식</label><select id="fkind"><option value="전화">전화 · 010-1234-5678 꼴로</option><option value="사업자번호">사업자번호 · 123-45-67890 꼴로</option><option value="우편번호">우편번호 · 다섯 자리 숫자로</option><option value="날짜">날짜 · 2026-01-02 꼴로</option><option value="숫자">숫자 · 쉼표·«원»을 떼고 숫자로</option></select></div>
+    <div style="flex:0 0 auto"><button id="btn-add">목록에 더하기</button></div>
+  </div>
+  <div id="specs" class="note" style="margin-top:.6rem"></div>
+  <div class="actions">
+    <button class="primary" id="btn-format">맞추면 어떻게 되나</button>
+    <button id="btn-format-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="formatmsg"></div>
+  <div id="formatreport"></div>
+</section>
+
+<section class="card">
   <h2>정리</h2>
   <p class="note">앞뒤 공백·전각 문자를 다듬고, 숫자와 날짜를 제대로 읽고,
      빈 행을 지웁니다. 저장하면 <b>원본 옆에 «(정리)» 파일</b>이 새로 생깁니다.</p>
@@ -206,12 +288,80 @@ BODY = """
     if (names.indexOf(keep) >= 0) sel.value = keep;
   }
 
+  let specs = [];
+
+  function drawSpecs() {
+    $("specs").innerHTML = specs.length
+      ? specs.map(function (s, i) {
+          return '<button data-i="' + i + '" class="spec">' + AT.esc(s[0]) +
+                 " \u2192 " + AT.esc(s[1]) + " \u00d7</button>";
+        }).join(" ")
+      : "아직 고른 것이 없습니다.";
+    $("specs").querySelectorAll("button.spec").forEach(function (b) {
+      b.addEventListener("click", function () {
+        specs.splice(Number(b.dataset.i), 1);
+        drawSpecs();
+        $("btn-format-save").disabled = true;
+      });
+    });
+  }
+  drawSpecs();
+
+  $("btn-add").addEventListener("click", function () {
+    const column = $("fcol").value;
+    if (!column) { AT.message($("formatmsg"), "먼저 파일을 열어 주세요.", "bad"); return; }
+    if (!specs.some(s => s[0] === column && s[1] === $("fkind").value)) {
+      specs.push([column, $("fkind").value]);
+      drawSpecs();
+      $("btn-format-save").disabled = true;
+    }
+  });
+
+  function formatBody() {
+    const b = values();
+    b.specs = specs;
+    return b;
+  }
+
+  function drawFormat(d) {
+    $("formatreport").innerHTML =
+      AT.table(["열", "형식", "바꾼 값", "이미 맞음", "빈칸", "못 알아봄", "검증 실패"],
+               d.report, [null, null, "num", "num", "num", "num", "num"]) +
+      (d.left.length
+        ? "<h2>손대지 않은 값</h2>" +
+          AT.table(["열", "행", "값", "왜"], d.left, [null, "num", null, null])
+        : "") +
+      (d.headers ? AT.table(d.headers, d.rows) : "");
+  }
+
+  $("btn-format").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/format_preview", formatBody());
+      drawFormat(d);
+      AT.message($("formatmsg"), "이대로 저장할 수 있습니다.", "ok");
+      $("btn-format-save").disabled = false;
+    } catch (e) {
+      AT.message($("formatmsg"), AT.esc(e.message), "bad");
+      $("btn-format-save").disabled = true;
+    }
+  });
+
+  $("btn-format-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/format_save", formatBody());
+      drawFormat(d);
+      AT.message($("formatmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-format-save").disabled = true;
+    } catch (e) { AT.message($("formatmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
       opened = true;
       options($("sheet"), data.sheets, "첫 시트");
       options($("key"), data.headers, "고르지 않음");
+      options($("fcol"), data.headers, "");
       $("cols").innerHTML = AT.table(
         ["열", "주로 들어 있는 것", "빈칸", "다른 값", "예시"],
         data.columns, [null, null, "num", "num", null]);
@@ -276,7 +426,8 @@ def make() -> App:
         subtitle="열어 보기 → 점검 → 정리",
         body=lambda: BODY,
         actions={"peek": peek, "check": check,
-                 "clean_preview": clean_preview, "clean_save": clean_save},
+                 "clean_preview": clean_preview, "clean_save": clean_save,
+                 "format_preview": format_preview, "format_save": format_save},
         aliases=("엑셀", "표", "csv"),
         section="파일과 표",
     )

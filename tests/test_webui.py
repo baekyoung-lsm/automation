@@ -199,6 +199,38 @@ class SheetAppTest(WebUiTest):
             self.post("/api/sheet/check", {"path": str(path), "key": "없는열"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_format_preview(self):
+        path = self.csv("연락처.csv",
+                        "이름,연락처\n홍길동,01012345678\n김철수,0100\n")
+        _, data = self.post("/api/sheet/format_preview",
+                            {"path": str(path), "specs": [["연락처", "전화"]]})
+        self.assertEqual(data["rows"][0][1], "010-1234-5678")
+        self.assertEqual(data["rows"][1][1], "0100")     # 모르는 것은 그대로
+        self.assertEqual(data["left"][0][3], "규칙을 모름")
+
+    def test_format_rejects_unknown_kind(self):
+        path = self.csv()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/format_preview",
+                      {"path": str(path), "specs": [["이름", "주민번호"]]})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_format_rejects_broken_specs(self):
+        path = self.csv()
+        for specs in ([], "전화", [["이름"]], [[1, 2]]):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.post("/api/sheet/format_preview",
+                          {"path": str(path), "specs": specs})
+            self.assertEqual(ctx.exception.code, 400)
+
+    def test_format_save_keeps_original(self):
+        path = self.csv("연락처.csv", "이름,연락처\n홍길동,01012345678\n")
+        original = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/format_save",
+                            {"path": str(path), "specs": [["연락처", "전화"]]})
+        self.assertTrue(Path(data["saved"]).exists())
+        self.assertEqual(path.read_text(encoding="utf-8"), original)
+
     def test_clean_preview_does_not_write(self):
         path = self.csv()
         before = sorted(p.name for p in self.work.iterdir())

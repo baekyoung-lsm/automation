@@ -583,6 +583,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | --- | --- |
 | `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시. `--stats` 로 합계·평균·중앙값 |
 | `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
+| `at sheet format <파일> --phone <열>` | 열 표기 통일 — 전화번호·사업자번호·우편번호·날짜·숫자. 규칙을 모르는 값은 손대지 않고 몇 행인지 알려 준다 |
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만 |
@@ -611,6 +612,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 at sheet peek 매출.xlsx --sheet 1분기 -n 10
 at sheet peek 매출.xlsx --stats            # 합계·평균·중앙값·최빈값
 at sheet check 직원명부.xlsx --key 사번 --required 입사일
+at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호 -o 정리본.xlsx
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
@@ -1041,7 +1043,7 @@ at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜�
 | `at ui` | 어떤 화면이 있는지 고른다 |
 | `at ui 파일정리` | 파일 정리 화면만 띄운다 |
 | `at ui 바꾸기` | 여러 파일의 글자·인코딩·줄바꿈을 한꺼번에 |
-| `at ui 엑셀` | 엑셀·CSV 를 열어 보고 점검·정리한다 |
+| `at ui 엑셀` | 엑셀·CSV 를 열어 보고 점검·표기 통일·정리한다 |
 | `at ui 문서` | 마크다운 점검·목차·표 정렬·HTML/워드 내보내기 |
 | `at ui 원고` | 분량·되풀이·인물 등장을 점검한다 (읽기만) |
 | `at ui 단축키` | 프로그램별 단축키를 나란히 놓고 찾는다 |
