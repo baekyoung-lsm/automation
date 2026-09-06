@@ -971,6 +971,23 @@ class LettersAppTest(WebUiTest):
             self.post("/api/letters/wrap", {"text": "가나다", "width": "1"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_table_from_tsv(self):
+        """엑셀에서 복사하면 탭으로 나뉘어 붙는다."""
+        _, data = self.post("/api/letters/table",
+                            {"text": "이름\t부서\n홍길동\t영업\n"})
+        self.assertIn("| 이름 | 부서 |", data["text"])
+        self.assertEqual((data["count"], data["columns"]), (1, 2))
+
+    def test_table_from_csv(self):
+        _, data = self.post("/api/letters/table",
+                            {"text": "이름,부서\n홍길동,영업\n"})
+        self.assertIn("| 홍길동 | 영업 |", data["text"])
+
+    def test_table_needs_two_lines(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/letters/table", {"text": "머리글만"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_normalize(self):
         import unicodedata
 

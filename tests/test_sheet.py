@@ -995,5 +995,58 @@ class FormatColumnTest(unittest.TestCase):
             sheet.format_column(table, "값", "주민번호")
 
 
+class MarkdownTableTest(unittest.TestCase):
+    """표를 마크다운으로. 칸 맞춤은 at doc table 이 한다."""
+
+    def test_basic(self):
+        table = sheet.Table(["이름", "부서"], [["홍길동", "영업"]])
+        self.assertEqual(sheet.to_markdown(table),
+                         "| 이름 | 부서 |\n| --- | --- |\n| 홍길동 | 영업 |\n")
+
+    def test_pipe_is_escaped(self):
+        """세로줄은 칸 구분자라 그대로 두면 표가 깨진다."""
+        table = sheet.Table(["값"], [["a|b"]])
+        self.assertIn("a\\|b", sheet.to_markdown(table))
+
+    def test_newline_becomes_space(self):
+        table = sheet.Table(["값"], [["줄1\n줄2"]])
+        self.assertNotIn("줄1\n줄2", sheet.to_markdown(table))
+        self.assertIn("줄1 줄2", sheet.to_markdown(table))
+
+    def test_blank_cells_keep_the_shape(self):
+        table = sheet.Table(["a", "b"], [["1"], [None, None]])
+        lines = sheet.to_markdown(table).splitlines()
+        self.assertTrue(all(line.count("|") == 3 for line in lines), lines)
+
+    def test_save_writes_markdown(self):
+        root = Path(tempfile.mkdtemp())
+        try:
+            table = sheet.Table(["이름"], [["홍길동"]])
+            path = sheet.save(table, root / "표.md")
+            self.assertIn("| 이름 |", path.read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+class TableFromGridTest(unittest.TestCase):
+    """붙여넣은 격자에도 파일과 같은 규칙을 쓴다."""
+
+    def test_duplicate_headers_are_numbered(self):
+        table = sheet.table_from_grid([["이름", "이름"], ["가", "나"]])
+        self.assertEqual(table.headers, ["이름", "이름_2"])
+
+    def test_short_rows_are_padded(self):
+        table = sheet.table_from_grid([["a", "b", "c"], ["1"]])
+        self.assertEqual(table.rows, [["1", None, None]])
+
+    def test_blank_rows_are_dropped(self):
+        table = sheet.table_from_grid([["a"], [""], ["1"]])
+        self.assertEqual(table.rows, [["1"]])
+
+    def test_empty_grid(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.table_from_grid([])
+
+
 if __name__ == "__main__":
     unittest.main()

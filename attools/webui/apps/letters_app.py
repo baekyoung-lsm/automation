@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ... import hangul
+from ... import hangul, sheet
 from ... import text as textkit
 from .. import App, UiError, form
 
@@ -53,6 +53,30 @@ def wrap(payload: dict) -> dict:
             "note": "한글은 두 칸으로 셉니다. 코드 블록과 표는 건드리지 않습니다."}
 
 
+def table(payload: dict) -> dict:
+    """엑셀에서 복사한 표(탭 구분)를 마크다운 표로."""
+    import csv
+    import io
+
+    body = _body(payload)
+    lines = [line for line in body.splitlines() if line.strip()]
+    delimiter = "\t" if any("\t" in line for line in lines) else ","
+    grid = [row for row in csv.reader(io.StringIO("\n".join(lines)),
+                                      delimiter=delimiter) if row]
+    if len(grid) < 2:
+        raise UiError("머리글과 값이 적어도 한 줄씩은 있어야 합니다. "
+                      "엑셀에서 표를 통째로 복사해 붙여 넣어 주세요.")
+
+    try:
+        made = sheet.table_from_grid(grid, label="붙여넣은 글")
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+    return {"text": sheet.to_markdown(made),
+            "columns": made.width, "count": len(made.rows),
+            "note": "탭으로 나뉘어 있으면 탭, 아니면 쉼표로 나눕니다. "
+                    "칸 너비는 at doc table 로 맞출 수 있습니다."}
+
+
 def normalize(payload: dict) -> dict:
     body = _body(payload)
     fixed = hangul.to_nfc(body)
@@ -83,6 +107,7 @@ BODY = """
     <button id="btn-typo">흔한 표기 오류</button>
     <button id="btn-wrap">줄 접기</button>
     <button id="btn-normalize">자모 합치기 (NFC)</button>
+    <button id="btn-table">붙여넣은 표를 마크다운으로</button>
   </div>
   <div id="msg"></div>
 </section>
@@ -138,6 +163,13 @@ BODY = """
     });
   });
 
+  $("btn-table").addEventListener("click", function () {
+    run("/api/letters/table", function (d) {
+      out.innerHTML = code(d.text) + note(d.note);
+      AT.message($("msg"), d.count + "행 " + d.columns + "열 표로 읽었습니다.", "ok");
+    });
+  });
+
   $("btn-normalize").addEventListener("click", function () {
     run("/api/letters/normalize", function (d) {
       out.innerHTML = code(d.text) + note(d.note);
@@ -155,11 +187,11 @@ def make() -> App:
     return App(
         key="letters",
         name="글자 손질",
-        summary="붙여넣은 글의 자판 실수·표기 오류·줄 접기·자모 분리",
+        summary="붙여넣은 글의 자판 실수·표기 오류·줄 접기·표를 마크다운으로",
         subtitle="파일이 아니라 붙여넣은 글을 그 자리에서",
         body=lambda: BODY,
         actions={"kbd": kbd, "typo": typo, "wrap": wrap,
-                 "normalize": normalize},
+                 "normalize": normalize, "table": table},
         aliases=("글자", "자판"),
         section="글",
     )

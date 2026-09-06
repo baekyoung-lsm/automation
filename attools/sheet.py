@@ -18,6 +18,7 @@ from . import xlsx
 
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
+MARKDOWN_SUFFIXES = {".md", ".markdown"}
 ENCODINGS = ("utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16")
 
 FULLWIDTH_SPACE = "　"
@@ -193,17 +194,27 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
     else:
         raise SheetError(f"지원하지 않는 형식입니다: {suffix} (csv, tsv, xlsx)")
 
+    return table_from_grid(grid, header_row=header_row, source=str(path),
+                           sheet_name=used_sheet, label=str(path))
+
+
+def table_from_grid(grid: list[list], *, header_row: int = 0, source: str = "",
+                    sheet_name: str = "", label: str = "입력") -> Table:
+    """격자를 표로. 빈 행 걸러내기, 머리글 중복, 짧은 행을 여기서 맞춘다.
+
+    파일에서 읽든 붙여넣은 글에서 만들든 같은 규칙을 써야 열 개수와 이름이
+    어긋나지 않는다.
+    """
     grid = [row for row in grid if any(c not in (None, "") for c in row)]
     if not grid:
-        raise SheetError(f"내용이 없습니다: {path}")
+        raise SheetError(f"내용이 없습니다: {label}")
     if header_row >= len(grid):
         raise SheetError(f"헤더 행 번호가 범위를 넘습니다: {header_row + 1}")
 
-    headers = [to_text(c).strip() for c in grid[header_row]]
-    headers = _dedupe_headers(headers)
+    headers = _dedupe_headers([to_text(c).strip() for c in grid[header_row]])
     width = len(headers)
-    rows = [(r + [None] * width)[:width] for r in grid[header_row + 1:]]
-    return Table(headers, rows, source=str(path), sheet=used_sheet)
+    rows = [(list(r) + [None] * width)[:width] for r in grid[header_row + 1:]]
+    return Table(headers, rows, source=source, sheet=sheet_name)
 
 
 def _dedupe_headers(headers: list[str]) -> list[str]:
@@ -225,6 +236,10 @@ def save(table: Table, path: Path, *, excel_bom: bool = True, sheet_name: str = 
         xlsx.write_sheets(path, {sheet_name or table.sheet or "Sheet1": table.as_rows()})
         return path
 
+    if suffix in MARKDOWN_SUFFIXES:
+        path.write_text(to_markdown(table), encoding="utf-8")
+        return path
+
     if suffix == ".docx":
         # 보고서에 붙일 표. 값은 글자로 바꿔 넣는다.
         from . import docx
@@ -242,6 +257,25 @@ def save(table: Table, path: Path, *, excel_bom: bool = True, sheet_name: str = 
         writer.writerows([to_text(c) for c in row] for row in table.rows)
     return path
 
+
+
+def to_markdown(table: Table) -> str:
+    """표를 마크다운 표로. 칸 너비는 맞추지 않는다.
+
+    보기 좋게 칸을 맞추는 일은 at doc tables 가 이미 한다. 여기서 폭 계산을
+    한 벌 더 두면 두 곳이 서로 달라진다.
+    """
+    def cell(value) -> str:
+        # 세로줄은 칸 구분자라 반드시 벗어나게 하고, 줄바꿈은 칸을 깨뜨린다
+        return to_text(value).replace("|", "\\|").replace("\n", " ").strip()
+
+    head = [cell(h) or " " for h in table.headers]
+    lines = ["| " + " | ".join(head) + " |",
+             "| " + " | ".join("---" for _ in head) + " |"]
+    for row in table.rows:
+        cells = [cell(v) for v in (list(row) + [""] * len(head))[:len(head)]]
+        lines.append("| " + " | ".join(c or " " for c in cells) + " |")
+    return "\n".join(lines) + "\n"
 
 
 def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:

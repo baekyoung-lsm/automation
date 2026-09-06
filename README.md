@@ -619,6 +619,8 @@ at sheet peek 매출.xlsx --sheet 1분기 -n 10
 at sheet peek 매출.xlsx --stats            # 합계·평균·중앙값·최빈값
 at sheet check 직원명부.xlsx --key 사번 --required 입사일
 at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호 -o 정리본.xlsx
+at sheet convert 명단.csv -o 명단.md                          # 마크다운 표로
+at doc table 명단.md --apply                                 # 칸 너비 맞추기
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
@@ -1052,7 +1054,7 @@ at novel pace 원고/ --window 14 --days 10        # 최근 2주 속도, 날짜�
 | `at ui 엑셀` | 엑셀·CSV 를 열어 보고 점검·표기 통일·정리한다 |
 | `at ui 문서` | 마크다운 점검·목차·표 정렬·HTML/워드 내보내기 |
 | `at ui 원고` | 분량·되풀이·인물 등장을 점검한다 (읽기만) |
-| `at ui 글자` | 붙여넣은 글의 자판 실수·표기 오류·줄 접기·NFC |
+| `at ui 글자` | 붙여넣은 글의 자판 실수·표기 오류·줄 접기·NFC·표를 마크다운으로 |
 | `at ui 단축키` | 프로그램별 단축키를 나란히 놓고 찾는다 |
 | `at ui 개발` | JWT·시각·cron·가리기·인코딩·키 생성·.env 대조 |
 | `at ui json` | 응답 구조·두 응답 비교·표로·타입 코드 |
