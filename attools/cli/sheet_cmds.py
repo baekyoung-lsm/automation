@@ -161,6 +161,25 @@ def cmd_sheet_clean(a) -> int:
     return 0
 
 
+def cmd_sheet_sheets(a) -> int:
+    """엑셀 한 파일 안의 시트를 한눈에."""
+    try:
+        found = sheet.describe_sheets(Path(a.file), header_row=a.header_row - 1)
+    except (sheet.SheetError, OSError) as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+    if not found:
+        _p("시트가 없습니다.")
+        return 1
+
+    _p(f"{Path(a.file).name}  시트 {len(found)}개")
+    _grid(["시트", "행", "열", "머리글"],
+          [[i.name, f"{i.rows:,}", str(i.columns),
+            _cut(", ".join(i.headers), 50) if i.headers else (i.error or "비어 있음")]
+           for i in found], limit=50)
+    return 0
+
+
 def cmd_sheet_format(a) -> int:
     """열마다 표기를 통일한다. 못 알아본 값은 손대지 않고 알려 준다."""
     t = _load(a)
@@ -1088,6 +1107,10 @@ def add_commands(sub) -> None:
     cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
     cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
     cl.set_defaults(func=cmd_sheet_clean)
+
+    sh_ = common(sh.add_parser("sheets", help="엑셀 안의 시트 목록과 머리글"))
+    sh_.add_argument("file")
+    sh_.set_defaults(func=cmd_sheet_sheets)
 
     fm = common(sh.add_parser("format", help="열 표기 통일 (전화·사업자번호·날짜)"))
     fm.add_argument("file")

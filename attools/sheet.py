@@ -198,6 +198,45 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
                            sheet_name=used_sheet, label=str(path))
 
 
+@dataclass
+class SheetInfo:
+    name: str
+    rows: int = 0            # 머리글을 뺀 행 수
+    columns: int = 0
+    headers: list[str] = field(default_factory=list)
+    error: str = ""          # 읽다 만 시트도 목록에서 빼지 않는다
+
+
+def describe_sheets(path: Path, *, header_row: int = 0) -> list[SheetInfo]:
+    """엑셀 한 파일 안의 시트를 모두 훑는다.
+
+    남이 보낸 파일은 시트가 열 개씩 되고 이름만으로는 어디에 뭐가 들었는지
+    알 수 없다. 시트마다 몇 행인지와 머리글을 보여 준다.
+    """
+    path = Path(path)
+    if path.suffix.lower() not in XLSX_SUFFIXES:
+        raise SheetError(f"엑셀 파일이 아닙니다: {path.suffix or '확장자 없음'}")
+
+    out: list[SheetInfo] = []
+    for name in xlsx.sheet_names(path):
+        info = SheetInfo(name)
+        try:
+            grid = xlsx.read_sheet(path, name)
+            table = table_from_grid(grid, header_row=header_row,
+                                    source=str(path), sheet_name=name,
+                                    label=f"{path.name}[{name}]")
+        except (SheetError, OSError, xlsx.XlsxError) as exc:
+            # 빈 시트는 오류가 아니라 그냥 빈 시트다. 목록에서 빼지 않는다.
+            info.error = "비어 있음" if "내용이 없습니다" in str(exc) else str(exc)
+            out.append(info)
+            continue
+        info.rows = len(table.rows)
+        info.columns = table.width
+        info.headers = list(table.headers)
+        out.append(info)
+    return out
+
+
 def table_from_grid(grid: list[list], *, header_row: int = 0, source: str = "",
                     sheet_name: str = "", label: str = "입력") -> Table:
     """격자를 표로. 빈 행 걸러내기, 머리글 중복, 짧은 행을 여기서 맞춘다.

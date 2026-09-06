@@ -54,6 +54,20 @@ def peek(payload: dict) -> dict:
     }
 
 
+def sheets(payload: dict) -> dict:
+    """엑셀 한 파일 안의 시트를 한눈에. 어느 시트를 열지 고르기 전에 본다."""
+    path = form.existing_file(payload)
+    try:
+        found = sheet.describe_sheets(path)
+    except (sheet.SheetError, OSError) as exc:
+        raise UiError(str(exc)) from None
+    rows = [[i.name, str(i.rows), str(i.columns),
+             ", ".join(i.headers)[:60] if i.headers else (i.error or "비어 있음")]
+            for i in found]
+    return {"rows": rows, "count": len(found),
+            "names": [i.name for i in found]}
+
+
 def check(payload: dict) -> dict:
     table = _open(payload)
     key = form.text(payload, "key") or None
@@ -258,6 +272,7 @@ BODY = """
   </div>
   <div class="actions">
     <button class="primary" id="btn-open">열어 보기</button>
+    <button id="btn-sheets">시트 목록</button>
     <span class="spacer"></span>
     <span class="note">원본은 이 화면에서 절대 덮어쓰지 않습니다.</span>
   </div>
@@ -483,6 +498,17 @@ BODY = """
   $("btn-merge").addEventListener("click", function () { doMerge(false); });
   $("btn-merge-save").addEventListener("click", function () { doMerge(true); });
 
+  $("btn-sheets").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/sheets", values());
+      options($("sheet"), d.names, "첫 시트");
+      $("cols").innerHTML = AT.table(["시트", "행", "열", "머리글"], d.rows,
+                                     [null, "num", "num", null]);
+      AT.message($("msg"), "시트 <b>" + d.count + "개</b>. 위에서 골라 열어 보세요.",
+                 "ok");
+    } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
@@ -554,7 +580,8 @@ def make() -> App:
         summary="엑셀·CSV 를 열어 보고 점검하고 정리해 새 파일로 낸다",
         subtitle="열어 보기 → 점검 → 정리",
         body=lambda: BODY,
-        actions={"peek": peek, "check": check, "compare": compare,
+        actions={"peek": peek, "sheets": sheets, "check": check,
+                 "compare": compare,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

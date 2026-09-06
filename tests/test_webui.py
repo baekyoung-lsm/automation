@@ -268,6 +268,20 @@ class SheetAppTest(WebUiTest):
             self.post("/api/sheet/peek", {"path": str(path)})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_sheets_lists_every_sheet(self):
+        from attools import xlsx
+
+        path = self.work / "여러장.xlsx"
+        xlsx.write_sheets(path, {"직원": [["사번"], ["E1"]], "빈시트": []})
+        _, data = self.post("/api/sheet/sheets", {"path": str(path)})
+        self.assertEqual(data["names"], ["직원", "빈시트"])
+        self.assertEqual(data["rows"][1][3], "비어 있음")
+
+    def test_sheets_refuses_csv(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/sheets", {"path": str(self.csv())})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_check_finds_missing(self):
         path = self.csv()
         _, data = self.post("/api/sheet/check",

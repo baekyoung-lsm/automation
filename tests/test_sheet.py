@@ -1048,5 +1048,42 @@ class TableFromGridTest(unittest.TestCase):
             sheet.table_from_grid([])
 
 
+class DescribeSheetsTest(unittest.TestCase):
+    """엑셀 한 파일 안의 시트 훑기."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.path = self.root / "여러장.xlsx"
+        xlsx.write_sheets(self.path, {
+            "직원": [["사번", "이름"], ["E1", "홍길동"]],
+            "빈시트": [],
+            "급여": [["사번", "금액"], ["E1", 5000], ["E2", 4700]],
+        })
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_lists_every_sheet(self):
+        found = sheet.describe_sheets(self.path)
+        self.assertEqual([i.name for i in found], ["직원", "빈시트", "급여"])
+
+    def test_counts_rows_without_header(self):
+        found = {i.name: i for i in sheet.describe_sheets(self.path)}
+        self.assertEqual(found["급여"].rows, 2)
+        self.assertEqual(found["급여"].headers, ["사번", "금액"])
+
+    def test_empty_sheet_is_not_an_error(self):
+        """빈 시트도 목록에서 빼지 않는다. 없는 것과 빈 것은 다르다."""
+        found = {i.name: i for i in sheet.describe_sheets(self.path)}
+        self.assertEqual(found["빈시트"].rows, 0)
+        self.assertEqual(found["빈시트"].error, "비어 있음")
+
+    def test_csv_is_refused(self):
+        path = self.root / "명단.csv"
+        path.write_text("이름\n홍길동\n", encoding="utf-8")
+        with self.assertRaises(sheet.SheetError):
+            sheet.describe_sheets(path)
+
+
 if __name__ == "__main__":
     unittest.main()
