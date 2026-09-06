@@ -1189,6 +1189,35 @@ class LettersAppTest(WebUiTest):
         self.assertTrue(data["decomposed"])
 
 
+class FileSizeGuardTest(WebUiTest):
+    """화면은 파일을 통째로 읽는다. 큰 파일에 서버가 멎지 않아야 한다."""
+
+    def big(self, name, size):
+        path = self.work / name
+        with path.open("wb") as fh:
+            fh.truncate(size)
+        return path
+
+    def test_log_has_its_own_limit(self):
+        path = self.big("큰.log", 25 << 20)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/log", {"path": str(path)})
+        payload = json.loads(ctx.exception.read().decode("utf-8"))
+        self.assertIn("너무 큽니다", payload["error"])
+
+    def test_json_uses_the_shared_limit(self):
+        path = self.big("큰.json", 70 << 20)
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/json/schema", {"body_path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_normal_files_pass(self):
+        path = self.work / "작은.log"
+        path.write_text("2026-09-01 10:00:01 INFO 시작\n", encoding="utf-8")
+        status, _ = self.post("/api/dev/log", {"path": str(path)})
+        self.assertEqual(status, 200)
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

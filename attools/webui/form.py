@@ -65,7 +65,13 @@ def folder(payload: dict, key: str = "path") -> Path:
     return path.resolve()
 
 
-def existing_file(payload: dict, key: str = "path") -> Path:
+# 화면은 파일을 통째로 읽어 들이는 자리가 많다. 큰 파일에 서버가 멎지 않게
+# 선을 두고, 그럴 때는 터미널 쪽을 안내한다.
+MAX_FILE = 64 << 20
+
+
+def existing_file(payload: dict, key: str = "path", *,
+                  max_bytes: int = MAX_FILE) -> Path:
     raw = text(payload, key)
     if not raw:
         raise UiError("파일 경로를 적어 주세요.")
@@ -74,6 +80,10 @@ def existing_file(payload: dict, key: str = "path") -> Path:
         raise UiError(f"그런 파일이 없습니다: {path}")
     if path.is_dir():
         raise UiError(f"파일이 아니라 폴더입니다: {path}")
+    size = path.stat().st_size
+    if max_bytes and size > max_bytes:
+        raise UiError(f"파일이 너무 큽니다 ({size / (1 << 20):.0f}MB). "
+                      "이만한 것은 터미널에서 at 명령으로 다루세요.")
     return path.resolve()
 
 

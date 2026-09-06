@@ -97,12 +97,7 @@ def secret(payload: dict) -> dict:
 
 def log(payload: dict) -> dict:
     """로그 파일을 훑는다. 레벨 집계, 되풀이되는 에러, 경로별 응답 시간."""
-    path = form.existing_file(payload)
-    size = path.stat().st_size
-    if size > MAX_LOG_BYTES:
-        raise UiError(f"파일이 너무 큽니다 ({size / (1 << 20):.0f}MB). "
-                      "터미널에서 at dev log 로 보세요.")
-
+    path = form.existing_file(payload, max_bytes=MAX_LOG_BYTES)
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     entries = logkit.parse(lines)
     if not entries:
