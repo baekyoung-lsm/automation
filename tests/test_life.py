@@ -332,5 +332,32 @@ class TimeCalcTest(unittest.TestCase):
         self.assertEqual(life.format_minutes(-30), "-30분")
 
 
+class HolidaysBetweenTest(unittest.TestCase):
+    """여러 해에 걸친 공휴일. 사이의 해가 빠지면 영업일을 더 많이 세게 된다."""
+
+    def test_every_year_is_included(self):
+        table = life.holidays_between(2026, 2030)
+        self.assertEqual(sorted({d.year for d in table}),
+                         [2026, 2027, 2028, 2029, 2030])
+
+    def test_reversed_range(self):
+        self.assertEqual(life.holidays_between(2030, 2026),
+                         life.holidays_between(2026, 2030))
+
+    def test_single_year(self):
+        table = life.holidays_between(2026, 2026)
+        self.assertEqual(table, life.holidays_for(2026))
+
+    def test_long_jump_counts_middle_years(self):
+        """3년 넘게 건너뛰면 사이 해의 공휴일이 반드시 반영돼야 한다."""
+        from datetime import date
+
+        start = date(2026, 1, 2)
+        full = life.add_workdays(start, 1000, life.holidays_between(2025, 2031))
+        short = life.add_workdays(start, 1000,
+                                  life.holidays_between(2026, 2026))
+        self.assertLess(short, full)      # 공휴일을 빼먹으면 날짜가 앞당겨진다
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date as _date
+from datetime import timedelta
 
 from ... import life
 from .. import App, UiError, form
@@ -53,11 +54,7 @@ def dday(payload: dict) -> dict:
 
 
 def _holidays(years: list[int]) -> dict:
-    extra = life.load_user_holidays()
-    table: dict = {}
-    for year in years:
-        table.update(life.holidays_for(year, extra))
-    return table
+    return life.holidays_between(min(years), max(years), life.load_user_holidays())
 
 
 def workday(payload: dict) -> dict:
@@ -75,6 +72,9 @@ def workday(payload: dict) -> dict:
         days = int(target[0] + target[1:].strip())
         if abs(days) > 2000:
             raise UiError("영업일 수가 너무 큽니다. 2000 이내로 적어 주세요.")
+        # 영업일 N 은 달력으로 대략 N*7/5 일. 사이의 해를 모두 넣어야 한다
+        far = (start + timedelta(days=days * 2 + 14)).year
+        years = sorted({start.year - 1, start.year, far, far + 1})
         end = life.add_workdays(start, days, _holidays(years))
         headline = (f"{end:%Y-%m-%d}({life.weekday_ko(end)})")
         rows = [["기준일", f"{start:%Y-%m-%d}({life.weekday_ko(start)})"],

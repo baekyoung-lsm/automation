@@ -336,6 +336,21 @@ def holidays_for(year: int, extra: dict[date, str] | None = None) -> dict[date, 
     return dict(sorted(merged.items()))
 
 
+def holidays_between(first_year: int, last_year: int,
+                     extra: dict[date, str] | None = None) -> dict[date, str]:
+    """두 해 사이의 모든 해를 빠짐없이 모은다.
+
+    양 끝 해만 모으면 사이의 해가 통째로 빠져 영업일을 더 많이 세게 된다.
+    조용히 틀리는 자리라 한 곳에 모아 둔다.
+    """
+    if last_year < first_year:
+        first_year, last_year = last_year, first_year
+    table: dict[date, str] = {}
+    for year in range(first_year, last_year + 1):
+        table.update(holidays_for(year, extra))
+    return table
+
+
 def is_workday(day: date, holidays: dict[date, str]) -> bool:
     return day.weekday() < 5 and day not in holidays
 

@@ -426,10 +426,10 @@ def cmd_life_workday(a) -> int:
     years = {start.year}
     if target and (target[0] in "+-" and target[1:].isdigit()):
         days = int(target)
-        years.add((start + life.timedelta(days=days * 2 + 14)).year)
-        holidays = {}
-        for y in sorted(years) + [max(years) + 1]:
-            holidays.update(life.holidays_for(y, extra))
+        # 영업일 N 은 달력으로 대략 N*7/5 일. 넉넉히 잡고 사이의 해를 빠짐없이 모은다
+        far = (start + life.timedelta(days=days * 2 + 14)).year
+        years.add(far)
+        holidays = life.holidays_between(min(years) - 1, max(years) + 1, extra)
         end = life.add_workdays(start, days, holidays)
         _p(f"{start:%Y-%m-%d}({life.weekday_ko(start)}) 에서 "
            f"{abs(days)}영업일 {'뒤' if days > 0 else '앞'}")
@@ -442,9 +442,7 @@ def cmd_life_workday(a) -> int:
             _p(f"날짜나 +N/-N 형태로 주세요: {target}")
             return 1
         years.add(end.year)
-        holidays = {}
-        for y in range(min(years), max(years) + 1):
-            holidays.update(life.holidays_for(y, extra))
+        holidays = life.holidays_between(min(years), max(years), extra)
         count = life.count_workdays(start, end, holidays, include_start=not a.exclusive)
         first, last = min(start, end), max(start, end)
         _p(f"{first:%Y-%m-%d}({life.weekday_ko(first)}) ~ "
