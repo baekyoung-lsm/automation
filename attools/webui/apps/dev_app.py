@@ -6,11 +6,13 @@ import json
 from datetime import datetime
 
 from ... import life
-from ...code import devkit
+from ...code import dbkit, devkit, logkit
 from ...code.schedule import Cron, CronError
 from .. import App, UiError, form
 
 SECRET_KINDS = {"token", "password", "hex", "uuid", "pin"}
+MAX_LOG_BYTES = 20 << 20      # 20MB. 화면에서 여는 것이므로 선을 둔다
+TOP = 15
 
 
 def jwt(payload: dict) -> dict:
@@ -93,6 +95,77 @@ def secret(payload: dict) -> dict:
     return {"values": values}
 
 
+def log(payload: dict) -> dict:
+    """로그 파일을 훑는다. 레벨 집계, 되풀이되는 에러, 경로별 응답 시간."""
+    path = form.existing_file(payload)
+    size = path.stat().st_size
+    if size > MAX_LOG_BYTES:
+        raise UiError(f"파일이 너무 큽니다 ({size / (1 << 20):.0f}MB). "
+                      "터미널에서 at dev log 로 보세요.")
+
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    entries = logkit.parse(lines)
+    if not entries:
+        raise UiError("로그로 읽을 줄이 없습니다.")
+
+    levels = [[level, str(n)] for level, n in logkit.level_counts(entries).items()]
+    groups = [[g.level or "-", str(g.count), g.sample[:70],
+               ", ".join(str(n) for n in g.lines[:3])]
+              for g in logkit.group_messages(entries, top=TOP)]
+
+    timed = logkit.timings(entries)
+    routes = [[stat.route, str(stat.count), f"{stat.p(50):,.0f}",
+               f"{stat.p(95):,.0f}", f"{stat.avg:,.0f}"]
+              for stat in logkit.by_route(timed, top=TOP)]
+
+    first, last = logkit.span(entries)
+    return {
+        "lines": len(lines), "entries": len(entries),
+        "levels": levels, "groups": groups, "routes": routes,
+        "span": (f"{first:%Y-%m-%d %H:%M} ~ {last:%Y-%m-%d %H:%M}"
+                 if first and last else "시각을 읽지 못했습니다"),
+        "note": "되풀이되는 에러는 숫자·아이디를 지운 뒤 묶습니다. "
+                "응답 시간은 줄에 적힌 ms 값을 읽은 것이라 로그 형식에 따라 "
+                "못 찾을 수 있습니다.",
+    }
+
+
+def db(payload: dict) -> dict:
+    """sqlite 파일을 읽기 전용으로 훑는다."""
+    path = form.existing_file(payload)
+    try:
+        conn = dbkit.connect(path)
+    except dbkit.DbError as exc:
+        raise UiError(str(exc)) from None
+
+    try:
+        table = form.text(payload, "table")
+        sql = form.raw_text(payload, "sql")
+        if sql.strip():
+            if dbkit.looks_like_write(sql):
+                raise UiError("읽기 전용으로 열었습니다. SELECT 만 됩니다.")
+            headers, rows, more = dbkit.query(conn, sql, limit=200)
+        elif table:
+            headers, rows, more = dbkit.sample(conn, table, limit=20)
+        else:
+            found = dbkit.tables(conn)
+            return {"tables": [[t.name, t.kind, str(t.rows), str(t.columns)]
+                               for t in found],
+                    "names": [t.name for t in found],
+                    "headers": [], "rows": [], "more": False,
+                    "note": "읽기 전용(mode=ro)으로 엽니다. 고칠 수 없습니다."}
+    except dbkit.DbError as exc:
+        raise UiError(str(exc)) from None
+    finally:
+        conn.close()
+
+    return {"tables": [], "names": [],
+            "headers": headers,
+            "rows": [["" if v is None else str(v) for v in row] for row in rows],
+            "more": more,
+            "note": "읽기 전용(mode=ro)으로 엽니다. 고칠 수 없습니다."}
+
+
 def env(payload: dict) -> dict:
     example = form.existing_file(payload, "example")
     actual = form.existing_file(payload, "actual")
@@ -117,6 +190,8 @@ BODY = """
   <button data-tab="mask" aria-selected="false">가리기</button>
   <button data-tab="encode" aria-selected="false">인코딩</button>
   <button data-tab="secret" aria-selected="false">키 생성</button>
+  <button data-tab="log" aria-selected="false">로그</button>
+  <button data-tab="db" aria-selected="false">sqlite</button>
   <button data-tab="env" aria-selected="false">.env 대조</button>
 </nav>
 
@@ -189,6 +264,34 @@ BODY = """
     <label><input type="checkbox" id="s-readable"> 헷갈리는 글자 빼기 (0O1lI)</label>
   </div>
   <div id="secret-out"></div>
+</section>
+
+<section class="card" data-panel="log" hidden>
+  <h2>로그 훑기</h2>
+  <div class="row">
+    <div><label for="l-path">로그 파일</label>
+      <input type="text" id="l-path" placeholder="예: /var/log/app.log" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-log">훑기</button></div>
+  </div>
+  <div id="log-out"></div>
+</section>
+
+<section class="card" data-panel="db" hidden>
+  <h2>sqlite 훑기</h2>
+  <p class="note">읽기 전용으로 엽니다. 이 화면에서는 고칠 수 없습니다.</p>
+  <div class="row">
+    <div><label for="d-path">db 파일</label>
+      <input type="text" id="d-path" placeholder="예: ~/app.sqlite3" spellcheck="false"></div>
+    <div><label for="d-table">표 (비우면 목록)</label>
+      <select id="d-table"><option value="">표 목록</option></select></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-db">보기</button></div>
+  </div>
+  <div style="margin-top:.8rem">
+    <label for="d-sql">직접 SELECT (적으면 표 대신 이걸 씁니다)</label>
+    <textarea id="d-sql" spellcheck="false" style="min-height:4rem"
+              placeholder="SELECT * FROM 주문 WHERE 상태 = '대기' LIMIT 20"></textarea>
+  </div>
+  <div id="db-out"></div>
 </section>
 
 <section class="card" data-panel="env" hidden>
@@ -277,6 +380,46 @@ BODY = """
     });
   });
 
+  $("btn-log").addEventListener("click", function () {
+    run("log-out", "/api/dev/log", { path: $("l-path").value }, function (d) {
+      $("log-out").innerHTML = big(d.entries + "줄을 읽었습니다") +
+        '<p class="note">' + AT.esc(d.span) + " · 모두 " + d.lines + "줄</p>" +
+        "<h2>레벨</h2>" + AT.table(["레벨", "줄 수"], d.levels, [null, "num"]) +
+        "<h2>되풀이되는 메시지</h2>" +
+        AT.table(["레벨", "횟수", "본보기", "줄 번호"], d.groups,
+                 [null, "num", null, null]) +
+        (d.routes.length
+          ? "<h2>경로별 응답 시간(ms)</h2>" +
+            AT.table(["경로", "건수", "p50", "p95", "평균"], d.routes,
+                     [null, "num", "num", "num", "num"])
+          : "") +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+    });
+  });
+
+  function dbBody() {
+    return { path: $("d-path").value, table: $("d-table").value,
+             sql: $("d-sql").value };
+  }
+
+  $("btn-db").addEventListener("click", function () {
+    run("db-out", "/api/dev/db", dbBody(), function (d) {
+      if (d.tables.length) {
+        const keep = $("d-table").value;
+        $("d-table").innerHTML = '<option value="">표 목록</option>' +
+          d.names.map(n => '<option value="' + AT.esc(n) + '">' + AT.esc(n) +
+                           "</option>").join("");
+        if (d.names.indexOf(keep) >= 0) $("d-table").value = keep;
+      }
+      $("db-out").innerHTML = (d.tables.length
+          ? AT.table(["이름", "종류", "행", "열"], d.tables,
+                     [null, null, "num", "num"])
+          : AT.table(d.headers, d.rows)) +
+        (d.more ? '<p class="note">더 있습니다. LIMIT 을 붙여 보세요.</p>' : "") +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+    });
+  });
+
   $("btn-env").addEventListener("click", function () {
     run("env-out", "/api/dev/env",
         { example: $("v-example").value, actual: $("v-actual").value },
@@ -296,11 +439,12 @@ def make() -> App:
     return App(
         key="dev",
         name="개발 잡일",
-        summary="JWT·시각·cron·가리기·인코딩·키 생성·.env 대조",
+        summary="JWT·시각·cron·가리기·인코딩·키 생성·.env·로그·sqlite",
         subtitle="읽고 계산할 뿐, 고치지 않습니다",
         body=lambda: BODY,
         actions={"jwt": jwt, "when": when, "cron": cron, "mask": mask,
-                 "encode": encode, "secret": secret, "env": env},
+                 "encode": encode, "secret": secret, "env": env,
+                 "log": log, "db": db},
         aliases=("개발", "dev잡일"),
         section="개발",
     )

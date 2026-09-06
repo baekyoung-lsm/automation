@@ -795,6 +795,69 @@ class DevAppTest(WebUiTest):
             self.post("/api/dev/secret", {"kind": "개인키"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def log(self):
+        path = self.work / "app.log"
+        path.write_text(
+            "2026-09-01 10:00:01 INFO GET /주문/12 200 45ms\n"
+            "2026-09-01 10:00:02 ERROR 주문 3 조회 실패\n"
+            "2026-09-01 10:00:03 ERROR 주문 7 조회 실패\n"
+            "2026-09-01 10:00:04 INFO GET /주문/13 200 320ms\n",
+            encoding="utf-8")
+        return path
+
+    def test_log_groups_repeated_errors(self):
+        """숫자만 다른 에러는 한 무리로 묶어야 몇 번 났는지 보인다."""
+        _, data = self.post("/api/dev/log", {"path": str(self.log())})
+        self.assertEqual(dict(data["levels"])["ERROR"], "2")
+        top = data["groups"][0]
+        self.assertEqual((top[0], top[1]), ("ERROR", "2"))
+
+    def test_log_route_timings(self):
+        _, data = self.post("/api/dev/log", {"path": str(self.log())})
+        self.assertEqual(len(data["routes"]), 1)
+        self.assertEqual(data["routes"][0][1], "2")
+
+    def test_log_empty_file(self):
+        path = self.work / "빈.log"
+        path.write_text("", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/log", {"path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def sqlite(self):
+        import sqlite3
+
+        path = self.work / "가게.sqlite3"
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE 주문(번호 INTEGER, 이름 TEXT)")
+        conn.execute("INSERT INTO 주문 VALUES (1, '홍길동')")
+        conn.commit()
+        conn.close()
+        return path
+
+    def test_db_lists_tables(self):
+        _, data = self.post("/api/dev/db", {"path": str(self.sqlite())})
+        self.assertEqual(data["names"], ["주문"])
+        self.assertEqual(data["tables"][0][2], "1")
+
+    def test_db_samples_a_table(self):
+        _, data = self.post("/api/dev/db",
+                            {"path": str(self.sqlite()), "table": "주문"})
+        self.assertEqual(data["headers"], ["번호", "이름"])
+        self.assertEqual(data["rows"], [["1", "홍길동"]])
+
+    def test_db_refuses_writes(self):
+        """읽기 전용으로 열지만, 무엇이 막혔는지 미리 말해 준다."""
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/db", {"path": str(self.sqlite()),
+                                      "sql": "DELETE FROM 주문"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_db_rejects_other_files(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/db", {"path": str(self.log())})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_env_diff(self):
         (self.work / ".env.example").write_text("API_KEY=changeme\nDB=1\n",
                                                 encoding="utf-8")
