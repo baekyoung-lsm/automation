@@ -415,6 +415,38 @@ class LifeAppTest(WebUiTest):
             self.post("/api/life/tax", {"amount": "1000", "mode": "훔치기"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_workday_add(self):
+        _, data = self.post("/api/life/workday",
+                            {"start": "2026-08-14", "target": "+5"})
+        self.assertEqual(data["headline"], "2026-08-24(월)")
+
+    def test_workday_between(self):
+        _, data = self.post("/api/life/workday",
+                            {"start": "2026-08-14", "target": "2026-08-31"})
+        self.assertEqual(data["headline"], "11영업일")
+
+    def test_workday_warns_about_lunar(self):
+        """음력 명절은 계산하지 않는다. 조용히 빼놓지 않고 말한다."""
+        _, data = self.post("/api/life/workday", {"start": "2026-08-14"})
+        self.assertTrue(any("음력" in line for line in data["warning"]))
+
+    def test_workday_bad_date(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/workday", {"start": "몰라"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_workday_refuses_huge_span(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/workday",
+                      {"start": "2026-01-01", "target": "+99999"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_holidays(self):
+        _, data = self.post("/api/life/holidays", {"year": "2026"})
+        names = {row[2] for row in data["rows"]}
+        self.assertIn("신정", names)
+        self.assertTrue(any("대체공휴일" in n for n in names))
+
     def test_won(self):
         _, data = self.post("/api/life/won", {"amount": "1250000"})
         self.assertEqual(data["korean"], "백이십오만")

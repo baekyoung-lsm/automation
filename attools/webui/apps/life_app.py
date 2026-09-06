@@ -52,6 +52,63 @@ def dday(payload: dict) -> dict:
             "rows": rows}
 
 
+def _holidays(years: list[int]) -> dict:
+    extra = life.load_user_holidays()
+    table: dict = {}
+    for year in years:
+        table.update(life.holidays_for(year, extra))
+    return table
+
+
+def workday(payload: dict) -> dict:
+    """영업일 계산. 음력 명절이 빠져 있으면 그대로 밝힌다."""
+    raw = form.text(payload, "start")
+    try:
+        start = life.parse_date(raw) if raw else _date.today()
+    except ValueError:
+        raise UiError(f"날짜를 읽지 못했습니다: {raw}") from None
+
+    target = form.text(payload, "target")
+    years = sorted({start.year - 1, start.year, start.year + 1})
+
+    if target and target[0] in "+-" and target[1:].strip().isdigit():
+        days = int(target[0] + target[1:].strip())
+        if abs(days) > 2000:
+            raise UiError("영업일 수가 너무 큽니다. 2000 이내로 적어 주세요.")
+        end = life.add_workdays(start, days, _holidays(years))
+        headline = (f"{end:%Y-%m-%d}({life.weekday_ko(end)})")
+        rows = [["기준일", f"{start:%Y-%m-%d}({life.weekday_ko(start)})"],
+                ["옮긴 영업일", f"{abs(days)}영업일 {'뒤' if days > 0 else '앞'}"],
+                ["달력으로", f"{abs((end - start).days)}일"]]
+    else:
+        try:
+            end = life.parse_date(target) if target else _date.today()
+        except ValueError:
+            raise UiError(f"날짜를 읽지 못했습니다: {target}") from None
+        years = sorted({start.year, end.year})
+        count = life.count_workdays(start, end, _holidays(years),
+                                    include_start=not form.flag(payload, "exclusive"))
+        first, last = sorted((start, end))
+        headline = f"{count}영업일"
+        rows = [["처음", f"{first:%Y-%m-%d}({life.weekday_ko(first)})"],
+                ["끝", f"{last:%Y-%m-%d}({life.weekday_ko(last)})"],
+                ["달력으로", f"{(last - first).days + 1}일"]]
+
+    return {"headline": headline, "rows": rows,
+            "warning": life.missing_lunar_warning(_holidays(years), years)}
+
+
+def holidays(payload: dict) -> dict:
+    year = int(form.number(payload, "year", _date.today().year,
+                           low=1900, high=2200))
+    table = life.holidays_for(year, life.load_user_holidays())
+    rows = [[f"{when:%Y-%m-%d}", life.weekday_ko(when), name,
+             "주말과 겹침" if when.weekday() >= 5 else ""]
+            for when, name in sorted(table.items())]
+    return {"rows": rows, "year": year,
+            "warning": life.missing_lunar_warning(table, [year])}
+
+
 def split(payload: dict) -> dict:
     paid: dict[str, float] = {}
     for line in form.text(payload, "paid").splitlines():
@@ -154,6 +211,7 @@ BODY = """
   <button data-tab="dday" aria-selected="true">D-day</button>
   <button data-tab="split" aria-selected="false">더치페이</button>
   <button data-tab="loan" aria-selected="false">대출</button>
+  <button data-tab="workday" aria-selected="false">영업일</button>
   <button data-tab="unit" aria-selected="false">단위</button>
   <button data-tab="tax" aria-selected="false">부가세·원천징수</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
@@ -203,6 +261,27 @@ BODY = """
   </div>
   <div class="actions"><button class="primary" id="btn-loan">계산</button></div>
   <div id="loan-out"></div>
+</section>
+
+<section class="card" data-panel="workday" hidden>
+  <h2>영업일</h2>
+  <div class="row">
+    <div><label for="k-start">기준일 (비우면 오늘)</label>
+      <input type="text" id="k-start" placeholder="2026-08-14" spellcheck="false"></div>
+    <div><label for="k-target">끝날짜 또는 +N</label>
+      <input type="text" id="k-target" placeholder="+5 또는 2026-09-30" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-workday">계산</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="k-exclusive"> 기준일은 세지 않기</label>
+  </div>
+  <div id="workday-out"></div>
+  <div class="row" style="margin-top:1.2rem">
+    <div style="flex:0 1 8rem"><label for="k-year">공휴일 볼 해</label>
+      <input type="text" id="k-year" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button id="btn-holidays">공휴일 목록</button></div>
+  </div>
+  <div id="holiday-out"></div>
 </section>
 
 <section class="card" data-panel="unit" hidden>
@@ -302,6 +381,29 @@ BODY = """
     });
   });
 
+  function warn(lines) {
+    return lines && lines.length
+      ? '<p class="note">' + lines.map(AT.esc).join("<br>") + "</p>" : "";
+  }
+
+  $("btn-workday").addEventListener("click", function () {
+    run("workday-out", "/api/life/workday", {
+      start: $("k-start").value, target: $("k-target").value,
+      exclusive: $("k-exclusive").checked,
+    }, function (d) {
+      $("workday-out").innerHTML = big(AT.esc(d.headline)) +
+        AT.table(["항목", "값"], d.rows) + warn(d.warning);
+    });
+  });
+
+  $("btn-holidays").addEventListener("click", function () {
+    run("holiday-out", "/api/life/holidays", { year: $("k-year").value },
+        function (d) {
+      $("holiday-out").innerHTML = big(d.year + "년 공휴일 " + d.rows.length + "일") +
+        AT.table(["날짜", "요일", "이름", ""], d.rows) + warn(d.warning);
+    });
+  });
+
   $("btn-unit").addEventListener("click", function () {
     run("unit-out", "/api/life/unit", { value: $("u-value").value },
         function (d) {
@@ -336,11 +438,12 @@ def make() -> App:
     return App(
         key="life",
         name="일상 계산",
-        summary="D-day, 더치페이, 대출, 단위, 세금, 금액 한글 표기",
+        summary="D-day, 더치페이, 대출, 영업일, 단위, 세금, 금액 한글 표기",
         subtitle="숫자만 다룹니다 · 파일은 건드리지 않습니다",
         body=lambda: BODY,
-        actions={"dday": dday, "split": split, "loan": loan,
-                 "unit": unit, "tax": tax, "won": won},
+        actions={"dday": dday, "split": split, "loan": loan, "unit": unit,
+                 "tax": tax, "won": won, "workday": workday,
+                 "holidays": holidays},
         aliases=("일상", "계산", "계산기"),
         section="그 밖",
     )
