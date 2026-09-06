@@ -27,6 +27,15 @@ def load(source: str | Path):
         raw = path.read_text(encoding="utf-8-sig")
         name = str(path)
 
+    return loads(raw, name=name)
+
+
+def loads(raw: str, *, name: str = "입력"):
+    """글자에서 JSON 을 읽는다. JSON Lines 도 받는다.
+
+    파일에서 읽든 화면에서 붙여넣든 해석 규칙과 오류 문구가 같아야 해서
+    load() 와 함께 쓴다.
+    """
     raw = raw.strip()
     if not raw:
         raise JsonError(f"{name}: 내용이 비어 있습니다")

@@ -615,6 +615,81 @@ class DocAppTest(WebUiTest):
         self.assertNotEqual(first["saved"], second["saved"])
 
 
+class JsonAppTest(WebUiTest):
+    """JSON 화면. 붙여넣기와 파일 경로 둘 다 받는다."""
+
+    SAMPLE = {"items": [{"id": 1, "name": "가", "tag": {"a": 1}},
+                        {"id": 2, "name": "나"}]}
+
+    def body(self):
+        return json.dumps(self.SAMPLE, ensure_ascii=False)
+
+    def file(self, name="응답.json", data=None):
+        path = self.work / name
+        path.write_text(json.dumps(data if data is not None else self.SAMPLE,
+                                   ensure_ascii=False), encoding="utf-8")
+        return path
+
+    def test_schema_marks_optional(self):
+        _, data = self.post("/api/json/schema", {"body": self.body()})
+        rows = {row[0]: row for row in data["rows"]}
+        self.assertEqual(rows["items[].tag"][2], "예")
+        self.assertEqual(rows["items[].id"][2], "")
+
+    def test_schema_from_file(self):
+        path = self.file()
+        _, data = self.post("/api/json/schema", {"body_path": str(path)})
+        self.assertEqual(data["name"], str(path))
+
+    def test_broken_json(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/json/schema", {"body": "{망가진"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_nothing_given(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/json/schema", {})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_flatten(self):
+        _, data = self.post("/api/json/flatten", {"body": self.body()})
+        self.assertEqual(data["headers"], ["id", "name", "tag.a"])
+        self.assertEqual(data["count"], 2)
+
+    def test_save_next_to_source(self):
+        path = self.file()
+        _, first = self.post("/api/json/save",
+                             {"body_path": str(path), "format": ".csv"})
+        self.assertEqual(Path(first["saved"]).parent, self.work)
+        _, second = self.post("/api/json/save",
+                              {"body_path": str(path), "format": ".csv"})
+        self.assertNotEqual(first["saved"], second["saved"])
+
+    def test_types(self):
+        _, data = self.post("/api/json/types",
+                            {"body": self.body(), "lang": "typescript"})
+        self.assertIn("interface", data["code"])
+
+    def test_types_rejects_unknown_language(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/json/types", {"body": self.body(), "lang": "코볼"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_compare_counts_breaking(self):
+        after = {"items": [{"id": 1, "name": "가"}, {"id": 3, "name": "다"}]}
+        _, data = self.post("/api/json/compare",
+                            {"before": self.body(),
+                             "after": json.dumps(after, ensure_ascii=False),
+                             "key": "id"})
+        self.assertFalse(data["same"])
+        self.assertEqual(data["breaking"], 2)
+
+    def test_compare_same(self):
+        _, data = self.post("/api/json/compare",
+                            {"before": self.body(), "after": self.body()})
+        self.assertTrue(data["same"])
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
