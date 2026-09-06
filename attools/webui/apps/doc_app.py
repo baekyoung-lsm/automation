@@ -31,6 +31,50 @@ def check(payload: dict) -> dict:
                     "문서 안 앵커만 봅니다."}
 
 
+def terms(payload: dict) -> dict:
+    """같은 말을 다르게 적은 곳. 어느 쪽이 옳은지는 정하지 않는다."""
+    path, body = _markdown(payload)
+    found = mdkit.term_variants([(path.name, body)],
+                                min_count=int(form.number(payload, "min_count", 2,
+                                                          low=1, high=99)))
+    rows = []
+    for use in found:
+        where = ", ".join(f"{form_}: {file}:{line}"
+                          for form_, (file, line) in list(use.places.items())[:3])
+        rows.append([use.kind, use.summary(), str(use.total), where])
+    return {"rows": rows, "count": len(found),
+            "note": "어느 쪽이 옳은지는 정하지 않습니다. 프로젝트마다 다르고, "
+                    "틀렸다고 단정하면 결과를 안 보게 됩니다."}
+
+
+def images(payload: dict) -> dict:
+    """문서가 쓰는 그림이 실제로 있는지, 너무 크지 않은지."""
+    path, body = _markdown(payload)
+    rows, missing, no_alt = [], 0, 0
+    for link in mdkit.links(body):
+        if link.kind != "image":
+            continue
+        target = link.target.split("#", 1)[0]
+        if "://" in target or target.startswith("data:"):
+            continue
+        if not link.text.strip():
+            no_alt += 1
+        spot = (path.parent / target).resolve()
+        if not spot.is_file():
+            missing += 1
+            rows.append([str(link.line), target, "없음", "-"])
+            continue
+        size = spot.stat().st_size
+        info = files.image_info(spot)
+        rows.append([str(link.line), target,
+                     f"{info.width}x{info.height}" if info else "?",
+                     files.human_size(size)])
+    return {"rows": rows, "missing": missing, "no_alt": no_alt,
+            "count": len(rows),
+            "note": "설명(alt)이 없는 그림은 화면 낭독기와 그림이 안 뜰 때 "
+                    "아무것도 알려 주지 못합니다."}
+
+
 def _fixed(payload: dict) -> tuple[Path, str, str, str]:
     path, before = _markdown(payload)
     kind = form.choice(payload, "fix", FIXES, "toc")
@@ -107,6 +151,8 @@ BODY = """
       <input type="text" id="path" placeholder="예: ~/문서/README.md" spellcheck="false">
     </div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-check">점검</button></div>
+    <div style="flex:0 0 auto"><button id="btn-terms">용어 흔들림</button></div>
+    <div style="flex:0 0 auto"><button id="btn-images">그림 점검</button></div>
   </div>
   <div id="msg"></div>
 </section>
@@ -187,6 +233,34 @@ BODY = """
     } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-terms").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/doc/terms", values());
+      $("check").innerHTML = (d.count
+          ? AT.table(["무엇이 다른가", "표기", "모두", "처음 나온 곳"], d.rows,
+                     [null, null, "num", null])
+          : '<div class="empty">흔들리는 표기가 없습니다.</div>') +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("msg"), d.count ? "<b>" + d.count + "가지</b>가 흔들립니다."
+                                   : "흔들리는 표기가 없습니다.", "ok");
+    } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
+  });
+
+  $("btn-images").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/doc/images", values());
+      $("check").innerHTML = (d.count
+          ? AT.table(["줄", "경로", "크기", "용량"], d.rows,
+                     ["num", null, null, "num"])
+          : '<div class="empty">문서가 쓰는 그림이 없습니다.</div>') +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("msg"), "그림 <b>" + d.count + "개</b>" +
+        (d.missing ? " · 없는 파일 " + d.missing + "개" : "") +
+        (d.no_alt ? " · 설명 없는 것 " + d.no_alt + "개" : ""),
+        d.missing ? "bad" : "ok");
+    } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-fix").addEventListener("click", async function () {
     try {
       const d = await AT.call("/api/doc/fix_preview", values());
@@ -232,8 +306,9 @@ def make() -> App:
         summary="마크다운을 점검하고 목차·표를 다듬고 HTML·워드로 낸다",
         subtitle="점검 → 다듬기 → 내보내기",
         body=lambda: BODY,
-        actions={"check": check, "fix_preview": fix_preview,
-                 "fix_apply": fix_apply, "export": export},
+        actions={"check": check, "terms": terms, "images": images,
+                 "fix_preview": fix_preview, "fix_apply": fix_apply,
+                 "export": export},
         aliases=("문서", "마크다운", "md"),
         section="글",
     )

@@ -833,6 +833,31 @@ class DocAppTest(WebUiTest):
             self.post("/api/doc/check", {"path": str(path)})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_terms(self):
+        path = self.work / "용어.md"
+        path.write_text("# 제목\n\nAPI 와 api 를 섞어 쓴다.\nAPI\n",
+                        encoding="utf-8")
+        _, data = self.post("/api/doc/terms", {"path": str(path)})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["rows"][0][0], "대소문자")
+
+    def test_images_finds_missing(self):
+        png = self.work / "그림.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4 + b"IHDR"
+                        + (10).to_bytes(4, "big") + (20).to_bytes(4, "big")
+                        + b"\x00" * 10)
+        path = self.work / "그림문서.md"
+        path.write_text("# 제목\n\n![](그림.png)\n\n![없음](없다.png)\n",
+                        encoding="utf-8")
+        _, data = self.post("/api/doc/images", {"path": str(path)})
+        self.assertEqual((data["count"], data["missing"], data["no_alt"]),
+                         (2, 1, 1))
+
+    def test_images_none(self):
+        path = self.markdown()
+        _, data = self.post("/api/doc/images", {"path": str(path)})
+        self.assertEqual(data["count"], 0)
+
     def test_toc_preview_does_not_write(self):
         path = self.markdown()
         before = path.read_text(encoding="utf-8")
