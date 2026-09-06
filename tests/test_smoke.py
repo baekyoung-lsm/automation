@@ -134,6 +134,8 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("문서", self.run_cli("file", "organize", self.path("문서")))
         self.run_cli("file", "fixname", self.path("문서"))
         self.run_cli("file", "dupes", self.path("문서"), "--min-size", "1")
+        self.run_cli("file", "dupes", self.path("문서"), "--min-size", "1",
+                     "--collect", self.path("문서", "_중복"))
         self.assertIn("파일", self.run_cli("file", "tree", self.path()))
         self.assertIn("바뀐 파일", self.run_cli("file", "recent", self.path(),
                                                 "-d", "1"))

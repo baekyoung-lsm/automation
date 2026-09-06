@@ -256,23 +256,50 @@ def cmd_file_dupes(a) -> int:
         _p("중복 파일이 없습니다.")
         return 0
 
+    try:
+        keepers = {id(group): files.pick_keeper(group, a.keep) for group in groups}
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
     wasted = 0
     for i, group in enumerate(groups, 1):
         size = group[0].stat().st_size
         wasted += size * (len(group) - 1)
+        keeper = keepers[id(group)]
         _p(f"[{i}] {size / 1024:,.1f} KiB x {len(group)}개")
-        for j, p in enumerate(group):
-            mark = "남김" if j == 0 else "중복"
-            _p(f"    {mark}  {p}")
+        for p in sorted(group):
+            _p(f"    {'남김' if p == keeper else '중복'}  {p}")
 
     _p(f"\n중복 {len(groups)}그룹, 회수 가능 용량 {wasted / 1024 / 1024:,.1f} MiB")
+    _p(f"남길 기준: {a.keep} ({files.KEEP_MODES[a.keep]})")
+
+    if a.collect:
+        root = Path(a.dir)
+        moves = files.plan_collect_dupes(root, groups, Path(a.collect), keep=a.keep)
+        if not moves:
+            _p("\n모을 것이 없습니다.")
+            return 0
+        _p(f"\n{'' if a.apply else DRY + ' '}{a.collect}/ 로 {len(moves)}개를 모읍니다."
+           " (지우지 않습니다)")
+        if not a.apply:
+            _p("실제로 옮기려면 --apply 를 붙이세요.")
+            return 0
+        journal = files.apply_moves(moves)
+        _p(f"{len(moves)}개를 옮겼습니다. 눈으로 확인한 뒤 폴더째 지우세요.")
+        _p(f"되돌리기: at file undo {journal}")
+        return 0
+
     if a.script:
         _p("\n# 확인 후 실행할 삭제 스크립트")
         for group in groups:
-            for p in group[1:]:
-                _p(f'rm -i "{p}"')
+            keeper = keepers[id(group)]
+            for p in sorted(group):
+                if p != keeper:
+                    _p(f'rm -i "{p}"')
     else:
-        _p("삭제 명령을 만들려면 --script 를 붙이세요. (직접 지우지 않습니다)")
+        _p("\n--collect <폴더> 로 한곳에 모으면 at file undo 로 되돌릴 수 있습니다.")
+        _p("삭제 명령만 보려면 --script 를 붙이세요. (직접 지우지 않습니다)")
     return 0
 
 
@@ -783,6 +810,12 @@ def add_commands(sub) -> None:
     d.add_argument("--no-recursive", action="store_true")
     d.add_argument("--hidden", action="store_true")
     d.add_argument("--script", action="store_true", help="삭제 명령을 출력만 한다")
+    d.add_argument("--keep", default="shortest", choices=list(files.KEEP_MODES),
+                   help="무리마다 남길 하나를 고르는 기준 (기본 shortest)")
+    d.add_argument("--collect", metavar="폴더",
+                   help="지우지 않고 이 폴더로 모은다 (at file undo 로 되돌아온다)")
+    d.add_argument("--apply", action="store_true",
+                   help="--collect 을 실제로 실행 (기본은 미리보기)")
     d.set_defaults(func=cmd_file_dupes)
 
     w = fp.add_parser("watch", help="파일이 바뀌면 명령을 실행")

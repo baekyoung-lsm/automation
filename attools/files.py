@@ -207,6 +207,51 @@ def find_duplicates(root: Path, *, recursive: bool = True,
     return sorted(groups, key=lambda g: -g[0].stat().st_size)
 
 
+KEEP_MODES = {
+    "shortest": "경로가 가장 짧은 것 (대개 원본 자리)",
+    "first": "이름 순으로 첫 번째",
+    "oldest": "수정 시각이 가장 이른 것",
+}
+
+
+def pick_keeper(group: list[Path], mode: str = "shortest") -> Path:
+    """중복 무리에서 남길 하나를 고른다."""
+    if mode == "first":
+        return sorted(group)[0]
+    if mode == "oldest":
+        return min(group, key=lambda p: (p.stat().st_mtime, str(p)))
+    if mode == "shortest":
+        return min(group, key=lambda p: (len(p.parts), len(str(p)), str(p)))
+    raise ValueError(f"알 수 없는 기준: {mode} ({', '.join(KEEP_MODES)})")
+
+
+def plan_collect_dupes(root: Path, groups: list[list[Path]], dest: Path, *,
+                       keep: str = "shortest") -> list[Move]:
+    """중복 파일을 지우지 않고 한 폴더로 모으는 계획.
+
+    지우는 대신 옮기는 이유: 옮기면 저널에 남아 at file undo 로 통째로
+    되돌아온다. 정말 지울지는 모아 놓은 폴더를 눈으로 보고 정하면 된다.
+    무리마다 하나는 반드시 제자리에 남긴다.
+    """
+    root, dest = root.resolve(), dest.resolve()
+    planned: set[Path] = set()
+    moves: list[Move] = []
+
+    for group in groups:
+        keeper = pick_keeper(group, keep)
+        for path in sorted(group):
+            if path == keeper or dest in path.parents:
+                continue
+            try:
+                relative = path.resolve().relative_to(root)
+            except ValueError:
+                relative = Path(path.name)
+            target = unique_path(dest / relative, planned)
+            planned.add(target)
+            moves.append(Move(str(path), str(target)))
+    return moves
+
+
 def plan_fixname(root: Path, *, recursive: bool = False, include_hidden: bool = False,
                  space: str = "keep") -> list[Move]:
     """NFD 자모 분리·특수문자·중복 공백을 정리하는 이름 변경 계획."""

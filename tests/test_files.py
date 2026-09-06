@@ -675,5 +675,66 @@ class PhotoTest(unittest.TestCase):
         self.assertEqual(files.plan_photos(self.root).moves, [])
 
 
+class CollectDupesTest(unittest.TestCase):
+    """중복을 지우지 않고 모으기. 무리마다 하나는 반드시 남아야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "깊은" / "더깊은").mkdir(parents=True)
+        body = "같은 내용" * 200
+        for name in ("원본.txt", "깊은/사본1.txt", "깊은/더깊은/사본2.txt"):
+            (self.root / name).write_text(body, encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def groups(self):
+        return files.find_duplicates(self.root, min_size=1)
+
+    def test_keeps_shortest_path(self):
+        keeper = files.pick_keeper(self.groups()[0], "shortest")
+        self.assertEqual(keeper.name, "원본.txt")
+
+    def test_keep_modes(self):
+        group = self.groups()[0]
+        self.assertEqual(files.pick_keeper(group, "first"), sorted(group)[0])
+        self.assertIn(files.pick_keeper(group, "oldest"), group)
+        with self.assertRaises(ValueError):
+            files.pick_keeper(group, "제일큰것")
+
+    def test_plan_leaves_one_behind(self):
+        moves = files.plan_collect_dupes(self.root, self.groups(),
+                                         self.root / "_중복")
+        self.assertEqual(len(moves), 2)
+        self.assertNotIn(str(self.root / "원본.txt"), [m.src for m in moves])
+
+    def test_plan_keeps_relative_path(self):
+        moves = files.plan_collect_dupes(self.root, self.groups(),
+                                         self.root / "_중복")
+        targets = sorted(str(Path(m.dst).relative_to(self.root / "_중복"))
+                         for m in moves)
+        self.assertEqual(targets, ["깊은/더깊은/사본2.txt", "깊은/사본1.txt"])
+
+    def test_round_trip(self):
+        dest = self.root / "_중복"
+        journal = self.root / "기록.jsonl"
+        moves = files.plan_collect_dupes(self.root, self.groups(), dest)
+        files.apply_moves(moves, journal=journal)
+        self.assertFalse((self.root / "깊은" / "사본1.txt").exists())
+        self.assertTrue((self.root / "원본.txt").exists())
+
+        restored, errors = files.undo(journal)
+        self.assertEqual((restored, errors), (2, []))
+        self.assertTrue((self.root / "깊은" / "사본1.txt").exists())
+
+    def test_files_already_in_dest_are_skipped(self):
+        """모아 둔 폴더를 다시 훑어도 같은 파일을 또 옮기지 않는다."""
+        dest = self.root / "_중복"
+        dest.mkdir()
+        (dest / "사본3.txt").write_text("같은 내용" * 200, encoding="utf-8")
+        moves = files.plan_collect_dupes(self.root, self.groups(), dest)
+        self.assertNotIn(str(dest / "사본3.txt"), [m.src for m in moves])
+
+
 if __name__ == "__main__":
     unittest.main()
