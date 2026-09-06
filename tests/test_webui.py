@@ -167,6 +167,54 @@ class WebUiTest(unittest.TestCase):
         self.assertEqual(data["count"], 1)
         self.assertTrue(any("수정 시각" in note for note in data["notes"]))
 
+    def twins(self):
+        (self.work / "깊은").mkdir()
+        body = "같은 내용" * 200
+        (self.work / "원본.txt").write_text(body, encoding="utf-8")
+        (self.work / "깊은" / "사본.txt").write_text(body, encoding="utf-8")
+
+    def test_dupes_marks_one_keeper(self):
+        self.twins()
+        _, data = self.post("/api/files/dupes",
+                            {"path": str(self.work), "min_size": "1"})
+        self.assertEqual(data["groups"], 1)
+        marks = [row[1] for row in data["rows"]]
+        self.assertEqual(sorted(marks), ["남김", "중복"])
+
+    def test_dupes_none(self):
+        (self.work / "혼자.txt").write_text("혼자", encoding="utf-8")
+        _, data = self.post("/api/files/dupes",
+                            {"path": str(self.work), "min_size": "1"})
+        self.assertEqual(data["groups"], 0)
+
+    def test_collect_moves_and_undoes(self):
+        self.twins()
+        _, data = self.post("/api/files/collect_apply",
+                            {"path": str(self.work), "min_size": "1"})
+        self.assertEqual(data["applied"], 1)
+        self.assertTrue((self.work / "원본.txt").exists())
+        self.assertFalse((self.work / "깊은" / "사본.txt").exists())
+
+        _, undone = self.post("/api/files/undo", {"journal": data["journal"]})
+        self.assertEqual(undone["restored"], 1)
+        self.assertTrue((self.work / "깊은" / "사본.txt").exists())
+
+    def test_collect_twice_is_refused(self):
+        self.twins()
+        self.post("/api/files/collect_apply",
+                  {"path": str(self.work), "min_size": "1"})
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/collect_preview",
+                      {"path": str(self.work), "min_size": "1"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_collect_rejects_unknown_keep(self):
+        self.twins()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/dupes",
+                      {"path": str(self.work), "keep": "제일큰것"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_apply_with_nothing_to_move(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/apply", {"path": str(self.work)})
