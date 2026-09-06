@@ -690,6 +690,79 @@ class JsonAppTest(WebUiTest):
         self.assertTrue(data["same"])
 
 
+class GitAppTest(WebUiTest):
+    """저장소 화면. 읽기만 하는지, 저장소가 아닐 때 말이 되는지 본다."""
+
+    def repo(self):
+        import subprocess
+
+        root = self.work / "저장소"
+        root.mkdir()
+        for args in (["init", "-q"], ["config", "user.email", "t@e.c"],
+                     ["config", "user.name", "테스터"]):
+            subprocess.run(["git", *args], cwd=root, capture_output=True)
+        (root / "코드.py").write_text(
+            "# TODO(홍길동): 캐시 붙이기\nkey = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "feat: 첫 커밋"],
+                       cwd=root, capture_output=True)
+        return root
+
+    def test_not_a_repo(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/git/scan", {"path": str(self.work)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_missing_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/git/scan", {"path": str(self.work / "없음")})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_scan(self):
+        root = self.repo()
+        _, data = self.post("/api/git/scan", {"path": str(root)})
+        self.assertEqual(data["root"], str(root))
+        self.assertIn("눈으로", data["note"])
+
+    def test_branches_does_not_delete(self):
+        root = self.repo()
+        import subprocess
+
+        before = subprocess.run(["git", "branch"], cwd=root,
+                                capture_output=True, text=True).stdout
+        self.post("/api/git/branches", {"path": str(root)})
+        after = subprocess.run(["git", "branch"], cwd=root,
+                               capture_output=True, text=True).stdout
+        self.assertEqual(before, after)
+
+    def test_todos(self):
+        root = self.repo()
+        _, data = self.post("/api/git/todos", {"path": str(root)})
+        self.assertEqual(data["total"], 1)
+        self.assertEqual(data["rows"][0][0], "TODO")
+        self.assertEqual(data["rows"][0][4], "홍길동")
+
+    def test_todo_text_has_no_newline(self):
+        root = self.repo()
+        (root / "긴.py").write_text('x = """\n# TODO: 여러\n줄\n"""\n',
+                                    encoding="utf-8")
+        _, data = self.post("/api/git/todos", {"path": str(root)})
+        for row in data["rows"]:
+            self.assertNotIn("\n", row[3])
+
+    def test_conflicts(self):
+        root = self.repo()
+        _, data = self.post("/api/git/conflicts", {"path": str(root)})
+        self.assertEqual(data["total"], 0)
+
+    def test_stats(self):
+        root = self.repo()
+        _, data = self.post("/api/git/stats",
+                            {"path": str(root), "since": "10 years ago"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["authors"][0][0], "테스터")
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
