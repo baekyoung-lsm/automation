@@ -126,6 +126,60 @@ def plan_replace(files, pattern: re.Pattern[str], replacement: str, *,
     return changes
 
 
+
+# ------------------------------------------------------------------ 찾기만
+
+@dataclass
+class Hit:
+    path: Path
+    line: int
+    text: str
+    count: int = 1                                  # 그 줄에서 걸린 횟수
+    before: list[str] = field(default_factory=list)  # 앞 문맥 줄
+    after: list[str] = field(default_factory=list)   # 뒤 문맥 줄
+
+
+@dataclass
+class FileHits:
+    path: Path
+    hits: list[Hit] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        return sum(h.count for h in self.hits)
+
+
+def find_in_files(files, pattern: re.Pattern[str], *, context: int = 0,
+                  per_file: int = 0) -> list[FileHits]:
+    """바꾸지 않고 찾기만 한다. 파일마다 걸린 줄을 모아 돌려준다.
+
+    바꾸기와 같은 pattern 을 쓴다. 찾을 때와 바꿀 때 걸리는 것이 다르면
+    미리보기를 믿을 수 없게 된다.
+    """
+    out: list[FileHits] = []
+    for path in files:
+        try:
+            body, _encoding = read_text_any(path)
+        except (TextError, OSError):
+            continue
+
+        lines = body.splitlines()
+        found = FileHits(path)
+        for number, line in enumerate(lines, 1):
+            n = len(pattern.findall(line))
+            if not n:
+                continue
+            found.hits.append(Hit(
+                path, number, line, n,
+                before=lines[max(0, number - 1 - context):number - 1] if context else [],
+                after=lines[number:number + context] if context else []))
+            if per_file and len(found.hits) >= per_file:
+                break
+        if found.hits:
+            out.append(found)
+    return out
+
+
 # ------------------------------------------------ 인코딩 · 줄바꿈 · 공백
 
 def plan_encoding(files, target: str = "utf-8") -> list[Change]:

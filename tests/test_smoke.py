@@ -196,6 +196,7 @@ class SmokeTest(unittest.TestCase):
     # ------------------------------------------------------------ text
 
     def test_text_group(self):
+        self.assertIn("곳", self.run_cli("text", "find", "리안", self.path("원고")))
         self.assertIn("인코딩", self.run_cli("text", "encoding", self.path("문서")))
         self.run_cli("text", "trim", self.path("문서"), "-g", "*.txt")
         self.run_cli("text", "replace", "없는말", "새말", self.path("문서"))

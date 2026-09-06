@@ -55,6 +55,33 @@ def _plan(payload: dict) -> list:
     return textkit.plan_trim(files)
 
 
+def find(payload: dict) -> dict:
+    """고치지 않고 어디에 있는지만 본다. 바꾸기 전에 확인하는 자리다."""
+    files = _files(payload)
+    if not files:
+        raise UiError("읽을 파일이 없습니다. 경로와 파일 이름 조건을 확인해 주세요.")
+    needle = form.raw_text(payload, "needle")
+    if not needle:
+        raise UiError("찾을 말을 적어 주세요.")
+    try:
+        pattern = textkit.build_pattern(
+            needle,
+            regex=form.flag(payload, "regex"),
+            ignore_case=form.flag(payload, "ignore_case"),
+            whole_word=form.flag(payload, "whole_word"))
+    except textkit.TextError as exc:
+        raise UiError(str(exc)) from None
+
+    found = textkit.find_in_files(files, pattern, context=1, per_file=10)
+    rows = []
+    for entry in found[:MAX_SHOWN]:
+        for hit in entry.hits:
+            rows.append([str(entry.path), str(hit.line), hit.text.strip()[:80]])
+    return {"rows": rows, "files": len(found),
+            "hits": sum(entry.count for entry in found),
+            "shown": min(len(found), MAX_SHOWN)}
+
+
 def _rows(changes: list) -> list[dict]:
     out = []
     for change in changes[:MAX_SHOWN]:
@@ -150,6 +177,7 @@ BODY = """
     <label><input type="checkbox" id="whole_word"> 낱말 단위</label>
   </div>
   <div class="actions">
+    <button id="btn-find">어디 있는지만 보기</button>
     <button class="primary" id="btn-preview">미리보기</button>
     <button id="btn-apply" disabled>이대로 고치기</button>
     <span class="spacer"></span>
@@ -197,6 +225,7 @@ BODY = """
     ["wrap-needle", "wrap-replacement", "wrap-options"].forEach(function (id) {
       $(id).hidden = !replacing;
     });
+    $("btn-find").hidden = !replacing;
     lock(false);
   }
   $("mode").addEventListener("change", syncMode);
@@ -233,6 +262,21 @@ BODY = """
       ? '<p class="note">' + (data.count - data.shown) +
         "개 파일은 줄였습니다.</p>" : "");
   }
+
+  $("btn-find").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/text/find", values());
+      $("plan").innerHTML = d.rows.length
+        ? AT.table(["파일", "줄", "그 줄"], d.rows, [null, "num", null]) +
+          (d.files > d.shown ? '<p class="note">파일 ' + (d.files - d.shown) +
+            "개는 줄였습니다.</p>" : "")
+        : '<div class="empty">찾지 못했습니다.</div>';
+      AT.message($("msg"), d.hits
+        ? "파일 <b>" + d.files + "개</b>에서 " + d.hits + "곳을 찾았습니다."
+        : "찾지 못했습니다.", d.hits ? "ok" : "");
+      lock(false);
+    } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); lock(false); }
+  });
 
   $("btn-preview").addEventListener("click", async function () {
     try {
@@ -299,7 +343,7 @@ def make() -> App:
         summary="여러 파일의 글자·인코딩·줄바꿈을 한꺼번에 고치고 되돌린다",
         subtitle="미리보기 → 고치기 → 되돌리기",
         body=lambda: BODY,
-        actions={"preview": preview, "apply": apply,
+        actions={"find": find, "preview": preview, "apply": apply,
                  "journals": journals, "undo": undo},
         aliases=("텍스트", "바꾸기", "치환"),
         section="파일과 표",

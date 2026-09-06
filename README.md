@@ -291,6 +291,7 @@ CI 에 넣을 수 있다.
 
 | 명령 | 하는 일 |
 | --- | --- |
+| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만 |
 | `at text replace <찾을것> <바꿀것> [경로]` | 여러 파일에서 찾아 바꾸기. `-e` 정규식, `-i` 대소문자 무시, `-w` 단어 단위 |
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
@@ -304,6 +305,7 @@ CI 에 넣을 수 있다.
 | `at text undo [저널]` | 직전 작업 되돌리기 |
 
 ```bash
+at text find old.example.com src/ -C 1                        # 어디 있는지만 (고치지 않음)
 at text replace old.example.com api.example.com src/          # 미리보기 (차이까지)
 at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply

@@ -380,6 +380,20 @@ class TextAppTest(WebUiTest):
         self.assertEqual(data["hits"], 3)
         self.assertTrue(data["files"][0]["diff"])
 
+    def test_find_does_not_write(self):
+        root = self.docs()
+        before = (root / "1.md").read_text(encoding="utf-8")
+        _, data = self.post("/api/text/find", self.body(root))
+        self.assertEqual(data["hits"], 3)
+        self.assertEqual(data["files"], 2)
+        self.assertEqual((root / "1.md").read_text(encoding="utf-8"), before)
+
+    def test_find_needs_a_needle(self):
+        root = self.docs()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/text/find", self.body(root, needle=""))
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_preview_does_not_write(self):
         root = self.docs()
         before = (root / "1.md").read_text(encoding="utf-8")

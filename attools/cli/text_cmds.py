@@ -51,6 +51,59 @@ def _text_report(a, changes, headline: str) -> int:
     return 0
 
 
+def cmd_text_find(a) -> int:
+    """찾기만 한다. 고치지 않으므로 --apply 가 없다."""
+    targets = _text_targets(a)
+    if targets is None:
+        return 1
+
+    try:
+        pattern = text.build_pattern(a.find, regex=a.regex,
+                                     ignore_case=a.ignore_case, whole_word=a.word)
+    except text.TextError as e:
+        _p(str(e))
+        return 1
+
+    found = text.find_in_files(targets, pattern, context=a.context,
+                               per_file=a.per_file)
+    if not found:
+        _p(f"'{a.find}' 를 찾지 못했습니다. (파일 {len(targets)}개를 봤습니다)")
+        return 1
+
+    total = sum(f.count for f in found)
+    if a.count:
+        _grid(["파일", "걸린 곳"],
+              [[str(f.path), str(f.count)] for f in found[:a.limit]], limit=70)
+        if len(found) > a.limit:
+            _p(f"\n... 파일 {len(found) - a.limit}개 더 (--limit 로 조절)")
+        _p(f"\n파일 {len(found)}개, {total}곳.")
+        return 0
+
+    if a.files:
+        for f in found[:a.limit]:
+            _p(str(f.path))
+        if len(found) > a.limit:
+            _p(f"... 파일 {len(found) - a.limit}개 더 (--limit 로 조절)")
+        return 0
+
+    for f in found[:a.limit]:
+        _p(f"{f.path}  ({f.count}곳)")
+        for hit in f.hits:
+            for offset, line in enumerate(hit.before, hit.line - len(hit.before)):
+                _p(f"  {offset:>5}  {_cut(line.rstrip(), a.width)}")
+            _p(f"  {hit.line:>5}: {_cut(hit.text.rstrip(), a.width)}")
+            for offset, line in enumerate(hit.after, hit.line + 1):
+                _p(f"  {offset:>5}  {_cut(line.rstrip(), a.width)}")
+            if a.context:
+                _p("")
+        _p("")
+
+    if len(found) > a.limit:
+        _p(f"... 파일 {len(found) - a.limit}개 더 (--limit 로 조절)")
+    _p(f"파일 {len(found)}개, {total}곳.")
+    return 0
+
+
 def cmd_text_lines(a) -> int:
     path = Path(a.file)
     if not path.is_file():
@@ -433,6 +486,27 @@ def add_commands(sub) -> None:
                             help="미리보기 줄 수")
         parser.add_argument("-q", "--quiet", action="store_true", help="차이 미리보기 생략")
         return parser
+
+    fp = tp.add_parser("find", help="여러 파일에서 찾기만 (고치지 않는다)")
+    fp.add_argument("find", metavar="찾을것")
+    text_paths(fp)
+    fp.add_argument("-g", "--glob", action="append", metavar="패턴",
+                    help="예: -g '*.py' -g '*.md' (기본 전체)")
+    fp.add_argument("--hidden", action="store_true")
+    fp.add_argument("-e", "--regex", action="store_true", help="정규식으로")
+    fp.add_argument("-i", "--ignore-case", action="store_true")
+    fp.add_argument("-w", "--word", action="store_true", help="단어 단위로만")
+    fp.add_argument("-C", "--context", type=int, default=0, metavar="줄",
+                    help="앞뒤 문맥 줄 수")
+    fp.add_argument("--per-file", type=int, default=0, metavar="개",
+                    help="파일마다 이 개수까지만 (0=전부)")
+    fp.add_argument("--limit", type=int, default=20, metavar="개",
+                    help="보여줄 파일 수")
+    fp.add_argument("--width", type=int, default=100, metavar="칸",
+                    help="줄을 자를 폭")
+    fp.add_argument("--files", action="store_true", help="파일 이름만")
+    fp.add_argument("--count", action="store_true", help="파일별 건수만")
+    fp.set_defaults(func=cmd_text_find)
 
     rp = tp.add_parser("replace", help="여러 파일에서 찾아 바꾸기")
     rp.add_argument("find", metavar="찾을것")

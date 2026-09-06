@@ -308,5 +308,56 @@ class RepeatTest(unittest.TestCase):
         self.assertEqual(found, [])
 
 
+class FindTest(unittest.TestCase):
+    """찾기만 하는 명령. 파일을 건드리지 않아야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "가.txt").write_text(
+            "첫 줄\n리안은 웃었다\n셋째 줄\n리안 리안\n", encoding="utf-8")
+        (self.root / "나.md").write_text("하윤은 갔다\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def find(self, needle, **kwargs):
+        pattern = text.build_pattern(needle, regex=kwargs.pop("regex", False),
+                                     ignore_case=kwargs.pop("ignore_case", False),
+                                     whole_word=kwargs.pop("word", False))
+        targets = list(text.iter_files([self.root]))
+        return text.find_in_files(targets, pattern, **kwargs)
+
+    def test_counts_every_occurrence_on_a_line(self):
+        found = self.find("리안")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0].count, 3)      # 2행 1번 + 4행 2번
+        self.assertEqual([h.line for h in found[0].hits], [2, 4])
+
+    def test_no_match(self):
+        self.assertEqual(self.find("없는말"), [])
+
+    def test_context_lines(self):
+        found = self.find("셋째", context=1)
+        hit = found[0].hits[0]
+        self.assertEqual(hit.before, ["리안은 웃었다"])
+        self.assertEqual(hit.after, ["리안 리안"])
+
+    def test_context_at_file_edges(self):
+        found = self.find("첫 줄", context=2)
+        hit = found[0].hits[0]
+        self.assertEqual(hit.before, [])         # 앞이 없으면 빈 목록
+        self.assertEqual(len(hit.after), 2)
+
+    def test_per_file_limit(self):
+        found = self.find("리안", per_file=1)
+        self.assertEqual(len(found[0].hits), 1)
+
+    def test_does_not_touch_files(self):
+        before = {p.name: p.read_bytes() for p in self.root.iterdir()}
+        self.find("리안")
+        after = {p.name: p.read_bytes() for p in self.root.iterdir()}
+        self.assertEqual(before, after)
+
+
 if __name__ == "__main__":
     unittest.main()
