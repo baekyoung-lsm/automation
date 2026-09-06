@@ -544,6 +544,77 @@ class DevAppTest(WebUiTest):
         self.assertEqual(found, {"DB", "API_KEY", "EXTRA"})
 
 
+class DocAppTest(WebUiTest):
+    """문서 화면. 고치는 동작은 백업이 남는지까지 본다."""
+
+    def markdown(self):
+        path = self.work / "문서.md"
+        path.write_text(
+            "# 제목\n\n<!-- toc -->\n<!-- /toc -->\n\n## 가\n\n"
+            "[없는곳](#몰라)\n\n| a | bb |\n| --- | --- |\n| 1 | 2 |\n\n"
+            "### 나\n", encoding="utf-8")
+        return path
+
+    def test_check_finds_dead_anchor(self):
+        path = self.markdown()
+        _, data = self.post("/api/doc/check", {"path": str(path)})
+        self.assertFalse(data["clean"])
+        self.assertEqual(data["rows"][0][0], "앵커 없음")
+        self.assertEqual(len(data["headings"]), 3)
+
+    def test_check_rejects_other_formats(self):
+        path = self.work / "그림.png"
+        path.write_bytes(b"x")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/check", {"path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_toc_preview_does_not_write(self):
+        path = self.markdown()
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/doc/fix_preview",
+                            {"path": str(path), "fix": "toc"})
+        self.assertTrue(data["changed"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def test_toc_apply_leaves_backup(self):
+        path = self.markdown()
+        _, data = self.post("/api/doc/fix_apply",
+                            {"path": str(path), "fix": "toc"})
+        self.assertIn("- [가](#가)", path.read_text(encoding="utf-8"))
+        self.assertTrue(data["journal"])
+        _, listed = self.post("/api/text/journals", {})
+        self.assertEqual(listed["rows"][0][0], data["journal"])
+
+    def test_toc_without_marks_is_refused(self):
+        path = self.work / "표시없음.md"
+        path.write_text("# 제목\n\n## 가\n", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/fix_apply", {"path": str(path), "fix": "toc"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_table_fix(self):
+        path = self.markdown()
+        _, data = self.post("/api/doc/fix_preview",
+                            {"path": str(path), "fix": "tables"})
+        self.assertEqual(data["note"], "표 1개")
+
+    def test_export_keeps_original(self):
+        path = self.markdown()
+        before = path.read_text(encoding="utf-8")
+        for kind in ("html", "slides", "docx"):
+            _, data = self.post("/api/doc/export",
+                                {"path": str(path), "kind": kind})
+            self.assertTrue(Path(data["saved"]).exists())
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def test_export_does_not_overwrite(self):
+        path = self.markdown()
+        _, first = self.post("/api/doc/export", {"path": str(path)})
+        _, second = self.post("/api/doc/export", {"path": str(path)})
+        self.assertNotEqual(first["saved"], second["saved"])
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
