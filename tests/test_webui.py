@@ -17,7 +17,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from attools import webui
 
 
-class WebUiTest(unittest.TestCase):
+class UiCase(unittest.TestCase):
+    """서버를 띄우고 홈을 임시 폴더로 돌리는 뼈대. 시험은 물려받는 쪽에 둔다.
+
+    이 자리에 시험을 두면 화면마다 물려받은 클래스에서 똑같은 시험이 한 번씩
+    더 돈다. 열두 화면이면 열두 번이다.
+    """
+
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.home = self.root / "home"
@@ -68,6 +74,10 @@ class WebUiTest(unittest.TestCase):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return p
+
+
+class WebUiTest(UiCase):
+    """서버·열쇠와 파일 정리 화면."""
 
     # --- 열쇠 ---------------------------------------------------------
     def test_token_required_for_page(self):
@@ -232,9 +242,8 @@ class WebUiTest(unittest.TestCase):
         _, data = self.post("/api/files/compare",
                             {"path": str(left), "other": str(right)})
         self.assertEqual((data["total"], data["same"]), (3, 1))
-        kinds = [row[0] for row in data["rows"]]
-        self.assertEqual(sorted(kinds),
-                         ["내용이 다름", "왼쪽에만", "오른쪽에만"])
+        kinds = {row[0] for row in data["rows"]}
+        self.assertEqual(kinds, {"왼쪽에만", "오른쪽에만", "내용이 다름"})
 
     def test_compare_same_size_different_content(self):
         """크기가 같아도 내용이 다르면 잡아야 한다."""
@@ -287,7 +296,7 @@ class WebUiTest(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
-class SheetAppTest(WebUiTest):
+class SheetAppTest(UiCase):
     """엑셀 화면. WebUiTest 의 서버·홈 설정을 그대로 쓴다."""
 
     def csv(self, name="명단.csv", body=None):
@@ -450,7 +459,7 @@ class SheetAppTest(WebUiTest):
         self.assertNotEqual(first["saved"], second["saved"])
 
 
-class NovelAppTest(WebUiTest):
+class NovelAppTest(UiCase):
     """원고 화면. 읽기만 하므로 원고가 그대로인지도 본다."""
 
     def manuscript(self):
@@ -548,7 +557,7 @@ class NovelAppTest(WebUiTest):
         self.assertEqual(before, after)
 
 
-class LifeAppTest(WebUiTest):
+class LifeAppTest(UiCase):
     """일상 계산 화면. 숫자만 다루므로 파일은 만들지 않는다."""
 
     def test_dday(self):
@@ -649,7 +658,7 @@ class LifeAppTest(WebUiTest):
         self.assertEqual(data["formal"], "일금 일백이십오만원정")
 
 
-class TextAppTest(WebUiTest):
+class TextAppTest(UiCase):
     """일괄 바꾸기 화면. 고친 뒤 되돌아오는지까지 본다."""
 
     def docs(self):
@@ -747,7 +756,7 @@ class TextAppTest(WebUiTest):
         self.assertEqual(ctx.exception.code, 400)
 
 
-class KeysAppTest(WebUiTest):
+class KeysAppTest(UiCase):
     """단축키 화면. 모르는 칸을 지어내지 않는지 본다."""
 
     def test_groups(self):
@@ -776,7 +785,7 @@ class KeysAppTest(WebUiTest):
         self.assertNotIn("", marks)
 
 
-class DevAppTest(WebUiTest):
+class DevAppTest(UiCase):
     """개발 잡일 화면. 읽고 계산만 한다."""
 
     def token(self, payload):
@@ -915,7 +924,7 @@ class DevAppTest(WebUiTest):
         self.assertEqual(found, {"DB", "API_KEY", "EXTRA"})
 
 
-class DocAppTest(WebUiTest):
+class DocAppTest(UiCase):
     """문서 화면. 고치는 동작은 백업이 남는지까지 본다."""
 
     def markdown(self):
@@ -1011,7 +1020,7 @@ class DocAppTest(WebUiTest):
         self.assertNotEqual(first["saved"], second["saved"])
 
 
-class JsonAppTest(WebUiTest):
+class JsonAppTest(UiCase):
     """JSON 화면. 붙여넣기와 파일 경로 둘 다 받는다."""
 
     SAMPLE = {"items": [{"id": 1, "name": "가", "tag": {"a": 1}},
@@ -1086,7 +1095,7 @@ class JsonAppTest(WebUiTest):
         self.assertTrue(data["same"])
 
 
-class GitAppTest(WebUiTest):
+class GitAppTest(UiCase):
     """저장소 화면. 읽기만 하는지, 저장소가 아닐 때 말이 되는지 본다."""
 
     def repo(self):
@@ -1159,7 +1168,7 @@ class GitAppTest(WebUiTest):
         self.assertEqual(data["authors"][0][0], "테스터")
 
 
-class LettersAppTest(WebUiTest):
+class LettersAppTest(UiCase):
     """글자 손질 화면. 파일이 아니라 붙여넣은 글만 다룬다."""
 
     def test_kbd_to_hangul(self):
@@ -1233,7 +1242,7 @@ class LettersAppTest(WebUiTest):
         self.assertTrue(data["decomposed"])
 
 
-class FileSizeGuardTest(WebUiTest):
+class FileSizeGuardTest(UiCase):
     """화면은 파일을 통째로 읽는다. 큰 파일에 서버가 멎지 않아야 한다."""
 
     def big(self, name, size):
