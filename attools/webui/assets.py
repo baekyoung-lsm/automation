@@ -68,6 +68,13 @@ th, td { padding:.45rem .7rem; text-align:left; white-space:nowrap;
 th { background:var(--mark); position:sticky; top:0; font-weight:600; }
 tr:last-child td { border-bottom:0; }
 td.num { text-align:right; font-variant-numeric:tabular-nums; }
+pre.diff { margin:.4rem 0 1rem; padding:.6rem .8rem; overflow-x:auto;
+  background:var(--mark); border:1px solid var(--line); border-radius:8px;
+  font:12.5px/1.55 "D2Coding","Menlo","Consolas",monospace; }
+pre.diff .add { color:var(--green); }
+pre.diff .del { color:var(--red); }
+pre.diff .at { color:var(--dim); }
+.file { font-weight:600; font-size:.9rem; margin:.9rem 0 .2rem; }
 .msg { padding:.7rem .9rem; border-radius:8px; margin-top:1rem; font-size:.9rem;
   border:1px solid var(--line); background:var(--mark); }
 .msg.ok { border-color:var(--green); }

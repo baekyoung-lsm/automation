@@ -14,6 +14,14 @@ def text(payload: dict, key: str, default: str = "") -> str:
     return value.strip()
 
 
+def raw_text(payload: dict, key: str, default: str = "") -> str:
+    """앞뒤 공백을 그대로 둔다. 찾을 말·바꿀 말처럼 공백이 뜻을 갖는 값에 쓴다."""
+    value = payload.get(key, default)
+    if not isinstance(value, str):
+        raise UiError(f"{key} 값이 글자가 아닙니다.")
+    return value
+
+
 def flag(payload: dict, key: str, default: bool = False) -> bool:
     value = payload.get(key, default)
     return bool(value)

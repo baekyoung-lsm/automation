@@ -355,6 +355,90 @@ class LifeAppTest(WebUiTest):
         self.assertEqual(data["formal"], "일금 일백이십오만원정")
 
 
+class TextAppTest(WebUiTest):
+    """일괄 바꾸기 화면. 고친 뒤 되돌아오는지까지 본다."""
+
+    def docs(self):
+        root = self.work / "글"
+        root.mkdir()
+        (root / "1.md").write_text("리안은 웃었다.\n리안은 떠났다.\n",
+                                   encoding="utf-8")
+        (root / "2.md").write_text("하윤은 리안을 보았다.   \n", encoding="utf-8")
+        (root / "메모.txt").write_text("리안\n", encoding="utf-8")
+        return root
+
+    def body(self, root, **extra):
+        body = {"path": str(root), "glob": "*.md", "needle": "리안",
+                "replacement": "리언"}
+        body.update(extra)
+        return body
+
+    def test_preview_counts_hits(self):
+        root = self.docs()
+        _, data = self.post("/api/text/preview", self.body(root))
+        self.assertEqual(data["count"], 2)      # txt 는 조건에서 빠진다
+        self.assertEqual(data["hits"], 3)
+        self.assertTrue(data["files"][0]["diff"])
+
+    def test_preview_does_not_write(self):
+        root = self.docs()
+        before = (root / "1.md").read_text(encoding="utf-8")
+        self.post("/api/text/preview", self.body(root))
+        self.assertEqual((root / "1.md").read_text(encoding="utf-8"), before)
+
+    def test_apply_then_undo(self):
+        root = self.docs()
+        before = (root / "1.md").read_text(encoding="utf-8")
+        _, data = self.post("/api/text/apply", self.body(root))
+        self.assertEqual(data["applied"], 2)
+        self.assertIn("리언", (root / "1.md").read_text(encoding="utf-8"))
+
+        _, listed = self.post("/api/text/journals", {})
+        self.assertEqual(len(listed["rows"]), 1)
+        _, undone = self.post("/api/text/undo",
+                              {"journal": listed["rows"][0][0]})
+        self.assertEqual(undone["restored"], 2)
+        self.assertEqual((root / "1.md").read_text(encoding="utf-8"), before)
+
+    def test_apply_with_no_match(self):
+        root = self.docs()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/text/apply", self.body(root, needle="없는말"))
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_trim_mode_needs_no_needle(self):
+        root = self.docs()
+        _, data = self.post("/api/text/preview",
+                            {"path": str(root), "glob": "*.md", "mode": "trim"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["files"][0]["note"], "공백 정리")
+
+    def test_bad_regex(self):
+        root = self.docs()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/text/preview",
+                      self.body(root, needle="(리안", regex=True))
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_needle_keeps_spaces(self):
+        """공백까지 포함해 찾는 일이 있으므로 앞뒤를 다듬지 않는다."""
+        root = self.docs()
+        _, data = self.post("/api/text/preview",
+                            self.body(root, needle="은 ", replacement="은씨 "))
+        self.assertEqual(data["hits"], 3)
+
+    def test_empty_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/text/preview",
+                      {"path": str(self.work), "needle": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_undo_rejects_path_escape(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/text/undo", {"journal": "../../etc"})
+        self.assertEqual(ctx.exception.code, 400)
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
