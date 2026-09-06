@@ -281,6 +281,60 @@ class SheetAppTest(WebUiTest):
             self.post("/api/sheet/check", {"path": str(path), "key": "없는열"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def months(self):
+        last = self.csv("지난달.csv",
+                        "사번,이름,연봉\nE1,홍길동,5000\nE2,김철수,4700\n")
+        now = self.csv("이번달.csv",
+                       "사번,이름,연봉\nE1,홍길동,5200\nE3,이영희,4900\n")
+        return last, now
+
+    def test_compare(self):
+        last, now = self.months()
+        _, data = self.post("/api/sheet/compare",
+                            {"path": str(last), "other": str(now), "key": "사번"})
+        self.assertEqual((data["added"], data["removed"], data["changed"]),
+                         (1, 1, 1))
+        self.assertFalse(data["same"])
+
+    def test_compare_same_file(self):
+        last, _now = self.months()
+        _, data = self.post("/api/sheet/compare",
+                            {"path": str(last), "other": str(last), "key": "사번"})
+        self.assertTrue(data["same"])
+
+    def test_compare_needs_a_key(self):
+        last, now = self.months()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/compare",
+                      {"path": str(last), "other": str(now)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_compare_unknown_key(self):
+        last, now = self.months()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/compare",
+                      {"path": str(last), "other": str(now), "key": "주문번호"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_merge_preview_writes_nothing(self):
+        last, now = self.months()
+        before = sorted(p.name for p in self.work.iterdir())
+        _, data = self.post("/api/sheet/merge",
+                            {"path": str(last), "other": str(now)})
+        self.assertEqual(data["count"], 4)
+        self.assertEqual(data["headers"][0], "출처")
+        self.assertEqual(data["saved"], "")
+        self.assertEqual(sorted(p.name for p in self.work.iterdir()), before)
+
+    def test_merge_save_keeps_both_originals(self):
+        last, now = self.months()
+        text = last.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/merge",
+                            {"path": str(last), "other": str(now), "save": True})
+        self.assertTrue(Path(data["saved"]).exists())
+        self.assertEqual(last.read_text(encoding="utf-8"), text)
+        self.assertTrue(now.exists())
+
     def test_format_preview(self):
         path = self.csv("연락처.csv",
                         "이름,연락처\n홍길동,01012345678\n김철수,0100\n")

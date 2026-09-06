@@ -8,6 +8,7 @@ from ... import files, sheet, xlsx
 from .. import App, UiError, form
 
 PEEK_ROWS = 30
+MAX_DIFF = 100
 
 
 def _open(payload: dict) -> sheet.Table:
@@ -70,6 +71,64 @@ def check(payload: dict) -> dict:
             where += " …"
         rows.append([issue.kind, issue.column, issue.detail, where])
     return {"rows": rows, "clean": not rows, "count": len(table.rows)}
+
+
+def _other(payload: dict) -> sheet.Table:
+    """비교·합칠 상대 파일. 같은 시트·머리글 규칙으로 읽는다."""
+    return _open({"path": form.text(payload, "other"),
+                  "sheet": form.text(payload, "other_sheet"),
+                  "header_row": payload.get("header_row", 1)})
+
+
+def compare(payload: dict) -> dict:
+    before, after = _open(payload), _other(payload)
+    key = form.text(payload, "key")
+    if not key:
+        raise UiError("무엇을 기준으로 짝지을지 열쇠 열을 골라 주세요. "
+                      "(사번·주문번호처럼 행마다 다른 값)")
+    for table, label in ((before, "먼저 파일"), (after, "나중 파일")):
+        if key not in table.headers:
+            raise UiError(f"{label}에 '{key}' 열이 없습니다.")
+
+    result = sheet.diff(before, after, key)
+    rows = []
+    for row in result.removed[:MAX_DIFF]:
+        rows.append(["빠짐", sheet.to_text(row[before.index_of(key)]), "", "", ""])
+    for row in result.added[:MAX_DIFF]:
+        rows.append(["새로 생김", sheet.to_text(row[after.index_of(key)]), "", "", ""])
+    for ident, column, was, now in result.changed[:MAX_DIFF]:
+        rows.append(["값 바뀜", sheet.to_text(ident), column,
+                     sheet.to_text(was), sheet.to_text(now)])
+
+    return {"rows": rows, "same": result.empty,
+            "added": len(result.added), "removed": len(result.removed),
+            "changed": len(result.changed),
+            "columns_added": result.columns_added,
+            "columns_removed": result.columns_removed,
+            "note": "열쇠 열이 같은 행끼리 맞춰 봅니다. 열쇠가 겹치는 행이 "
+                    "있으면 짝짓기가 어긋날 수 있으니 점검을 먼저 돌려 보세요."}
+
+
+def merge(payload: dict) -> dict:
+    """두 파일을 세로로 붙여 새 파일로 낸다. 원본은 그대로 둔다."""
+    first, second = _open(payload), _other(payload)
+    table, warnings = sheet.merge([first, second],
+                                  add_source=form.flag(payload, "add_source", True))
+    if form.flag(payload, "save"):
+        source = Path(first.source)
+        suffix = source.suffix.lower()
+        if suffix not in sheet.XLSX_SUFFIXES:
+            suffix = ".csv"
+        out = files.unique_path(source.with_name(f"{source.stem} (합침){suffix}"))
+        sheet.save(table, out)
+        saved = str(out)
+    else:
+        saved = ""
+
+    return {"headers": table.headers,
+            "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "warnings": warnings, "saved": saved}
 
 
 def _specs(payload: dict) -> list[tuple[str, str]]:
@@ -230,6 +289,30 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>다른 파일과 견주기</h2>
+  <p class="note">지난달 명단과 이번달 명단처럼 두 파일을 비교하거나 합칩니다.
+     <b>원본은 둘 다 그대로 둡니다.</b></p>
+  <div class="row">
+    <div style="flex:3 1 20rem"><label for="other">상대 파일</label>
+      <input type="text" id="other" placeholder="예: ~/문서/지난달.xlsx" spellcheck="false"></div>
+    <div><label for="other_sheet">상대 시트</label>
+      <input type="text" id="other_sheet" placeholder="첫 시트" spellcheck="false"></div>
+    <div><label for="dkey">열쇠 열 (비교할 때)</label>
+      <select id="dkey"><option value="">고르지 않음</option></select></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="add_source" checked> 합칠 때 어느 파일에서 왔는지 열 붙이기</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-compare">무엇이 달라졌나</button>
+    <button id="btn-merge">붙여 보기</button>
+    <button id="btn-merge-save">붙여서 새 파일로</button>
+  </div>
+  <div id="pairmsg"></div>
+  <div id="pair"></div>
+</section>
+
+<section class="card">
   <h2>표기 통일</h2>
   <p class="note">전화번호·사업자번호처럼 사람마다 다르게 적은 열을 한 꼴로
      맞춥니다. <b>규칙을 모르는 값은 손대지 않고</b> 몇 행인지 알려 줍니다.</p>
@@ -355,6 +438,51 @@ BODY = """
     } catch (e) { AT.message($("formatmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function pairValues(extra) {
+    const b = values();
+    b.other = $("other").value;
+    b.other_sheet = $("other_sheet").value;
+    b.key = $("dkey").value;
+    b.add_source = $("add_source").checked;
+    return Object.assign(b, extra || {});
+  }
+
+  $("btn-compare").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/compare", pairValues());
+      const columns = []
+        .concat(d.columns_added.map(c => "새 열: " + c))
+        .concat(d.columns_removed.map(c => "사라진 열: " + c));
+      $("pair").innerHTML = (d.same
+          ? '<div class="empty">다른 곳이 없습니다.</div>'
+          : AT.table(["무엇", "열쇠", "열", "먼저", "나중"], d.rows)) +
+        (columns.length ? '<p class="note">' + columns.map(AT.esc).join(" · ") +
+          "</p>" : "") + '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("pairmsg"), d.same ? "다른 곳이 없습니다."
+        : "빠짐 <b>" + d.removed + "</b> · 새로 생김 <b>" + d.added +
+          "</b> · 값 바뀜 <b>" + d.changed + "</b>", d.same ? "ok" : "bad");
+    } catch (e) { AT.message($("pairmsg"), AT.esc(e.message), "bad"); }
+  });
+
+  async function doMerge(save) {
+    try {
+      const d = await AT.call("/api/sheet/merge", pairValues({ save: save }));
+      $("pair").innerHTML =
+        (d.warnings.length ? '<p class="note">' +
+          d.warnings.map(AT.esc).join("<br>") + "</p>" : "") +
+        AT.table(d.headers, d.rows) +
+        (d.count > d.shown ? '<p class="note">' + d.count + "행 가운데 " +
+          d.shown + "행만 보입니다.</p>" : "");
+      AT.message($("pairmsg"), d.saved
+        ? "저장했습니다: <b>" + AT.esc(d.saved) + "</b> (" + d.count + "행)"
+        : "붙이면 <b>" + d.count + "행</b>이 됩니다. 아직 저장하지 않았습니다.",
+        "ok");
+    } catch (e) { AT.message($("pairmsg"), AT.esc(e.message), "bad"); }
+  }
+
+  $("btn-merge").addEventListener("click", function () { doMerge(false); });
+  $("btn-merge-save").addEventListener("click", function () { doMerge(true); });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
@@ -362,6 +490,7 @@ BODY = """
       options($("sheet"), data.sheets, "첫 시트");
       options($("key"), data.headers, "고르지 않음");
       options($("fcol"), data.headers, "");
+      options($("dkey"), data.headers, "고르지 않음");
       $("cols").innerHTML = AT.table(
         ["열", "주로 들어 있는 것", "빈칸", "다른 값", "예시"],
         data.columns, [null, null, "num", "num", null]);
@@ -425,7 +554,8 @@ def make() -> App:
         summary="엑셀·CSV 를 열어 보고 점검하고 정리해 새 파일로 낸다",
         subtitle="열어 보기 → 점검 → 정리",
         body=lambda: BODY,
-        actions={"peek": peek, "check": check,
+        actions={"peek": peek, "check": check, "compare": compare,
+                 "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},
         aliases=("엑셀", "표", "csv"),
