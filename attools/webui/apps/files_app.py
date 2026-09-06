@@ -136,6 +136,38 @@ def collect_apply(payload: dict) -> dict:
             "rows": _rows(root, moves)}
 
 
+MAX_DIFF = 200
+
+
+def compare(payload: dict) -> dict:
+    """두 폴더를 견준다. 백업이 제대로 됐는지 확인하는 자리다."""
+    left = form.folder(payload)
+    other = form.text(payload, "other")
+    if not other:
+        raise UiError("견줄 폴더 경로를 적어 주세요.")
+    right = form.folder({"path": other})
+    if left == right:
+        raise UiError("같은 폴더입니다. 다른 폴더를 골라 주세요.")
+
+    result = files.diff_dirs(left, right,
+                             include_hidden=form.flag(payload, "hidden"),
+                             quick=form.flag(payload, "quick"))
+    rows = []
+    for name in result.only_left[:MAX_DIFF]:
+        rows.append(["왼쪽에만", name, "", ""])
+    for name in result.only_right[:MAX_DIFF]:
+        rows.append(["오른쪽에만", name, "", ""])
+    for name, left_size, right_size in result.changed[:MAX_DIFF]:
+        rows.append(["내용이 다름", name, files.human_size(left_size),
+                     files.human_size(right_size)])
+
+    return {"rows": rows, "same": result.same, "total": result.total,
+            "equal": result.empty, "left": str(left), "right": str(right),
+            "note": "크기가 같아도 내용을 해시로 한 번 더 봅니다. "
+                    "«빠르게»를 켜면 크기와 수정 시각만 봅니다 - 큰 폴더는 "
+                    "빠르지만 내용이 바뀐 것을 놓칠 수 있습니다."}
+
+
 def journals(payload: dict) -> dict:
     base = files.journal_dir()
     if not base.exists():
@@ -218,6 +250,22 @@ BODY = """
   </div>
   <div id="dupemsg"></div>
   <div id="dupes"></div>
+</section>
+
+<section class="card">
+  <h2>두 폴더 견주기</h2>
+  <p class="note">백업이 제대로 됐는지, 옮긴 것이 다 갔는지 봅니다.
+     <b>읽기만 합니다.</b> 위쪽 «폴더 경로»가 왼쪽입니다.</p>
+  <div class="row">
+    <div style="flex:3 1 20rem"><label for="other">견줄 폴더 (오른쪽)</label>
+      <input type="text" id="other" placeholder="예: /Volumes/백업/사진" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-compare">견주기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="quick"> 빠르게 (크기·시각만 본다)</label>
+  </div>
+  <div id="cmpmsg"></div>
+  <div id="cmp"></div>
 </section>
 
 <section class="card">
@@ -353,6 +401,23 @@ BODY = """
     } catch (e) { AT.message($("dupemsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-compare").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/compare", {
+        path: $("path").value, other: $("other").value,
+        hidden: $("hidden").checked, quick: $("quick").checked,
+      });
+      $("cmp").innerHTML = (d.equal
+          ? '<div class="empty">다른 것이 없습니다. 같은 폴더입니다.</div>'
+          : AT.table(["무엇", "경로", "왼쪽", "오른쪽"], d.rows)) +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("cmpmsg"), d.equal
+        ? "같습니다. 파일 " + d.same + "개를 맞춰 봤습니다."
+        : "<b>" + d.total + "곳</b>이 다릅니다. 같은 파일 " + d.same + "개.",
+        d.equal ? "ok" : "bad");
+    } catch (e) { AT.message($("cmpmsg"), AT.esc(e.message), "bad"); }
+  });
+
   async function loadJournals() {
     try {
       const data = await AT.call("/api/files/journals", {});
@@ -395,6 +460,7 @@ def make() -> App:
         subtitle="미리보기 → 옮기기 → 되돌리기",
         body=lambda: BODY,
         actions={"preview": preview, "apply": apply, "dupes": dupes,
+                 "compare": compare,
                  "collect_preview": collect_preview,
                  "collect_apply": collect_apply,
                  "journals": journals, "undo": undo},

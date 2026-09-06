@@ -215,6 +215,50 @@ class WebUiTest(unittest.TestCase):
                       {"path": str(self.work), "keep": "제일큰것"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def pair(self):
+        left, right = self.work / "원본", self.work / "백업"
+        left.mkdir()
+        right.mkdir()
+        (left / "가.txt").write_text("같음", encoding="utf-8")
+        (right / "가.txt").write_text("같음", encoding="utf-8")
+        (left / "나.txt").write_text("원본만", encoding="utf-8")
+        (right / "다.txt").write_text("백업만", encoding="utf-8")
+        (left / "라.txt").write_text("AAAA", encoding="utf-8")
+        (right / "라.txt").write_text("BBBB", encoding="utf-8")
+        return left, right
+
+    def test_compare_folders(self):
+        left, right = self.pair()
+        _, data = self.post("/api/files/compare",
+                            {"path": str(left), "other": str(right)})
+        self.assertEqual((data["total"], data["same"]), (3, 1))
+        kinds = [row[0] for row in data["rows"]]
+        self.assertEqual(sorted(kinds),
+                         ["내용이 다름", "왼쪽에만", "오른쪽에만"])
+
+    def test_compare_same_size_different_content(self):
+        """크기가 같아도 내용이 다르면 잡아야 한다."""
+        left, right = self.pair()
+        _, data = self.post("/api/files/compare",
+                            {"path": str(left), "other": str(right)})
+        changed = [row for row in data["rows"] if row[0] == "내용이 다름"]
+        self.assertEqual(changed[0][1], "라.txt")
+
+    def test_compare_needs_two_folders(self):
+        left, _right = self.pair()
+        for body in ({"path": str(left)},
+                     {"path": str(left), "other": str(left)}):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.post("/api/files/compare", body)
+            self.assertEqual(ctx.exception.code, 400)
+
+    def test_compare_does_not_touch_files(self):
+        left, right = self.pair()
+        before = sorted(p.name for p in left.iterdir())
+        self.post("/api/files/compare",
+                  {"path": str(left), "other": str(right)})
+        self.assertEqual(sorted(p.name for p in left.iterdir()), before)
+
     def test_apply_with_nothing_to_move(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/apply", {"path": str(self.work)})
