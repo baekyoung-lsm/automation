@@ -289,4 +289,5 @@ def make() -> App:
         actions={"schema": schema, "compare": compare, "flatten": flatten,
                  "save": save, "types": types},
         aliases=("json", "응답"),
+        section="개발",
     )

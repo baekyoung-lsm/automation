@@ -302,4 +302,5 @@ def make() -> App:
         actions={"jwt": jwt, "when": when, "cron": cron, "mask": mask,
                  "encode": encode, "secret": secret, "env": env},
         aliases=("개발", "dev잡일"),
+        section="개발",
     )

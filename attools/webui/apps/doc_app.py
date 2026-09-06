@@ -235,4 +235,5 @@ def make() -> App:
         actions={"check": check, "fix_preview": fix_preview,
                  "fix_apply": fix_apply, "export": export},
         aliases=("문서", "마크다운", "md"),
+        section="글",
     )

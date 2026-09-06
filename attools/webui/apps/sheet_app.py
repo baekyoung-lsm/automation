@@ -278,4 +278,5 @@ def make() -> App:
         actions={"peek": peek, "check": check,
                  "clean_preview": clean_preview, "clean_save": clean_save},
         aliases=("엑셀", "표", "csv"),
+        section="파일과 표",
     )

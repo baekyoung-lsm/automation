@@ -97,7 +97,13 @@ tests/
      `--help` 를 자동으로 훑는다
    - `tests/test_smoke.py` 가 그룹마다 대표 명령을 실제 파일로 끝까지 돌린다.
      새 그룹을 만들면 여기에도 한 줄 더한다.
-4. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
+4. 브라우저 화면이 필요하면 `attools/webui/apps/<이름>_app.py` 에 파일을 하나
+   만들고 `apps/__init__.py` 의 `all_apps()` 에 넣는다. 로직은 부르기만 하고
+   화면 파일에는 쓰지 않는다. 파일을 고치는 동작은 CLI 와 같은 백업·되돌리기
+   기계를 쓴다(`files.apply_moves`, `text.apply_changes`) - 화면마다 되돌리기를
+   새로 만들면 언젠가 하나는 백업 없이 고치게 된다. 값은 `webui/form.py` 로
+   한 번 더 보고, 적용할 때 계획을 서버에서 다시 세운다.
+5. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
    `at find` 와 `at completion` 은 파서를 걸어 다니며 목록을 만들므로 따로 고칠 것이 없다.
 
 ## 확인

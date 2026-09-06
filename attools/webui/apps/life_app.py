@@ -342,4 +342,5 @@ def make() -> App:
         actions={"dday": dday, "split": split, "loan": loan,
                  "unit": unit, "tax": tax, "won": won},
         aliases=("일상", "계산", "계산기"),
+        section="그 밖",
     )

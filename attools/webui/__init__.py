@@ -37,6 +37,7 @@ class App:
     body: Callable[[], str]                   # 본문 HTML
     actions: dict[str, Callable[[dict], dict]] = field(default_factory=dict)
     aliases: tuple[str, ...] = ()             # 명령에서 부르는 다른 이름
+    section: str = "그 밖"                     # 런처에서 묶이는 자리
 
     def names(self) -> tuple[str, ...]:
         return (self.key, self.name, self.name.replace(" ", "")) + self.aliases
@@ -60,19 +61,29 @@ def find_app(apps: list[App], wanted: str) -> App | None:
 def launcher_body(apps: list[App], token: str) -> str:
     from html import escape
 
-    items = []
+    # 열 개가 넘어가면 한 줄로 늘어놓는 것만으로는 못 찾는다. 하는 일로 묶는다.
+    order: list[str] = []
+    grouped: dict[str, list[App]] = {}
     for app in apps:
-        href = f"/{app.key}?t={token}"
-        items.append(
-            f'<li><a href="{href}"><strong>{escape(app.name)}</strong>'
+        if app.section not in grouped:
+            order.append(app.section)
+            grouped[app.section] = []
+        grouped[app.section].append(app)
+
+    blocks = []
+    for section in order:
+        items = "".join(
+            f'<li><a href="/{app.key}?t={token}">'
+            f"<strong>{escape(app.name)}</strong>"
             f"<span>{escape(app.summary)}</span></a></li>"
-        )
-    return (
-        '<section class="card"><h2>어떤 일을 하시겠습니까</h2>'
-        '<ul class="apps">' + "".join(items) + "</ul></section>"
+            for app in grouped[section])
+        blocks.append(f'<section class="card"><h2>{escape(section)}</h2>'
+                      f'<ul class="apps">{items}</ul></section>')
+
+    return "".join(blocks) + (
         '<p class="note">터미널에서 <code>at ui 파일정리</code> 처럼 부르면 '
-        "그 화면만 바로 뜹니다.</p>"
-    )
+        "그 화면만 바로 뜹니다. 어떤 이름으로 부르는지는 "
+        "<code>at ui --list</code> 로 봅니다.</p>")
 
 
 def make_handler(apps: list[App], token: str, *, only: App | None = None):

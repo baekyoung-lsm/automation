@@ -241,4 +241,5 @@ def make() -> App:
         actions={"preview": preview, "apply": apply,
                  "journals": journals, "undo": undo},
         aliases=("파일", "정리"),
+        section="파일과 표",
     )

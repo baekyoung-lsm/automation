@@ -216,4 +216,5 @@ def make() -> App:
         body=lambda: BODY,
         actions={"count": count, "inspect": inspect, "cast": cast},
         aliases=("원고", "소설", "집필"),
+        section="글",
     )

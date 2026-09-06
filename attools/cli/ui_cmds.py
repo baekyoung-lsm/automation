@@ -12,8 +12,9 @@ def cmd_ui(a) -> int:
     apps = webui.load_apps()
 
     if a.list:
-        _grid(["부르는 이름", "화면", "하는 일"],
-              [[app.key, app.name, app.summary] for app in apps], limit=44)
+        _grid(["갈래", "부르는 이름", "화면", "하는 일"],
+              [[app.section, app.key, app.name, app.summary] for app in apps],
+              limit=40)
         return 0
 
     picked = None

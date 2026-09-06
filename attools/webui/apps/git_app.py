@@ -246,4 +246,5 @@ def make() -> App:
         actions={"scan": scan, "branches": branches, "conflicts": conflicts,
                  "todos": todos, "stats": stats},
         aliases=("git", "저장소"),
+        section="개발",
     )

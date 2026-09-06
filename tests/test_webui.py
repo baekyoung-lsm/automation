@@ -779,6 +779,17 @@ class RegistryTest(unittest.TestCase):
         for key in keys:
             self.assertTrue(key.isascii() and key.isidentifier(), key)
 
+    def test_launcher_groups_apps(self):
+        """열 개가 넘으면 하는 일로 묶여 있어야 찾을 수 있다."""
+        import re
+
+        apps = webui.load_apps()
+        body = webui.launcher_body(apps, "토큰")
+        sections = re.findall(r"<h2>([^<]+)</h2>", body)
+        self.assertEqual(sections, list(dict.fromkeys(a.section for a in apps)))
+        for app in apps:
+            self.assertIn("/" + app.key + "?t=토큰", body)
+
     def test_only_shows_one_app(self):
         apps = webui.load_apps()
         run = webui.start(apps[0], apps=apps)

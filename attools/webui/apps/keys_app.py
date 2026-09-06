@@ -128,4 +128,5 @@ def make() -> App:
         body=lambda: BODY,
         actions={"groups": groups, "table": table},
         aliases=("단축키", "키"),
+        section="그 밖",
     )
