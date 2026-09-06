@@ -286,6 +286,75 @@ class NovelAppTest(WebUiTest):
         self.assertEqual(before, after)
 
 
+class LifeAppTest(WebUiTest):
+    """일상 계산 화면. 숫자만 다루므로 파일은 만들지 않는다."""
+
+    def test_dday(self):
+        _, data = self.post("/api/life/dday",
+                            {"date": "2026-03-15", "today": "2026-09-04"})
+        self.assertIn("D+173", data["headline"])
+        self.assertTrue(data["rows"])
+
+    def test_dday_bad_date(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/dday", {"date": "언젠가"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_split(self):
+        _, data = self.post("/api/life/split",
+                            {"paid": "홍길동 84000\n김철수 12000\n이영희"})
+        self.assertEqual(data["people"], 3)
+        self.assertEqual(data["share"], "32,000원")
+        self.assertEqual(len(data["moves"]), 2)
+
+    def test_split_needs_people(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/split", {"paid": "  "})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_loan_shrinks_long_schedule(self):
+        _, data = self.post("/api/life/loan",
+                            {"principal": "3억", "rate": "4", "months": "360"})
+        self.assertEqual(len(data["rows"]), 24)
+        self.assertEqual(data["skipped"], 336)
+
+    def test_loan_rejects_long_grace(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/loan",
+                      {"principal": "1000만", "months": "12", "grace": "24"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_unit(self):
+        _, data = self.post("/api/life/unit", {"value": "84㎡"})
+        self.assertEqual(data["group"], "넓이")
+        self.assertTrue(any(row[0] == "평" for row in data["rows"]))
+
+    def test_unit_unknown(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/unit", {"value": "몰라"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_vat_extract(self):
+        _, data = self.post("/api/life/tax",
+                            {"amount": "1100000", "mode": "extract"})
+        self.assertEqual(data["rows"][0][1], "1,000,000원 (100만)")
+
+    def test_withhold(self):
+        _, data = self.post("/api/life/tax",
+                            {"amount": "1000000", "mode": "withhold"})
+        self.assertIn("실수령", data["headline"])
+
+    def test_tax_rejects_unknown_mode(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/tax", {"amount": "1000", "mode": "훔치기"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_won(self):
+        _, data = self.post("/api/life/won", {"amount": "1250000"})
+        self.assertEqual(data["korean"], "백이십오만")
+        self.assertEqual(data["formal"], "일금 일백이십오만원정")
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

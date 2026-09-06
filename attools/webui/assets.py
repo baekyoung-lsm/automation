@@ -52,6 +52,15 @@ button.danger { color:var(--red); }
   flex-wrap:wrap; }
 .actions .spacer { flex:1; }
 .note { color:var(--dim); font-size:.85rem; }
+textarea { width:100%; min-height:7rem; padding:.55rem .7rem; font:inherit;
+  color:inherit; background:var(--paper); border:1px solid var(--line);
+  border-radius:8px; resize:vertical; }
+textarea:focus { outline:2px solid var(--blue); outline-offset:1px; }
+nav.tabs { display:flex; gap:.4rem; flex-wrap:wrap; margin:0 0 1.1rem; }
+nav.tabs button { padding:.4rem .9rem; font-size:.9rem; }
+nav.tabs button[aria-selected="true"] { background:var(--blue);
+  border-color:var(--blue); color:var(--blue-ink); font-weight:600; }
+.big { font-size:1.4rem; font-weight:600; letter-spacing:-0.01em; }
 .tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
 table { border-collapse:collapse; width:100%; font-size:.9rem; }
 th, td { padding:.45rem .7rem; text-align:left; white-space:nowrap;
