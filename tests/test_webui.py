@@ -843,6 +843,63 @@ class GitAppTest(WebUiTest):
         self.assertEqual(data["authors"][0][0], "테스터")
 
 
+class LettersAppTest(WebUiTest):
+    """글자 손질 화면. 파일이 아니라 붙여넣은 글만 다룬다."""
+
+    def test_kbd_to_hangul(self):
+        _, data = self.post("/api/letters/kbd", {"text": "dkssudgktpdy"})
+        self.assertEqual(data["text"], "안녕하세요")
+        self.assertIsNone(data["both"])
+
+    def test_kbd_to_qwerty(self):
+        _, data = self.post("/api/letters/kbd", {"text": "안녕하세요"})
+        self.assertEqual(data["text"], "dkssudgktpdy")
+
+    def test_kbd_mixed_shows_both(self):
+        """어느 쪽인지 모를 때 한쪽을 고르면 나머지 절반이 망가진다."""
+        _, data = self.post("/api/letters/kbd", {"text": "안녕 hi"})
+        self.assertEqual(data["text"], "")
+        self.assertEqual(data["both"]["en"], "dkssud hi")
+
+    def test_kbd_forced_direction(self):
+        _, data = self.post("/api/letters/kbd",
+                            {"text": "안녕 hi", "to": "en"})
+        self.assertEqual(data["text"], "dkssud hi")
+
+    def test_empty_text(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/letters/kbd", {"text": "   "})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_typo(self):
+        _, data = self.post("/api/letters/typo", {"text": "몇일 뒤에 할께"})
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["fixed"], "며칠 뒤에 할게")
+
+    def test_typo_clean_text(self):
+        _, data = self.post("/api/letters/typo", {"text": "며칠 뒤에 할게"})
+        self.assertEqual(data["total"], 0)
+
+    def test_wrap(self):
+        body = "한글 문장을 이렇게 길게 쓰면 화면에서 읽기가 어렵다. 그래서 접는다."
+        _, data = self.post("/api/letters/wrap",
+                            {"text": body, "width": "20"})
+        self.assertGreater(len(data["text"].splitlines()), 1)
+
+    def test_wrap_width_is_checked(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/letters/wrap", {"text": "가나다", "width": "1"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_normalize(self):
+        import unicodedata
+
+        _, data = self.post("/api/letters/normalize",
+                            {"text": unicodedata.normalize("NFD", "한글")})
+        self.assertEqual(data["text"], "한글")
+        self.assertTrue(data["decomposed"])
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
