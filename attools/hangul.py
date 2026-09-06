@@ -277,3 +277,160 @@ def fix_typos(text: str) -> tuple[str, int]:
     for index, wrong, right in sorted(hits, reverse=True):
         body = body[:index] + right + body[index + len(wrong):]
     return body, len(hits)
+
+
+# --------------------------------------------------- 한/영 자판 잘못 누른 글
+
+# 두벌식 자판. 한글을 칠 자리에 영문으로 쳤을 때 무엇이 나왔어야 하는지.
+QWERTY_TO_JAMO = {
+    "q": "ㅂ", "w": "ㅈ", "e": "ㄷ", "r": "ㄱ", "t": "ㅅ", "y": "ㅛ",
+    "u": "ㅕ", "i": "ㅑ", "o": "ㅐ", "p": "ㅔ",
+    "a": "ㅁ", "s": "ㄴ", "d": "ㅇ", "f": "ㄹ", "g": "ㅎ",
+    "h": "ㅗ", "j": "ㅓ", "k": "ㅏ", "l": "ㅣ",
+    "z": "ㅋ", "x": "ㅌ", "c": "ㅊ", "v": "ㅍ", "b": "ㅠ", "n": "ㅜ", "m": "ㅡ",
+    "Q": "ㅃ", "W": "ㅉ", "E": "ㄸ", "R": "ㄲ", "T": "ㅆ",
+    "O": "ㅒ", "P": "ㅖ",
+}
+# 윗글쇠가 따로 없는 자리는 소문자와 같은 자모다 (A -> ㅁ).
+for _key, _jamo in list(QWERTY_TO_JAMO.items()):
+    QWERTY_TO_JAMO.setdefault(_key.upper(), _jamo)
+
+CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ"
+JUNG = "ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ"
+JONG = " ㄱㄲㄳㄴㄵㄶㄷㄹㄺㄻㄼㄽㄾㄿㅀㅁㅂㅄㅅㅆㅇㅈㅊㅋㅌㅍㅎ"
+
+# 두 번에 나눠 치는 겹모음·겹받침
+JUNG_PAIRS = {("ㅗ", "ㅏ"): "ㅘ", ("ㅗ", "ㅐ"): "ㅙ", ("ㅗ", "ㅣ"): "ㅚ",
+              ("ㅜ", "ㅓ"): "ㅝ", ("ㅜ", "ㅔ"): "ㅞ", ("ㅜ", "ㅣ"): "ㅟ",
+              ("ㅡ", "ㅣ"): "ㅢ"}
+JONG_PAIRS = {("ㄱ", "ㅅ"): "ㄳ", ("ㄴ", "ㅈ"): "ㄵ", ("ㄴ", "ㅎ"): "ㄶ",
+              ("ㄹ", "ㄱ"): "ㄺ", ("ㄹ", "ㅁ"): "ㄻ", ("ㄹ", "ㅂ"): "ㄼ",
+              ("ㄹ", "ㅅ"): "ㄽ", ("ㄹ", "ㅌ"): "ㄾ", ("ㄹ", "ㅍ"): "ㄿ",
+              ("ㄹ", "ㅎ"): "ㅀ", ("ㅂ", "ㅅ"): "ㅄ"}
+JUNG_SPLIT = {v: k for k, v in JUNG_PAIRS.items()}
+JONG_SPLIT = {v: k for k, v in JONG_PAIRS.items()}
+JAMO_TO_QWERTY = {jamo: key for key, jamo in QWERTY_TO_JAMO.items()
+                  if key.islower() or jamo in "ㅃㅉㄸㄲㅆㅒㅖ"}
+
+_BASE = 0xAC00
+
+
+def compose_jamo(jamos: str) -> str:
+    """자모 나열을 음절로 묶는다. 한글 IME 가 하는 일을 그대로 흉내 낸다."""
+    out: list[str] = []
+    cho = jung = jong = ""
+
+    def flush() -> None:
+        nonlocal cho, jung, jong
+        if cho and jung:
+            # 받침이 없으면 JONG.index("") 가 0 이라 그대로 맞는다
+            out.append(chr(_BASE + (CHO.index(cho) * 21 + JUNG.index(jung)) * 28
+                           + JONG.index(jong)))
+        else:
+            out.append(cho or jung)
+        cho = jung = jong = ""
+
+    for ch in jamos:
+        vowel = ch in JUNG
+        if not (vowel or ch in CHO or ch in JONG.strip()):
+            if cho or jung:
+                flush()
+            out.append(ch)
+            continue
+
+        if not cho and not jung:
+            if vowel:
+                jung = ch
+            else:
+                cho = ch
+            continue
+
+        if cho and not jung:
+            if vowel:
+                jung = ch
+            else:
+                flush()
+                cho = ch
+            continue
+
+        if jung and not cho:                    # 홀로 선 모음 뒤
+            if vowel and (jung, ch) in JUNG_PAIRS:
+                jung = JUNG_PAIRS[(jung, ch)]
+            else:
+                flush()
+                if vowel:
+                    jung = ch
+                else:
+                    cho = ch
+            continue
+
+        if not jong:
+            if vowel:
+                if (jung, ch) in JUNG_PAIRS:
+                    jung = JUNG_PAIRS[(jung, ch)]
+                else:
+                    flush()
+                    jung = ch
+            elif ch in JONG:
+                jong = ch
+            else:                               # ㄸ·ㅃ·ㅉ 은 받침이 못 된다
+                flush()
+                cho = ch
+            continue
+
+        if vowel:                               # 받침이 다음 글자로 넘어간다
+            moved = jong
+            if jong in JONG_SPLIT:
+                jong, moved = JONG_SPLIT[jong]
+            else:
+                jong = ""
+            flush()
+            cho, jung = moved, ch
+        elif (jong, ch) in JONG_PAIRS:
+            jong = JONG_PAIRS[(jong, ch)]
+        else:
+            flush()
+            cho = ch
+
+    if cho or jung:
+        flush()
+    return "".join(out)
+
+
+def decompose_syllable(ch: str) -> str:
+    """음절 하나를 자모로 푼다. 겹모음·겹받침도 친 순서대로 나눈다."""
+    code = ord(ch) - _BASE
+    if not 0 <= code < 11172:
+        return ch
+    cho = CHO[code // 588]
+    jung = JUNG[(code % 588) // 28]
+    jong = JONG[code % 28].strip()
+    parts = [cho, *JUNG_SPLIT.get(jung, (jung,))]
+    if jong:
+        parts.extend(JONG_SPLIT.get(jong, (jong,)))
+    return "".join(parts)
+
+
+def to_hangul(text: str) -> str:
+    """영문 자판으로 친 글을 한글로. dkssud -> 안녕"""
+    return compose_jamo("".join(QWERTY_TO_JAMO.get(ch, ch) for ch in text))
+
+
+def to_qwerty(text: str) -> str:
+    """한글로 친 글을 영문 자판 글자로. 안녕 -> dkssud"""
+    out = []
+    for ch in text:
+        for jamo in decompose_syllable(ch):
+            out.append(JAMO_TO_QWERTY.get(jamo, jamo))
+    return "".join(out)
+
+
+def mistyped_direction(text: str) -> str:
+    """어느 쪽으로 고쳐야 할지 짐작한다. 'ko', 'en', 또는 빈 문자열."""
+    hangul = sum(1 for ch in text if "가" <= ch <= "힣" or ch in JUNG or ch in CHO)
+    letters = sum(1 for ch in text if ch.isascii() and ch.isalpha())
+    if hangul and not letters:
+        return "en"
+    if letters and not hangul:
+        return "ko"
+    return ""

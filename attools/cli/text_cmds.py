@@ -104,6 +104,29 @@ def cmd_text_find(a) -> int:
     return 0
 
 
+def cmd_text_kbd(a) -> int:
+    """한/영 자판을 잘못 눌러 깨진 글을 되살린다."""
+    body = " ".join(a.words) if a.words else sys.stdin.read().rstrip("\n")
+    if not body.strip():
+        _p("고칠 글을 주세요. 예: at text kbd dkssudgktpdy")
+        return 1
+
+    way = a.to
+    if way == "auto":
+        way = hangul.mistyped_direction(body)
+
+    if way == "ko":
+        _p(hangul.to_hangul(body))
+    elif way == "en":
+        _p(hangul.to_qwerty(body))
+    else:
+        # 한글과 영문이 섞여 있으면 어느 쪽인지 알 수 없다. 둘 다 보여준다.
+        _p("한글과 영문이 섞여 있어 어느 쪽인지 알 수 없습니다. 둘 다 냅니다.")
+        _p(f"  한글로: {hangul.to_hangul(body)}")
+        _p(f"  영문으로: {hangul.to_qwerty(body)}")
+    return 0
+
+
 def cmd_text_lines(a) -> int:
     path = Path(a.file)
     if not path.is_file():
@@ -486,6 +509,13 @@ def add_commands(sub) -> None:
                             help="미리보기 줄 수")
         parser.add_argument("-q", "--quiet", action="store_true", help="차이 미리보기 생략")
         return parser
+
+    kb = tp.add_parser("kbd", help="한/영 자판을 잘못 눌러 깨진 글 되살리기")
+    kb.add_argument("words", nargs="*", metavar="글",
+                    help="비우면 표준 입력에서 읽는다")
+    kb.add_argument("--to", default="auto", choices=["auto", "ko", "en"],
+                    help="ko=한글로, en=영문으로 (기본 auto)")
+    kb.set_defaults(func=cmd_text_kbd)
 
     fp = tp.add_parser("find", help="여러 파일에서 찾기만 (고치지 않는다)")
     fp.add_argument("find", metavar="찾을것")

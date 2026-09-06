@@ -70,5 +70,64 @@ class HangulTest(unittest.TestCase):
                          ("며칠 전에 문을 잠갔다.", 0))
 
 
+class KeyboardTest(unittest.TestCase):
+    """한/영 자판을 잘못 눌러 깨진 글 되살리기."""
+
+    PAIRS = {
+        "dkssudgktpdy": "안녕하세요",
+        "gksrmf": "한글",
+        "rkqt": "값",
+        "dlfrek": "읽다",
+        "dho": "왜",
+        "dmltk": "의사",
+        "qnpfr": "뷁",
+        "TjqTjTdj": "썹썼어",
+    }
+
+    def test_to_hangul(self):
+        for keys, want in self.PAIRS.items():
+            self.assertEqual(hangul.to_hangul(keys), want, keys)
+
+    def test_to_qwerty(self):
+        for keys, text in self.PAIRS.items():
+            self.assertEqual(hangul.to_qwerty(text), keys, text)
+
+    def test_round_trip_keeps_text(self):
+        for text in ("안녕하세요", "밟았다", "괜찮아", "웬걸", "의의", "닭갈비"):
+            self.assertEqual(hangul.to_hangul(hangul.to_qwerty(text)), text)
+
+    def test_spaces_and_punctuation_pass_through(self):
+        self.assertEqual(hangul.to_hangul("dkssud, tptkd!"), "안녕, 세상!")
+
+    def test_numbers_stay(self):
+        self.assertEqual(hangul.to_hangul("3rodml"), "3개의")
+
+    def test_double_consonant_cannot_be_final(self):
+        """ㄸ·ㅃ·ㅉ 은 받침이 못 되므로 다음 글자로 넘어간다."""
+        self.assertEqual(hangul.to_hangul("rkE"), "가ㄸ")
+
+    def test_final_moves_to_next_syllable(self):
+        self.assertEqual(hangul.to_hangul("dkskek"), "아나다")
+        self.assertEqual(hangul.to_hangul("dksk"), "아나")
+
+    def test_compound_final_splits(self):
+        """겹받침 뒤에 모음이 오면 뒤쪽 자음만 넘어간다 (ㄺ -> ㄹ + 가)."""
+        self.assertEqual(hangul.to_hangul("dlfrk"), "일가")
+        self.assertEqual(hangul.to_hangul("dlfrdj"), "읽어")   # 자음이면 안 넘어간다
+
+    def test_lone_jamo_survives(self):
+        self.assertEqual(hangul.to_hangul("r"), "ㄱ")
+        self.assertEqual(hangul.to_hangul("k"), "ㅏ")
+
+    def test_decompose_non_hangul(self):
+        self.assertEqual(hangul.decompose_syllable("A"), "A")
+
+    def test_direction(self):
+        self.assertEqual(hangul.mistyped_direction("dkssud"), "ko")
+        self.assertEqual(hangul.mistyped_direction("안녕"), "en")
+        self.assertEqual(hangul.mistyped_direction("안녕 hi"), "")
+        self.assertEqual(hangul.mistyped_direction("1234"), "")
+
+
 if __name__ == "__main__":
     unittest.main()
