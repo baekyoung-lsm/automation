@@ -439,6 +439,35 @@ class TextAppTest(WebUiTest):
         self.assertEqual(ctx.exception.code, 400)
 
 
+class KeysAppTest(WebUiTest):
+    """단축키 화면. 모르는 칸을 지어내지 않는지 본다."""
+
+    def test_groups(self):
+        _, data = self.post("/api/keys/groups", {})
+        self.assertTrue(data["groups"])
+        for group in data["groups"]:
+            self.assertIn("unknown", group)
+
+    def test_search(self):
+        _, data = self.post("/api/keys/table", {"query": "찾기"})
+        self.assertTrue(data["rows"])
+        self.assertTrue(all("찾기" in row[0] or "찾" in row[0]
+                            for row in data["rows"]))
+
+    def test_unknown_group(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/keys/table", {"group": "없는그룹"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_marks_are_kept_apart(self):
+        """확인 못 한 칸(?)과 단축키가 없는 것(—)을 섞지 않는다."""
+        _, data = self.post("/api/keys/table", {})
+        marks = {cell for row in data["rows"] for cell in row[2:]}
+        self.assertTrue(marks & {"?", "—"})
+        self.assertNotIn("없음", marks)
+        self.assertNotIn("", marks)
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
