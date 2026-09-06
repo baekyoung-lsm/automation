@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ... import files
 from ...write import manuscript, names
 from .. import App, UiError, form
 
 TOP = 12
+FORMATS = {"html": "HTML 한 장", "epub": "EPUB (전자책 리더)",
+           "docx": "워드 (docx)", "md": "마크다운", "txt": "텍스트"}
 
 
 def _chapters(payload: dict) -> list[tuple[str, str]]:
@@ -92,6 +95,64 @@ def cast(payload: dict) -> dict:
             "note": ""}
 
 
+def export(payload: dict) -> dict:
+    """원고를 다른 형식으로 낸다. 원고 파일은 건드리지 않는다."""
+    root = form.existing_path(payload)
+    kind = form.choice(payload, "format", FORMATS, "html")
+    title = form.text(payload, "title") or (root.stem if root.is_dir() else root.parent.name)
+    author = form.text(payload, "author")
+    indent = form.flag(payload, "indent", True)
+
+    # 앞서 내보낸 md·txt 가 원고 디렉터리에 있으면 다음번에 원고로 다시 잡힌다.
+    # 투고본이 투고본의 원고가 되는 식이라 미리 뺀다.
+    made = f"{title} (투고본)"
+    picked = [(label, text) for label, text in _chapters(payload)
+              if not Path(label).stem.startswith(made)]
+    dropped = len(_chapters(payload)) - len(picked)
+    if not picked:
+        raise UiError("원고가 앞서 내보낸 파일뿐입니다. 제목을 바꾸거나 "
+                      "투고본을 다른 폴더로 옮겨 주세요.")
+
+    chapters, total = [], 0
+    for label, text in picked:
+        # HTML·EPUB·워드는 들여쓰기를 서식으로 주므로 본문에 공백을 넣지 않는다
+        body = manuscript.normalize_body(
+            text, indent=indent and kind in ("md", "txt"))
+        total += len("".join(body.split()))
+        chapters.append((manuscript.chapter_title(Path(label), text), body))
+
+    note = (f"{total:,}자 · 원고지 {total / manuscript.WONGOJI_CHARS:,.0f}매"
+            f" · {len(chapters)}편")
+    folder = root if root.is_dir() else root.parent
+    suffix = ".html" if kind == "html" else f".{kind}"
+    out = files.unique_path(folder / f"{title} (투고본){suffix}")
+
+    if kind == "docx":
+        manuscript.export_docx(chapters, out, title=title, author=author,
+                               note=note, indent=indent)
+        tail = "워드·한글·구글 문서에서 열립니다. 화마다 쪽이 나뉩니다."
+    elif kind == "epub":
+        manuscript.export_epub(chapters, out, title=title, author=author,
+                               note=note, indent=indent)
+        tail = "리더에 넣어 읽으면 화면이 달라져서 눈에 안 띄던 것이 보입니다."
+    elif kind == "html":
+        out.write_text(manuscript.export_html(chapters, title=title,
+                                              author=author, note=note,
+                                              indent=indent), encoding="utf-8")
+        tail = "브라우저에서 열어 인쇄하면 화마다 쪽이 나뉩니다."
+    else:
+        out.write_text(manuscript.export_text(chapters, title=title,
+                                              author=author, note=note,
+                                              markdown=kind == "md"),
+                       encoding="utf-8")
+        tail = "원고 파일은 그대로 두고 새 파일만 만들었습니다."
+
+    if dropped:
+        tail += f" 앞서 내보낸 파일 {dropped}개는 원고에서 뺐습니다."
+    return {"saved": str(out), "note": note, "tail": tail,
+            "chapters": len(chapters), "dropped": dropped}
+
+
 BODY = """
 <section class="card">
   <h2>어느 원고인가요</h2>
@@ -114,7 +175,7 @@ BODY = """
     <button id="btn-inspect">되풀이 점검</button>
     <button id="btn-cast">인물 흐름</button>
     <span class="spacer"></span>
-    <span class="note">읽기만 합니다. 원고는 바뀌지 않습니다.</span>
+    <span class="note">원고 파일은 바뀌지 않습니다.</span>
   </div>
   <div id="msg"></div>
 </section>
@@ -127,6 +188,25 @@ BODY = """
 <section class="card" id="card-inspect" hidden>
   <h2>되풀이되는 말</h2>
   <div id="inspect"></div>
+</section>
+
+<section class="card">
+  <h2>내보내기</h2>
+  <p class="note">원고를 묶어 새 파일 하나로 냅니다. <b>원고 파일은 건드리지
+     않습니다.</b> 이름이 겹치면 번호를 붙입니다.</p>
+  <div class="row">
+    <div><label for="format">형식</label>
+      <select id="format"><option value="html">HTML 한 장</option><option value="epub">EPUB (전자책 리더)</option><option value="docx">워드 (docx)</option><option value="md">마크다운</option><option value="txt">텍스트</option></select></div>
+    <div><label for="title">제목 (비우면 폴더 이름)</label>
+      <input type="text" id="title" spellcheck="false"></div>
+    <div><label for="author">지은이</label>
+      <input type="text" id="author" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-export">내보내기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="indent" checked> 문단 첫 줄 들여쓰기</label>
+  </div>
+  <div id="exportmsg"></div>
 </section>
 
 <section class="card" id="card-cast" hidden>
@@ -187,6 +267,19 @@ BODY = """
     } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-export").addEventListener("click", async function () {
+    const body = values();
+    body.format = $("format").value;
+    body.title = $("title").value;
+    body.author = $("author").value;
+    body.indent = $("indent").checked;
+    try {
+      const d = await AT.call("/api/novel/export", body);
+      AT.message($("exportmsg"), "저장했습니다: <b>" + AT.esc(d.saved) +
+                 "</b><br>" + AT.esc(d.note) + " · " + AT.esc(d.tail), "ok");
+    } catch (e) { AT.message($("exportmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-cast").addEventListener("click", async function () {
     try {
       const d = await AT.call("/api/novel/cast", values());
@@ -211,10 +304,11 @@ def make() -> App:
     return App(
         key="novel",
         name="원고 점검",
-        summary="얼마나 썼는지 보고, 되풀이되는 말과 인물 등장을 점검한다",
-        subtitle="분량 · 되풀이 · 인물",
+        summary="분량·되풀이·인물 등장을 보고, 투고본으로 묶어 낸다",
+        subtitle="분량 · 되풀이 · 인물 · 내보내기",
         body=lambda: BODY,
-        actions={"count": count, "inspect": inspect, "cast": cast},
+        actions={"count": count, "inspect": inspect, "cast": cast,
+                 "export": export},
         aliases=("원고", "소설", "집필"),
         section="글",
     )

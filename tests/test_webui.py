@@ -459,6 +459,42 @@ class NovelAppTest(WebUiTest):
         self.assertEqual(data["rows"], [])
         self.assertTrue(data["note"])
 
+    def test_export_makes_a_new_file(self):
+        root = self.manuscript()
+        before = {p.name: p.read_text(encoding="utf-8") for p in root.iterdir()}
+        _, data = self.post("/api/novel/export",
+                            {"path": str(root), "format": "html",
+                             "title": "시험작"})
+        self.assertTrue(Path(data["saved"]).exists())
+        for name, text in before.items():
+            self.assertEqual((root / name).read_text(encoding="utf-8"), text)
+
+    def test_export_every_format(self):
+        root = self.manuscript()
+        for kind in ("html", "epub", "docx", "md", "txt"):
+            _, data = self.post("/api/novel/export",
+                                {"path": str(root), "format": kind,
+                                 "title": "시험작"})
+            self.assertTrue(Path(data["saved"]).exists(), kind)
+
+    def test_export_skips_earlier_exports(self):
+        """투고본이 다음 투고본의 원고가 되면 안 된다."""
+        root = self.manuscript()
+        self.post("/api/novel/export",
+                  {"path": str(root), "format": "md", "title": "시험작"})
+        _, second = self.post("/api/novel/export",
+                              {"path": str(root), "format": "txt",
+                               "title": "시험작"})
+        self.assertEqual(second["chapters"], 2)
+        self.assertEqual(second["dropped"], 1)
+
+    def test_export_rejects_unknown_format(self):
+        root = self.manuscript()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/novel/export",
+                      {"path": str(root), "format": "pdf"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_reading_does_not_change_files(self):
         root = self.manuscript()
         before = {p.name: p.read_text(encoding="utf-8") for p in root.iterdir()}
