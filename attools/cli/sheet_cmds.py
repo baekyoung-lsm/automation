@@ -401,6 +401,31 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_audit(a) -> int:
+    """받은 표를 한 번에 훑는다. 무엇부터 봐야 하는지 알려 준다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    rep = sheet.audit(t)
+
+    name = Path(a.file).name + (f"[{t.sheet}]" if t.sheet else "")
+    _p(f"{name}  {rep.rows:,}행 x {rep.columns}열")
+
+    if not rep.notes:
+        _p("\n볼 만한 곳이 없습니다.")
+    else:
+        _p(f"\n볼 만한 곳 {len(rep.notes)}가지")
+        _grid(["무엇", "열", "내용"],
+              [[n.kind, n.column or "-", _cut(n.detail, 52)] for n in rep.notes],
+              limit=56)
+
+    _p("\n본 것: " + " · ".join(rep.looked))
+    for line in rep.skipped:
+        _p(f"  못 본 것 - {line}")
+    _p("  고치지는 않았습니다. 여기 없는 문제가 없다는 뜻은 아닙니다.")
+    return 1 if rep.notes and a.strict else 0
+
+
 def cmd_sheet_outliers(a) -> int:
     """숫자 열에서 드문 값을 찾는다. 지우지 않고 어디인지만 알려 준다."""
     t = _load(a)
@@ -1932,6 +1957,12 @@ def add_commands(sub) -> None:
     sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
     sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
     sp2.set_defaults(func=cmd_sheet_sample)
+
+    ad = common(sh.add_parser("audit", help="받은 표 한 번에 훑기 (빈 칸·타입·중복·드문 값·개인정보)"))
+    ad.add_argument("file")
+    ad.add_argument("--strict", action="store_true",
+                    help="볼 만한 곳이 있으면 1 로 끝낸다")
+    ad.set_defaults(func=cmd_sheet_audit)
 
     ol2 = common(sh.add_parser("outliers", help="숫자 열에서 드문 값 찾기 (입력 실수 검수)"))
     ol2.add_argument("file")

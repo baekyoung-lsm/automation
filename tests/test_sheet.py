@@ -1921,5 +1921,53 @@ class BadFileTest(unittest.TestCase):
             sheet.load(self.root / "없는것.xlsx")
 
 
+class AuditTest(unittest.TestCase):
+    def kinds(self, report):
+        return {n.kind for n in report.notes}
+
+    def test_empty_table_says_it_saw_nothing(self):
+        rep = sheet.audit(sheet.Table(["가"], []))
+        self.assertEqual(rep.notes, [])
+        self.assertTrue(rep.skipped)
+
+    def test_missing_heavy_column(self):
+        t = sheet.Table(["가"], [[None], [None], ["값"], ["값2"]])
+        self.assertIn("빈 칸", self.kinds(sheet.audit(t)))
+
+    def test_mixed_types(self):
+        t = sheet.Table(["금액"], [[1], [2], ["글자"]])
+        self.assertIn("타입 섞임", self.kinds(sheet.audit(t)))
+
+    def test_duplicate_rows(self):
+        t = sheet.Table(["가"], [["값"], ["값"]])
+        self.assertIn("중복 행", self.kinds(sheet.audit(t)))
+
+    def test_outlier_column(self):
+        rows = [[v] for v in [100, 105, 98, 102, 99, 101, 103, 97, 100000]]
+        self.assertIn("드문 값", self.kinds(sheet.audit(sheet.Table(["금액"], rows))))
+
+    def test_private_columns(self):
+        t = sheet.Table(["메일", "전화"],
+                        [["a@a.com", "010-1111-2222"]] * 3)
+        notes = [n for n in sheet.audit(t).notes if n.kind == "개인정보"]
+        self.assertEqual({n.column for n in notes}, {"메일", "전화"})
+        # 조사는 받침에 맞춰 붙인다
+        self.assertTrue(any("이메일로" in n.detail for n in notes))
+
+    def test_shaky_names(self):
+        t = sheet.Table(["상호"], [["(주)가나"], ["주식회사 가나"], ["다라"]])
+        self.assertIn("표기 흔들림", self.kinds(sheet.audit(t)))
+
+    def test_clean_table_has_no_notes(self):
+        t = sheet.Table(["사번", "이름"],
+                        [["E1", "홍길동"], ["E2", "김철수"], ["E3", "이영희"]])
+        self.assertEqual(sheet.audit(t).notes, [])
+
+    def test_it_says_what_it_looked_at(self):
+        # «문제 없음» 이 «다 봤다» 로 읽히면 안 된다
+        rep = sheet.audit(sheet.Table(["가"], [["1"]]))
+        self.assertTrue(rep.looked)
+
+
 if __name__ == "__main__":
     unittest.main()

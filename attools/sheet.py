@@ -1663,6 +1663,113 @@ FORMAT_CHECKS = {
 }
 
 
+# ----------------------------------------------------------- 한 번에 훑기
+
+MISSING_SHARE = 0.2          # 이보다 많이 비면 알린다
+PRIVATE_SHARE = 0.5          # 값의 절반 이상이 맞으면 그 열로 본다
+AUDIT_UNIQUE_CAP = 2000      # 이보다 다양한 열에서는 표기 흔들림을 보지 않는다
+
+
+@dataclass
+class AuditNote:
+    kind: str                # 빈 칸 · 타입 섞임 · 중복 행 · 드문 값 · 개인정보 · 표기 흔들림
+    column: str
+    detail: str
+
+
+@dataclass
+class AuditReport:
+    rows: int = 0
+    columns: int = 0
+    notes: list[AuditNote] = field(default_factory=list)
+    looked: list[str] = field(default_factory=list)   # 무엇을 봤는지
+    skipped: list[str] = field(default_factory=list)  # 무엇을 못 봤는지
+
+
+def _private_patterns():
+    """개인정보로 보이는 열을 가리는 규칙. 규칙 자체는 아래쪽에 정의돼 있다."""
+    return (("주민번호", RRN_RE), ("이메일", EMAIL_RE),
+            ("휴대폰", MOBILE_RE), ("전화", PHONE_RE))
+
+
+def audit(table: Table) -> AuditReport:
+    """받은 표를 한 번에 훑는다. 고치지 않고 «볼 만한 곳» 만 모은다.
+
+    남이 보낸 파일을 열어 무엇부터 봐야 할지 모를 때 쓴다. 무엇을 봤는지와
+    무엇을 못 봤는지를 함께 적는다 - «문제 없음» 이 «다 봤다» 로 읽히면 안 된다.
+    """
+    report = AuditReport(len(table.rows), table.width)
+    report.looked = ["빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
+                     "숫자 열의 드문 값", "개인정보로 보이는 열", "표기 흔들림"]
+    if not table.rows:
+        report.skipped.append("행이 없어 아무것도 보지 못했습니다.")
+        return report
+
+    for col in profile(table):
+        share = col.missing / len(table.rows)
+        if share >= MISSING_SHARE:
+            report.notes.append(AuditNote(
+                "빈 칸", col.name,
+                f"{col.missing:,}칸 비어 있음 ({share:.0%})"))
+        kinds = {k: n for k, n in col.kinds.items() if k != "빈칸"}
+        if len(kinds) > 1:
+            shown = ", ".join(f"{k} {n:,}" for k, n in
+                              sorted(kinds.items(), key=lambda x: -x[1]))
+            report.notes.append(AuditNote("타입 섞임", col.name, shown))
+
+    seen: dict[tuple, int] = {}
+    duplicates = 0
+    for row in table.rows:
+        key = tuple(to_text(v) for v in row)
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] == 2:
+            duplicates += 1
+    if duplicates:
+        report.notes.append(AuditNote(
+            "중복 행", "", f"내용이 똑같은 행 {duplicates:,}가지 "
+                           "(at sheet dedupe 로 정리)"))
+
+    for i, name in enumerate(table.headers):
+        values = [row[i] for row in table.rows if i < len(row) and not _is_blank(row[i])]
+        if not values:
+            continue
+        numbers = [v for v in values
+                   if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if len(numbers) >= OUTLIER_MIN_ROWS and len(numbers) >= len(values) * 0.8:
+            found = find_outliers(table, name)
+            if found.found:
+                rows = ", ".join(str(o.row) for o in found.found[:3])
+                report.notes.append(AuditNote(
+                    "드문 값", name,
+                    f"{len(found.found):,}개 (예: {rows}행) "
+                    f"· 보통 {found.low:,.0f} ~ {found.high:,.0f}"))
+            continue
+
+        texts = [to_text(v) for v in values]
+        for label, pattern in _private_patterns():
+            hits = sum(1 for text in texts if pattern.search(text))
+            if hits >= len(texts) * PRIVATE_SHARE:
+                report.notes.append(AuditNote(
+                    "개인정보", name,
+                    f"{josa(label, '으로/로')} 보이는 값 {hits:,}개 "
+                    "(밖으로 낼 때 at sheet mask)"))
+                break
+
+        # 값이 다 달라도 표기 흔들림은 본다. 거래처 목록이 딱 그런 모양이다.
+        unique = len(set(texts))
+        if 1 < unique <= AUDIT_UNIQUE_CAP:
+            pairs, _cut = find_similar(table, name, limit=50)
+            if pairs:
+                report.notes.append(AuditNote(
+                    "표기 흔들림", name,
+                    f"같은 곳으로 보이는 짝 {len(pairs):,}개 "
+                    "(at sheet similar 로 자세히)"))
+        elif unique > AUDIT_UNIQUE_CAP:
+            report.skipped.append(f"{name}: 값이 너무 다양해 표기 흔들림은 안 봤습니다")
+
+    return report
+
+
 # --------------------------------------------------------------- 이상치
 
 OUTLIER_METHODS = {"iqr": "사분위 범위 (한쪽으로 쏠린 자료에 강하다)",
