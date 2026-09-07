@@ -1155,6 +1155,32 @@ class GitAppTest(UiCase):
         for row in data["rows"]:
             self.assertNotIn("\n", row[3])
 
+    def test_ready_needs_staged_files(self):
+        root = self.repo()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/git/ready", {"path": str(root)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_ready_finds_debug_marks(self):
+        """이번에 더한 줄에서만 찾는다. 원래 있던 줄까지 세면 못 본다."""
+        import subprocess
+
+        root = self.repo()
+        (root / "코드.js").write_text("console.log('여기')\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        _, data = self.post("/api/git/ready", {"path": str(root)})
+        self.assertEqual(data["staged"], 1)
+        self.assertEqual(data["rows"][0][0], "디버그 흔적")
+
+    def test_ready_clean(self):
+        import subprocess
+
+        root = self.repo()
+        (root / "깨끗.py").write_text("x = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        _, data = self.post("/api/git/ready", {"path": str(root)})
+        self.assertEqual(data["count"], 0)
+
     def test_conflicts(self):
         root = self.repo()
         _, data = self.post("/api/git/conflicts", {"path": str(root)})

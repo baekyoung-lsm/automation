@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ... import files
 from ...code import gitkit, todo
 from .. import App, UiError, form
 
@@ -38,6 +39,30 @@ def branches(payload: dict) -> dict:
     return {"rows": rows, "base": sweep.base, "current": sweep.current,
             "note": "이 화면은 브랜치를 지우지 않습니다. "
                     "터미널에서 at git sweep --apply 로 지우세요."}
+
+
+def ready(payload: dict) -> dict:
+    """커밋 전 점검. 스테이징된 것만 본다."""
+    root = _root(payload)
+    names = [n for n in gitkit.run(["diff", "--cached", "--name-only"],
+                                   root).splitlines() if n]
+    if not names:
+        raise UiError("스테이징된 파일이 없습니다. 먼저 git add 를 하세요.")
+
+    rows = []
+    for finding in gitkit.scan_paths(root, staged=True)[:MAX_ROWS]:
+        rows.append(["시크릿", f"{finding.path}:{finding.line}",
+                     finding.kind, finding.excerpt[:60]])
+    for conflict in gitkit.scan_conflicts(root, names=names)[:MAX_ROWS]:
+        rows.append(["충돌 표시", f"{conflict.path}:{conflict.line}", "", ""])
+    for mark in gitkit.find_debug_marks(gitkit.staged_added_lines(root))[:MAX_ROWS]:
+        rows.append(["디버그 흔적", mark.path, mark.kind, mark.line[:60]])
+    for name, size in gitkit.staged_big_files(root)[:MAX_ROWS]:
+        rows.append(["큰 파일", name, files.human_size(size), ""])
+
+    return {"rows": rows, "staged": len(names), "count": len(rows),
+            "note": "의도한 것이면 그대로 커밋하세요. 여기서 막지는 않습니다. "
+                    "디버그 흔적은 이번에 더한 줄에서만 찾습니다."}
 
 
 def conflicts(payload: dict) -> dict:
@@ -98,7 +123,8 @@ BODY = """
   <nav class="tabs" id="tabs" style="margin-top:1.1rem">
     <button data-tab="scan" aria-selected="true">시크릿 검사</button>
     <button data-tab="branches" aria-selected="false">묵은 브랜치</button>
-    <button data-tab="conflicts" aria-selected="false">충돌 표시</button>
+    <button data-tab="ready" aria-selected="false">커밋 전 점검</button>
+  <button data-tab="conflicts" aria-selected="false">충돌 표시</button>
     <button data-tab="todos" aria-selected="false">TODO</button>
     <button data-tab="stats" aria-selected="false">커밋 통계</button>
   </nav>
@@ -116,6 +142,14 @@ BODY = """
   <h2>병합이 끝났거나 원격이 사라진 브랜치</h2>
   <div class="actions"><button class="primary" id="btn-branches">찾기</button></div>
   <div id="branches-out"></div>
+</section>
+
+<section class="card" data-panel="ready" hidden>
+  <h2>커밋 전 점검</h2>
+  <p class="note">스테이징한 것만 봅니다 — 시크릿, 남은 충돌 표시,
+     이번에 더한 줄의 디버그 흔적, 큰 파일.</p>
+  <div class="actions"><button class="primary" id="btn-ready">점검</button></div>
+  <div id="ready-out"></div>
 </section>
 
 <section class="card" data-panel="conflicts" hidden>
@@ -195,6 +229,16 @@ BODY = """
     });
   });
 
+  $("btn-ready").addEventListener("click", function () {
+    run("/api/git/ready", where(), function (d) {
+      $("ready-out").innerHTML = big(d.count
+          ? d.count + "건이 걸립니다" : "걸리는 것이 없습니다. 커밋해도 됩니다") +
+        (d.count ? AT.table(["무엇", "어디", "종류", "내용"], d.rows) : "") +
+        note("스테이징된 파일 " + d.staged + "개") + note(d.note);
+      AT.message($("msg"), "봤습니다.", d.count ? "bad" : "ok");
+    });
+  });
+
   $("btn-conflicts").addEventListener("click", function () {
     run("/api/git/conflicts", where(), function (d) {
       $("conflicts-out").innerHTML = big(d.total ? d.total + "곳이 남아 있습니다"
@@ -240,11 +284,11 @@ def make() -> App:
     return App(
         key="git",
         name="저장소 훑기",
-        summary="시크릿·묵은 브랜치·충돌 표시·TODO·커밋 통계 (읽기만)",
+        summary="커밋 전 점검·시크릿·묵은 브랜치·충돌·TODO·커밋 통계 (읽기만)",
         subtitle="읽기만 합니다 · 지우거나 커밋하지 않습니다",
         body=lambda: BODY,
         actions={"scan": scan, "branches": branches, "conflicts": conflicts,
-                 "todos": todos, "stats": stats},
+                 "todos": todos, "stats": stats, "ready": ready},
         aliases=("git", "저장소"),
         section="개발",
     )
