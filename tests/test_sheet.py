@@ -1737,5 +1737,67 @@ class ReplaceValuesTest(unittest.TestCase):
             sheet.replace_values(self.table(), "가", "나", columns=["없는열"])
 
 
+class OutlierTest(unittest.TestCase):
+    def table(self, values):
+        return sheet.Table(["금액"], [[v] for v in values])
+
+    def steady(self):
+        return [100, 105, 98, 102, 99, 101, 103, 97]
+
+    def test_finds_both_ends(self):
+        rep = sheet.find_outliers(self.table(self.steady() + [0, 100000]), "금액")
+        sides = {o.side for o in rep.found}
+        self.assertEqual(sides, {"높음", "낮음"})
+        self.assertEqual({o.row for o in rep.found}, {10, 11})
+
+    def test_nothing_when_values_are_alike(self):
+        rep = sheet.find_outliers(self.table(self.steady()), "금액")
+        self.assertEqual(rep.found, [])
+
+    def test_too_few_numbers_says_so(self):
+        rep = sheet.find_outliers(self.table([1, 2, 3]), "금액")
+        self.assertIn("말할 수 없습니다", rep.note)
+        self.assertEqual(rep.found, [])
+
+    def test_all_same_value(self):
+        rep = sheet.find_outliers(self.table([5] * 10), "금액")
+        self.assertIn("모두 같아", rep.note)
+
+    def test_sigma_is_dragged_by_the_outlier(self):
+        # 그래서 기본을 iqr 로 두었다
+        rows = self.steady() + [100000]
+        iqr = sheet.find_outliers(self.table(rows), "금액")
+        sigma = sheet.find_outliers(self.table(rows), "금액", method="sigma",
+                                    factor=3)
+        self.assertTrue(iqr.found)
+        self.assertEqual(sigma.found, [])
+
+    def test_text_numbers_are_read(self):
+        rep = sheet.find_outliers(
+            self.table(["100", "105", "98", "102", "99", "101", "103", "97",
+                        "1,000,000"]), "금액")
+        self.assertEqual(rep.counted, 9)
+        self.assertEqual(len(rep.found), 1)
+
+    def test_blank_and_text_are_skipped(self):
+        rep = sheet.find_outliers(self.table(self.steady() + [None, "글자"]),
+                                  "금액")
+        self.assertEqual(rep.counted, 8)
+
+    def test_bad_arguments(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_outliers(self.table([1]), "금액", method="마법")
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_outliers(self.table([1]), "금액", factor=0)
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_outliers(self.table([1]), "없는열")
+
+    def test_quantile(self):
+        values = [1, 2, 3, 4]
+        self.assertEqual(sheet._quantile(values, 0.5), 2.5)
+        self.assertEqual(sheet._quantile(values, 0.0), 1)
+        self.assertEqual(sheet._quantile([], 0.5), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

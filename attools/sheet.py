@@ -1541,6 +1541,101 @@ FORMAT_CHECKS = {
 }
 
 
+# --------------------------------------------------------------- 이상치
+
+OUTLIER_METHODS = {"iqr": "사분위 범위 (한쪽으로 쏠린 자료에 강하다)",
+                   "sigma": "평균 ± 표준편차 (종 모양 자료에 맞다)"}
+OUTLIER_MIN_ROWS = 8          # 이보다 적으면 «드문 값» 을 말할 수 없다
+
+
+@dataclass
+class Outlier:
+    row: int                  # 머리글을 1행으로 센 줄 번호
+    value: float
+    side: str                 # '높음' 또는 '낮음'
+
+
+@dataclass
+class OutlierReport:
+    column: str
+    method: str
+    counted: int              # 숫자로 읽은 칸 수
+    low: float
+    high: float
+    middle: float             # iqr 이면 중앙값, sigma 면 평균
+    found: list[Outlier] = field(default_factory=list)
+    note: str = ""
+
+
+def _quantile(values: list[float], q: float) -> float:
+    """오름차순 값에서 백분위. 사이 값은 선형으로 잇는다."""
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return values[0]
+    pos = (len(values) - 1) * q
+    low = int(pos)
+    high = min(low + 1, len(values) - 1)
+    return values[low] + (values[high] - values[low]) * (pos - low)
+
+
+def find_outliers(table: Table, column: str, *, method: str = "iqr",
+                  factor: float = 1.5) -> OutlierReport:
+    """한 숫자 열에서 드문 값을 찾는다. 지우지 않고 어디인지만 알려 준다.
+
+    «0 이 하나, 1억이 하나» 같은 입력 실수를 검수 때 잡으려는 것이다. 드문
+    값이 곧 틀린 값은 아니므로 판단은 사람이 한다.
+    """
+    if method not in OUTLIER_METHODS:
+        raise SheetError(f"모르는 방법: {method} ({', '.join(OUTLIER_METHODS)})")
+    if factor <= 0:
+        raise SheetError("배수는 0 보다 커야 합니다.")
+
+    index = table.index_of(column)
+    numbers: list[tuple[int, float]] = []
+    for line, row in enumerate(table.rows, 2):
+        cell = row[index] if index < len(row) else None
+        if isinstance(cell, bool) or _is_blank(cell):
+            continue
+        if isinstance(cell, (int, float)):
+            numbers.append((line, float(cell)))
+        else:
+            parsed = parse_number(to_text(cell))
+            if parsed is not None:
+                numbers.append((line, float(parsed)))
+
+    report = OutlierReport(table.headers[index], method, len(numbers), 0.0, 0.0, 0.0)
+    if len(numbers) < OUTLIER_MIN_ROWS:
+        report.note = (f"숫자가 {len(numbers)}개뿐이라 드문 값을 말할 수 없습니다 "
+                       f"(적어도 {OUTLIER_MIN_ROWS}개).")
+        return report
+
+    values = sorted(v for _line, v in numbers)
+    if method == "iqr":
+        q1, q3 = _quantile(values, 0.25), _quantile(values, 0.75)
+        spread = q3 - q1
+        report.middle = _quantile(values, 0.5)
+        report.low, report.high = q1 - factor * spread, q3 + factor * spread
+    else:
+        mean = sum(values) / len(values)
+        var = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+        sigma = var ** 0.5
+        report.middle = mean
+        report.low, report.high = mean - factor * sigma, mean + factor * sigma
+
+    if report.high == report.low:
+        report.note = "값이 모두 같아 드문 값이 없습니다."
+        return report
+
+    for line, value in numbers:
+        if value < report.low:
+            report.found.append(Outlier(line, value, "낮음"))
+        elif value > report.high:
+            report.found.append(Outlier(line, value, "높음"))
+    report.found.sort(key=lambda o: -abs(o.value - report.middle))
+    return report
+
+
 # ------------------------------------------------------------ 값 바꾸기
 
 @dataclass

@@ -397,6 +397,46 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_outliers(a) -> int:
+    """숫자 열에서 드문 값을 찾는다. 지우지 않고 어디인지만 알려 준다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        rep = sheet.find_outliers(t, a.column, method=a.method, factor=a.factor)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{rep.column}  숫자로 읽은 칸 {rep.counted:,}개  "
+       f"({sheet.OUTLIER_METHODS[rep.method]})")
+    if rep.note:
+        _p(f"  {rep.note}")
+        return 0
+
+    middle = "중앙값" if rep.method == "iqr" else "평균"
+    _p(f"  {middle} {sheet.to_text(round(rep.middle, 2))}  ·  "
+       f"보통 범위 {sheet.to_text(round(rep.low, 2))} ~ "
+       f"{sheet.to_text(round(rep.high, 2))}  (배수 {a.factor:g})")
+
+    if not rep.found:
+        _p("\n범위를 벗어난 값이 없습니다.")
+        return 0
+
+    _p(f"\n드문 값 {len(rep.found):,}개")
+    # 정수인 값은 소수점을 붙이지 않는다. 100000.0 은 읽기 나쁘다
+    def _shown(value: float) -> str:
+        return f"{int(value):,}" if float(value).is_integer() else f"{value:,.2f}"
+
+    _grid(["행", "값", "어느 쪽"],
+          [[str(o.row), _shown(o.value), o.side]
+           for o in rep.found[:a.limit]], limit=24)
+    if len(rep.found) > a.limit:
+        _p(f"  ... {len(rep.found) - a.limit:,}개 더")
+    _p("\n드문 값이 곧 틀린 값은 아닙니다. 원본에서 확인하세요.")
+    return 1 if a.strict else 0
+
+
 def cmd_sheet_replace(a) -> int:
     """표 안의 값을 찾아 바꾼다. 원본은 그대로 두고 새 파일로 낸다."""
     t = _load(a)
@@ -1855,6 +1895,18 @@ def add_commands(sub) -> None:
     sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
     sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
     sp2.set_defaults(func=cmd_sheet_sample)
+
+    ol2 = common(sh.add_parser("outliers", help="숫자 열에서 드문 값 찾기 (입력 실수 검수)"))
+    ol2.add_argument("file")
+    ol2.add_argument("-c", "--column", required=True, metavar="열")
+    ol2.add_argument("--method", default="iqr", choices=sorted(sheet.OUTLIER_METHODS),
+                     help="iqr 사분위 범위 (기본) · sigma 평균 ± 표준편차")
+    ol2.add_argument("--factor", type=float, default=1.5, metavar="배수",
+                     help="이 배수를 넘으면 드문 값 (기본 1.5, sigma 면 3 쯤)")
+    ol2.add_argument("--limit", type=int, default=20, metavar="개")
+    ol2.add_argument("--strict", action="store_true",
+                     help="드문 값이 있으면 1 로 끝낸다")
+    ol2.set_defaults(func=cmd_sheet_outliers)
 
     rp3 = sheet_out(common(sh.add_parser(
         "replace", help="표 안의 값 찾아 바꾸기 (엑셀의 모두 바꾸기)")))
