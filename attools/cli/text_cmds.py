@@ -104,6 +104,58 @@ def cmd_text_find(a) -> int:
     return 0
 
 
+def cmd_text_pick(a) -> int:
+    """글에서 이메일·전화·금액 같은 것을 뽑는다. 정규식을 몰라도 되게."""
+    targets = _text_targets(a)
+    if targets is None:
+        return 1
+    if not targets:
+        _p("읽을 파일이 없습니다.")
+        return 1
+
+    kinds = [k.strip() for k in (a.only or "").split(",") if k.strip()] or None
+    found: list = []
+    for path in targets:
+        try:
+            body, _encoding = text.read_text_any(path)
+        except (text.TextError, OSError):
+            continue
+        try:
+            found += text.pick(body, kinds, source=str(path))
+        except text.TextError as e:
+            _p(str(e))
+            return 1
+
+    if a.unique:
+        found = text.unique_picked(found)
+    if not found:
+        _p(f"뽑을 것이 없습니다. (파일 {len(targets)}개를 봤습니다)")
+        _p(f"찾는 종류: {', '.join(text.PICK_RULES)}")
+        return 1
+
+    if a.out:
+        from .. import sheet
+
+        table = sheet.Table(["종류", "값", "파일", "줄", "그 줄"],
+                            [[p.kind, p.value, p.source, p.line, p.context]
+                             for p in found])
+        _p(f"저장: {sheet.save(table, Path(a.out))}  ({len(found):,}건)")
+        return 0
+
+    counts: dict[str, int] = {}
+    for item in found:
+        counts[item.kind] = counts.get(item.kind, 0) + 1
+
+    _grid(["종류", "값", "파일", "줄"],
+          [[p.kind, _cut(p.value, 40), Path(p.source).name, str(p.line)]
+           for p in found[:a.limit]], limit=40)
+    if len(found) > a.limit:
+        _p(f"... {len(found) - a.limit:,}건 더 (--limit 로 조절)")
+    _p("\n" + ", ".join(f"{kind} {n}건" for kind, n in counts.items()))
+    _p("-o 결과.csv 로 저장할 수 있습니다. 겹치는 값을 하나로 보려면 --unique.")
+    return 0
+
+
 def cmd_text_kbd(a) -> int:
     """한/영 자판을 잘못 눌러 깨진 글을 되살린다."""
     body = " ".join(a.words) if a.words else sys.stdin.read().rstrip("\n")
@@ -509,6 +561,17 @@ def add_commands(sub) -> None:
                             help="미리보기 줄 수")
         parser.add_argument("-q", "--quiet", action="store_true", help="차이 미리보기 생략")
         return parser
+
+    pk = tp.add_parser("pick", help="이메일·전화·금액·날짜 뽑아내기 (정규식 없이)")
+    text_paths(pk)
+    pk.add_argument("-g", "--glob", action="append", metavar="패턴")
+    pk.add_argument("--hidden", action="store_true")
+    pk.add_argument("--only", metavar="종류",
+                    help="쉼표로. 예: --only 이메일,전화 (기본 전부)")
+    pk.add_argument("--unique", action="store_true", help="같은 값은 한 번만")
+    pk.add_argument("-o", "--out", metavar="파일", help="표로 저장 (.csv, .xlsx)")
+    pk.add_argument("--limit", type=int, default=40, metavar="개")
+    pk.set_defaults(func=cmd_text_pick)
 
     kb = tp.add_parser("kbd", help="한/영 자판을 잘못 눌러 깨진 글 되살리기")
     kb.add_argument("words", nargs="*", metavar="글",

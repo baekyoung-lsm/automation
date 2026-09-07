@@ -127,6 +127,64 @@ def plan_replace(files, pattern: re.Pattern[str], replacement: str, *,
 
 
 
+# --------------------------------------------------------------- 뽑아내기
+
+# 정규식을 모르는 사람이 자주 찾는 것만 골라 둔다. 넓게 잡으면 오탐이 쏟아져
+# 결과를 아예 안 보게 되므로, 애매한 것은 넣지 않는다.
+PICK_RULES: dict[str, re.Pattern[str]] = {
+    "이메일": re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"),
+    "휴대폰": re.compile(r"\b01[016789][-. ]?\d{3,4}[-. ]?\d{4}\b"),
+    "전화": re.compile(r"\b(?:02|0[3-6][1-5]|070|080)[-. ]\d{3,4}[-. ]\d{4}\b"
+                     r"|\b1[5-9]\d{2}[-. ]?\d{4}\b"),
+    # 하이픈이 있는 것만 본다. 숫자 열 자리는 계좌·주문번호일 수도 있다.
+    "사업자번호": re.compile(r"\b\d{3}-\d{2}-\d{5}\b"),
+    "주소": re.compile(r"https?://[^\s<>\"')\]]+"),
+    "금액": re.compile(r"\b\d[\d,]*(?:\.\d+)?\s*(?:원|만원|억원)\b"),
+    "날짜": re.compile(r"\b(?:19|20)\d{2}[-./]\d{1,2}[-./]\d{1,2}\b"
+                     r"|\b(?:19|20)\d{2}년\s?\d{1,2}월\s?\d{1,2}일"),
+}
+
+
+@dataclass
+class Picked:
+    kind: str
+    value: str
+    line: int
+    source: str = ""
+    context: str = ""
+
+
+def pick(body: str, kinds: list[str] | None = None, *,
+         source: str = "") -> list[Picked]:
+    """글에서 이메일·전화·금액 같은 것을 뽑는다. 정규식을 몰라도 되게."""
+    wanted = list(kinds or PICK_RULES)
+    unknown = [k for k in wanted if k not in PICK_RULES]
+    if unknown:
+        raise TextError(f"모르는 종류: {', '.join(unknown)} "
+                        f"(쓸 수 있는 것: {', '.join(PICK_RULES)})")
+
+    out: list[Picked] = []
+    for number, line in enumerate(body.splitlines(), 1):
+        for kind in wanted:
+            for match in PICK_RULES[kind].finditer(line):
+                out.append(Picked(kind, match.group(0), number, source,
+                                  line.strip()[:80]))
+    return out
+
+
+def unique_picked(found: list[Picked]) -> list[Picked]:
+    """같은 종류의 같은 값은 처음 것만 남긴다."""
+    seen: set[tuple[str, str]] = set()
+    out: list[Picked] = []
+    for item in found:
+        key = (item.kind, item.value)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
 # ------------------------------------------------------------------ 찾기만
 
 @dataclass

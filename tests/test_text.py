@@ -359,5 +359,52 @@ class FindTest(unittest.TestCase):
         self.assertEqual(before, after)
 
 
+class PickTest(unittest.TestCase):
+    """정규식 없이 뽑아내기. 넓게 잡으면 오탐이 쏟아지므로 좁게 잡는다."""
+
+    BODY = ("담당자 홍길동 hong@example.co.kr 010-1234-5678\n"
+            "대표번호 02-123-4567, 1588-1588\n"
+            "사업자등록번호 123-45-67890\n"
+            "견적 1,250,000원 (2026-03-15 기준)\n"
+            "https://example.com/견적\n"
+            "계좌 1002-345-678901 로 입금\n")
+
+    def kinds(self, body=None, **kwargs):
+        return [(p.kind, p.value) for p in text.pick(body or self.BODY, **kwargs)]
+
+    def test_finds_each_kind(self):
+        found = dict(self.kinds())
+        self.assertEqual(found["이메일"], "hong@example.co.kr")
+        self.assertEqual(found["휴대폰"], "010-1234-5678")
+        self.assertEqual(found["사업자번호"], "123-45-67890")
+        self.assertEqual(found["금액"], "1,250,000원")
+        self.assertEqual(found["날짜"], "2026-03-15")
+        self.assertTrue(found["주소"].startswith("https://"))
+
+    def test_account_number_is_not_a_business_number(self):
+        """숫자 열 자리는 계좌·주문번호일 수도 있어 하이픈 꼴만 본다."""
+        values = [v for kind, v in self.kinds() if kind == "사업자번호"]
+        self.assertEqual(values, ["123-45-67890"])
+
+    def test_bare_digits_are_left_alone(self):
+        self.assertEqual(self.kinds("주문번호 1234567890 입니다\n"), [])
+
+    def test_line_numbers(self):
+        found = text.pick(self.BODY, ["날짜"])
+        self.assertEqual(found[0].line, 4)
+
+    def test_only_some_kinds(self):
+        self.assertEqual([k for k, _v in self.kinds(kinds=["이메일"])], ["이메일"])
+
+    def test_unknown_kind(self):
+        with self.assertRaises(text.TextError):
+            text.pick(self.BODY, ["주민번호"])
+
+    def test_unique(self):
+        body = "a@b.co\na@b.co\nc@d.co\n"
+        self.assertEqual(len(text.pick(body)), 3)
+        self.assertEqual(len(text.unique_picked(text.pick(body))), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
