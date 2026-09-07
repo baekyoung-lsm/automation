@@ -498,6 +498,17 @@ def dates_save(payload: dict) -> dict:
             "command": _dates_command(payload, column, parts, out)}
 
 
+def audit(payload: dict) -> dict:
+    """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
+    table = _open(payload)
+    rep = sheet.audit(table)
+    return {"rows": [[n.kind, n.column or "-", n.detail] for n in rep.notes],
+            "count": len(rep.notes),
+            "size": f"{rep.rows:,}행 x {rep.columns}열",
+            "looked": rep.looked, "skipped": rep.skipped,
+            "command": form.command("sheet", "audit", *_source_args(payload))}
+
+
 def outliers(payload: dict) -> dict:
     """숫자 열에서 드문 값 찾기. 지우지 않고 어디인지만."""
     table = _open(payload)
@@ -894,6 +905,17 @@ BODY = """
 <section class="card" data-panel="훑어보기">
   <h2>내용 미리보기</h2>
   <div id="rows"><div class="empty">아직 없습니다.</div></div>
+</section>
+
+<section class="card" data-panel="훑어보기">
+  <h2>한 번에 훑기</h2>
+  <p class="note">남이 보낸 표를 열었을 때 <b>무엇부터 봐야 하는지</b> 모아 줍니다 -
+     빈 칸이 많은 열, 한 열에 섞인 타입, 똑같은 행, 숫자 열의 드문 값,
+     개인정보로 보이는 열, 표기 흔들림. <b>고치지는 않습니다.</b>
+     여기 없는 문제가 없다는 뜻도 아닙니다.</p>
+  <div class="actions"><button class="primary" id="btn-audit">훑어보기</button></div>
+  <div id="auditmsg"></div>
+  <div id="auditout"></div>
 </section>
 
 <section class="card" data-panel="훑어보기" hidden>
@@ -1480,6 +1502,21 @@ BODY = """
     } catch (e) { AT.message($("simmsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-audit").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/audit", values());
+      $("auditout").innerHTML = (d.count
+          ? AT.table(["무엇", "열", "내용"], d.rows)
+          : '<div class="empty">볼 만한 곳이 없습니다.</div>') +
+        '<p class="note">본 것: ' + d.looked.map(AT.esc).join(" · ") +
+        (d.skipped.length ? "<br>못 본 것: " + d.skipped.map(AT.esc).join("<br>") : "") +
+        "<br>고치지는 않았습니다. 여기 없는 문제가 없다는 뜻은 아닙니다.</p>" +
+        AT.command(d.command);
+      AT.message($("auditmsg"), d.size + " · 볼 만한 곳 <b>" + d.count + "가지</b>",
+                 d.count ? "bad" : "ok");
+    } catch (e) { AT.message($("auditmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-outliers").addEventListener("click", async function () {
     try {
       const b = values();
@@ -1807,6 +1844,7 @@ def make() -> App:
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
                  "similar": similar, "outliers": outliers,
+                 "audit": audit,
                  "replace_preview": replace_preview,
                  "replace_save": replace_save,
                  "merge": merge,

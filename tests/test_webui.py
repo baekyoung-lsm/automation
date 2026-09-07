@@ -501,6 +501,22 @@ class SheetAppTest(UiCase):
         self.assertIn("(날짜)", data["saved"])
         self.assertEqual(path.read_text(encoding="utf-8"), before)
 
+    def test_audit_collects_notes(self):
+        path = self.csv("받은것.csv",
+                        "상호,메일\n(주)가나,a@a.com\n주식회사 가나,b@a.com\n"
+                        "다라,c@a.com\n")
+        _, data = self.post("/api/sheet/audit", {"path": str(path)})
+        kinds = {r[0] for r in data["rows"]}
+        self.assertIn("개인정보", kinds)
+        self.assertIn("표기 흔들림", kinds)
+        self.assertTrue(data["looked"])          # 무엇을 봤는지 화면에도 준다
+
+    def test_audit_on_a_clean_table(self):
+        path = self.csv("깨끗.csv", "사번,이름\nE1,홍길동\nE2,김철수\n")
+        _, data = self.post("/api/sheet/audit", {"path": str(path)})
+        self.assertEqual(data["count"], 0)
+        self.assertTrue(data["looked"])
+
     def numbers(self):
         rows = "\n".join(str(v) for v in
                          [100, 105, 98, 102, 99, 101, 103, 97, 0, 100000])
@@ -2162,6 +2178,12 @@ class CommandHintTest(UiCase):
                            {"cfolder": str(room), "cells": "B3=담당자",
                             "cglob": "*.csv"})
         self.accepts(got["command"])
+
+    def test_sheet_audit_command(self):
+        path = self.work / "받은것.csv"
+        path.write_text("사번,이름\nE1,홍길동\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/audit", {"path": str(path)})
+        self.accepts(data["command"])
 
     def test_sheet_outliers_and_replace_commands(self):
         path = self.work / "금액.csv"
