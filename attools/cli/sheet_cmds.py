@@ -10,7 +10,7 @@ from .. import files, hangul, sheet, text
 from ..code import devkit, jsonkit
 from ..docs import mdkit, report
 from ..write import names
-from .common import _pad, _p, _cut, _grid, _width
+from .common import _pad, _p, _cut, _grid, _may_write, _width
 
 
 def _load(a, path: str | None = None) -> sheet.Table | None:
@@ -35,6 +35,8 @@ def _sheet_result(a, table, headline: str) -> int:
         _p(f"  ... {len(table.rows) - a.rows:,}행 더")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -202,6 +204,8 @@ def cmd_sheet_clean(a) -> int:
     if not a.out:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
         return 0
+    if not _may_write(a, Path(a.out)):
+        return 1
     out = sheet.save(cleaned, Path(a.out))
     _p(f"\n저장: {out}")
     return 0
@@ -268,6 +272,8 @@ def cmd_sheet_book(a) -> int:
         return 0
 
     try:
+        if not _may_write(a, Path(a.out)):
+            return 1
         out = sheet.save_sheets(tables, Path(a.out))
     except sheet.SheetError as e:
         _p(str(e))
@@ -345,6 +351,8 @@ def cmd_sheet_format(a) -> int:
                 _p(f"  {line}행  {value}")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(t, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요. (원본은 건드리지 않습니다)")
@@ -396,6 +404,8 @@ def cmd_sheet_mask(a) -> int:
                 _p(f"  ... {len(rep.unclear) - a.limit:,}개 더")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(t, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요. (원본은 건드리지 않습니다)")
@@ -634,8 +644,12 @@ def cmd_sheet_from_docx(a) -> int:
 
     out = Path(a.out)
     if len(picked) == 1:
+        if not _may_write(a, out):
+            return 1
         _p(f"\n저장: {sheet.save(picked[0], out)}")
     elif out.suffix.lower() in sheet.XLSX_SUFFIXES:
+        if not _may_write(a, out):
+            return 1
         saved = sheet.save_sheets({t.sheet: t for t in picked}, out)
         _p(f"\n저장: {saved}  (시트 {len(picked)}개)")
     else:
@@ -703,8 +717,12 @@ def cmd_sheet_from_md(a) -> int:
 
     out = Path(a.out)
     if len(picked) == 1:
+        if not _may_write(a, out):
+            return 1
         _p(f"\n저장: {sheet.save(picked[0], out)}")
     elif out.suffix.lower() in sheet.XLSX_SUFFIXES:
+        if not _may_write(a, out):
+            return 1
         saved = sheet.save_sheets({t.sheet: t for t in picked}, out)
         _p(f"\n저장: {saved}  (시트 {len(picked)}개)")
     else:
@@ -756,6 +774,8 @@ def cmd_sheet_collect(a) -> int:
             _p(f"  {_cut(Path(name).name, 30)}  {why}")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -784,6 +804,8 @@ def cmd_sheet_merge(a) -> int:
         _grid(merged.headers, [[sheet.to_text(v) for v in r] for r in merged.rows[:5]])
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
         return 0
+    if not _may_write(a, Path(a.out)):
+        return 1
     _p(f"저장: {sheet.save(merged, Path(a.out))}")
     return 0
 
@@ -874,6 +896,8 @@ def cmd_sheet_diff(a) -> int:
         for k, col, b, x in d.changed:
             rows.append(["바뀜", k, col, b, x])
         table = sheet.Table(["무엇", a.key, "열", "이전", "이후"], rows)
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out))}  ({len(rows):,}건)")
     return 1
 
@@ -893,6 +917,8 @@ def cmd_sheet_pivot(a) -> int:
            for r in result.rows])
     _p(f"\n{len(result.rows)}개 그룹")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(result, Path(a.out))}")
     return 0
 
@@ -915,6 +941,8 @@ def cmd_sheet_melt(a) -> int:
     if not a.keep_blank:
         _p("빈 칸은 행으로 만들지 않았습니다 (--keep-blank 로 남길 수 있습니다).")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(result, Path(a.out))}")
     else:
         _p("-o 로 저장하면 그대로 피벗테이블에 넣을 수 있습니다.")
@@ -937,6 +965,8 @@ def cmd_sheet_transpose(a) -> int:
        f"{result.width}열")
     _p(f"첫 열({t.headers[0]})의 값이 새 머리글이 됩니다.")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(result, Path(a.out))}")
     return 0
 
@@ -968,6 +998,8 @@ def cmd_sheet_expand(a) -> int:
     if report.blanks:
         _p(f"원래 값이 비어 있던 행 {report.blanks:,}개")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(result, Path(a.out))}")
     return 0
 
@@ -992,6 +1024,8 @@ def cmd_sheet_combine(a) -> int:
     if not a.keep_blank:
         _p("빈 칸은 건너뛰어 구분자가 겹치지 않게 했습니다.")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(result, Path(a.out))}")
     return 0
 
@@ -1043,6 +1077,8 @@ def cmd_sheet_rename(a) -> int:
         _p("매핑이 낡았거나 파일이 다릅니다. 조용히 넘기지 않습니다.")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(result, Path(a.out))}")
     elif changed:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -1052,6 +1088,8 @@ def cmd_sheet_rename(a) -> int:
 def cmd_sheet_convert(a) -> int:
     t = _load(a)
     if t is None:
+        return 1
+    if not _may_write(a, Path(a.out)):
         return 1
     out = sheet.save(t, Path(a.out), excel_bom=not a.no_bom, sheet_name=a.name)
     _p(f"{Path(a.file).name} -> {out}  ({len(t.rows):,}행 x {t.width}열)")
@@ -1206,6 +1244,8 @@ def cmd_sheet_split(a) -> int:
             _p("\n실제로 저장하려면 --apply 를 붙이세요.")
             return 0
         try:
+            if not _may_write(a, target):
+                return 1
             saved = sheet.save_sheets(
                 {name.replace(f"{source.stem}-", "") or "전체": part
                  for name, part in pieces.items()}, target)
@@ -1222,6 +1262,8 @@ def cmd_sheet_split(a) -> int:
         target = out_dir / safe
         if not a.apply:
             _p(f"  [미리보기] {target.name}  {len(part.rows):,}행")
+            continue
+        if not _may_write(a, target):
             continue
         sheet.save(part, target, sheet_name=part.sheet or "Sheet1")
         _p(f"  {target}  {len(part.rows):,}행")
@@ -1264,6 +1306,8 @@ def cmd_sheet_unbook(a) -> int:
         if not a.apply:
             _p(f"  [미리보기] {target.name}  {info.rows:,}행 x {info.columns}열")
             made += 1
+            continue
+        if not _may_write(a, target):
             continue
         table = sheet.load(source, sheet=info.name, header_row=a.header_row - 1)
         sheet.save(table, target, sheet_name=info.name)
@@ -1569,6 +1613,8 @@ def cmd_sheet_join(a) -> int:
         _p(f"  ... {len(merged.rows) - a.rows:,}행 더")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(merged, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -1609,6 +1655,8 @@ def cmd_sheet_similar(a) -> int:
         table = sheet.Table(["왜", "닮음", "왼쪽 행", "왼쪽 값", "오른쪽 행", "오른쪽 값"],
                             [[p.reason, p.score, p.left_row, p.left,
                               p.right_row, p.right] for p in pairs])
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(table, Path(a.out))}")
     else:
         _p("표로 받으려면 -o 로 출력 파일을 지정하세요.")
@@ -1646,6 +1694,8 @@ def cmd_sheet_dedupe(a) -> int:
         return 0
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(result, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -1700,6 +1750,8 @@ def cmd_sheet_fx(a) -> int:
                "엑셀에서 열면 수식으로 읽히지만, 다른 프로그램에서는 글자입니다.")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(t, Path(a.out))}")
     else:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
@@ -1790,6 +1842,8 @@ def cmd_sheet_from_json(a) -> int:
         _p(f"  ... {len(table.rows) - a.rows:,}행 더")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name=a.path or 'Sheet1')}")
     else:
         _p("\n저장하려면 -o 로 csv 나 xlsx 를 지정하세요.")
@@ -1863,6 +1917,8 @@ def add_commands(sub) -> None:
     cl = common(sh.add_parser("clean", help="공백·숫자·날짜 정리"))
     cl.add_argument("file")
     cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
+    cl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
     cl.set_defaults(func=cmd_sheet_clean)
 
@@ -1878,6 +1934,8 @@ def add_commands(sub) -> None:
     bk = common(sh.add_parser("book", help="여러 파일을 한 엑셀의 여러 시트로"))
     bk.add_argument("files", nargs="+")
     bk.add_argument("-o", "--out", help="저장 경로 (.xlsx)")
+    bk.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     bk.set_defaults(func=cmd_sheet_book)
 
     sh_ = common(sh.add_parser("sheets", help="엑셀 안의 시트 목록과 머리글"))
@@ -1887,6 +1945,8 @@ def add_commands(sub) -> None:
     fm = common(sh.add_parser("format", help="열 표기 통일 (전화·사업자번호·날짜)"))
     fm.add_argument("file")
     fm.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
+    fm.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     fm.add_argument("--phone", action="append", metavar="열", help="전화번호 열")
     fm.add_argument("--bizno", action="append", metavar="열", help="사업자등록번호 열")
     fm.add_argument("--post", action="append", metavar="열", help="우편번호 열")
@@ -1906,6 +1966,8 @@ def add_commands(sub) -> None:
         mk.add_argument(f"--{flag}", action="append", metavar="열",
                         help=f"{kind} 로 가릴 열 ({sheet.MASK_KINDS[kind][1]})")
     mk.add_argument("-o", "--out", metavar="파일")
+    mk.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     mk.add_argument("--limit", type=int, default=20, help="통째로 가린 값을 몇 개까지 보일지")
     mk.add_argument("--strict", action="store_true",
                     help="꼴을 모르는 값이 하나라도 있으면 1 로 끝낸다")
@@ -1917,6 +1979,8 @@ def add_commands(sub) -> None:
                      help="그 표 하나만 (없으면 전부)")
     fmd.add_argument("-o", "--out", metavar="파일",
                      help="xlsx 면 표마다 시트로 나눠 담는다")
+    fmd.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     fmd.add_argument("--rows", type=int, default=10, metavar="개")
     fmd.add_argument("--width", type=int, default=20, metavar="칸")
     fmd.set_defaults(func=cmd_sheet_from_md)
@@ -1931,6 +1995,8 @@ def add_commands(sub) -> None:
     ts.add_argument("--create", action="store_true",
                     help="CREATE TABLE 초안도 함께 (타입은 값에서 짐작)")
     ts.add_argument("-o", "--out", metavar="파일")
+    ts.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ts.set_defaults(func=cmd_sheet_to_sql)
 
     fdx = sh.add_parser("from-docx", help="워드 문서 안의 표를 엑셀·csv 로")
@@ -1939,6 +2005,8 @@ def add_commands(sub) -> None:
                      help="그 표 하나만 (없으면 전부)")
     fdx.add_argument("-o", "--out", metavar="파일",
                      help="xlsx 면 표마다 시트로 나눠 담는다")
+    fdx.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     fdx.add_argument("--rows", type=int, default=10, metavar="개")
     fdx.add_argument("--width", type=int, default=20, metavar="칸")
     fdx.set_defaults(func=cmd_sheet_from_docx)
@@ -1950,6 +2018,8 @@ def add_commands(sub) -> None:
     cl2.add_argument("--sheet", metavar="이름", help="xlsx 시트 이름 (모든 파일에 같게)")
     cl2.add_argument("--glob", metavar="무늬", help="폴더 안에서 고를 무늬. 예: '*.xlsx'")
     cl2.add_argument("-o", "--out", metavar="파일")
+    cl2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     cl2.add_argument("--rows", type=int, default=15, metavar="개")
     cl2.add_argument("--width", type=int, default=20, metavar="칸")
     cl2.add_argument("--limit", type=int, default=10, metavar="개")
@@ -1958,6 +2028,8 @@ def add_commands(sub) -> None:
     mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
     mg.add_argument("files", nargs="+")
     mg.add_argument("-o", "--out")
+    mg.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     mg.add_argument("--no-source", action="store_true", help="출처 열을 넣지 않는다")
     mg.add_argument("--strict", action="store_true", help="열 구성이 다르면 중단")
     mg.set_defaults(func=cmd_sheet_merge)
@@ -1974,6 +2046,8 @@ def add_commands(sub) -> None:
     df.add_argument("--limit", type=int, default=20)
     df.add_argument("-o", "--out", metavar="파일",
                     help="변경 내역을 표로 저장 (추가·삭제·바뀜)")
+    df.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     df.set_defaults(func=cmd_sheet_diff)
 
     pv = common(sh.add_parser("pivot", help="그룹별 집계·교차표"))
@@ -1983,6 +2057,8 @@ def add_commands(sub) -> None:
     pv.add_argument("--values", metavar="열", help="집계할 값 (없으면 건수)")
     pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
     pv.add_argument("-o", "--out")
+    pv.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     pv.set_defaults(func=cmd_sheet_pivot)
 
     ml = common(sh.add_parser("melt", help="넓은 표를 긴 표로 (pivot 의 반대)"))
@@ -1996,6 +2072,8 @@ def add_commands(sub) -> None:
     ml.add_argument("--keep-blank", action="store_true", help="빈 칸도 행으로 남긴다")
     ml.add_argument("--limit", type=int, default=20)
     ml.add_argument("-o", "--out")
+    ml.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ml.set_defaults(func=cmd_sheet_melt)
 
     tp = common(sh.add_parser("transpose", help="행과 열 바꾸기"))
@@ -2004,6 +2082,8 @@ def add_commands(sub) -> None:
                     help="새 표의 첫 열 이름")
     tp.add_argument("--limit", type=int, default=20)
     tp.add_argument("-o", "--out")
+    tp.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     tp.set_defaults(func=cmd_sheet_transpose)
 
     xp = common(sh.add_parser("expand", help="한 열을 구분자로 갈라 여러 열로"))
@@ -2017,6 +2097,8 @@ def add_commands(sub) -> None:
                     help="이 개수까지만 가른다 (나머지는 마지막 칸에)")
     xp.add_argument("--limit", type=int, default=20)
     xp.add_argument("-o", "--out")
+    xp.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     xp.set_defaults(func=cmd_sheet_expand)
 
     cb = common(sh.add_parser("combine", help="여러 열을 한 열로 합치기 (expand 의 반대)"))
@@ -2030,6 +2112,8 @@ def add_commands(sub) -> None:
                     help="빈 칸도 자리를 차지하게 둔다")
     cb.add_argument("--limit", type=int, default=20)
     cb.add_argument("-o", "--out")
+    cb.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     cb.set_defaults(func=cmd_sheet_combine)
 
     rn2 = common(sh.add_parser("rename", help="열 이름 바꾸기 (합치기 전에 맞추기)"))
@@ -2038,10 +2122,14 @@ def add_commands(sub) -> None:
     rn2.add_argument("--map-file", metavar="파일", help='{"옛이름": "새이름"} JSON')
     rn2.add_argument("--strip", action="store_true", help="열 이름의 앞뒤 공백 정리")
     rn2.add_argument("-o", "--out")
+    rn2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     rn2.set_defaults(func=cmd_sheet_rename)
 
     def sheet_out(parser):
         parser.add_argument("-o", "--out", metavar="파일")
+        parser.add_argument("--overwrite", action="store_true",
+                            help="이미 있는 파일을 덮어쓴다")
         parser.add_argument("--rows", type=int, default=10, metavar="개",
                             dest="rows", help="미리보기 행 수")
         parser.add_argument("--width", type=int, default=20, metavar="칸")
@@ -2148,6 +2236,8 @@ def add_commands(sub) -> None:
                     help="이만큼씩 잘라서")
     sl.add_argument("--by", metavar="열", help="이 열의 값마다 (부서별·월별)")
     sl.add_argument("-o", "--out", metavar="디렉터리")
+    sl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     sl.add_argument("--format", metavar="확장자", help="csv 또는 xlsx")
     sl.add_argument("--sheets", metavar="파일",
                     help="파일 여러 개 대신 한 xlsx 의 시트로 나눈다")
@@ -2157,6 +2247,8 @@ def add_commands(sub) -> None:
     ub = sh.add_parser("unbook", help="엑셀의 시트들을 파일로 나누기 (book 의 반대)")
     ub.add_argument("file")
     ub.add_argument("-o", "--out", metavar="폴더", help="기본은 원본 옆")
+    ub.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ub.add_argument("--format", default=".xlsx", metavar="확장자",
                     help="csv 로 내려면 --format csv (기본 xlsx)")
     ub.add_argument("--header-row", type=int, default=1, metavar="행")
@@ -2167,6 +2259,8 @@ def add_commands(sub) -> None:
     fl.add_argument("file", metavar="명단파일")
     fl.add_argument("-t", "--template", required=True, metavar="틀파일")
     fl.add_argument("-o", "--out", metavar="디렉터리/파일")
+    fl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     fl.add_argument("--name", metavar="틀", help="파일명 틀 (예: '{사번}_{이름}.txt')")
     fl.add_argument("--single", action="store_true", help="한 파일에 이어 붙인다")
     fl.add_argument("--separator", default="\f", metavar="구분",
@@ -2185,6 +2279,8 @@ def add_commands(sub) -> None:
     fj.add_argument("--depth", type=int, default=2, metavar="단계",
                     help="중첩 객체를 이만큼까지 펴고 그보다 깊으면 JSON 글자로 둔다")
     fj.add_argument("-o", "--out", metavar="파일")
+    fj.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     fj.add_argument("--rows", type=int, default=10, metavar="개")
     fj.add_argument("--width", type=int, default=18, metavar="칸")
     fj.set_defaults(func=cmd_sheet_from_json)
@@ -2192,6 +2288,8 @@ def add_commands(sub) -> None:
     tj = common(sh.add_parser("to-json", help="표를 JSON 배열로 (엑셀 -> API)"))
     tj.add_argument("file")
     tj.add_argument("-o", "--out", metavar="파일", help="생략하면 화면으로")
+    tj.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     tj.add_argument("--lines", action="store_true", help="JSON Lines 로")
     tj.add_argument("--compact", action="store_true", help="들여쓰기 없이")
     tj.add_argument("--nest", action="store_true",
@@ -2227,6 +2325,8 @@ def add_commands(sub) -> None:
     fx.add_argument("--round", type=int, default=None, metavar="자리",
                     help="숫자 결과를 이 자리에서 반올림")
     fx.add_argument("-o", "--out", metavar="파일")
+    fx.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     fx.add_argument("--rows", type=int, default=10, metavar="개")
     fx.add_argument("--width", type=int, default=16, metavar="칸")
     fx.set_defaults(func=cmd_sheet_fx)
@@ -2241,6 +2341,8 @@ def add_commands(sub) -> None:
     sm.add_argument("--rows", type=int, default=20, metavar="개", help="보여줄 개수")
     sm.add_argument("--width", type=int, default=22, metavar="칸")
     sm.add_argument("-o", "--out", metavar="파일")
+    sm.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     sm.set_defaults(func=cmd_sheet_similar)
 
     dd = common(sh.add_parser("dedupe", help="키가 같은 행 중 하나만 남기기"))
@@ -2251,6 +2353,8 @@ def add_commands(sub) -> None:
     dd.add_argument("--by", default="", metavar="열",
                     help="--keep max/min 일 때 기준 열 (예: 수정일)")
     dd.add_argument("-o", "--out", metavar="파일")
+    dd.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     dd.add_argument("--limit", type=int, default=15)
     dd.set_defaults(func=cmd_sheet_dedupe)
 
@@ -2264,6 +2368,8 @@ def add_commands(sub) -> None:
     jn.add_argument("--suffix", default="_2", metavar="접미사",
                     help="열 이름이 겹칠 때 오른쪽에 붙인다")
     jn.add_argument("-o", "--out", metavar="파일")
+    jn.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     jn.add_argument("--rows", type=int, default=10, metavar="개", dest="rows")
     jn.add_argument("--width", type=int, default=16, metavar="칸")
     jn.set_defaults(func=cmd_sheet_join)
@@ -2281,11 +2387,15 @@ def add_commands(sub) -> None:
     ch.add_argument("--unit", metavar="단위", help="값 뒤에 붙일 말 (원, 건…)")
     ch.add_argument("--rows", type=int, default=10, metavar="개")
     ch.add_argument("-o", "--out", metavar="파일.svg")
+    ch.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ch.set_defaults(func=cmd_sheet_chart)
 
     rp2 = common(sh.add_parser("report", help="표를 HTML 보고서로 (요약·그래프·표)"))
     rp2.add_argument("file")
     rp2.add_argument("-o", "--out", metavar="파일", help="기본: <파일이름>-보고서.html")
+    rp2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     rp2.add_argument("--title", default="", metavar="제목")
     rp2.add_argument("--by", metavar="열", help="이 열로 묶어 막대 그래프")
     rp2.add_argument("--value", metavar="열", help="집계할 숫자 열 (없으면 건수)")
@@ -2299,6 +2409,8 @@ def add_commands(sub) -> None:
     cv = common(sh.add_parser("convert", help="csv <-> xlsx 변환 (인코딩 정리)"))
     cv.add_argument("file")
     cv.add_argument("-o", "--out", required=True)
+    cv.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     cv.add_argument("--name", default="", metavar="시트명")
     cv.add_argument("--no-bom", action="store_true", help="CSV 에 BOM 을 넣지 않는다")
     cv.set_defaults(func=cmd_sheet_convert)

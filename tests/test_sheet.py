@@ -2003,5 +2003,55 @@ class DdayTest(unittest.TestCase):
             sheet.add_dday(self.table(), "없는열")
 
 
+class OverwriteGuardTest(unittest.TestCase):
+    """이미 있는 파일을 말없이 덮지 않는지. 되돌릴 방법이 없는 자리다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.source = self.root / "직원.csv"
+        self.source.write_text("사번,이름\nE1,홍길동\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+
+        from attools import cli
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(list(args))
+        return code, out.getvalue()
+
+    def test_second_run_is_refused(self):
+        target = self.root / "이름만.csv"
+        code, _out = self.run_cli("sheet", "cut", str(self.source), "-c", "이름",
+                                  "-o", str(target))
+        self.assertEqual(code, 0)
+        before = target.read_text(encoding="utf-8")
+
+        code, out = self.run_cli("sheet", "cut", str(self.source), "-c", "사번",
+                                 "-o", str(target))
+        self.assertEqual(code, 1)
+        self.assertIn("이미 있는 파일", out)
+        self.assertEqual(target.read_text(encoding="utf-8"), before)   # 그대로다
+
+    def test_overwrite_flag_writes(self):
+        target = self.root / "이름만.csv"
+        self.run_cli("sheet", "cut", str(self.source), "-c", "이름",
+                     "-o", str(target))
+        code, _out = self.run_cli("sheet", "cut", str(self.source), "-c", "사번",
+                                  "-o", str(target), "--overwrite")
+        self.assertEqual(code, 0)
+        self.assertIn("사번", target.read_text(encoding="utf-8"))
+
+    def test_new_file_is_fine(self):
+        code, _out = self.run_cli("sheet", "cut", str(self.source), "-c", "이름",
+                                  "-o", str(self.root / "처음.csv"))
+        self.assertEqual(code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

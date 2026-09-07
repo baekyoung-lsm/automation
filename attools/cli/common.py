@@ -57,6 +57,22 @@ def _cut(text: str, limit: int) -> str:
     return out
 
 
+def _may_write(a, target) -> bool:
+    """이미 있는 파일을 말없이 덮지 않는다. 덮으려면 --overwrite.
+
+    받은 자료를 정리해 새 파일로 낼 때 같은 이름을 다시 주면 원본이 사라진다.
+    되돌릴 방법이 없어서 기본은 막고, 무엇을 하면 되는지 알려 준다.
+    """
+    from pathlib import Path
+
+    path = Path(target)
+    if not path.exists() or getattr(a, "overwrite", False):
+        return True
+    _p(f"이미 있는 파일입니다: {path}")
+    _p("  덮어쓰려면 --overwrite 를, 남겨 두려면 -o 로 다른 이름을 주세요.")
+    return False
+
+
 def _grid(headers: list[str], rows: list[list[str]], *, limit: int = 24) -> None:
     """터미널에 표를 정렬해 찍는다."""
     cells = [[_cut(h, limit) for h in headers]] + [[_cut(c, limit) for c in r] for r in rows]
