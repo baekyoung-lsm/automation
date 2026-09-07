@@ -215,6 +215,115 @@ def format_save(payload: dict) -> dict:
             "command": form.command(*args, "-o", out)}
 
 
+OPS = {"eq": "같다", "ne": "다르다", "gt": "크다", "gte": "크거나 같다",
+       "lt": "작다", "lte": "작거나 같다", "has": "포함한다",
+       "empty": "비어 있다", "filled": "값이 있다"}
+
+
+def _picked(payload: dict):
+    """조건·정렬·열 고르기를 차례로 건다. 원본은 건드리지 않는다."""
+    table = _open(payload)
+    column = form.text(payload, "wcol")
+    op = form.choice(payload, "wop", OPS, "eq")
+    value = form.raw_text(payload, "wval")
+    steps: list[str] = []
+
+    if column:
+        if column not in table.headers:
+            raise UiError(f"'{column}' 열이 없습니다.")
+        if op not in ("empty", "filled") and not value.strip():
+            raise UiError("견줄 값을 적어 주세요.")
+        condition = sheet.Condition(column, op, value.strip())
+        table = sheet.where(table, [] if op == "has" else [condition],
+                            contains=[condition] if op == "has" else None)
+        steps.append(f"{column} {OPS[op]}")
+
+    order = form.text(payload, "scol")
+    if order:
+        if order not in table.headers:
+            raise UiError(f"'{order}' 열이 없습니다.")
+        table = sheet.sort_rows(table, [order],
+                                descending=form.flag(payload, "desc"))
+        steps.append(f"{order} 기준 정렬")
+
+    keep = [c.strip() for c in form.text(payload, "keep").split(",") if c.strip()]
+    if keep:
+        try:
+            table = sheet.cut(table, keep)
+        except sheet.SheetError as exc:
+            raise UiError(str(exc)) from None
+        steps.append(f"열 {len(keep)}개만")
+    return table, steps
+
+
+def _pick_commands(payload: dict, out=None) -> list[str]:
+    """세 단계를 각각의 명령으로 적는다. 이어 붙이면 같은 결과가 나온다.
+
+    한 줄로 적으면 정렬·열 고르기가 빠져 «이대로 치면 다른 결과»가 된다.
+    중간 파일 이름을 드러내는 편이 낫다.
+    """
+    source = form.text(payload, "path")
+    column = form.text(payload, "wcol")
+    op = form.choice(payload, "wop", OPS, "eq")
+    value = form.raw_text(payload, "wval").strip()
+    order = form.text(payload, "scol")
+    keep = [c.strip() for c in form.text(payload, "keep").split(",") if c.strip()]
+
+    steps: list[list[object]] = []
+    if column:
+        args: list[object] = ["sheet", "where", *_source_args(payload)]
+        if op in ("empty", "filled"):
+            args += [f"--{op}", column]
+        else:
+            args += [f"--{op}", f"{column}={value}"]
+        steps.append(args)
+    if order:
+        args = ["sheet", "sort", source, "--by", order]
+        if form.flag(payload, "desc"):
+            args.append("--desc")
+        steps.append(args)
+    if keep:
+        args = ["sheet", "cut", source]
+        for name in keep:
+            args += ["-c", name]
+        steps.append(args)
+    if not steps:
+        return []
+
+    made = []
+    last = str(out) if out else None
+    for number, args in enumerate(steps, 1):
+        if number > 1:                       # 앞 단계의 결과를 이어받는다
+            args[2] = made[-1][1]
+        if number == len(steps):
+            target = last or "결과.csv"
+        else:
+            target = f"중간{number}.csv"
+        made.append((form.command(*args, "-o", target), target))
+    return [line for line, _target in made]
+
+
+def pick_preview(payload: dict) -> dict:
+    table, steps = _picked(payload)
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "steps": steps, "command": _pick_commands(payload)}
+
+
+def pick_save(payload: dict) -> dict:
+    table, steps = _picked(payload)
+    if not table.rows:
+        raise UiError("맞는 행이 없습니다. 조건을 확인해 주세요.")
+    source = Path(_open(payload).source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (골라낸){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "count": len(table.rows), "steps": steps,
+            "command": _pick_commands(payload, out)}
+
+
 def _cleaned(payload: dict):
     table = _open(payload)
     return table, sheet.clean(
@@ -346,6 +455,35 @@ BODY = """
   </div>
   <div id="pairmsg"></div>
   <div id="pair"></div>
+</section>
+
+<section class="card">
+  <h2>골라내기</h2>
+  <p class="note">조건에 맞는 행만 남기고, 정렬하고, 필요한 열만 고릅니다.
+     <b>원본은 그대로 두고</b> 저장하면 옆에 «(골라낸)» 파일을 만듭니다.</p>
+  <div class="row">
+    <div><label for="wcol">조건 열</label>
+      <select id="wcol"><option value="">고르지 않음</option></select></div>
+    <div style="flex:0 1 10rem"><label for="wop">어떻게</label>
+      <select id="wop"><option value="eq">같다</option><option value="ne">다르다</option><option value="gt">크다</option><option value="gte">크거나 같다</option><option value="lt">작다</option><option value="lte">작거나 같다</option><option value="has">포함한다</option><option value="empty">비어 있다</option><option value="filled">값이 있다</option></select></div>
+    <div><label for="wval">값</label>
+      <input type="text" id="wval" spellcheck="false"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div><label for="scol">정렬 기준 열</label>
+      <select id="scol"><option value="">정렬 안 함</option></select></div>
+    <div><label for="keep">남길 열 (쉼표로, 비우면 전부)</label>
+      <input type="text" id="keep" placeholder="이름, 부서" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="desc"> 내림차순</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-pick">골라 보기</button>
+    <button id="btn-pick-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="pickmsg"></div>
+  <div id="pickout"></div>
 </section>
 
 <section class="card">
@@ -531,6 +669,46 @@ BODY = """
     } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   });
 
+  function pickValues() {
+    const b = values();
+    b.wcol = $("wcol").value; b.wop = $("wop").value; b.wval = $("wval").value;
+    b.scol = $("scol").value; b.desc = $("desc").checked;
+    b.keep = $("keep").value;
+    return b;
+  }
+
+  function drawPick(d) {
+    $("pickout").innerHTML =
+      (d.steps.length ? '<p class="note">' + d.steps.map(AT.esc).join(" → ") +
+        "</p>" : "") +
+      (d.headers ? AT.table(d.headers, d.rows) : "") +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") +
+      AT.command(d.command);
+  }
+
+  $("btn-pick").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/pick_preview", pickValues());
+      drawPick(d);
+      AT.message($("pickmsg"), "<b>" + d.count + "행</b>이 남습니다.", "ok");
+      $("btn-pick-save").disabled = d.count === 0;
+    } catch (e) {
+      AT.message($("pickmsg"), AT.esc(e.message), "bad");
+      $("btn-pick-save").disabled = true;
+    }
+  });
+
+  $("btn-pick-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/pick_save", pickValues());
+      drawPick(d);
+      AT.message($("pickmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                 d.count + "행)", "ok");
+      $("btn-pick-save").disabled = true;
+    } catch (e) { AT.message($("pickmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
@@ -539,6 +717,8 @@ BODY = """
       options($("key"), data.headers, "고르지 않음");
       options($("fcol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
+      options($("wcol"), data.headers, "고르지 않음");
+      options($("scol"), data.headers, "정렬 안 함");
       $("cols").innerHTML = AT.table(
         ["열", "주로 들어 있는 것", "빈칸", "다른 값", "예시"],
         data.columns, [null, null, "num", "num", null]);
@@ -603,7 +783,8 @@ def make() -> App:
         subtitle="열어 보기 → 점검 → 정리",
         body=lambda: BODY,
         actions={"peek": peek, "sheets": sheets, "check": check,
-                 "compare": compare,
+                 "compare": compare, "pick_preview": pick_preview,
+                 "pick_save": pick_save,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

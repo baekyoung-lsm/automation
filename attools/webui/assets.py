@@ -293,9 +293,10 @@ window.AT = (function () {
 
   // 화면에서 한 일을 터미널 명령으로 보여 준다. 다음부터는 직접 칠 수 있다.
   function command(text) {
-    if (!text) return "";
+    if (!text || !text.length) return "";
+    const lines = Array.isArray(text) ? text : [text];
     return '<p class="note">터미널에서는 이렇게 합니다</p>' +
-           '<pre class="diff cmd">' + esc(text) + "</pre>";
+           '<pre class="diff cmd">' + lines.map(esc).join("\n") + "</pre>";
   }
 
   return { call: call, table: table, esc: esc, message: message,

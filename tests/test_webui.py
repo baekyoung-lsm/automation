@@ -403,6 +403,57 @@ class SheetAppTest(UiCase):
         self.assertEqual(last.read_text(encoding="utf-8"), text)
         self.assertTrue(now.exists())
 
+    def staff(self):
+        return self.csv("직원.csv",
+                        "사번,이름,부서,연봉\nE1,홍길동,영업,5200\n"
+                        "E2,김철수,개발,4700\nE3,이영희,개발,6100\n")
+
+    def test_pick_filters_sorts_and_cuts(self):
+        path = self.staff()
+        _, data = self.post("/api/sheet/pick_preview",
+                            {"path": str(path), "wcol": "부서", "wop": "eq",
+                             "wval": "개발", "scol": "연봉", "desc": True,
+                             "keep": "이름, 연봉"})
+        self.assertEqual(data["headers"], ["이름", "연봉"])
+        self.assertEqual(data["rows"], [["이영희", "6100"], ["김철수", "4700"]])
+        self.assertEqual(len(data["steps"]), 3)
+
+    def test_pick_command_covers_every_step(self):
+        """한 줄로 적으면 정렬·열 고르기가 빠져 다른 결과가 된다."""
+        path = self.staff()
+        _, data = self.post("/api/sheet/pick_preview",
+                            {"path": str(path), "wcol": "부서", "wop": "eq",
+                             "wval": "개발", "scol": "연봉", "keep": "이름"})
+        self.assertEqual(len(data["command"]), 3)
+        self.assertIn("where", data["command"][0])
+        self.assertIn("sort", data["command"][1])
+        self.assertIn("cut", data["command"][2])
+
+    def test_pick_unknown_column(self):
+        path = self.staff()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/pick_preview",
+                      {"path": str(path), "wcol": "없는열", "wop": "eq",
+                       "wval": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_pick_save_refuses_empty_result(self):
+        path = self.staff()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/pick_save",
+                      {"path": str(path), "wcol": "부서", "wop": "eq",
+                       "wval": "없는부서"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_pick_save_keeps_original(self):
+        path = self.staff()
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/pick_save",
+                            {"path": str(path), "wcol": "부서", "wop": "has",
+                             "wval": "개"})
+        self.assertTrue(Path(data["saved"]).exists())
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
     def test_format_preview(self):
         path = self.csv("연락처.csv",
                         "이름,연락처\n홍길동,01012345678\n김철수,0100\n")
