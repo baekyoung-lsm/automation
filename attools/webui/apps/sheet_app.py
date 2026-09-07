@@ -324,6 +324,62 @@ def pick_save(payload: dict) -> dict:
             "command": _pick_commands(payload, out)}
 
 
+AGGS = {"sum": "합계", "count": "건수", "avg": "평균", "min": "최소", "max": "최대"}
+
+
+def _summed(payload: dict):
+    table = _open(payload)
+    rows = [c.strip() for c in form.text(payload, "grows").split(",") if c.strip()]
+    if not rows:
+        raise UiError("무엇으로 묶을지 열을 골라 주세요. (부서·월처럼 같은 값이 여럿인 열)")
+    agg = form.choice(payload, "agg", AGGS, "sum")
+    values = form.text(payload, "gvalues") or None
+    cols = form.text(payload, "gcols") or None
+    for name in rows + [n for n in (values, cols) if n]:
+        if name not in table.headers:
+            raise UiError(f"'{name}' 열이 없습니다.")
+    if agg in ("sum", "avg") and not values:
+        raise UiError(f"{AGGS[agg]}를 내려면 집계할 값 열을 골라 주세요. "
+                      "(건수만 셀 거면 «건수»를 고르세요)")
+    try:
+        return sheet.pivot(table, rows=rows, values=values, agg=agg, cols=cols)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+
+def _sum_command(payload: dict, out=None) -> str:
+    args: list[object] = ["sheet", "pivot", *_source_args(payload)]
+    for name in [c.strip() for c in form.text(payload, "grows").split(",") if c.strip()]:
+        args += ["--rows", name]
+    if form.text(payload, "gcols"):
+        args += ["--cols", form.text(payload, "gcols")]
+    if form.text(payload, "gvalues"):
+        args += ["--values", form.text(payload, "gvalues")]
+    args += ["--agg", form.choice(payload, "agg", AGGS, "sum")]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def sum_preview(payload: dict) -> dict:
+    table = _summed(payload)
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "command": _sum_command(payload)}
+
+
+def sum_save(payload: dict) -> dict:
+    table = _summed(payload)
+    if not table.rows:
+        raise UiError("집계할 것이 없습니다.")
+    source = Path(_open(payload).source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (집계){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "count": len(table.rows),
+            "command": _sum_command(payload, out)}
+
+
 def _cleaned(payload: dict):
     table = _open(payload)
     return table, sheet.clean(
@@ -455,6 +511,28 @@ BODY = """
   </div>
   <div id="pairmsg"></div>
   <div id="pair"></div>
+</section>
+
+<section class="card">
+  <h2>집계</h2>
+  <p class="note">부서별 인원, 월별 매출처럼 묶어서 셉니다. 엑셀의 피벗과
+     같은 일입니다.</p>
+  <div class="row">
+    <div><label for="grows">묶을 열 (쉼표로 여러 개)</label>
+      <input type="text" id="grows" placeholder="부서" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="agg">어떻게</label>
+      <select id="agg"><option value="sum">합계</option><option value="count">건수</option><option value="avg">평균</option><option value="min">최소</option><option value="max">최대</option></select></div>
+    <div><label for="gvalues">집계할 값 열</label>
+      <select id="gvalues"><option value="">건수만 셈</option></select></div>
+    <div><label for="gcols">교차표 열 (선택)</label>
+      <select id="gcols"><option value="">쓰지 않음</option></select></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-sum">집계</button>
+    <button id="btn-sum-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="summsg"></div>
+  <div id="sumout"></div>
 </section>
 
 <section class="card">
@@ -709,6 +787,40 @@ BODY = """
     } catch (e) { AT.message($("pickmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function sumValues() {
+    const b = values();
+    b.grows = $("grows").value; b.agg = $("agg").value;
+    b.gvalues = $("gvalues").value; b.gcols = $("gcols").value;
+    return b;
+  }
+
+  function drawSum(d) {
+    $("sumout").innerHTML = AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  $("btn-sum").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/sum_preview", sumValues());
+      drawSum(d);
+      AT.message($("summsg"), "<b>" + d.count + "줄</b>로 묶었습니다.", "ok");
+      $("btn-sum-save").disabled = d.count === 0;
+    } catch (e) {
+      AT.message($("summsg"), AT.esc(e.message), "bad");
+      $("btn-sum-save").disabled = true;
+    }
+  });
+
+  $("btn-sum-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/sum_save", sumValues());
+      drawSum(d);
+      AT.message($("summsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-sum-save").disabled = true;
+    } catch (e) { AT.message($("summsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
@@ -719,6 +831,8 @@ BODY = """
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
+      options($("gvalues"), data.headers, "건수만 셈");
+      options($("gcols"), data.headers, "쓰지 않음");
       $("cols").innerHTML = AT.table(
         ["열", "주로 들어 있는 것", "빈칸", "다른 값", "예시"],
         data.columns, [null, null, "num", "num", null]);
@@ -784,7 +898,8 @@ def make() -> App:
         body=lambda: BODY,
         actions={"peek": peek, "sheets": sheets, "check": check,
                  "compare": compare, "pick_preview": pick_preview,
-                 "pick_save": pick_save,
+                 "pick_save": pick_save, "sum_preview": sum_preview,
+                 "sum_save": sum_save,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

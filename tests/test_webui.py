@@ -454,6 +454,44 @@ class SheetAppTest(UiCase):
         self.assertTrue(Path(data["saved"]).exists())
         self.assertEqual(path.read_text(encoding="utf-8"), before)
 
+    def test_sum_by_group(self):
+        path = self.staff()
+        _, data = self.post("/api/sheet/sum_preview",
+                            {"path": str(path), "grows": "부서",
+                             "agg": "sum", "gvalues": "연봉"})
+        self.assertEqual(data["rows"], [["개발", "10800"], ["영업", "5200"]])
+
+    def test_sum_count_needs_no_value_column(self):
+        path = self.staff()
+        _, data = self.post("/api/sheet/sum_preview",
+                            {"path": str(path), "grows": "부서",
+                             "agg": "count"})
+        self.assertEqual(data["rows"], [["개발", "2"], ["영업", "1"]])
+
+    def test_sum_says_what_is_missing(self):
+        """합계인데 값 열이 없으면 0 을 내지 말고 무엇이 없는지 말한다."""
+        path = self.staff()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/sum_preview",
+                      {"path": str(path), "grows": "부서", "agg": "sum"})
+        payload = json.loads(ctx.exception.read().decode("utf-8"))
+        self.assertIn("값 열", payload["error"])
+
+    def test_sum_needs_group_columns(self):
+        path = self.staff()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/sum_preview", {"path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_sum_save_keeps_original(self):
+        path = self.staff()
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/sum_save",
+                            {"path": str(path), "grows": "부서",
+                             "agg": "count"})
+        self.assertTrue(Path(data["saved"]).exists())
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
     def test_format_preview(self):
         path = self.csv("연락처.csv",
                         "이름,연락처\n홍길동,01012345678\n김철수,0100\n")
@@ -1623,6 +1661,14 @@ class CommandHintTest(UiCase):
         _, data = self.post("/api/files/apply",
                             {"path": str(self.work), "mode": "ext"})
         self.assertEqual(data["command"], "at file undo")
+        self.accepts(data["command"])
+
+    def test_sheet_pivot_command(self):
+        path = self.work / "직원.csv"
+        path.write_text("부서,연봉\n개발,4700\n영업,5200\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/sum_preview",
+                            {"path": str(path), "grows": "부서",
+                             "agg": "sum", "gvalues": "연봉"})
         self.accepts(data["command"])
 
     def test_sheet_commands(self):
