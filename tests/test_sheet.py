@@ -1085,5 +1085,34 @@ class DescribeSheetsTest(unittest.TestCase):
             sheet.describe_sheets(path)
 
 
+class SheetNameTest(unittest.TestCase):
+    """시트 이름 규칙. 겹치면 시트 하나가 조용히 사라지던 자리다."""
+
+    def test_duplicates_get_numbers(self):
+        self.assertEqual(sheet.unique_sheet_names(["영업", "영업", "영업"]),
+                         ["영업", "영업_2", "영업_3"])
+
+    def test_long_names_are_cut_but_stay_apart(self):
+        long_a = "가" * 40 + "A"
+        long_b = "가" * 40 + "B"
+        made = sheet.unique_sheet_names([long_a, long_b])
+        self.assertEqual(len(made), 2)
+        self.assertNotEqual(made[0], made[1])
+        self.assertTrue(all(len(name) <= 31 for name in made))
+
+    def test_forbidden_characters(self):
+        self.assertEqual(sheet.unique_sheet_names(["가:나*다"]), ["가_나_다"])
+
+    def test_save_sheets_keeps_every_sheet(self):
+        root = Path(tempfile.mkdtemp())
+        try:
+            tables = {("가" * 40 + "A"): sheet.Table(["a"], [["1"]]),
+                      ("가" * 40 + "B"): sheet.Table(["a"], [["2"]])}
+            path = sheet.save_sheets(tables, root / "책.xlsx")
+            self.assertEqual(len(xlsx.sheet_names(path)), 2)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

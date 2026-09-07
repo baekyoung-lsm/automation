@@ -161,6 +161,34 @@ def cmd_sheet_clean(a) -> int:
     return 0
 
 
+def cmd_sheet_book(a) -> int:
+    """여러 파일을 한 엑셀의 여러 시트로 묶는다."""
+    tables: dict = {}
+    for name in a.files:
+        table = _load(a, name)
+        if table is None:
+            return 1
+        tables[Path(name).stem] = table
+
+    if not a.out:
+        _grid(["파일", "시트 이름", "행", "열"],
+              [[Path(n).name, s_, f"{len(t.rows):,}", str(t.width)]
+               for n, s_, t in zip(a.files, sheet.unique_sheet_names(tables),
+                                   tables.values())], limit=40)
+        _p("\n저장하려면 -o 로 xlsx 파일을 지정하세요.")
+        return 0
+
+    try:
+        out = sheet.save_sheets(tables, Path(a.out))
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    _p(f"저장: {out}  (시트 {len(tables)}개)")
+    _p("파일마다 열지 않고 엑셀에서 탭으로 넘겨 봅니다. "
+       "시트 이름이 겹치면 번호를 붙였습니다.")
+    return 0
+
+
 def cmd_sheet_sheets(a) -> int:
     """엑셀 한 파일 안의 시트를 한눈에."""
     try:
@@ -1107,6 +1135,11 @@ def add_commands(sub) -> None:
     cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
     cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
     cl.set_defaults(func=cmd_sheet_clean)
+
+    bk = common(sh.add_parser("book", help="여러 파일을 한 엑셀의 여러 시트로"))
+    bk.add_argument("files", nargs="+")
+    bk.add_argument("-o", "--out", help="저장 경로 (.xlsx)")
+    bk.set_defaults(func=cmd_sheet_book)
 
     sh_ = common(sh.add_parser("sheets", help="엑셀 안의 시트 목록과 머리글"))
     sh_.add_argument("file")

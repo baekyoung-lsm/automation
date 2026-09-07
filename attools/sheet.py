@@ -317,6 +317,26 @@ def to_markdown(table: Table) -> str:
     return "\n".join(lines) + "\n"
 
 
+def unique_sheet_names(names) -> list[str]:
+    """엑셀 시트 이름 규칙(31자·금지 문자)에 맞추고, 겹치면 번호를 붙인다.
+
+    긴 파일 이름 둘이 앞 31자가 같으면 잘린 뒤 같은 이름이 된다. 그대로
+    두면 시트 하나가 조용히 사라진다.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        base = xlsx.safe_sheet_name(str(name))
+        candidate, number = base, 1
+        while candidate.lower() in seen:
+            number += 1
+            tail = f"_{number}"
+            candidate = base[:31 - len(tail)] + tail
+        seen.add(candidate.lower())
+        out.append(candidate)
+    return out
+
+
 def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:
     """여러 표를 한 xlsx 의 여러 시트로 저장한다.
 
@@ -328,8 +348,9 @@ def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:
         raise SheetError("여러 시트는 xlsx 로만 저장할 수 있습니다.")
     if not tables:
         raise SheetError("저장할 표가 없습니다.")
-    xlsx.write_sheets(path, {xlsx.safe_sheet_name(name): table.as_rows()
-                             for name, table in tables.items()}, header=header)
+    names = unique_sheet_names(tables.keys())
+    xlsx.write_sheets(path, dict(zip(names, (t.as_rows() for t in tables.values()))),
+                      header=header)
     return path
 
 

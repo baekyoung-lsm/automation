@@ -239,6 +239,8 @@ class SmokeTest(unittest.TestCase):
     def test_sheet_group(self):
         csv = self.path("명단.csv")
         self.run_cli("sheet", "convert", csv, "-o", self.path("명단.md"))
+        self.run_cli("sheet", "book", csv, self.path("급여.csv"),
+                     "-o", self.path("통합.xlsx"))
         self.assertIn("직원", self.run_cli("sheet", "sheets",
                                           self.path("명단.xlsx")))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,
