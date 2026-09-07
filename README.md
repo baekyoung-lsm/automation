@@ -330,6 +330,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 알려 준다. 기본은 부분 일치라 «영업1팀 지원» 도 걸리고, `--exact` 면 칸 전체가 같을 때만
 바꾼다. 원본은 건드리지 않고 `-o` 로 새 파일을 낸다.
 
+`dday` 는 마감일 열에서 «남은 일수» 와 «지남/오늘/남음» 을 만든다. 기준일을 결과에 함께
+적는다 — 어제 만든 표와 오늘 만든 표의 숫자가 다른 것은 당연하지만, 왜 다른지는 보여야 한다.
+`--sort` 로 가까운 순으로 놓을 때 **날짜로 못 읽은 행은 맨 뒤로 보낸다**(가운데 끼면 «가까운
+순» 이 깨진다).
+
 `dates` 는 피벗을 돌리기 전에 늘 손으로 만드는 열을 대신 만든다(연도·월·일·요일·연월·분기·주차).
 **날짜로 못 읽은 칸은 비워 두고 몇 행이었는지 알려 준다** — 오늘 날짜 같은 걸 채워 넣으면 그
 행이 엉뚱한 달에 잡힌다. 주차는 ISO 기준이라 연말·연초의 주가 해를 넘길 수 있어 `2026-W53`
@@ -769,6 +774,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
+| `at sheet dday <파일> -c <열>` | 마감일 열에서 남은 일수·상태 만들기 (일정표) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
@@ -838,6 +844,7 @@ at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두�
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
 at sheet fx 견적.xlsx --add '금액=수량*단가' --formula -o 견적본.xlsx
 at sheet dates 주문.xlsx -c 주문일 --add 연월 --add 요일 -o 피벗용.xlsx
+at sheet dday 일정.xlsx -c 마감일 --sort -o 정리본.xlsx
 at sheet similar 거래처.xlsx -c 상호 -o 합칠후보.csv
 at sheet similar 명부.csv -c 이름 --threshold 0.9
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv

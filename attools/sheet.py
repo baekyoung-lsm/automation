@@ -2014,6 +2014,39 @@ def add_date_parts(table: Table, column: str, parts: list[str]
                  sheet=table.sheet), failed
 
 
+DDAY_STATES = ("지남", "오늘", "남음")
+
+
+def add_dday(table: Table, column: str, *, today: date | None = None
+             ) -> tuple[Table, list[tuple[int, str]]]:
+    """마감일 열에서 «남은 일수» 와 «상태» 를 만든다. (새 표, 못 읽은 칸)
+
+    일정표를 받으면 결국 손으로 «며칠 남았지» 를 센다. 오늘을 기준으로 세되
+    그 기준일을 결과에 적을 수 있도록 부르는 쪽에 넘긴다 - 어제 만든 표와
+    오늘 만든 표의 숫자가 다른 것은 당연하지만, 왜 다른지는 보여야 한다.
+    """
+    today = today or date.today()
+    index = table.index_of(column)
+    headers = list(table.headers) + [f"{column} 남은 일수", f"{column} 상태"]
+    rows: list[list] = []
+    failed: list[tuple[int, str]] = []
+
+    for line, row in enumerate(table.rows, 2):
+        row = list(row) + [None] * (len(table.headers) - len(row))
+        when = _as_date(row[index] if index < len(row) else None)
+        if when is None:
+            if not _is_blank(row[index]):
+                failed.append((line, to_text(row[index])))
+            rows.append(row + [None, None])
+            continue
+        left = (when - today).days
+        state = "오늘" if left == 0 else ("남음" if left > 0 else "지남")
+        rows.append(row + [left, state])
+
+    return Table(_dedupe_headers(headers), rows, source=table.source,
+                 sheet=table.sheet), failed
+
+
 # ---------------------------------------------------------------- SQL 로
 
 SQL_DIALECTS = {"sqlite": '"', "postgres": '"', "mysql": "`"}

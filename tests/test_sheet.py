@@ -1969,5 +1969,39 @@ class AuditTest(unittest.TestCase):
         self.assertTrue(rep.looked)
 
 
+class DdayTest(unittest.TestCase):
+    def table(self):
+        return sheet.Table(["일감", "마감일"],
+                           [["가", "2026-09-01"], ["나", "2026-09-07"],
+                            ["다", "2026-12-25"], ["라", "언젠가"], ["마", None]])
+
+    def today(self):
+        from datetime import date
+
+        return date(2026, 9, 7)
+
+    def test_counts_days_and_states(self):
+        new, _failed = sheet.add_dday(self.table(), "마감일", today=self.today())
+        self.assertEqual([r[2] for r in new.rows[:3]], [-6, 0, 109])
+        self.assertEqual([r[3] for r in new.rows[:3]], ["지남", "오늘", "남음"])
+
+    def test_unreadable_cell_is_blank_and_reported(self):
+        new, failed = sheet.add_dday(self.table(), "마감일", today=self.today())
+        self.assertEqual(new.rows[3][2:], [None, None])
+        self.assertEqual(failed, [(5, "언젠가")])
+
+    def test_blank_cell_is_not_a_failure(self):
+        _new, failed = sheet.add_dday(self.table(), "마감일", today=self.today())
+        self.assertNotIn(6, [line for line, _v in failed])
+
+    def test_headers_are_named_after_the_column(self):
+        new, _failed = sheet.add_dday(self.table(), "마감일", today=self.today())
+        self.assertEqual(new.headers[-2:], ["마감일 남은 일수", "마감일 상태"])
+
+    def test_unknown_column(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.add_dday(self.table(), "없는열")
+
+
 if __name__ == "__main__":
     unittest.main()

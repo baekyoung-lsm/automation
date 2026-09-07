@@ -496,6 +496,52 @@ def cmd_sheet_replace(a) -> int:
     return _sheet_result(a, result, "바꾼 뒤")
 
 
+def cmd_sheet_dday(a) -> int:
+    """마감일 열에서 남은 일수를 센다. 일정표를 받으면 늘 하는 일."""
+    from datetime import date as _date
+
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        today = sheet.parse_date(a.on) if a.on else _date.today()
+    except ValueError:
+        today = None
+    if a.on and today is None:
+        _p(f"날짜를 읽지 못했습니다: {a.on}")
+        return 1
+
+    try:
+        result, failed = sheet.add_dday(t, a.column, today=today)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if a.sort:
+        # 못 읽은 칸은 맨 뒤로. 가운데 끼면 «가까운 순» 이 깨진다
+        index = result.index_of(f"{a.column} 남은 일수")
+        result = sheet.Table(
+            result.headers,
+            sorted(result.rows,
+                   key=lambda r: (r[index] is None,
+                                  r[index] if r[index] is not None else 0)),
+            source=result.source, sheet=result.sheet)
+
+    state = result.index_of(f"{a.column} 상태")
+    counts = {name: 0 for name in sheet.DDAY_STATES}
+    for row in result.rows:
+        if row[state] in counts:
+            counts[row[state]] += 1
+    _p(f"{a.column}  기준일 {today}  ·  "
+       + "  ".join(f"{k} {v:,}" for k, v in counts.items()))
+
+    if failed:
+        _p(f"\n날짜로 못 읽은 칸 {len(failed):,}개 - 비워 두었습니다")
+        for line, value in failed[:a.limit]:
+            _p(f"  {line}행  {_cut(value, 40)}")
+    return _sheet_result(a, result, "\n남은 일수")
+
+
 def cmd_sheet_dates(a) -> int:
     """날짜 열에서 요일·월·분기 열을 만든다. 피벗 돌리기 전에 하는 일."""
     t = _load(a)
@@ -2055,6 +2101,15 @@ def add_commands(sub) -> None:
                      help="칸 전체가 같을 때만 바꾼다")
     rp3.add_argument("-i", "--ignore-case", action="store_true")
     rp3.set_defaults(func=cmd_sheet_replace)
+
+    dy = sheet_out(common(sh.add_parser(
+        "dday", help="마감일 열에서 남은 일수·상태 만들기 (일정표)")))
+    dy.add_argument("file")
+    dy.add_argument("-c", "--column", required=True, metavar="열")
+    dy.add_argument("--on", metavar="기준일", help="이 날 기준 (기본 오늘)")
+    dy.add_argument("--sort", action="store_true", help="가까운 순으로 정렬")
+    dy.add_argument("--limit", type=int, default=10, metavar="개")
+    dy.set_defaults(func=cmd_sheet_dday)
 
     dt = sheet_out(common(sh.add_parser(
         "dates", help="날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비)")))

@@ -285,6 +285,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("숫자로 읽은 칸", 드문값)
         바꿈 = self.run_cli("sheet", "replace", csv, "개발", "R&D", "-c", "부서")
         self.assertIn("R&D", 바꿈)
+        남은 = self.run_cli("sheet", "dday", csv, "-c", "입사일",
+                          "--on", "2026-09-07", "--sort")
+        self.assertIn("지남", 남은)
         날짜 = self.run_cli("sheet", "dates", csv, "-c", "입사일", "--add", "요일")
         self.assertIn("입사일 요일", 날짜)
         sql = self.run_cli("sheet", "to-sql", csv, "-t", "직원", "--create")
