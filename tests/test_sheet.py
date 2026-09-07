@@ -1511,5 +1511,60 @@ class TablesFromDocxTest(unittest.TestCase):
             sheet.tables_from_docx(bad)
 
 
+class SimilarTest(unittest.TestCase):
+    def test_normalize_strips_company_words(self):
+        for name in ("(주)가나상사", "주식회사 가나상사", "㈜ 가나-상사", "가나 상사"):
+            self.assertEqual(sheet.normalize_name(name), "가나상사")
+
+    def test_english_tail_is_stripped_only_at_the_end(self):
+        self.assertEqual(sheet.normalize_name("Gana Co.,Ltd"), "gana")
+        # 이름 가운데서 떼면 딴 이름이 된다
+        self.assertEqual(sheet.normalize_name("Incheon"), "incheon")
+
+    def test_same_after_cleaning(self):
+        t = sheet.Table(["상호"], [["(주)가나"], ["주식회사 가나"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(len(pairs), 1)
+        self.assertEqual(pairs[0].reason, "표기만 다름")
+        self.assertEqual((pairs[0].left_row, pairs[0].right_row), (2, 3))
+
+    def test_one_character_typo_in_a_short_name(self):
+        t = sheet.Table(["상호"], [["다라테크"], ["다라테그"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(pairs[0].reason, "비슷함")
+
+    def test_two_letter_names_are_left_alone(self):
+        # 두 글자짜리는 한 글자만 달라도 딴 곳이다. 짐작하지 않는다
+        t = sheet.Table(["상호"], [["마바"], ["마사"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(pairs, [])
+
+    def test_exactly_equal_values_are_not_pairs(self):
+        # 똑같은 값은 at sheet dedupe 가 할 일이다
+        t = sheet.Table(["상호"], [["가나"], ["가나"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(pairs, [])
+
+    def test_different_names_are_not_paired(self):
+        t = sheet.Table(["상호"], [["가나상사"], ["마바무역"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(pairs, [])
+
+    def test_blank_cells_are_skipped(self):
+        t = sheet.Table(["상호"], [[None], [""], ["가나"]])
+        pairs, _cut = sheet.find_similar(t, "상호")
+        self.assertEqual(pairs, [])
+
+    def test_limit_reports_that_it_stopped(self):
+        rows = [[f"가나상사{i}"] for i in range(10)]
+        _pairs, cut = sheet.find_similar(sheet.Table(["상호"], rows), limit=3,
+                                         column="상호")
+        self.assertTrue(cut)
+
+    def test_unknown_column(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_similar(sheet.Table(["상호"], [["가나"]]), "없는열")
+
+
 if __name__ == "__main__":
     unittest.main()

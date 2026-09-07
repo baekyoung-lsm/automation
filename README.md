@@ -261,6 +261,14 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 거기 import 는 대개 다시 내보내기라 파일 안에서 안 쓰이는 것이 정상이다. 동적으로 부르는
 이름은 볼 수 없으니 지우기 전에 확인하고, 남겨야 하면 그 줄에 `attools:ignore` 를 적는다.
 
+`similar` 는 합치지 않는다. 후보만 낸다 — 표기가 같아 보여도 정말 다른 곳일 수 있고,
+그 판단은 사람이 해야 한다. 법인 표기(`주식회사`, `(주)`, `㈜`, `Co.,Ltd`)와 공백·기호를
+뗀 뒤 같으면 «표기만 다름», 그 밖에는 닮은 정도로 «비슷함» 이다. 네 글자짜리 상호의 한 글자
+오타는 닮은 정도가 0.75 밖에 안 나오므로 **글자 하나만 다른 짝은 따로 잡는다**(세 글자
+이상일 때만 — 두 글자는 한 글자만 달라도 딴 곳이다). 다듬은 이름의 **앞 두 글자가 같은
+것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
+재야 하기 때문이다.
+
 `at sheet from-docx` 는 워드 표를 그대로 표로 옮긴다. 첫 줄이 비어 있거나 이름이 겹치면
 머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
 어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
@@ -640,6 +648,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
+| `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
@@ -695,6 +704,8 @@ at sheet validate 납품.csv --required 이름 --unique 사번 \
     --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
 at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
+at sheet similar 거래처.xlsx -c 상호 -o 합칠후보.csv
+at sheet similar 명부.csv -c 이름 --threshold 0.9
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv
 at sheet join 직원.xlsx 급여.csv --on 사번 -o 통합.xlsx
 at sheet join 주문.csv 고객.csv --on 고객번호 --how inner -o 매칭본.csv

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import difflib
 import io
 import json
 import re
@@ -1538,6 +1539,112 @@ FORMAT_CHECKS = {
     "우편번호": lambda v: bool(POSTCODE_RE.fullmatch(to_text(v).strip())),
     "이메일": lambda v: bool(EMAIL_RE.fullmatch(to_text(v).strip())),
 }
+
+
+# ------------------------------------------------------------- 비슷한 값
+
+# 상호에 붙는 법인 표기. 이것만 다른 것은 같은 곳으로 본다.
+COMPANY_WORDS = ("주식회사", "유한책임회사", "유한회사", "사단법인", "재단법인",
+                 "합자회사", "합명회사", "(주)", "(유)", "㈜")
+# 기호를 뗀 뒤 «끝에» 붙어 있을 때만 떼는 것들. 이름 가운데서 떼면 딴 이름이 된다.
+COMPANY_TAILS = ("coltd", "company", "ltd", "llc", "inc", "corp")
+_STRIP = re.compile(r"[\s.,\-_/()\[\]{}'\"·ㆍ]")
+
+
+def normalize_name(value: object) -> str:
+    """견주기 좋게 다듬은 이름. 법인 표기를 떼고 공백·기호를 지운다.
+
+    법인 표기를 먼저 뗀다. 기호를 먼저 지우면 «(주)» 가 «주» 로 남아
+    이름 앞에 붙어 버린다.
+    """
+    text = unicodedata.normalize("NFC", to_text(value)).strip().lower()
+    for word in COMPANY_WORDS:
+        text = text.replace(word, "")
+    text = _STRIP.sub("", text)
+    for tail in COMPANY_TAILS:
+        if text.endswith(tail) and len(text) > len(tail):
+            text = text[: -len(tail)]
+            break
+    return text
+
+
+def _one_char_apart(a: str, b: str) -> bool:
+    """글자 하나만 다른가. 짧은 이름을 위해 따로 본다.
+
+    «다라테크» 와 «다라테그» 는 닮은 정도가 0.75 밖에 안 나온다. 네 글자짜리
+    상호에서 한 글자 오타는 흔한데, 그걸 잡으려고 기준을 낮추면 긴 이름에서
+    엉뚱한 짝이 쏟아진다.
+    """
+    if min(len(a), len(b)) < 3 or abs(len(a) - len(b)) > 1:
+        return False
+    changed = 0
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
+        if tag == "equal":
+            continue
+        changed += max(i2 - i1, j2 - j1)
+        if changed > 1:
+            return False
+    return changed == 1
+
+
+@dataclass
+class SimilarPair:
+    left_row: int             # 머리글을 1행으로 센 줄 번호
+    right_row: int
+    left: str
+    right: str
+    score: float              # 1.0 이면 다듬은 뒤 완전히 같다
+    reason: str               # '표기만 다름' 또는 '비슷함'
+
+
+def find_similar(table: Table, column: str, *, threshold: float = 0.85,
+                 limit: int = 500) -> tuple[list[SimilarPair], bool]:
+    """한 열에서 같은 것으로 보이는 값들을 찾는다. (후보, 다 못 본 것이 있나)
+
+    거래처 명부에 «(주)가나» 와 «주식회사 가나» 가 따로 들어가는 일이 흔하다.
+    합치지는 않는다 - 다른 곳일 수도 있어서, 사람이 보고 정하게 후보만 낸다.
+
+    전부 견주면 만 행에서 오천만 번을 재야 한다. 다듬은 이름의 앞 두 글자가
+    같은 것끼리만 견주므로, 첫 글자가 다른 오타(«가나» 와 «나나»)는 못 찾는다.
+    """
+    index = table.index_of(column)
+    rows: list[tuple[int, str, str]] = []      # (줄 번호, 원래 값, 다듬은 값)
+    for line, row in enumerate(table.rows, 2):
+        raw = to_text(row[index]) if index < len(row) else ""
+        if not raw.strip():
+            continue
+        rows.append((line, raw, normalize_name(raw)))
+
+    buckets: dict[str, list[tuple[int, str, str]]] = defaultdict(list)
+    for item in rows:
+        buckets[item[2][:2]].append(item)
+
+    pairs: list[SimilarPair] = []
+    cut = False
+    for bucket in buckets.values():
+        for i, (line_a, raw_a, key_a) in enumerate(bucket):
+            for line_b, raw_b, key_b in bucket[i + 1:]:
+                if raw_a == raw_b:             # 똑같은 값은 at sheet dedupe 의 몫
+                    continue
+                if key_a == key_b:
+                    score, reason = 1.0, "표기만 다름"
+                else:
+                    score = difflib.SequenceMatcher(None, key_a, key_b).ratio()
+                    if score < threshold and not _one_char_apart(key_a, key_b):
+                        continue
+                    reason = "비슷함"
+                if len(pairs) >= limit:
+                    cut = True
+                    break
+                pairs.append(SimilarPair(line_a, line_b, raw_a, raw_b,
+                                         round(score, 3), reason))
+            if cut:
+                break
+        if cut:
+            break
+
+    pairs.sort(key=lambda p: (-p.score, p.left_row))
+    return pairs, cut
 
 
 # --------------------------------------------------------- 워드 표 꺼내기

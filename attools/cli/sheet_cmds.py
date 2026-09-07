@@ -1178,6 +1178,46 @@ def cmd_sheet_join(a) -> int:
     return 0
 
 
+def cmd_sheet_similar(a) -> int:
+    """같은 곳으로 보이는 값을 찾는다. 합치지는 않는다 - 사람이 정할 일이다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        pairs, cut = sheet.find_similar(t, a.column, threshold=a.threshold,
+                                        limit=a.limit)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{Path(a.file).name}  {a.column}  {len(t.rows):,}행")
+    if not pairs:
+        _p("같은 곳으로 보이는 짝이 없습니다.")
+        _p("  다듬은 이름의 앞 두 글자가 같은 것끼리만 견줍니다. "
+           "--threshold 를 낮춰 보세요.")
+        return 0
+
+    _p(f"같은 곳으로 보이는 짝 {len(pairs):,}개  (합치지 않았습니다)\n")
+    _grid(["왜", "닮음", "행", "값", "행", "값"],
+          [[p.reason, f"{p.score:.2f}", str(p.left_row), _cut(p.left, a.width),
+            str(p.right_row), _cut(p.right, a.width)] for p in pairs[:a.rows]],
+          limit=a.width)
+    if len(pairs) > a.rows:
+        _p(f"  ... {len(pairs) - a.rows:,}개 더")
+    if cut:
+        _p(f"\n{a.limit:,}개까지만 찾았습니다. --limit 로 늘리세요.")
+
+    _p("\n«표기만 다름» 은 법인 표기와 공백·기호를 뗀 뒤 완전히 같은 것입니다.")
+    if a.out:
+        table = sheet.Table(["왜", "닮음", "왼쪽 행", "왼쪽 값", "오른쪽 행", "오른쪽 값"],
+                            [[p.reason, p.score, p.left_row, p.left,
+                              p.right_row, p.right] for p in pairs])
+        _p(f"저장: {sheet.save(table, Path(a.out))}")
+    else:
+        _p("표로 받으려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
 def cmd_sheet_dedupe(a) -> int:
     t = _load(a)
     if t is None:
@@ -1693,6 +1733,18 @@ def add_commands(sub) -> None:
     fx.add_argument("--rows", type=int, default=10, metavar="개")
     fx.add_argument("--width", type=int, default=16, metavar="칸")
     fx.set_defaults(func=cmd_sheet_fx)
+
+    sm = common(sh.add_parser("similar", help="같은 곳으로 보이는 값 찾기 (거래처 표기 흔들림)"))
+    sm.add_argument("file")
+    sm.add_argument("-c", "--column", required=True, metavar="열")
+    sm.add_argument("--threshold", type=float, default=0.85, metavar="0~1",
+                    help="이만큼 닮으면 후보로 (기본 0.85)")
+    sm.add_argument("--limit", type=int, default=500, metavar="개",
+                    help="찾을 짝의 최대 개수")
+    sm.add_argument("--rows", type=int, default=20, metavar="개", help="보여줄 개수")
+    sm.add_argument("--width", type=int, default=22, metavar="칸")
+    sm.add_argument("-o", "--out", metavar="파일")
+    sm.set_defaults(func=cmd_sheet_similar)
 
     dd = common(sh.add_parser("dedupe", help="키가 같은 행 중 하나만 남기기"))
     dd.add_argument("file")
