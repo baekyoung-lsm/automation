@@ -218,6 +218,38 @@ def line_chart(rows: list[tuple[str, float]], *, unit: str = "") -> str:
     return "".join(parts)
 
 
+# 그림 파일 하나로 낼 때 쓰는 색·글꼴. 보고서 페이지의 CSS 를 못 쓰므로
+# 필요한 것만 SVG 안에 넣는다. 워드·한글에 넣어도 그대로 보이게 하려는 것이다.
+STANDALONE_STYLE = """
+text { font:11px/1 system-ui,-apple-system,"Malgun Gothic",sans-serif; fill:#6b7280; }
+text.label { fill:#374151; }
+text.value { fill:#374151; }
+.mark { fill:#2563eb; }
+.hit { fill:transparent; }
+.gridline { stroke:#e5e7eb; stroke-width:1; }
+.axis { stroke:#9ca3af; stroke-width:1; }
+.line { fill:none; stroke:#2563eb; stroke-width:2; stroke-linejoin:round; }
+.dot { fill:#2563eb; stroke:#ffffff; stroke-width:2; }
+"""
+
+
+def standalone_svg(svg: str, *, title: str = "") -> str:
+    """보고서 안의 그림을 파일 하나로 낼 수 있게 다듬는다.
+
+    보고서 페이지의 CSS 를 빼고 필요한 규칙만 안에 넣는다. 그냥 잘라 내면
+    글자와 막대가 모두 검게 나온다.
+    """
+    if not svg.startswith("<svg"):
+        raise ValueError("SVG 가 아닙니다.")
+    head, _, body = svg.partition(">")
+    inside = f"<style>{STANDALONE_STYLE}</style>"
+    if title:
+        inside = f"<title>{escape(title)}</title>" + inside
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            + head.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"', 1)
+            + ">" + inside + body)
+
+
 def _cut(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 

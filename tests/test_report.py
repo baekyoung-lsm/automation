@@ -55,5 +55,32 @@ class ReportTest(unittest.TestCase):
         self.assertIn("전체", html)
 
 
+class StandaloneSvgTest(unittest.TestCase):
+    """그림 파일 하나로 낼 때. 보고서 CSS 없이도 보여야 한다."""
+
+    def chart(self):
+        return report.bar_chart([("영업", 100.0), ("개발", 80.0)], unit="만원")
+
+    def test_it_is_valid_xml(self):
+        import xml.etree.ElementTree as ET
+
+        out = report.standalone_svg(self.chart())
+        ET.fromstring(out.split("?>", 1)[1])       # 깨지면 여기서 걸린다
+
+    def test_namespace_and_style_are_inside(self):
+        out = report.standalone_svg(self.chart())
+        self.assertIn('xmlns="http://www.w3.org/2000/svg"', out)
+        # 색을 안 넣으면 글자도 막대도 모두 검게 나온다
+        self.assertIn(".mark { fill:", out)
+
+    def test_title_is_escaped(self):
+        out = report.standalone_svg(self.chart(), title='<나쁜 & 제목>')
+        self.assertIn("&lt;나쁜 &amp; 제목&gt;", out)
+
+    def test_refuses_something_that_is_not_svg(self):
+        with self.assertRaises(ValueError):
+            report.standalone_svg("<p>그림이 아니다</p>")
+
+
 if __name__ == "__main__":
     unittest.main()

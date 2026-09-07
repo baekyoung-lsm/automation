@@ -310,6 +310,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 척하면 파일을 여는 사람 화면에 `#NAME?` 이 뜬다. csv 로 내면 `=...` 글자로 들어가는데, 엑셀은
 수식으로 읽지만 다른 프로그램에서는 글자다.
 
+`chart` 는 표를 **그림 파일 하나(SVG)** 로 낸다. 브라우저로 열리고 워드·PPT 에 그림으로 넣을 수
+있다. 보고서 페이지의 CSS 를 쓰지 못하므로 색·글꼴 규칙을 SVG 안에 넣는다 — 그냥 잘라 내면
+글자와 막대가 모두 검게 나온다. 막대는 큰 것부터 그리고, 잘라 낸 칸이 있으면 몇 칸 중 몇 칸을
+그렸는지 적는다. 표까지 함께 담은 문서가 필요하면 `at sheet report` 쪽이다.
+
 `audit` 은 남이 보낸 표를 열어 **무엇부터 봐야 할지** 한 번에 모아 준다(빈 칸이 많은 열, 한 열에
 섞인 타입, 똑같은 행, 숫자 열의 드문 값, 개인정보로 보이는 열, 표기 흔들림). 고치지는 않는다.
 **무엇을 봤는지와 무엇을 못 봤는지를 함께 적는다** — «볼 만한 곳 없음» 이 «다 봤다» 로 읽히면
@@ -768,6 +773,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
+| `at sheet chart <파일> --label <열>` | 표를 그림 파일(SVG) 하나로 (보고서·슬라이드에 붙일 때) |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
 | `at sheet from-docx <파일>` | 워드 문서 안의 표를 엑셀·csv 로 (손으로 다시 치지 않게) |
 | `at sheet from-md <파일>` | 마크다운 문서 안의 표를 엑셀·csv 로 |
@@ -838,6 +844,7 @@ at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv
 at sheet join 직원.xlsx 급여.csv --on 사번 -o 통합.xlsx
 at sheet join 주문.csv 고객.csv --on 고객번호 --how inner -o 매칭본.csv
 at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고서.html
+at sheet chart 매출.xlsx --label 부서 --value 금액 --unit 원 -o 부서별.svg
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 # 틀 안에서: {이름:님/님} 대신 {이름:은/는}, {도시:으로/로} 처럼 받침에 맞는 조사
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기

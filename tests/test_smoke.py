@@ -363,6 +363,10 @@ class SmokeTest(unittest.TestCase):
         with zipfile.ZipFile(수식본) as z:
             안 = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
         self.assertIn("<f>", 안)
+        그림 = self.path("부서별.svg")
+        self.run_cli("sheet", "chart", csv, "--label", "부서", "--value", "연봉",
+                     "-o", 그림)
+        self.assertIn("<svg", Path(그림).read_text(encoding="utf-8"))
         out = self.path("보고서.html")
         self.run_cli("sheet", "report", csv, "--by", "부서", "--value", "연봉",
                      "-o", out)

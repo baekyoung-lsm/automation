@@ -1295,6 +1295,60 @@ def cmd_sheet_fill(a) -> int:
     return 0
 
 
+CHART_KINDS = {"bar": "가로 막대", "line": "꺾은선"}
+
+
+def cmd_sheet_chart(a) -> int:
+    """표를 그림 파일(SVG) 하나로. 보고서·슬라이드에 붙일 때."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        grouped = sheet.pivot(t, rows=[a.label], values=a.value, agg=a.agg)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    pairs = [(sheet.to_text(r[0]), float(r[1])) for r in grouped.rows
+             if isinstance(r[1], (int, float)) and not isinstance(r[1], bool)]
+    if not pairs:
+        _p("그릴 숫자가 없습니다. --value 로 숫자 열을 고르거나 "
+           "--agg count 로 건수를 세어 보세요.")
+        return 1
+
+    if a.kind == "bar":
+        pairs.sort(key=lambda x: -x[1])         # 막대는 큰 것부터가 읽기 쉽다
+    left = len(pairs)
+    pairs = pairs[:a.top]
+    draw = report.bar_chart if a.kind == "bar" else report.line_chart
+    svg = report.standalone_svg(draw(pairs, unit=a.unit or ""),
+                                title=f"{a.label}별 {a.value or '건수'}")
+
+    agg_names = {"sum": "합계", "avg": "평균", "count": "건수",
+                 "min": "최소", "max": "최대"}
+    _p(f"{a.label}별 {a.value or ''} {agg_names.get(a.agg, a.agg)}  "
+       f"· {CHART_KINDS[a.kind]}  · {len(pairs)}칸"
+       + (f" (전체 {left}칸 중 위 {len(pairs)}칸)" if left > len(pairs) else ""))
+    _grid([a.label, "값"],
+          [[name, f"{value:,.0f}"] for name, value in pairs[:a.rows]], limit=30)
+    if len(pairs) > a.rows:
+        _p(f"  ... {len(pairs) - a.rows}칸 더")
+
+    if not a.out:
+        _p("\n저장하려면 -o 로 .svg 파일을 지정하세요.")
+        return 0
+    out = Path(a.out)
+    if out.suffix.lower() != ".svg":
+        _p(f"\nSVG 로만 낼 수 있습니다: {out.suffix or '확장자 없음'}")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(svg, encoding="utf-8")
+    _p(f"\n저장: {out}")
+    _p("  브라우저로 열리고, 워드·PPT 에 그림으로 넣을 수 있습니다.")
+    _p("  표까지 같이 담은 문서가 필요하면 at sheet report 를 쓰세요.")
+    return 0
+
+
 def cmd_sheet_report(a) -> int:
     from datetime import date as _date, datetime as _datetime
 
@@ -2153,6 +2207,21 @@ def add_commands(sub) -> None:
     jn.add_argument("--rows", type=int, default=10, metavar="개", dest="rows")
     jn.add_argument("--width", type=int, default=16, metavar="칸")
     jn.set_defaults(func=cmd_sheet_join)
+
+    ch = common(sh.add_parser("chart", help="표를 그림 파일(SVG) 하나로"))
+    ch.add_argument("file")
+    ch.add_argument("--label", required=True, metavar="열", help="가로/세로 축의 이름 열")
+    ch.add_argument("--value", metavar="열", help="셈할 숫자 열 (없으면 건수)")
+    ch.add_argument("--agg", default="sum",
+                    choices=["sum", "avg", "count", "min", "max"])
+    ch.add_argument("--kind", default="bar", choices=sorted(CHART_KINDS),
+                    help="bar 가로 막대 (기본) · line 꺾은선")
+    ch.add_argument("--top", type=int, default=15, metavar="개",
+                    help="몇 칸까지 그릴지 (기본 15)")
+    ch.add_argument("--unit", metavar="단위", help="값 뒤에 붙일 말 (원, 건…)")
+    ch.add_argument("--rows", type=int, default=10, metavar="개")
+    ch.add_argument("-o", "--out", metavar="파일.svg")
+    ch.set_defaults(func=cmd_sheet_chart)
 
     rp2 = common(sh.add_parser("report", help="표를 HTML 보고서로 (요약·그래프·표)"))
     rp2.add_argument("file")
