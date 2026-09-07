@@ -533,6 +533,58 @@ class SheetAppTest(UiCase):
         self.assertEqual(data["count"], 0)
         self.assertTrue(data["looked"])
 
+    def test_chart_draws_svg(self):
+        path = self.csv("매출.csv", "부서,금액\n영업,100\n개발,80\n영업,50\n")
+        _, data = self.post("/api/sheet/chart",
+                            {"path": str(path), "clabel": "부서",
+                             "cvalue": "금액", "cunit": "원"})
+        self.assertIn("<svg", data["svg"])
+        self.assertEqual(data["rows"][0], ["영업", "150"])
+        self.assertNotIn("saved", data)
+
+    def test_chart_saves_an_svg_file(self):
+        path = self.csv("매출.csv", "부서,금액\n영업,100\n")
+        _, data = self.post("/api/sheet/chart",
+                            {"path": str(path), "clabel": "부서",
+                             "cvalue": "금액", "csave": True})
+        saved = Path(data["saved"])
+        self.assertEqual(saved.suffix, ".svg")
+        self.assertIn("<svg", saved.read_text(encoding="utf-8"))
+
+    def test_line_chart_needs_two_points(self):
+        # 못 그리는 까닭을 그대로 전한다
+        path = self.csv("한칸.csv", "부서,금액\n영업,100\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/chart",
+                      {"path": str(path), "clabel": "부서", "cvalue": "금액",
+                       "ckind": "line"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_chart_needs_numbers(self):
+        path = self.csv("글자.csv", "부서,비고\n영업,가\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/chart",
+                      {"path": str(path), "clabel": "부서", "cvalue": "비고"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_dday_counts_and_sorts(self):
+        path = self.csv("일정.csv",
+                        "일감,마감일\n최종,2026-12-25\n제안,2026-09-01\n미정,언젠가\n")
+        _, data = self.post("/api/sheet/dday",
+                            {"path": str(path), "ycol": "마감일",
+                             "yon": "2026-09-07", "ysort": True})
+        self.assertEqual(data["today"], "2026-09-07")
+        self.assertEqual(data["rows"][0][0], "제안")     # 가까운 것부터
+        self.assertEqual(data["rows"][-1][0], "미정")    # 못 읽은 것은 맨 뒤
+        self.assertEqual(data["failed"], [["4", "언젠가"]])
+
+    def test_dday_bad_reference_date(self):
+        path = self.csv("일정.csv", "마감일\n2026-09-01\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/dday",
+                      {"path": str(path), "ycol": "마감일", "yon": "언젠가"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def numbers(self):
         rows = "\n".join(str(v) for v in
                          [100, 105, 98, 102, 99, 101, 103, 97, 0, 100000])
@@ -2200,6 +2252,19 @@ class CommandHintTest(UiCase):
                            {"cfolder": str(room), "cells": "B3=담당자",
                             "cglob": "*.csv"})
         self.accepts(got["command"])
+
+    def test_sheet_chart_and_dday_commands(self):
+        path = self.work / "매출.csv"
+        path.write_text("부서,금액,마감일\n영업,100,2026-09-01\n",
+                        encoding="utf-8")
+        _, drawn = self.post("/api/sheet/chart",
+                             {"path": str(path), "clabel": "부서",
+                              "cvalue": "금액", "cunit": "원"})
+        self.accepts(drawn["command"])
+        _, left = self.post("/api/sheet/dday",
+                            {"path": str(path), "ycol": "마감일",
+                             "yon": "2026-09-07", "ysort": True})
+        self.accepts(left["command"])
 
     def test_sheet_audit_command(self):
         path = self.work / "받은것.csv"

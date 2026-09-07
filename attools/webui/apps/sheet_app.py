@@ -451,6 +451,124 @@ def tidy_save(payload: dict) -> dict:
             "command": _tidy_commands(payload, out)}
 
 
+def chart(payload: dict) -> dict:
+    """표를 그림(SVG) 하나로. 화면에서는 그린 것을 그대로 보여 준다."""
+    from ...docs import report
+
+    table = _open(payload)
+    label = form.text(payload, "clabel")
+    if not label:
+        raise UiError("이름이 될 열을 골라 주세요.")
+    kind = form.choice(payload, "ckind", {"bar", "line"}, "bar")
+    agg = form.choice(payload, "cagg", AGGS, "sum")
+    value = form.text(payload, "cvalue") or None
+    top = int(form.number(payload, "ctop", 15, low=1, high=100))
+    try:
+        grouped = sheet.pivot(table, rows=[label], values=value, agg=agg)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    pairs = [(sheet.to_text(r[0]), float(r[1])) for r in grouped.rows
+             if isinstance(r[1], (int, float)) and not isinstance(r[1], bool)]
+    if not pairs:
+        raise UiError("그릴 숫자가 없습니다. 값 열을 고르거나 «건수»로 세어 보세요.")
+    if kind == "bar":
+        pairs.sort(key=lambda x: -x[1])
+    whole = len(pairs)
+    pairs = pairs[:top]
+
+    draw = report.bar_chart if kind == "bar" else report.line_chart
+    unit = form.text(payload, "cunit")
+    drawn = draw(pairs, unit=unit)
+    if not drawn.startswith("<svg"):
+        import re as _re
+
+        raise UiError(_re.sub(r"<[^>]+>", "", drawn))
+    svg = report.standalone_svg(drawn, title=f"{label}별 {value or '건수'}")
+
+    args: list[object] = ["sheet", "chart", *_source_args(payload), "--label", label]
+    if value:
+        args += ["--value", value]
+    if agg != "sum":
+        args += ["--agg", agg]
+    if kind != "bar":
+        args += ["--kind", kind]
+    if unit:
+        args += ["--unit", unit]
+
+    result = {"svg": svg, "count": len(pairs), "whole": whole,
+              "rows": [[name, f"{v:,.0f}"] for name, v in pairs],
+              "command": form.command(*args)}
+    if form.flag(payload, "csave"):
+        source = Path(table.source)
+        out = files.unique_path(source.with_name(f"{source.stem} ({label}별).svg"))
+        out.write_text(svg, encoding="utf-8")
+        result["saved"] = str(out)
+        result["command"] = form.command(*args, "-o", out)
+    return result
+
+
+def dday(payload: dict) -> dict:
+    """마감일 열에서 남은 일수와 상태를 만든다."""
+    from datetime import date as _date
+
+    table = _open(payload)
+    column = form.text(payload, "ycol")
+    if not column:
+        raise UiError("마감일이 든 열을 골라 주세요.")
+    raw = form.text(payload, "yon")
+    if raw:
+        try:
+            today = sheet.parse_date(raw)
+        except ValueError:
+            today = None
+        if today is None:
+            raise UiError(f"날짜를 읽지 못했습니다: {raw}")
+    else:
+        today = _date.today()
+
+    try:
+        result, failed = sheet.add_dday(table, column, today=today)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    index = result.index_of(f"{column} 남은 일수")
+    if form.flag(payload, "ysort", True):
+        result = sheet.Table(
+            result.headers,
+            sorted(result.rows, key=lambda r: (r[index] is None,
+                                               r[index] if r[index] is not None else 0)),
+            source=result.source, sheet=result.sheet)
+
+    state = result.index_of(f"{column} 상태")
+    counts = {name: 0 for name in sheet.DDAY_STATES}
+    for row in result.rows:
+        if row[state] in counts:
+            counts[row[state]] += 1
+
+    args: list[object] = ["sheet", "dday", *_source_args(payload), "-c", column]
+    if raw:
+        args += ["--on", f"{today:%Y-%m-%d}"]
+    if form.flag(payload, "ysort", True):
+        args.append("--sort")
+
+    out = {"headers": result.headers, "rows": _cells(result, PEEK_ROWS),
+           "count": len(result.rows), "shown": min(len(result.rows), PEEK_ROWS),
+           "today": f"{today:%Y-%m-%d}", "counts": [[k, str(v)] for k, v in counts.items()],
+           "failed": [[str(line), value] for line, value in failed[:20]],
+           "command": form.command(*args)}
+    if form.flag(payload, "ysave"):
+        source = Path(table.source)
+        suffix = source.suffix.lower()
+        if suffix not in sheet.XLSX_SUFFIXES:
+            suffix = ".csv"
+        saved = files.unique_path(source.with_name(f"{source.stem} (남은일수){suffix}"))
+        sheet.save(result, saved)
+        out["saved"] = str(saved)
+        out["command"] = form.command(*args, "-o", saved)
+    return out
+
+
 def _dated(payload: dict):
     table = _open(payload)
     column = form.text(payload, "dcol")
@@ -996,6 +1114,31 @@ BODY = """
 </section>
 
 <section class="card" data-panel="골라내기" hidden>
+  <h2>그림으로</h2>
+  <p class="note">표를 그림 파일(SVG) 하나로 만듭니다. 보고서·슬라이드에 그림으로
+     붙일 수 있습니다. 막대는 큰 것부터 그리고, 잘라 낸 칸이 있으면 몇 칸 중
+     몇 칸인지 알려 줍니다.</p>
+  <div class="row">
+    <div><label for="clabel">이름 열</label><select id="clabel"></select></div>
+    <div><label for="cvalue">값 열 (비우면 건수)</label><select id="cvalue"></select></div>
+    <div style="flex:0 1 8rem"><label for="cagg">무엇을</label>
+      <select id="cagg"><option value="sum">합계</option><option value="count">건수</option><option value="avg">평균</option><option value="min">최소</option><option value="max">최대</option></select></div>
+    <div style="flex:0 1 8rem"><label for="ckind">모양</label>
+      <select id="ckind"><option value="bar">가로 막대</option><option value="line">꺾은선</option></select></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div style="flex:0 1 7rem"><label for="ctop">몇 칸까지</label>
+      <input type="text" id="ctop" value="15" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="cunit">단위</label>
+      <input type="text" id="cunit" placeholder="원" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-chart">그려 보기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-chart-save">.svg 로 저장</button></div>
+  </div>
+  <div id="chartmsg"></div>
+  <div id="chartout"></div>
+</section>
+
+<section class="card" data-panel="골라내기" hidden>
   <h2>집계</h2>
   <p class="note">부서별 인원, 월별 매출처럼 묶어서 셉니다. 엑셀의 피벗과
      같은 일입니다.</p>
@@ -1069,6 +1212,25 @@ BODY = """
   </div>
   <div id="repmsg"></div>
   <div id="repout"></div>
+</section>
+
+<section class="card" data-panel="고치기" hidden>
+  <h2>마감일까지 며칠</h2>
+  <p class="note">마감일 열에서 «남은 일수» 와 «지남/오늘/남음» 을 만듭니다.
+     기준일을 함께 적습니다 - 어제 만든 표와 오늘 만든 표의 숫자가 다른 것은
+     당연하지만, 왜 다른지는 보여야 합니다.</p>
+  <div class="row">
+    <div><label for="ycol">마감일 열</label><select id="ycol"></select></div>
+    <div><label for="yon">기준일 (비우면 오늘)</label>
+      <input type="text" id="yon" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-dday">세어 보기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-dday-save">새 파일로 저장</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="ysort" checked> 가까운 순으로</label>
+  </div>
+  <div id="ddaymsg"></div>
+  <div id="ddayout"></div>
 </section>
 
 <section class="card" data-panel="고치기" hidden>
@@ -1578,6 +1740,45 @@ BODY = """
     } catch (e) { AT.message($("repmsg"), AT.esc(e.message), "bad"); }
   });
 
+  async function runChart(save) {
+    try {
+      const b = values();
+      b.clabel = $("clabel").value; b.cvalue = $("cvalue").value;
+      b.cagg = $("cagg").value; b.ckind = $("ckind").value;
+      b.ctop = $("ctop").value; b.cunit = $("cunit").value; b.csave = save;
+      const d = await AT.call("/api/sheet/chart", b);
+      $("chartout").innerHTML = d.svg +
+        (d.whole > d.count ? '<p class="note">' + d.whole + "칸 가운데 " +
+          d.count + "칸만 그렸습니다.</p>" : "") +
+        AT.table(["이름", "값"], d.rows, [null, "num"]) + AT.command(d.command);
+      AT.message($("chartmsg"), d.saved
+        ? "저장했습니다: <b>" + AT.esc(d.saved) + "</b>"
+        : "그렸습니다. 저장하려면 «.svg 로 저장»을 누르세요.", "ok");
+    } catch (e) { AT.message($("chartmsg"), AT.esc(e.message), "bad"); }
+  }
+
+  $("btn-chart").addEventListener("click", function () { runChart(false); });
+  $("btn-chart-save").addEventListener("click", function () { runChart(true); });
+
+  async function runDday(save) {
+    try {
+      const b = values();
+      b.ycol = $("ycol").value; b.yon = $("yon").value;
+      b.ysort = $("ysort").checked; b.ysave = save;
+      const d = await AT.call("/api/sheet/dday", b);
+      $("ddayout").innerHTML =
+        AT.table(["상태", "개수"], d.counts, [null, "num"]) +
+        (d.failed.length ? "<h2>날짜로 못 읽은 칸</h2>" +
+          AT.table(["행", "값"], d.failed, ["num", null]) : "") +
+        AT.table(d.headers, d.rows) + AT.command(d.command);
+      AT.message($("ddaymsg"), "기준일 " + AT.esc(d.today) +
+        (d.saved ? " · 저장했습니다: <b>" + AT.esc(d.saved) + "</b>" : ""), "ok");
+    } catch (e) { AT.message($("ddaymsg"), AT.esc(e.message), "bad"); }
+  }
+
+  $("btn-dday").addEventListener("click", function () { runDday(false); });
+  $("btn-dday-save").addEventListener("click", function () { runDday(true); });
+
   function datesValues() {
     const b = values();
     b.dcol = $("dcol").value;
@@ -1761,6 +1962,9 @@ BODY = """
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
       options($("ocol"), data.headers, "");
+      options($("clabel"), data.headers, "");
+      options($("cvalue"), data.headers, "건수만 셈");
+      options($("ycol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
@@ -1844,7 +2048,7 @@ def make() -> App:
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
                  "similar": similar, "outliers": outliers,
-                 "audit": audit,
+                 "audit": audit, "chart": chart, "dday": dday,
                  "replace_preview": replace_preview,
                  "replace_save": replace_save,
                  "merge": merge,

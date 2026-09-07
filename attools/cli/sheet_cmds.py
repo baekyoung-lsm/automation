@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -1367,8 +1368,12 @@ def cmd_sheet_chart(a) -> int:
     left = len(pairs)
     pairs = pairs[:a.top]
     draw = report.bar_chart if a.kind == "bar" else report.line_chart
-    svg = report.standalone_svg(draw(pairs, unit=a.unit or ""),
-                                title=f"{a.label}별 {a.value or '건수'}")
+    drawn = draw(pairs, unit=a.unit or "")
+    if not drawn.startswith("<svg"):
+        # 꺾은선은 두 시점 이상이어야 한다. 그릴 수 없는 까닭을 그대로 전한다
+        _p(re.sub(r"<[^>]+>", "", drawn))
+        return 1
+    svg = report.standalone_svg(drawn, title=f"{a.label}별 {a.value or '건수'}")
 
     agg_names = {"sum": "합계", "avg": "평균", "count": "건수",
                  "min": "최소", "max": "최대"}
