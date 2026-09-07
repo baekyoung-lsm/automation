@@ -145,6 +145,13 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "big", self.path())
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
+        목록 = Path(self.path("이름목록.csv"))
+        목록.write_text("현재 이름,새 이름\n보고서.txt,제출-001.txt\n",
+                      encoding="utf-8")
+        바꿈 = self.run_cli("file", "rename", self.path("문서"),
+                          "--map", str(목록))
+        self.assertIn("제출-001.txt", 바꿈)
+        self.assertIn("총 1개", 바꿈)          # 기본은 미리보기
         담기 = self.run_cli("file", "pack", self.path("문서"), "--max", "1MB")
         self.assertIn("묶음", 담기)
         self.run_cli("file", "pack", self.path("문서"), "--max", "1MB",

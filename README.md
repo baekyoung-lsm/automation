@@ -54,7 +54,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file list <디렉터리>` | 파일 목록을 표로 (이름·폴더·크기·수정일). `-o 목록.xlsx` 로 저장 |
 | `at file photos <디렉터리>` | 사진을 **찍은 날짜**(EXIF)별로 묶는다. 촬영 시각을 못 읽은 사진은 두고 온다 |
 | `at file fixname <디렉터리>` | macOS에서 넘어온 한글 자모 분리(NFD) 파일명을 완성형으로 고치고, 윈도우 금지문자·중복 공백을 정리한다 |
-| `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사). `{taken}` 은 사진 촬영 시각(EXIF) |
+| `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사). `{taken}` 은 사진 촬영 시각(EXIF). `--map 목록.csv` 로 목록대로 |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--collect <폴더>` 로 모으거나(`at file undo` 로 되돌아온다) `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
 | `at file recent [경로]` | 최근에 손댄 파일을 오늘·어제별로 |
@@ -76,6 +76,7 @@ at file organize ~/Downloads --by ext-date --min-age 7 --apply
 at file photos ~/사진 --by month                             # 촬영일별 미리보기
 at file photos ~/사진 --by month --apply
 at file rename ~/사진 -t '{taken}-{taken_time}{ext}'         # 촬영일시로 이름 짓기
+at file rename 제출자료 --map 이름목록.csv --apply   # 목록대로 (되돌리기 됨)
 at file dupes ~/사진 --collect ~/사진/_중복 --apply       # 지우지 않고 모은다
 at file fixname ~/Documents -r --apply
 at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply
@@ -144,6 +145,12 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 이름 바이트를 되돌려 cp949 로 다시 읽고, 이미 UTF-8 표시가 있는 항목은 건드리지 않는다.
 `../` 나 절대 경로처럼 **압축 바깥을 가리키는 항목은 풀지 않고** 이유와 함께 알린다.
 이미 있는 파일도 덮어쓰지 않는다(`--overwrite`).
+
+`rename --map` 은 csv·xlsx 목록대로 이름을 바꾼다(첫 열 현재 이름, 둘째 열 새 이름 —
+`--map-from/--map-to` 로 열을 고를 수 있다). **목록에는 있는데 폴더에 없는 파일, 폴더에는
+있는데 목록에 없는 파일을 모두 알려 준다** — 조용히 넘기면 «몇 개는 바뀌고 몇 개는 안 바뀐»
+폴더가 남고, 나중에는 무엇이 안 바뀌었는지 알 수 없다. 새 이름에 확장자가 없으면 원래 것을
+살려 붙이고, 바꾼 뒤에는 `at file undo` 로 되돌릴 수 있다.
 
 `rename` 의 템플릿에는 `{seq}` `{date}` `{time}` `{stem}` `{ext}` `{name}` `{parent}` `{size}`
 를 쓸 수 있고, `{seq:03d}` 처럼 자리수도 지정된다. 번호를 매기는 순서는 `--sort name|date|size`

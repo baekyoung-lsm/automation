@@ -362,11 +362,70 @@ def cmd_file_undo(a) -> int:
     return 0 if not errors else 1
 
 
+def _rename_by_map(a, root: Path) -> int:
+    """목록 파일(csv·xlsx)대로 이름 바꾸기. 제출 파일명 규칙 맞출 때."""
+    from .. import sheet
+
+    try:
+        table = sheet.load(Path(a.map))
+    except (sheet.SheetError, OSError) as e:
+        _p(f"목록을 읽지 못했습니다: {e}")
+        return 1
+    if table.width < 2:
+        _p("목록에 열이 두 개는 있어야 합니다. (현재 이름, 새 이름)")
+        return 1
+
+    try:
+        old_i = table.index_of(a.map_from) if a.map_from else 0
+        new_i = table.index_of(a.map_to) if a.map_to else 1
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    pairs = [(sheet.to_text(r[old_i]), sheet.to_text(r[new_i]))
+             for r in table.rows if len(r) > max(old_i, new_i)]
+    plan = files.plan_rename_map(root, pairs, recursive=a.recursive)
+
+    _p(f"목록 {Path(a.map).name}  ({table.headers[old_i]} -> {table.headers[new_i]})")
+    for mv in plan.moves[:a.limit]:
+        _p(f"  {Path(mv.src).name}")
+        _p(f"    -> {Path(mv.dst).name}")
+    if len(plan.moves) > a.limit:
+        _p(f"  ... {len(plan.moves) - a.limit}개 더")
+
+    if plan.missing:
+        _p(f"\n목록에는 있는데 폴더에 없는 파일 {len(plan.missing)}개")
+        for name in plan.missing[:a.limit]:
+            _p(f"  {name}")
+    if plan.untouched:
+        _p(f"\n폴더에는 있는데 목록에 없는 파일 {len(plan.untouched)}개 "
+           "- 그대로 둡니다")
+        for name in plan.untouched[:a.limit]:
+            _p(f"  {name}")
+    if plan.same:
+        _p(f"\n이미 그 이름인 파일 {len(plan.same)}개")
+
+    if not plan.moves:
+        _p("\n바꿀 이름이 없습니다.")
+        return 1
+    if not a.apply:
+        _p(f"\n총 {len(plan.moves)}개. 실제로 바꾸려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves(plan.moves)
+    _p(f"\n{len(plan.moves)}개 이름을 바꿨습니다.")
+    _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
 def cmd_file_rename(a) -> int:
     root = Path(a.dir)
     if not root.is_dir():
         _p(f"디렉터리가 아닙니다: {root}")
         return 1
+
+    if a.map:
+        return _rename_by_map(a, root)
 
     template = a.template
     if not template:
@@ -916,6 +975,10 @@ def add_commands(sub) -> None:
     rn.add_argument("--prefix", metavar="문자열")
     rn.add_argument("--suffix", metavar="문자열", help="확장자 앞에 붙인다")
     rn.add_argument("--replace", action="append", metavar="옛것=새것")
+    rn.add_argument("--map", metavar="목록파일",
+                    help="csv·xlsx 목록대로 바꾼다 (첫 열 현재 이름, 둘째 열 새 이름)")
+    rn.add_argument("--map-from", metavar="열", help="--map 에서 현재 이름 열")
+    rn.add_argument("--map-to", metavar="열", help="--map 에서 새 이름 열")
     rn.add_argument("-e", "--regex", action="store_true", help="--replace 를 정규식으로")
     rn.add_argument("--case", default="keep", choices=["keep", "lower", "upper"])
     rn.add_argument("--date-format", default="%Y%m%d", metavar="형식")

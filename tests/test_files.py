@@ -894,5 +894,59 @@ class PackTest(unittest.TestCase):
         self.assertEqual((packs, too_big), ([], []))
 
 
+class RenameByMapTest(unittest.TestCase):
+    """목록대로 이름 바꾸기. 무엇이 안 바뀌었는지 다 알려 주는지 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.home = Path(tempfile.mkdtemp())
+        self.prev_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.home)
+        for name in ("가.pdf", "나.pdf", "라.pdf"):
+            (self.root / name).write_text("x", encoding="utf-8")
+
+    def tearDown(self):
+        if self.prev_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.prev_home
+        shutil.rmtree(self.root, ignore_errors=True)
+        shutil.rmtree(self.home, ignore_errors=True)
+
+    def test_renames_and_reports_the_rest(self):
+        plan = files.plan_rename_map(self.root, [
+            ("가.pdf", "제출-001.pdf"), ("없음.pdf", "제출-003.pdf")])
+        self.assertEqual([Path(m.dst).name for m in plan.moves], ["제출-001.pdf"])
+        self.assertEqual(plan.missing, ["없음.pdf"])
+        self.assertEqual(plan.untouched, ["나.pdf", "라.pdf"])
+
+    def test_missing_extension_is_kept(self):
+        plan = files.plan_rename_map(self.root, [("가.pdf", "제출-001")])
+        self.assertEqual(Path(plan.moves[0].dst).name, "제출-001.pdf")
+
+    def test_same_name_is_not_a_move(self):
+        plan = files.plan_rename_map(self.root, [("가.pdf", "가.pdf")])
+        self.assertEqual(plan.moves, [])
+        self.assertEqual(plan.same, ["가.pdf"])
+
+    def test_two_files_to_one_name_get_numbered(self):
+        plan = files.plan_rename_map(self.root, [
+            ("가.pdf", "제출.pdf"), ("나.pdf", "제출.pdf")])
+        names = [Path(m.dst).name for m in plan.moves]
+        self.assertEqual(names, ["제출.pdf", "제출 (1).pdf"])
+
+    def test_dangerous_names_are_cleaned(self):
+        plan = files.plan_rename_map(self.root, [("가.pdf", "../밖으로.pdf")])
+        self.assertNotIn("..", Path(plan.moves[0].dst).name)
+
+    def test_apply_is_undoable(self):
+        plan = files.plan_rename_map(self.root, [("가.pdf", "제출-001.pdf")])
+        journal = files.apply_moves(plan.moves)
+        self.assertTrue((self.root / "제출-001.pdf").exists())
+        restored, errors = files.undo(journal)
+        self.assertEqual((restored, errors), (1, []))
+        self.assertTrue((self.root / "가.pdf").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

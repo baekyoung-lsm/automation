@@ -579,6 +579,51 @@ def plan_rename_report(root: Path, template: str, *, glob: list[str] | None = No
 
 
 @dataclass
+class MapRenamePlan:
+    moves: list[Move] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)     # 목록엔 있는데 폴더에 없음
+    untouched: list[str] = field(default_factory=list)   # 폴더엔 있는데 목록에 없음
+    same: list[str] = field(default_factory=list)        # 이름이 이미 같음
+
+
+def plan_rename_map(root: Path, mapping: list[tuple[str, str]], *,
+                    recursive: bool = False) -> MapRenamePlan:
+    """«현재 이름 -> 새 이름» 목록대로 이름을 바꾸는 계획.
+
+    목록에 있는데 폴더에 없는 이름, 폴더에 있는데 목록에 없는 파일을 모두
+    알려 준다. 조용히 넘기면 «몇 개는 바뀌고 몇 개는 안 바뀐» 폴더가 남고,
+    무엇이 안 바뀌었는지 나중에는 알 수 없다.
+    """
+    walker = root.rglob("*") if recursive else root.glob("*")
+    found = {p.name: p for p in sorted(walker) if p.is_file() and not p.is_symlink()}
+
+    plan = MapRenamePlan()
+    planned: set[Path] = set()
+    used: set[str] = set()
+    for old, new in mapping:
+        old, new = old.strip(), new.strip()
+        if not old or not new:
+            continue
+        src = found.get(old)
+        if src is None:
+            plan.missing.append(old)
+            continue
+        used.add(old)
+        name = sanitize_filename(new)
+        if not Path(name).suffix and src.suffix:      # 확장자를 빠뜨렸으면 살려 준다
+            name += src.suffix
+        if src.with_name(name) == src:      # 이미 그 이름이다
+            plan.same.append(old)
+            continue
+        dst = unique_path(src.with_name(name), planned)
+        planned.add(dst)
+        plan.moves.append(Move(str(src), str(dst)))
+
+    plan.untouched = sorted(name for name in found if name not in used)
+    return plan
+
+
+@dataclass
 class ArchiveResult:
     archive: Path
     stored: list[Path] = field(default_factory=list)
