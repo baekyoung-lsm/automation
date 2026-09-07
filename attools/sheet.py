@@ -1516,6 +1516,158 @@ FORMAT_CHECKS = {
 }
 
 
+# ------------------------------------------------------------------ 가림
+
+HIDDEN = "****"          # 꼴을 알아보지 못한 값을 통째로 가릴 때
+
+
+def mask_name(value: object) -> str | None:
+    """홍길동 -> 홍*동. 두 글자면 뒤를 가린다 (가운데가 없다)."""
+    raw = to_text(value).strip()
+    if not raw:
+        return None
+    if " " in raw:                       # 영문 이름은 낱말마다 첫 글자만
+        parts = [w for w in raw.split() if w]
+        return " ".join(w[0] + "*" * (len(w) - 1) for w in parts)
+    if len(raw) == 1:
+        return "*"
+    if len(raw) == 2:
+        return raw[0] + "*"
+    return raw[0] + "*" * (len(raw) - 2) + raw[-1]
+
+
+def mask_phone(value: object) -> str | None:
+    """010-1234-5678 -> 010-****-5678. 가운데 자리를 가린다.
+
+    번호 꼴을 아는 것만 가린다. 아무 숫자나 잘라 «전화처럼» 만들면
+    전화가 아닌 값이 전화인 척하게 된다.
+    """
+    fixed = format_phone(value)
+    if fixed is None:
+        return None
+    parts = fixed.split("-")
+    if len(parts) == 3:
+        return f"{parts[0]}-{'*' * len(parts[1])}-{parts[2]}"
+    if len(parts) == 2:                  # 1588-1234 같은 대표번호
+        return f"{parts[0]}-{'*' * len(parts[1])}"
+    return None
+
+
+def mask_email(value: object) -> str | None:
+    """hong@example.com -> ho**@example.com. 도메인은 남긴다."""
+    raw = to_text(value).strip()
+    if raw.count("@") != 1:
+        return None
+    local, _, domain = raw.partition("@")
+    if not local or "." not in domain:
+        return None
+    # 짧은 아이디는 앞을 남기면 다 드러난다. 세 글자 밑이면 통째로 가린다.
+    keep = 2 if len(local) >= 4 else (1 if len(local) == 3 else 0)
+    return local[:keep] + "*" * (len(local) - keep) + "@" + domain
+
+
+RRN_RE = re.compile(r"(\d{6})[-\s]?([1-8])\d{6}")
+
+
+def mask_rrn(value: object) -> str | None:
+    """주민등록번호 -> 900101-1******. 성별 자리까지만 남긴다.
+
+    뒷자리 일곱 개 가운데 첫 자리(성별)만 남기는 것이 표준 처리다.
+    """
+    raw = to_text(value).strip()
+    hit = RRN_RE.fullmatch(raw)
+    if not hit:
+        return None
+    return f"{hit.group(1)}-{hit.group(2)}******"
+
+
+def mask_account(value: object) -> str | None:
+    """계좌·카드 번호 -> 뒤 네 자리만 남긴다. 하이픈 자리는 그대로 둔다."""
+    raw = to_text(value).strip()
+    digits = [i for i, ch in enumerate(raw) if ch.isdigit()]
+    if len(digits) < 8:                  # 짧은 숫자는 계좌인지 알 수 없다
+        return None
+    if any(not (ch.isdigit() or ch in "- ") for ch in raw):
+        return None
+    hide = set(digits[:-4])
+    return "".join("*" if i in hide else ch for i, ch in enumerate(raw))
+
+
+ADDRESS_HEADS = ("시", "군", "구")
+
+
+def mask_address(value: object) -> str | None:
+    """주소 -> 시·군·구까지만 남기고 뒤를 가린다.
+
+    번지·동호수가 붙으면 사람을 특정할 수 있다. 어디까지가 행정구역인지
+    모르겠는 주소는 None 을 돌려 부르는 쪽이 판단하게 한다.
+    """
+    parts = [w for w in to_text(value).split() if w]
+    if len(parts) < 2:
+        return None
+    keep = 0
+    for i, word in enumerate(parts[:3]):
+        if word.endswith(ADDRESS_HEADS) or word.endswith("도"):
+            keep = i + 1
+    if not keep or keep == len(parts):
+        return None
+    return " ".join(parts[:keep]) + " " + HIDDEN
+
+
+MASK_KINDS = {
+    "이름": (mask_name, "홍*동"),
+    "전화": (mask_phone, "010-****-5678"),
+    "이메일": (mask_email, "ho**@example.com"),
+    "주민번호": (mask_rrn, "900101-1******"),
+    "계좌": (mask_account, "***-****-1234"),
+    "주소": (mask_address, "시·군·구까지만"),
+}
+
+
+@dataclass
+class MaskReport:
+    column: str
+    kind: str
+    masked: int = 0
+    blank: int = 0
+    unclear: list[tuple[int, str]] = field(default_factory=list)  # (행, 원래 값)
+
+
+def mask_column(table: Table, column: str, kind: str) -> tuple[Table, MaskReport]:
+    """한 열을 가린다. 꼴을 모르는 값은 통째로 가리고 몇 행인지 알려 준다.
+
+    다른 명령과 달리 «모르면 그대로 둔다» 를 쓰지 않는다. 가림은 밖으로
+    내보낼 파일을 만드는 일이라, 잘못 가리는 것보다 못 가리고 새는 것이
+    훨씬 나쁘다. 대신 통째로 가린 행을 전부 알려 주어 원본에서 확인할 수
+    있게 한다.
+    """
+    if kind not in MASK_KINDS:
+        raise SheetError(f"알 수 없는 가림: {kind} ({', '.join(MASK_KINDS)})")
+
+    index = table.index_of(column)
+    hide, _example = MASK_KINDS[kind]
+    report = MaskReport(table.headers[index], kind)
+
+    rows = []
+    for number, row in enumerate(table.rows, 2):     # 머리글이 1행
+        row = list(row) + [None] * (len(table.headers) - len(row))
+        cell = row[index]
+        if _is_blank(cell):
+            report.blank += 1
+            rows.append(row)
+            continue
+        new = hide(cell)
+        if new is None:
+            report.unclear.append((number, to_text(cell)))
+            new = HIDDEN
+        report.masked += 1
+        row[index] = new
+        rows.append(row)
+
+    return Table(list(table.headers), rows, source=table.source,
+                 sheet=table.sheet), report
+
+
 @dataclass
 class Rule:
     kind: str            # required / unique / type / match / range / oneof / format

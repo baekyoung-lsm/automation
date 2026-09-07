@@ -597,6 +597,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet book <파일들> -o 통합.xlsx` | 여러 파일을 한 엑셀의 여러 시트로 (split 의 반대) |
 | `at sheet sheets <파일>` | 엑셀 안의 시트 목록 — 시트마다 행·열 수와 머리글 |
 | `at sheet format <파일> --phone <열>` | 열 표기 통일 — 전화번호·사업자번호·우편번호·날짜·숫자. 규칙을 모르는 값은 손대지 않고 몇 행인지 알려 준다 |
+| `at sheet mask <파일> --name <열>` | 개인정보를 가린 사본 (이름·전화·이메일·주민번호·계좌·주소) |
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만 |
@@ -630,6 +631,8 @@ at sheet check 직원명부.xlsx --key 사번 --required 입사일
 at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호 -o 정리본.xlsx
 at sheet convert 명단.csv -o 명단.md                          # 마크다운 표로
 at doc table 명단.md --apply                                 # 칸 너비 맞추기
+at sheet mask 명단.xlsx --name 이름 --phone 연락처 --rrn 주민번호 -o 공유본.xlsx
+at sheet mask 거래처.csv --address 주소 --account 계좌번호 --strict
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
@@ -671,6 +674,13 @@ at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이�
 # 틀 안에서: {이름:님/님} 대신 {이름:은/는}, {도시:으로/로} 처럼 받침에 맞는 조사
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`mask` 는 다른 명령과 반대로 움직인다. **꼴을 모르는 값은 그대로 두지 않고 통째로
+가린다.** 가림은 밖으로 내보낼 파일을 만드는 일이라, 잘못 가리는 것보다 못 가리고
+새는 것이 훨씬 나쁘다. 대신 통째로 가린 값은 몇 행 무엇이었는지 전부 알려 주므로
+원본에서 확인할 수 있고, `--strict` 를 붙이면 그런 값이 하나라도 있을 때 종료 코드 1을
+돌려준다. 주민번호는 성별 자리까지만(`900101-1******`), 계좌·카드는 뒤 네 자리만
+남긴다. 주소는 시·군·구까지 남기고 번지·동호수를 가린다.
 
 `split --sheets` 는 파일 여러 개 대신 **한 xlsx 의 탭 여러 개**로 나눈다. 부서별 파일을
 따로 만들면 열 때마다 파일을 찾아야 한다. 시트 이름은 엑셀 규칙(31자, `: \ / ? * [ ]` 금지)에

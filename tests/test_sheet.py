@@ -1239,5 +1239,82 @@ class TotalRowTest(unittest.TestCase):
         self.assertEqual(len(t.rows), 4)          # 원본은 그대로다
 
 
+class MaskTest(unittest.TestCase):
+    def test_name_keeps_the_ends(self):
+        self.assertEqual(sheet.mask_name("홍길동"), "홍*동")
+        self.assertEqual(sheet.mask_name("남궁민수"), "남**수")
+        self.assertEqual(sheet.mask_name("김철"), "김*")
+        self.assertEqual(sheet.mask_name("가"), "*")
+
+    def test_name_with_spaces_masks_each_word(self):
+        self.assertEqual(sheet.mask_name("Hong Gil"), "H*** G**")
+
+    def test_phone_hides_the_middle(self):
+        self.assertEqual(sheet.mask_phone("01012345678"), "010-****-5678")
+        self.assertEqual(sheet.mask_phone("02-123-4567"), "02-***-4567")
+        self.assertEqual(sheet.mask_phone("1588-1234"), "1588-****")
+
+    def test_phone_refuses_what_it_cannot_read(self):
+        # 아무 숫자나 잘라 «전화처럼» 만들면 전화가 아닌 값이 전화인 척한다
+        self.assertIsNone(sheet.mask_phone("주문 12345"))
+
+    def test_email_keeps_the_domain(self):
+        self.assertEqual(sheet.mask_email("hong@example.com"), "ho**@example.com")
+        self.assertIsNone(sheet.mask_email("골뱅이가 없다"))
+
+    def test_short_email_id_is_hidden_whole(self):
+        self.assertEqual(sheet.mask_email("ab@b.co"), "**@b.co")
+        self.assertEqual(sheet.mask_email("a@b.co"), "*@b.co")
+
+    def test_rrn_keeps_only_the_gender_digit(self):
+        # 시험용 가짜 번호다. at git scan 이 진짜로 오해하지 않게 표시해 둔다
+        self.assertEqual(sheet.mask_rrn("900101-1234567"),   # attools: ignore
+                         "900101-1******")
+        self.assertEqual(sheet.mask_rrn("9001011234567"), "900101-1******")
+        self.assertIsNone(sheet.mask_rrn("900101-123456"))
+
+    def test_account_keeps_the_last_four(self):
+        self.assertEqual(sheet.mask_account("123-456-789012"), "***-***-**9012")
+        self.assertEqual(sheet.mask_account("1234 5678 9012 3456"),
+                         "**** **** **** 3456")
+        self.assertIsNone(sheet.mask_account("1234567"))      # 너무 짧다
+        self.assertIsNone(sheet.mask_account("계좌 없음"))
+
+    def test_address_keeps_the_district(self):
+        self.assertEqual(sheet.mask_address("서울특별시 강남구 테헤란로 123 4층"),
+                         "서울특별시 강남구 ****")
+        self.assertEqual(sheet.mask_address("경기도 성남시 분당구 정자동 178"),
+                         "경기도 성남시 분당구 ****")
+        self.assertIsNone(sheet.mask_address("우리집"))
+
+    def table(self):
+        return sheet.Table(["이름", "연락처"],
+                           [["홍길동", "010-1234-5678"],
+                            ["김철수", None],
+                            ["이영희", "연락처 없음"]])
+
+    def test_mask_column_reports_what_it_could_not_read(self):
+        masked, rep = sheet.mask_column(self.table(), "연락처", "전화")
+        self.assertEqual(masked.rows[0][1], "010-****-5678")
+        self.assertIsNone(masked.rows[1][1])           # 빈 칸은 그대로 둔다
+        self.assertEqual(rep.blank, 1)
+        # 모르는 값은 남기지 않고 통째로 가린다. 대신 몇 행인지 알려 준다
+        self.assertEqual(masked.rows[2][1], sheet.HIDDEN)
+        self.assertEqual(rep.unclear, [(4, "연락처 없음")])
+        self.assertEqual(rep.masked, 2)
+
+    def test_mask_column_leaves_other_columns_alone(self):
+        masked, _ = sheet.mask_column(self.table(), "연락처", "전화")
+        self.assertEqual([r[0] for r in masked.rows], ["홍길동", "김철수", "이영희"])
+
+    def test_unknown_kind_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.mask_column(self.table(), "이름", "지문")
+
+    def test_unknown_column_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.mask_column(self.table(), "없는열", "이름")
+
+
 if __name__ == "__main__":
     unittest.main()

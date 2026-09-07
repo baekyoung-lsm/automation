@@ -248,6 +248,7 @@ class SmokeTest(unittest.TestCase):
                      "-o", self.path("통합.xlsx"))
         self.assertIn("직원", self.run_cli("sheet", "sheets",
                                           self.path("명단.xlsx")))
+        self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,
                                            "--date", "입사일", "--number", "연봉"))
         self.assertIn("사번", self.run_cli("sheet", "peek", csv))

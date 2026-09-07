@@ -305,6 +305,57 @@ def cmd_sheet_format(a) -> int:
     return 1 if bad and a.strict else 0
 
 
+def cmd_sheet_mask(a) -> int:
+    """개인정보를 가린 사본을 만든다. 밖으로 내보낼 파일을 만드는 명령이다."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    wanted: list[tuple[str, str]] = []
+    for kind, names_ in (("이름", a.name), ("전화", a.phone), ("이메일", a.email),
+                         ("주민번호", a.rrn), ("계좌", a.account),
+                         ("주소", a.address)):
+        for column in names_ or []:
+            wanted.append((column, kind))
+    if not wanted:
+        _p("어느 열을 어떻게 가릴지 골라 주세요.")
+        _p("  예: at sheet mask 명단.xlsx --name 이름 --phone 연락처 -o 공유본.xlsx")
+        _p(f"  쓸 수 있는 가림: {', '.join(sheet.MASK_KINDS)}")
+        return 1
+
+    reports = []
+    for column, kind in wanted:
+        try:
+            t, rep = sheet.mask_column(t, column, kind)
+        except sheet.SheetError as e:
+            _p(str(e))
+            return 1
+        reports.append(rep)
+
+    _p(f"{Path(a.file).name}  {len(t.rows):,}행")
+    _grid(["열", "가림", "가린 값", "빈칸", "꼴을 몰라 통째로"],
+          [[r.column, f"{r.kind} ({sheet.MASK_KINDS[r.kind][1]})",
+            f"{r.masked:,}", f"{r.blank:,}", f"{len(r.unclear):,}"]
+           for r in reports], limit=40)
+
+    unclear = False
+    for rep in reports:
+        if rep.unclear:
+            unclear = True
+            _p(f"\n{rep.column}: 꼴을 몰라 통째로 가린 값 {len(rep.unclear):,}개")
+            _p("  (새는 것보다 낫다고 보고 가렸습니다. 원본에서 확인하세요)")
+            for line, value in rep.unclear[:a.limit]:
+                _p(f"  {line}행  {_cut(value, 40)}")
+            if len(rep.unclear) > a.limit:
+                _p(f"  ... {len(rep.unclear) - a.limit:,}개 더")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(t, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요. (원본은 건드리지 않습니다)")
+    return 1 if unclear and a.strict else 0
+
+
 def cmd_sheet_merge(a) -> int:
     tables = []
     for name in a.files:
@@ -1243,6 +1294,19 @@ def add_commands(sub) -> None:
     fm.add_argument("--strict", action="store_true",
                     help="못 알아본 값이 있으면 1로 끝낸다")
     fm.set_defaults(func=cmd_sheet_format)
+
+    mk = common(sh.add_parser("mask", help="개인정보 가린 사본 만들기 (밖으로 보낼 때)"))
+    mk.add_argument("file")
+    for flag, kind in (("name", "이름"), ("phone", "전화"), ("email", "이메일"),
+                       ("rrn", "주민번호"), ("account", "계좌"),
+                       ("address", "주소")):
+        mk.add_argument(f"--{flag}", action="append", metavar="열",
+                        help=f"{kind} 로 가릴 열 ({sheet.MASK_KINDS[kind][1]})")
+    mk.add_argument("-o", "--out", metavar="파일")
+    mk.add_argument("--limit", type=int, default=20, help="통째로 가린 값을 몇 개까지 보일지")
+    mk.add_argument("--strict", action="store_true",
+                    help="꼴을 모르는 값이 하나라도 있으면 1 로 끝낸다")
+    mk.set_defaults(func=cmd_sheet_mask)
 
     mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
     mg.add_argument("files", nargs="+")
