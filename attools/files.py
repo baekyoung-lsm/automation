@@ -324,7 +324,9 @@ def human_size(n: float) -> str:
     return f"{n:.1f} TiB"
 
 
-RENAME_FIELDS = ("seq", "date", "time", "stem", "ext", "name", "parent", "size")
+RENAME_FIELDS = ("seq", "date", "time", "taken", "taken_time", "stem",
+                 "ext", "name", "parent", "size")
+TAKEN_FIELDS = ("taken", "taken_time")
 
 
 def rename_sort_key(path: Path, mode: str):
@@ -336,9 +338,19 @@ def rename_sort_key(path: Path, mode: str):
     return (str(path).lower(),)
 
 
+def wants_taken(template: str) -> bool:
+    """템플릿이 촬영 시각을 쓰는지. 쓸 때만 EXIF 를 읽는다."""
+    return any("{" + field in template for field in TAKEN_FIELDS)
+
+
 def render_name(path: Path, template: str, *, seq: int,
-                date_format: str = "%Y%m%d") -> str:
-    """템플릿의 {seq} {date} {stem} 같은 자리를 채운다."""
+                date_format: str = "%Y%m%d",
+                taken: datetime | None = None) -> str:
+    """템플릿의 {seq} {date} {stem} 같은 자리를 채운다.
+
+    {taken} 은 사진을 찍은 시각이다. 수정 시각({date})과 달라서 따로 둔다 -
+    복사한 사진은 수정 시각이 복사한 날로 바뀌어 있다.
+    """
     stat = path.stat()
     when = datetime.fromtimestamp(stat.st_mtime)
     values = {
@@ -351,9 +363,15 @@ def render_name(path: Path, template: str, *, seq: int,
         "parent": path.parent.name,
         "size": stat.st_size,
     }
+    if taken is not None:
+        values["taken"] = taken.strftime(date_format)
+        values["taken_time"] = taken.strftime("%H%M%S")
     try:
         return template.format(**values)
     except KeyError as e:
+        if str(e).strip("'") in TAKEN_FIELDS:
+            raise ValueError(
+                f"촬영 시각(EXIF)을 읽지 못했습니다: {path.name}") from None
         raise ValueError(
             f"모르는 항목 {e}. 쓸 수 있는 것: {', '.join('{' + f + '}' for f in RENAME_FIELDS)}"
         ) from None
@@ -361,12 +379,28 @@ def render_name(path: Path, template: str, *, seq: int,
         raise ValueError(f"템플릿이 잘못됐습니다: {e}") from None
 
 
-def plan_rename(root: Path, template: str, *, glob: list[str] | None = None,
-                recursive: bool = False, include_hidden: bool = False,
-                sort: str = "name", start: int = 1, date_format: str = "%Y%m%d",
-                replacements: list[tuple[str, str]] | None = None,
-                regex: bool = False, case: str = "keep") -> list[Move]:
-    """이름 바꾸기 계획. 파일 시스템은 건드리지 않는다."""
+@dataclass
+class RenamePlan:
+    moves: list[Move] = field(default_factory=list)
+    skipped: list[Path] = field(default_factory=list)   # 촬영 시각이 없어 건너뜀
+
+
+def plan_rename(root: Path, template: str, **kwargs) -> list[Move]:
+    """이름 바꾸기 계획(옮길 목록만). 건너뛴 것까지 보려면 plan_rename_report."""
+    return plan_rename_report(root, template, **kwargs).moves
+
+
+def plan_rename_report(root: Path, template: str, *, glob: list[str] | None = None,
+                       recursive: bool = False, include_hidden: bool = False,
+                       sort: str = "name", start: int = 1,
+                       date_format: str = "%Y%m%d",
+                       replacements: list[tuple[str, str]] | None = None,
+                       regex: bool = False, case: str = "keep") -> RenamePlan:
+    """이름 바꾸기 계획. 파일 시스템은 건드리지 않는다.
+
+    {taken} 을 쓰는데 EXIF 가 없는 파일은 이름을 짓지 않고 건너뛴다. 수정
+    시각으로 몰래 대신하면 촬영일이라고 적힌 틀린 이름이 남는다.
+    """
     patterns = glob or ["*"]
     found: list[Path] = []
     for pattern in patterns:
@@ -381,10 +415,16 @@ def plan_rename(root: Path, template: str, *, glob: list[str] | None = None,
 
     found.sort(key=lambda p: rename_sort_key(p, sort))
 
+    plan = RenamePlan()
     planned: set[Path] = set()
-    moves: list[Move] = []
+    needs_taken = wants_taken(template)
     for i, src in enumerate(found, start):
-        name = render_name(src, template, seq=i, date_format=date_format)
+        taken = exif_datetime(src) if needs_taken else None
+        if needs_taken and taken is None:
+            plan.skipped.append(src)
+            continue
+        name = render_name(src, template, seq=i, date_format=date_format,
+                           taken=taken)
         for old, new in replacements or []:
             name = re.sub(old, new, name) if regex else name.replace(old, new)
         if case == "lower":
@@ -397,8 +437,8 @@ def plan_rename(root: Path, template: str, *, glob: list[str] | None = None,
         if dst == src:
             continue
         planned.add(dst)
-        moves.append(Move(str(src), str(dst)))
-    return moves
+        plan.moves.append(Move(str(src), str(dst)))
+    return plan
 
 
 @dataclass

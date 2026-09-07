@@ -53,7 +53,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file organize <디렉터리>` | 확장자 종류(문서/이미지/영상/압축/코드…)나 날짜별로 분류해 옮긴다 |
 | `at file photos <디렉터리>` | 사진을 **찍은 날짜**(EXIF)별로 묶는다. 촬영 시각을 못 읽은 사진은 두고 온다 |
 | `at file fixname <디렉터리>` | macOS에서 넘어온 한글 자모 분리(NFD) 파일명을 완성형으로 고치고, 윈도우 금지문자·중복 공백을 정리한다 |
-| `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사) |
+| `at file rename <디렉터리>` | 규칙에 맞춰 이름 일괄 변경 (날짜·번호·치환·접두사). `{taken}` 은 사진 촬영 시각(EXIF) |
 | `at file dupes <디렉터리>` | 내용이 같은 파일을 찾는다. 직접 지우지 않고 `--collect <폴더>` 로 모으거나(`at file undo` 로 되돌아온다) `--script` 로 삭제 명령만 출력한다 |
 | `at file watch <경로> -- <명령>` | 파일이 바뀌면 명령을 다시 실행한다 (테스트·빌드 자동 재실행) |
 | `at file recent [경로]` | 최근에 손댄 파일을 오늘·어제별로 |
@@ -73,6 +73,7 @@ at file organize ~/Downloads --by ext-date --min-age 7 -v   # 미리보기
 at file organize ~/Downloads --by ext-date --min-age 7 --apply
 at file photos ~/사진 --by month                             # 촬영일별 미리보기
 at file photos ~/사진 --by month --apply
+at file rename ~/사진 -t '{taken}-{taken_time}{ext}'         # 촬영일시로 이름 짓기
 at file dupes ~/사진 --collect ~/사진/_중복 --apply       # 지우지 않고 모은다
 at file fixname ~/Documents -r --apply
 at file rename ~/사진 -g '*.JPG' --date --seq --sort date --apply

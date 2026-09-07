@@ -346,7 +346,7 @@ def cmd_file_rename(a) -> int:
         replacements.append((old, new_text))
 
     try:
-        moves = files.plan_rename(
+        plan = files.plan_rename_report(
             root, template, glob=a.glob, recursive=a.recursive,
             include_hidden=a.hidden, sort=a.sort, start=a.start,
             date_format=a.date_format, replacements=replacements,
@@ -354,6 +354,15 @@ def cmd_file_rename(a) -> int:
     except ValueError as e:
         _p(str(e))
         return 1
+
+    moves = plan.moves
+    if plan.skipped:
+        _p(f"촬영 시각(EXIF)을 못 읽어 건너뛴 파일 {len(plan.skipped)}개")
+        for path in plan.skipped[:a.limit]:
+            _p(f"  {path.relative_to(root.resolve())}")
+        if len(plan.skipped) > a.limit:
+            _p(f"  ... {len(plan.skipped) - a.limit}개 더")
+        _p("  (JPEG 의 EXIF 만 읽습니다. 수정 시각을 쓰려면 {date} 를 쓰세요.)\n")
 
     if not moves:
         _p("바꿀 이름이 없습니다.")
@@ -782,8 +791,9 @@ def add_commands(sub) -> None:
     rn.add_argument("dir")
     rn.add_argument("-t", "--template", metavar="틀",
                     help="예: '{date}-{seq:03d}{ext}'  "
-                         "쓸 수 있는 항목: {seq} {date} {time} {stem} {ext} {name} "
-                         "{parent} {size}")
+                         "쓸 수 있는 항목: {seq} {date} {time} {taken} "
+                         "{taken_time} {stem} {ext} {name} {parent} {size}  "
+                         "({taken} 은 사진 촬영 시각(EXIF), {date} 는 수정 시각)")
     rn.add_argument("--date", action="store_true", help="수정 날짜를 앞에 붙인다")
     rn.add_argument("--seq", action="store_true", help="번호를 붙인다")
     rn.add_argument("--digits", type=int, default=3, metavar="자리")

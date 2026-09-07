@@ -666,6 +666,34 @@ class PhotoTest(unittest.TestCase):
         (folder / "가.jpg").write_bytes(self.jpeg(b"2024:03:15 14:30:00\x00"))
         self.assertEqual(files.plan_photos(self.root).moves, [])
 
+    def test_rename_with_taken(self):
+        self.make("IMG_0001.jpg")
+        self.make("IMG_0002.jpg", b"2024:04:02 09:00:00\x00")
+        plan = files.plan_rename_report(self.root, "{taken}-{taken_time}{ext}")
+        self.assertEqual(sorted(Path(m.dst).name for m in plan.moves),
+                         ["20240315-143000.jpg", "20240402-090000.jpg"])
+        self.assertEqual(plan.skipped, [])
+
+    def test_rename_skips_photos_without_exif(self):
+        """수정 시각으로 몰래 대신하면 촬영일이라 적힌 틀린 이름이 남는다."""
+        self.make("있음.jpg")
+        self.make("없음.jpg", None)
+        plan = files.plan_rename_report(self.root, "{taken}{ext}")
+        self.assertEqual(len(plan.moves), 1)
+        self.assertEqual([p.name for p in plan.skipped], ["없음.jpg"])
+
+    def test_rename_without_taken_reads_no_exif(self):
+        self.make("없음.jpg", None)
+        plan = files.plan_rename_report(self.root, "{seq:02d}{ext}")
+        self.assertEqual(len(plan.moves), 1)
+        self.assertEqual(plan.skipped, [])
+
+    def test_render_name_says_what_is_missing(self):
+        path = self.make("없음.jpg", None)
+        with self.assertRaises(ValueError) as ctx:
+            files.render_name(path, "{taken}{ext}", seq=1)
+        self.assertIn("EXIF", str(ctx.exception))
+
     def test_unknown_bucket(self):
         with self.assertRaises(ValueError):
             files.plan_photos(self.root, by="시간")
