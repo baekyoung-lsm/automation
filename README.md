@@ -282,6 +282,12 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
 재야 하기 때문이다.
 
+`to-sql` 은 빈 칸을 **NULL** 로 넣는다. `''`(빈 글자)로 넣으면 «값이 없음» 과 «빈 글자» 가
+섞여 나중에 `IS NULL` 로 못 찾는다. 따옴표와 참거짓 표기는 `--dialect` 에 맞춰 바뀐다
+(sqlite·postgres 는 `"`, mysql 은 백틱). `--create` 로 CREATE TABLE 초안도 낼 수 있지만
+**타입은 값에서 짐작한 것**이라 그렇다고 주석에 적어 둔다 — 모르고 그대로 돌리면 나중에 더
+고생한다.
+
 `at sheet from-md` 는 마크다운 표에 같은 일을 한다(머리글과 `---` 구분줄이 있는 것만 표로 본다).
 
 `at sheet from-docx` 는 워드 표를 그대로 표로 옮긴다. 첫 줄이 비어 있거나 이름이 겹치면
@@ -689,6 +695,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
 | `at sheet from-json <파일>` | JSON 배열을 표로 (API 응답 → 엑셀) |
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
+| `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
@@ -744,6 +751,8 @@ at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 �
 curl -s https://api.example.com/users | at sheet from-json - -o 사용자.xlsx
 at sheet from-json 응답.json --path data.users -o 표.csv
 at sheet to-json 명단.xlsx --nest -o 요청.json
+at sheet to-sql 명단.xlsx -t users --create -o seed.sql
+at sheet to-sql 명단.xlsx -t users --dialect mysql --batch 500
 at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" ...; done
 at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \

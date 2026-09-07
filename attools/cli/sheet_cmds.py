@@ -397,6 +397,32 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_to_sql(a) -> int:
+    """표를 INSERT 문으로. 엑셀로 받은 자료를 개발 DB 에 넣을 때."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        body = sheet.to_sql(t, a.table, dialect=a.dialect, batch=a.batch,
+                            create=a.create)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if a.out:
+        out = Path(a.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body, encoding="utf-8")
+        _p(f"저장: {out}  ({len(t.rows):,}행, {a.dialect})")
+    else:
+        _p(body)
+
+    _p(f"빈 칸은 NULL 로 넣었습니다. ({a.dialect} 따옴표 규칙)")
+    if a.create:
+        _p("CREATE TABLE 의 타입은 값에서 짐작한 것입니다. 스키마를 확인하세요.")
+    return 0
+
+
 def cmd_sheet_from_docx(a) -> int:
     """워드 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
     path = Path(a.file)
@@ -1627,6 +1653,18 @@ def add_commands(sub) -> None:
     fmd.add_argument("--rows", type=int, default=10, metavar="개")
     fmd.add_argument("--width", type=int, default=20, metavar="칸")
     fmd.set_defaults(func=cmd_sheet_from_md)
+
+    ts = common(sh.add_parser("to-sql", help="표를 INSERT 문으로 (개발 DB 에 넣기)"))
+    ts.add_argument("file")
+    ts.add_argument("-t", "--table", required=True, metavar="표이름")
+    ts.add_argument("--dialect", default="sqlite", choices=sorted(sheet.SQL_DIALECTS),
+                    help="따옴표·참거짓 표기가 달라진다 (기본 sqlite)")
+    ts.add_argument("--batch", type=int, default=100, metavar="행",
+                    help="INSERT 하나에 넣을 행 수 (기본 100)")
+    ts.add_argument("--create", action="store_true",
+                    help="CREATE TABLE 초안도 함께 (타입은 값에서 짐작)")
+    ts.add_argument("-o", "--out", metavar="파일")
+    ts.set_defaults(func=cmd_sheet_to_sql)
 
     fdx = sh.add_parser("from-docx", help="워드 문서 안의 표를 엑셀·csv 로")
     fdx.add_argument("file", metavar="파일")

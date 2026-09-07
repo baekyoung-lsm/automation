@@ -1566,5 +1566,69 @@ class SimilarTest(unittest.TestCase):
             sheet.find_similar(sheet.Table(["상호"], [["가나"]]), "없는열")
 
 
+class ToSqlTest(unittest.TestCase):
+    def table(self):
+        from datetime import date
+
+        return sheet.Table(["사번", "이름", "입사일", "연봉", "재직"],
+                           [["E1", "홍길동", date(2021, 3, 2), 52000000, True],
+                            ["E2", "김'철수", None, 47000000, False]])
+
+    def test_it_actually_runs_in_sqlite(self):
+        import sqlite3
+
+        body = sheet.to_sql(self.table(), "users", create=True)
+        con = sqlite3.connect(":memory:")
+        con.executescript(body)
+        rows = con.execute("select 사번, 이름, 연봉 from users order by 사번").fetchall()
+        self.assertEqual(rows, [("E1", "홍길동", 52000000),
+                                ("E2", "김'철수", 47000000)])
+
+    def test_blank_becomes_null_not_empty_text(self):
+        import sqlite3
+
+        con = sqlite3.connect(":memory:")
+        con.executescript(sheet.to_sql(self.table(), "users", create=True))
+        got = con.execute("select count(*) from users where 입사일 is null").fetchone()
+        self.assertEqual(got[0], 1)
+
+    def test_quote_in_a_value_is_doubled(self):
+        self.assertIn("'김''철수'", sheet.to_sql(self.table(), "users"))
+
+    def test_mysql_uses_backticks(self):
+        body = sheet.to_sql(self.table(), "users", dialect="mysql")
+        self.assertIn("INSERT INTO `users` (`사번`", body)
+
+    def test_postgres_writes_true_and_false(self):
+        body = sheet.to_sql(self.table(), "users", dialect="postgres")
+        self.assertIn("TRUE", body)
+        self.assertNotIn(", 1,", body)
+
+    def test_batch_splits_the_statements(self):
+        body = sheet.to_sql(self.table(), "users", batch=1)
+        self.assertEqual(body.count("INSERT INTO"), 2)
+
+    def test_column_type_falls_back_to_text_when_mixed(self):
+        t = sheet.Table(["값"], [[1], ["글자"]])
+        self.assertIn('"값" TEXT', sheet.to_sql(t, "t", create=True))
+
+    def test_int_and_float_mix_becomes_a_float_type(self):
+        t = sheet.Table(["값"], [[1], [1.5]])
+        self.assertIn('"값" REAL', sheet.to_sql(t, "t", create=True))
+
+    def test_identifier_quotes_inside_a_name_are_escaped(self):
+        t = sheet.Table(['이"름'], [["가"]])
+        self.assertIn('"이""름"', sheet.to_sql(t, "t"))
+
+    def test_errors(self):
+        for kwargs in ({"dialect": "oracle"}, {"batch": 0}):
+            with self.assertRaises(sheet.SheetError):
+                sheet.to_sql(self.table(), "users", **kwargs)
+        with self.assertRaises(sheet.SheetError):
+            sheet.to_sql(self.table(), "  ")
+        with self.assertRaises(sheet.SheetError):
+            sheet.to_sql(sheet.Table(["가"], []), "users")
+
+
 if __name__ == "__main__":
     unittest.main()

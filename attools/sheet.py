@@ -1541,6 +1541,111 @@ FORMAT_CHECKS = {
 }
 
 
+# ---------------------------------------------------------------- SQL 로
+
+SQL_DIALECTS = {"sqlite": '"', "postgres": '"', "mysql": "`"}
+
+_SQL_TYPES = {"정수": {"sqlite": "INTEGER", "postgres": "INTEGER", "mysql": "INT"},
+              "실수": {"sqlite": "REAL", "postgres": "DOUBLE PRECISION",
+                       "mysql": "DOUBLE"},
+              "날짜": {"sqlite": "TEXT", "postgres": "DATE", "mysql": "DATE"},
+              "참거짓": {"sqlite": "INTEGER", "postgres": "BOOLEAN",
+                         "mysql": "TINYINT(1)"},
+              "글자": {"sqlite": "TEXT", "postgres": "TEXT", "mysql": "TEXT"}}
+
+
+def sql_name(name: str, dialect: str) -> str:
+    """열·표 이름을 그 dialect 의 따옴표로 감싼다."""
+    quote = SQL_DIALECTS[dialect]
+    return quote + str(name).replace(quote, quote * 2) + quote
+
+
+def sql_value(value: object, dialect: str) -> str:
+    """값 하나를 SQL 리터럴로. 빈 칸은 NULL 이다.
+
+    빈 칸을 ''(빈 글자)로 넣으면 «값이 없음» 과 «빈 글자» 가 섞인다. 나중에
+    IS NULL 로 못 찾는다.
+    """
+    if _is_blank(value):
+        return "NULL"
+    if isinstance(value, bool):
+        if dialect == "postgres":
+            return "TRUE" if value else "FALSE"
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, datetime):
+        return "'" + value.strftime("%Y-%m-%d %H:%M:%S") + "'"
+    if isinstance(value, date):
+        return "'" + value.strftime("%Y-%m-%d") + "'"
+    return "'" + to_text(value).replace("'", "''") + "'"
+
+
+def _sql_column_type(values: list, dialect: str) -> str:
+    kinds = set()
+    for value in values:
+        if _is_blank(value):
+            continue
+        if isinstance(value, bool):
+            kinds.add("참거짓")
+        elif isinstance(value, int):
+            kinds.add("정수")
+        elif isinstance(value, float):
+            kinds.add("실수")
+        elif isinstance(value, (datetime, date)):
+            kinds.add("날짜")
+        else:
+            kinds.add("글자")
+    if not kinds or len(kinds) > 1:
+        if kinds == {"정수", "실수"}:
+            return _SQL_TYPES["실수"][dialect]
+        return _SQL_TYPES["글자"][dialect]      # 섞였으면 글자로 둔다
+    return _SQL_TYPES[kinds.pop()][dialect]
+
+
+def to_sql(table: Table, name: str, *, dialect: str = "sqlite",
+           batch: int = 100, create: bool = False) -> str:
+    """표를 INSERT 문으로. 엑셀 자료를 개발 DB 에 넣을 때.
+
+    타입은 값에서 짐작한다. 짐작한 것이라는 주석을 함께 붙인다 - 실제 스키마와
+    다를 수 있고, 그걸 모른 채로 CREATE TABLE 을 돌리면 나중에 더 고생한다.
+    """
+    if dialect not in SQL_DIALECTS:
+        raise SheetError(f"모르는 종류: {dialect} ({', '.join(SQL_DIALECTS)})")
+    if not str(name).strip():
+        raise SheetError("표(테이블) 이름을 주세요.")
+    if batch < 1:
+        raise SheetError("한 번에 넣을 행 수는 1 이상이어야 합니다.")
+    if not table.rows:
+        raise SheetError("넣을 행이 없습니다.")
+
+    columns = ", ".join(sql_name(h, dialect) for h in table.headers)
+    lines: list[str] = []
+
+    if create:
+        lines.append("-- 아래 CREATE TABLE 은 값에서 짐작한 것입니다. "
+                     "실제 스키마에 맞춰 고치세요.")
+        pieces = []
+        for i, header in enumerate(table.headers):
+            values = [row[i] for row in table.rows if i < len(row)]
+            pieces.append(f"  {sql_name(header, dialect)} "
+                          f"{_sql_column_type(values, dialect)}")
+        lines.append(f"CREATE TABLE {sql_name(name, dialect)} (\n"
+                     + ",\n".join(pieces) + "\n);")
+        lines.append("")
+
+    width = len(table.headers)
+    for start in range(0, len(table.rows), batch):
+        chunk = table.rows[start:start + batch]
+        rows = []
+        for row in chunk:
+            padded = (list(row) + [None] * width)[:width]
+            rows.append("  (" + ", ".join(sql_value(v, dialect) for v in padded) + ")")
+        lines.append(f"INSERT INTO {sql_name(name, dialect)} ({columns}) VALUES\n"
+                     + ",\n".join(rows) + ";")
+    return "\n".join(lines) + "\n"
+
+
 # ------------------------------------------------------------- 비슷한 값
 
 # 상호에 붙는 법인 표기. 이것만 다른 것은 같은 곳으로 본다.
