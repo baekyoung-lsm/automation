@@ -1376,6 +1376,19 @@ class RecentTest(UiCase):
         self.assertEqual(status, 200)
         self.assertIn("here", data)
 
+    def test_tables_offer_a_csv_button(self):
+        """표는 어느 화면에서든 csv 로 내려받을 수 있어야 한다."""
+        _status, body = self.get("/keys?t=" + self.run.token)
+        self.assertIn('button.csv', body)          # 눌렀을 때의 처리
+        self.assertIn('class="csv"', body)         # 표에 붙는 단추
+
+    def test_javascript_keeps_its_backslashes(self):
+        """공용 JS 는 raw 문자열이어야 정규식이 살아남는다."""
+        from attools.webui import assets
+
+        self.assertIn(r"replace(/\r?\n/g", assets.JS)
+        self.assertNotIn("\r", assets.JS.replace(r"\r", ""))
+
     def test_page_defines_at_before_body_scripts(self):
         """본문 스크립트가 불러오자마자 AT 를 쓰는 화면이 있다."""
         _status, body = self.get("/files?t=" + self.run.token)

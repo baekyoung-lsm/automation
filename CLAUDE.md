@@ -61,7 +61,7 @@ attools/
   아래는 세 갈래가 함께 쓰는 것들이다.
   webui/            브라우저 화면 - 기능마다 한 화면, 껍데기는 한 벌
     __init__.py     127.0.0.1 서버, 열쇠(토큰) 검사, App 등록
-    assets.py       CSS·JS·페이지 껍데기 (여기만 색과 글꼴을 만진다)
+    assets.py       CSS·JS·페이지 껍데기 (raw 문자열이다 - 정규식·역슬래시가 살아야 한다)
     form.py         화면에서 온 값 검사 (경로·숫자·선택지)
     recent.py       최근에 넣은 경로 기억 (~/.attools/ui-recent.json)
     check.py        화면을 브라우저로 열어 JS 오류 잡기 (at ui --check)

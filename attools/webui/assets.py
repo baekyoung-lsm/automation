@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-CSS = """
+CSS = r"""
 :root {
   --ink:#1b1a18; --dim:#6f6b64; --paper:#faf9f7; --card:#fff; --line:#e4e0d9;
   --mark:#f2efe9; --blue:#2a78d6; --blue-ink:#fff; --red:#c0392b; --green:#2e7d4f;
@@ -61,7 +61,11 @@ nav.tabs button { padding:.4rem .9rem; font-size:.9rem; }
 nav.tabs button[aria-selected="true"] { background:var(--blue);
   border-color:var(--blue); color:var(--blue-ink); font-weight:600; }
 .big { font-size:1.4rem; font-weight:600; letter-spacing:-0.01em; }
-.tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px; }
+.tablewrap { overflow-x:auto; border:1px solid var(--line); border-radius:8px;
+  position:relative; }
+.tablewrap button.csv { position:absolute; right:.4rem; top:.25rem; z-index:2;
+  padding:.1rem .45rem; font-size:.75rem; opacity:.35; }
+.tablewrap:hover button.csv { opacity:1; }
 table { border-collapse:collapse; width:100%; font-size:.9rem; }
 th, td { padding:.45rem .7rem; text-align:left; white-space:nowrap;
   border-bottom:1px solid var(--line); }
@@ -105,7 +109,7 @@ footer { max-width:60rem; margin:0 auto; padding:0 1.2rem 3rem;
   color:var(--dim); font-size:.8rem; }
 """
 
-JS = """
+JS = r"""
 window.AT = (function () {
   const token = new URLSearchParams(location.search).get("t") || "";
 
@@ -131,7 +135,9 @@ window.AT = (function () {
         return "<td" + cls + ">" + esc(cell) + "</td>";
       }).join("") + "</tr>";
     }).join("");
-    return '<div class="tablewrap"><table><thead><tr>' + head +
+    return '<div class="tablewrap"><button type="button" class="csv" ' +
+           'title="표를 csv 로 내려받기">csv</button>' +
+           "<table><thead><tr>" + head +
            "</tr></thead><tbody>" + body + "</tbody></table></div>";
   }
 
@@ -258,6 +264,32 @@ window.AT = (function () {
       });
     });
   }
+
+  // 표를 csv 로 내려받는다. 엑셀에서 바로 열리게 BOM 을 붙인다.
+  function tableCsv(table) {
+    const rows = [].slice.call(table.querySelectorAll("tr")).map(function (tr) {
+      return [].slice.call(tr.children).map(function (cell) {
+        const text = cell.innerText.replace(/\r?\n/g, " ");
+        return /[",\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+      }).join(",");
+    });
+    return "\ufeff" + rows.join("\r\n") + "\r\n";
+  }
+
+  document.addEventListener("click", function (event) {
+    const button = event.target.closest && event.target.closest("button.csv");
+    if (!button) return;
+    const table = button.parentNode.querySelector("table");
+    if (!table) return;
+    const blob = new Blob([tableCsv(table)], { type: "text/csv" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = (document.title.split(" ")[0] || "표") + ".csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(link.href); }, 1000);
+  });
 
   // 화면에서 한 일을 터미널 명령으로 보여 준다. 다음부터는 직접 칠 수 있다.
   function command(text) {
