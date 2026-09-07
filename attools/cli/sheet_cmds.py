@@ -713,9 +713,27 @@ def cmd_sheet_merge(a) -> int:
 
 
 def cmd_sheet_diff(a) -> int:
-    before, after = _load(a, a.before), _load(a, a.after)
-    if before is None or after is None:
+    # 한 파일 안의 두 시트를 견주는 일이 잦다 (8월 탭 vs 9월 탭)
+    second = a.after or a.before
+    if a.after is None and not a.other_sheet:
+        _p("견줄 파일을 하나 더 주거나, 같은 파일의 다른 시트를 "
+           "--other-sheet 로 골라 주세요.")
         return 1
+
+    before = _load(a, a.before)
+    if before is None:
+        return 1
+    try:
+        after = sheet.load(Path(second),
+                           sheet=a.other_sheet or getattr(a, "sheet", None),
+                           header_row=a.header_row - 1)
+    except (sheet.SheetError, OSError) as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    left = f"{Path(a.before).name}" + (f"[{before.sheet}]" if before.sheet else "")
+    right = f"{Path(second).name}" + (f"[{after.sheet}]" if after.sheet else "")
+    _p(f"{left}  ->  {right}")
 
     if a.columns:
         cd = sheet.column_diff(before, after)
@@ -1800,7 +1818,10 @@ def add_commands(sub) -> None:
 
     df = common(sh.add_parser("diff", help="두 파일을 키 기준으로 비교"))
     df.add_argument("before")
-    df.add_argument("after")
+    df.add_argument("after", nargs="?",
+                    help="없으면 같은 파일의 --other-sheet 와 견준다")
+    df.add_argument("--other-sheet", metavar="시트",
+                    help="견줄 쪽의 시트 이름 (한 파일 안의 두 시트 비교)")
     df.add_argument("--key", metavar="열", help="행을 짝지을 열")
     df.add_argument("--columns", action="store_true",
                     help="행 대신 열 구조만 비교 (키가 없어도 된다)")

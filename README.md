@@ -729,7 +729,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet collect <폴더> --cell <칸=이름>` | 같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합) |
-| `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만 |
+| `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만. `--other-sheet` 로 한 파일 안의 두 시트 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
 | `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
@@ -777,6 +777,7 @@ at sheet collect 부서제출/ --cell B3=담당자 --cell C7=금액 -o 취합.xl
 at sheet collect 제출/ --cell B3=담당자 --sheet 요약 --glob '*.xlsx'
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --columns   # 서식이 바뀌었는지만
+at sheet diff 월별.xlsx --sheet 8월 --other-sheet 9월 --key 사번
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
 at sheet melt 월별매출.xlsx --keep 부서 --keep 이름 --name 월 --value 매출 -o 긴표.csv
 at sheet transpose 요약.csv
