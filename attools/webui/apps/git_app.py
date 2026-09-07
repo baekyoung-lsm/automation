@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ... import files
 from ...code import gitkit, todo
 from .. import App, UiError, form
@@ -115,6 +117,37 @@ def release(payload: dict) -> dict:
                     "없으면 바뀐 위치로 묶습니다. 사람이 읽고 다듬어야 합니다."}
 
 
+def history(payload: dict) -> dict:
+    """한 파일의 이력. 이름이 바뀌기 전까지 따라간다."""
+    root = _root(payload)
+    raw = form.text(payload, "hfile")
+    if not raw:
+        raise UiError("어느 파일인지 적어 주세요.")
+    target = Path(raw).expanduser()
+    if not target.exists() and (root / raw).exists():
+        target = root / raw
+    if not target.exists():
+        raise UiError(f"파일이 없습니다: {target}")
+
+    limit = int(form.number(payload, "hlimit", 20, low=1, high=500))
+    try:
+        commits, names = gitkit.file_history(root, target.resolve(), limit=limit)
+    except RuntimeError as exc:
+        raise UiError(str(exc)) from None
+    if not commits:
+        raise UiError("이력이 없습니다. (git 이 추적하지 않는 파일일 수 있습니다)")
+
+    return {
+        "rows": [[f"{c.when:%Y-%m-%d}", c.author, f"+{c.added:,}",
+                  f"-{c.deleted:,}", c.subject] for c in commits],
+        "count": len(commits),
+        "people": sorted({c.author for c in commits}),
+        "names": names,
+        "command": form.command("git", "history", target, root,
+                                *(["--limit", limit] if limit != 20 else [])),
+    }
+
+
 def stats(payload: dict) -> dict:
     root = _root(payload)
     since = form.text(payload, "since") or "3 months ago"
@@ -149,6 +182,7 @@ BODY = """
   <button data-tab="conflicts" aria-selected="false">충돌 표시</button>
     <button data-tab="todos" aria-selected="false">TODO</button>
     <button data-tab="stats" aria-selected="false">커밋 통계</button>
+  <button data-tab="history" aria-selected="false">파일 이력</button>
   <button data-tab="release" aria-selected="false">변경 로그</button>
   </nav>
   <p class="note">이 화면은 읽기만 합니다. 지우거나 커밋하지 않습니다.</p>
@@ -198,6 +232,21 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-stats">세기</button></div>
   </div>
   <div id="stats-out"></div>
+</section>
+
+<section class="card" data-panel="history" hidden>
+  <h2>이 파일 누가 언제 무엇을</h2>
+  <p class="note">이름을 바꾸기 전 커밋까지 따라갑니다. 경로는 저장소 안 기준으로
+     적어도 되고(<code>attools/sheet.py</code>) 전체 경로로 적어도 됩니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="hfile">파일</label>
+      <input type="text" id="hfile" spellcheck="false" placeholder="attools/sheet.py"></div>
+    <div style="flex:0 1 7rem"><label for="hlimit">몇 개까지</label>
+      <input type="text" id="hlimit" value="20" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-history">보기</button></div>
+  </div>
+  <div id="history-msg"></div>
+  <div id="history-out"></div>
 </section>
 
 <section class="card" data-panel="release" hidden>
@@ -308,6 +357,22 @@ BODY = """
     });
   });
 
+  $("btn-history").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/git/history", {
+        path: $("path").value, hfile: $("hfile").value,
+        hlimit: $("hlimit").value });
+      $("history-out").innerHTML =
+        AT.table(["날짜", "사람", "추가", "삭제", "무엇을"], d.rows,
+                 [null, null, "num", "num", null]) +
+        (d.names.length > 1 ? '<p class="note">지나온 이름: ' +
+          d.names.map(AT.esc).join(" &lt;- ") + "</p>" : "") +
+        AT.command(d.command);
+      AT.message($("history-msg"), "커밋 <b>" + d.count + "개</b> · 손댄 사람 " +
+                 d.people.map(AT.esc).join(", "), "ok");
+    } catch (e) { AT.message($("history-msg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-stats").addEventListener("click", function () {
     run("/api/git/stats", where({ since: $("since").value }), function (d) {
       $("stats-out").innerHTML = big(d.count + "개 커밋 (" + AT.esc(d.since) + " 이후)") +
@@ -335,7 +400,7 @@ def make() -> App:
         subtitle="읽기만 합니다 · 지우거나 커밋하지 않습니다",
         body=lambda: BODY,
         actions={"scan": scan, "branches": branches, "conflicts": conflicts,
-                 "todos": todos, "stats": stats, "ready": ready,
+                 "todos": todos, "stats": stats, "history": history, "ready": ready,
                  "release": release},
         aliases=("git", "저장소"),
         section="개발",

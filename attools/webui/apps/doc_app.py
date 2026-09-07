@@ -128,6 +128,45 @@ def from_docx(payload: dict) -> dict:
     return result
 
 
+def merge(payload: dict) -> dict:
+    """폴더 안의 .md 를 이름순으로 이어 붙인다. at doc split 의 반대."""
+    root = form.folder(payload, "mfolder")
+    targets = sorted(q for q in root.rglob("*.md") if q.is_file())
+    if len(targets) < 2:
+        raise UiError(f"{root} 안에 합칠 .md 가 두 개 이상 있어야 합니다.")
+
+    shift = int(form.number(payload, "mshift", 0, low=0, high=5))
+    pieces, deep = [], 0
+    for path in targets:
+        body, too_deep = mdkit.shift_headings(
+            path.read_text(encoding="utf-8", errors="replace"), shift)
+        deep += too_deep
+        pieces.append(mdkit.MergePiece(path.name, body, shift, too_deep))
+
+    made = mdkit.merge_documents(pieces, title=form.text(payload, "mtitle"),
+                                 rule=form.flag(payload, "mrule"),
+                                 mark_source=form.flag(payload, "mmark"))
+    args: list[object] = ["doc", "merge", root]
+    if form.text(payload, "mtitle"):
+        args += ["--title", form.text(payload, "mtitle")]
+    if shift:
+        args += ["--shift", shift]
+    if form.flag(payload, "mrule"):
+        args.append("--rule")
+    if form.flag(payload, "mmark"):
+        args.append("--mark-source")
+
+    result = {"text": made, "count": len(pieces), "deep": deep,
+              "rows": [[p.name, str(len(p.body.splitlines()))] for p in pieces],
+              "command": form.command(*args)}
+    if form.flag(payload, "msave"):
+        out = files.unique_path(root.parent / f"{root.name} 합본.md")
+        out.write_text(made, encoding="utf-8")
+        result["saved"] = str(out)
+        result["command"] = form.command(*args, "-o", out)
+    return result
+
+
 def _fixed(payload: dict) -> tuple[Path, str, str, str]:
     path, before = _markdown(payload)
     kind = form.choice(payload, "fix", FIXES, "toc")
@@ -257,6 +296,32 @@ BODY = """
   <div class="actions"><button class="primary" id="btn-fromhtml">옮기기</button></div>
   <div id="htmlmsg"></div>
   <div id="htmlout"></div>
+</section>
+
+<section class="card">
+  <h2>여러 문서 합치기</h2>
+  <p class="note">폴더 안의 <code>.md</code> 를 이름순으로 이어 붙입니다.
+     제목 단계를 내리면(<code>#</code> → <code>##</code>) 장별로 쓴 문서를 한
+     문서로 만들 때 목차가 평평해지지 않습니다. <b>여섯 단계를 넘는 제목은
+     그대로 두고</b> 몇 개인지 알려 줍니다. 저장하면 폴더 옆에 «합본.md» 를 만듭니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="mfolder">문서가 있는 폴더</label>
+      <input type="text" id="mfolder" data-browse="dir" spellcheck="false"></div>
+    <div><label for="mtitle">맨 위에 붙일 제목 (선택)</label>
+      <input type="text" id="mtitle" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="mshift">제목 내리기</label>
+      <input type="text" id="mshift" value="0" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="mrule"> 문서 사이에 --- 선</label>
+    <label><input type="checkbox" id="mmark"> 어느 파일에서 왔는지 주석으로</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-merge">합쳐 보기</button>
+    <button id="btn-merge-save">합본.md 로 저장</button>
+  </div>
+  <div id="mergemsg"></div>
+  <div id="mergeout"></div>
 </section>
 
 <section class="card">
@@ -392,6 +457,27 @@ BODY = """
     } catch (e) { AT.message($("htmlmsg"), AT.esc(e.message), "bad"); }
   });
 
+  async function runMerge(save) {
+    try {
+      const d = await AT.call("/api/doc/merge", {
+        mfolder: $("mfolder").value, mtitle: $("mtitle").value,
+        mshift: $("mshift").value, mrule: $("mrule").checked,
+        mmark: $("mmark").checked, msave: save });
+      $("mergeout").innerHTML =
+        AT.table(["파일", "줄"], d.rows, [null, "num"]) +
+        (d.deep ? '<p class="note">제목 ' + d.deep +
+          "개는 여섯 단계를 넘어 그대로 두었습니다.</p>" : "") +
+        '<pre class="diff">' + AT.esc(d.text) + "</pre>" + AT.command(d.command);
+      AT.remember("doc", "mfolder", $("mfolder").value);
+      AT.message($("mergemsg"), d.saved
+        ? "저장했습니다: <b>" + AT.esc(d.saved) + "</b>"
+        : "문서 " + d.count + "개를 이어 붙였습니다. 아직 저장하지 않았습니다.", "ok");
+    } catch (e) { AT.message($("mergemsg"), AT.esc(e.message), "bad"); }
+  }
+
+  $("btn-merge").addEventListener("click", function () { runMerge(false); });
+  $("btn-merge-save").addEventListener("click", function () { runMerge(true); });
+
   async function runDocx(save) {
     try {
       const d = await AT.call("/api/doc/from_docx", {
@@ -431,7 +517,7 @@ def make() -> App:
         subtitle="점검 → 다듬기 → 내보내기",
         body=lambda: BODY,
         actions={"check": check, "terms": terms, "images": images,
-                 "from_docx": from_docx,
+                 "from_docx": from_docx, "merge": merge,
                  "from_html": from_html,
                  "fix_preview": fix_preview, "fix_apply": fix_apply,
                  "export": export},

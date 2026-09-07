@@ -1675,6 +1675,77 @@ class GitAppTest(UiCase):
         self.assertEqual(data["authors"][0][0], "테스터")
 
 
+class DocMergeAndGitHistoryTest(UiCase):
+    """새로 붙인 두 카드. 서버 쪽 판단이 터미널과 같은지 본다."""
+
+    def pieces(self):
+        room = self.work / "장"
+        room.mkdir(exist_ok=True)
+        (room / "01.md").write_text("# 하나\n\n첫\n", encoding="utf-8")
+        (room / "02.md").write_text("# 둘\n\n둘째\n", encoding="utf-8")
+        return room
+
+    def test_merge_shifts_headings(self):
+        _, data = self.post("/api/doc/merge",
+                            {"mfolder": str(self.pieces()), "mshift": "1",
+                             "mtitle": "합본"})
+        self.assertTrue(data["text"].startswith("# 합본"))
+        self.assertIn("## 하나", data["text"])
+        self.assertEqual(data["count"], 2)
+        self.assertNotIn("saved", data)
+
+    def test_merge_saves_beside_the_folder(self):
+        room = self.pieces()
+        _, data = self.post("/api/doc/merge",
+                            {"mfolder": str(room), "msave": True})
+        saved = Path(data["saved"])
+        self.assertEqual(saved.parent, room.parent)
+
+    def test_merge_needs_two_files(self):
+        room = self.work / "하나만"
+        room.mkdir(exist_ok=True)
+        (room / "01.md").write_text("# 하나\n", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/merge", {"mfolder": str(room)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def repo(self):
+        import subprocess
+
+        root = self.work / "저장소"
+        root.mkdir(exist_ok=True)
+        run = lambda *args: subprocess.run(["git", *args], cwd=root,
+                                           capture_output=True, text=True)
+        run("init", "-q")
+        run("config", "user.email", "t@e.c")
+        run("config", "user.name", "테스터")
+        (root / "가.py").write_text("x = 1\n", encoding="utf-8")
+        run("add", "-A")
+        run("commit", "-q", "-m", "처음")
+        return root
+
+    def test_history_lists_commits(self):
+        root = self.repo()
+        _, data = self.post("/api/git/history",
+                            {"path": str(root), "hfile": "가.py"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["rows"][0][4], "처음")
+        self.assertEqual(data["people"], ["테스터"])
+
+    def test_history_needs_a_file(self):
+        root = self.repo()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/git/history", {"path": str(root), "hfile": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_history_of_an_untracked_file(self):
+        root = self.repo()
+        (root / "새것.py").write_text("x", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/git/history", {"path": str(root), "hfile": "새것.py"})
+        self.assertEqual(ctx.exception.code, 400)
+
+
 class LettersAppTest(UiCase):
     """글자 손질 화면. 파일이 아니라 붙여넣은 글만 다룬다."""
 
@@ -2079,6 +2150,31 @@ class CommandHintTest(UiCase):
                                  {"path": str(path),
                                   "specs": [["연락처", "전화"]]})
         self.accepts(formatted["command"])
+
+    def test_doc_merge_and_git_history_commands(self):
+        import subprocess
+
+        room = self.work / "장"
+        room.mkdir(exist_ok=True)
+        (room / "01.md").write_text("# 하나\n", encoding="utf-8")
+        (room / "02.md").write_text("# 둘\n", encoding="utf-8")
+        _, merged = self.post("/api/doc/merge",
+                              {"mfolder": str(room), "mshift": "1",
+                               "mrule": True})
+        self.accepts(merged["command"])
+
+        root = self.work / "저장소2"
+        root.mkdir(exist_ok=True)
+        for args in (("init", "-q"), ("config", "user.email", "t@e.c"),
+                     ("config", "user.name", "테스터")):
+            subprocess.run(["git", *args], cwd=root, capture_output=True)
+        (root / "가.py").write_text("x = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "처음"], cwd=root,
+                       capture_output=True)
+        _, story = self.post("/api/git/history",
+                             {"path": str(root), "hfile": "가.py"})
+        self.accepts(story["command"])
 
     def test_life_severance_command(self):
         _, data = self.post("/api/life/severance",
