@@ -641,6 +641,9 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 있으면 아무것도 쓰지 않고 멈춘다 — 덮어쓴 것을 되돌릴 방법이 없기 때문이다.
 첫 제목 앞의 글은 `00-머리말.md` 로 따로 남는다(`--drop-preface` 로 버릴 수 있다).
 
+`at doc toc --apply` 와 `at doc index --apply` 는 문서를 **제자리에서** 고치므로 `at doc table`
+과 같은 백업 기계를 쓴다 — `~/.attools/text/<시각>/` 에 원본을 두고 `at text undo` 로 되돌린다.
+
 이 README 의 목차도 `at doc toc README.md --apply` 로 만든 것이다.
 
 ## git — 저장소 정리와 검사

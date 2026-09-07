@@ -49,8 +49,12 @@ def cmd_doc_toc(a) -> int:
                               else f"표시가 없습니다. 넣을 자리에 {mdkit.TOC_START} 와 "
                                    f"{mdkit.TOC_END} 를 적어 두세요."))
             continue
-        path.write_text(new_body, encoding="utf-8")
-        _p(f"{path}: 목차를 갱신했습니다.")
+        # 남의 문서를 제자리에서 고치는 자리다. 백업을 남겨 at text undo 로
+        # 되돌릴 수 있게 한다 - at doc table --apply 와 같은 기계를 쓴다.
+        journal = text.apply_changes(
+            [text.Change(path, body, new_body, "utf-8", hits=1)])
+        _p(f"{path}: 목차를 갱신했습니다."
+           + (f"  (되돌리기: at text undo · 백업 {journal.parent})" if journal else ""))
         touched += 1
 
     if not a.apply:
@@ -466,8 +470,10 @@ def cmd_doc_index(a) -> int:
         _p("\n실제로 넣으려면 --apply 를 붙이세요.")
         return 0
 
-    out_path.write_text(new, encoding="utf-8")
-    _p("목록을 갱신했습니다.")
+    journal = text.apply_changes(
+        [text.Change(out_path, original, new, "utf-8", hits=len(entries))])
+    _p("목록을 갱신했습니다."
+       + (f"  (되돌리기: at text undo · 백업 {journal.parent})" if journal else ""))
     return 0
 
 

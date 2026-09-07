@@ -406,6 +406,58 @@ class DocIndexTest(unittest.TestCase):
         self.assertIn("- [설치](#설치)", new)
 
 
+class TocBackupTest(unittest.TestCase):
+    """제자리에서 고치는 자리는 백업을 남긴다 (at text undo 로 되돌아간다)."""
+
+    def setUp(self):
+        import os
+
+        self.root = Path(tempfile.mkdtemp())
+        self.home = Path(tempfile.mkdtemp())
+        self.prev_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.home)
+        self.doc = self.root / "문서.md"
+        self.doc.write_text("# 제목\n\n<!-- toc -->\n<!-- /toc -->\n\n## 가\n",
+                            encoding="utf-8")
+
+    def tearDown(self):
+        import os
+        import shutil as sh
+
+        if self.prev_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.prev_home
+        sh.rmtree(self.root, ignore_errors=True)
+        sh.rmtree(self.home, ignore_errors=True)
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+
+        from attools import cli
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(list(args))
+        return code, out.getvalue()
+
+    def test_toc_apply_leaves_a_backup(self):
+        from attools import text as textkit
+
+        before = self.doc.read_text(encoding="utf-8")
+        code, out = self.run_cli("doc", "toc", str(self.doc), "--apply")
+        self.assertEqual(code, 0)
+        self.assertIn("되돌리기", out)
+        self.assertNotEqual(self.doc.read_text(encoding="utf-8"), before)
+
+        backups = list(textkit.backup_dir().glob("*/journal.jsonl"))
+        self.assertEqual(len(backups), 1)
+
+        self.run_cli("text", "undo")
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), before)
+
+
 class MergeTest(unittest.TestCase):
     def test_shift_moves_headings_down(self):
         body, deep = mdkit.shift_headings("# 가\n\n## 나\n", 1)
