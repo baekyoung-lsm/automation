@@ -493,7 +493,11 @@ def collect_changes(root: Path, *, since: str = "", until: str = "HEAD") -> list
 
 def read_log_range(root: Path, span: str) -> list[Commit]:
     args = ["log", f"--pretty=format:{LOG_FORMAT}", "--numstat", "--no-merges", span]
-    out = run(args, root)
+    return _parse_log(run(args, root))
+
+
+def _parse_log(out: str) -> list[Commit]:
+    """git log 출력(LOG_FORMAT + --numstat)을 커밋으로."""
     commits: list[Commit] = []
     for chunk in out.split("\x01"):
         if not chunk.strip():
@@ -515,6 +519,35 @@ def read_log_range(root: Path, span: str) -> list[Commit]:
                     continue
         commits.append(commit)
     return commits
+
+
+def file_history(root: Path, target: Path, *, limit: int = 0,
+                 since: str = "") -> tuple[list[Commit], list[str]]:
+    """한 파일의 이력. (커밋, 지나온 이름들)
+
+    --follow 로 이름이 바뀌기 전까지 따라간다. 파일을 통째로 옮긴 뒤에
+    «이력이 없다» 고 나오면 아무도 그 앞을 찾아보지 않는다.
+    """
+    # --follow 는 이력이 없는 경로를 주면 경로 거르기를 아예 버리고 저장소 전체
+    # 이력을 낸다. 그러면 남의 커밋이 이 파일 이력인 척한다. 먼저 확인한다.
+    if not run(["log", "--oneline", "-1", "--", str(target)], root).strip():
+        return [], []
+
+    args = ["log", "--follow", f"--pretty=format:{LOG_FORMAT}", "--numstat",
+            "--no-merges"]
+    if since:
+        args += [f"--since={since}"]
+    if limit:
+        args += [f"-{limit}"]
+    args += ["--", str(target)]
+    commits = _parse_log(run(args, root))
+
+    names: list[str] = []
+    for commit in commits:
+        for path in commit.files:
+            if path not in names:
+                names.append(path)
+    return commits, names
 
 
 def top_directory(paths: list[str], depth: int = 1) -> str:

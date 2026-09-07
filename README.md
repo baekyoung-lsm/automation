@@ -613,6 +613,7 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 | `at git branches [경로]` | 브랜치별 마지막 커밋·사람·원격 차이. `--stale 30` 으로 방치된 것만 |
 | `at git release [경로]` | 태그 이후 커밋으로 변경 로그 초안을 만든다 |
 | `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
+| `at git history <파일>` | 그 파일 이력 - 누가 언제 무엇을 (이름을 바꿔도 따라간다) |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 | `at git conflicts [경로]` | 충돌 표시가 남은 자리를 찾는다. 어느 쪽이 몇 줄인지까지 |
 | `at git ready [경로]` | 커밋 전 한 번에 점검 - 시크릿·충돌·디버그 흔적·큰 파일 |
@@ -638,6 +639,7 @@ at git branches --stale 30
 at git release --title 0.12.0 --authors
 at git release --since v0.11.0 -o CHANGELOG.md
 at git stats --since '30 days ago' --by week
+at git history attools/sheet.py --limit 10
 at git stats --path src/ --weekday
 ```
 
@@ -663,6 +665,11 @@ at git stats --path src/ --weekday
 미리보기**라 `--apply` 를 붙여야 실제로 쓰고, 이미 다른 훅이 있으면 지우지 않고
 `pre-commit.attools-bak` 으로 밀어 둔다. `--remove --apply` 로 빼면 밀어 뒀던 훅이 제자리로
 돌아온다. 우리가 넣지 않은 훅은 빼지 않는다. 급할 때는 `git commit --no-verify` 로 건너뛴다.
+
+`at git history` 는 한 파일의 이력을 `--follow` 로 본다. 이름을 바꾸기 전 커밋까지 따라가고,
+지나온 이름을 함께 적는다. **이력이 없는 경로를 주면 git 은 경로 거르기를 버리고 저장소 전체
+이력을 낸다** — 그러면 남의 커밋이 이 파일 이력인 척하므로, 먼저 그 경로에 이력이 있는지
+확인하고 없으면 없다고 말한다.
 
 `at git hook` 은 그 점검을 pre-commit 훅으로 걸어 둔다. **기본은 미리보기**라 `--apply` 를
 붙여야 실제로 쓴다. 이미 다른 훅이 있으면 지우지 않고 `pre-commit.attools-bak` 으로 밀어 두고,

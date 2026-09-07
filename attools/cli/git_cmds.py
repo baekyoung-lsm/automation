@@ -241,6 +241,51 @@ def cmd_git_conflicts(a) -> int:
     return 1
 
 
+def cmd_git_history(a) -> int:
+    """한 파일의 이력. 이름이 바뀌기 전까지 따라간다."""
+    root = _repo(a)
+    if root is None:
+        return 1
+    # 경로는 지금 폴더 기준일 수도, 저장소 안 기준일 수도 있다. 둘 다 받는다.
+    target = Path(a.file)
+    if not target.exists() and (root / a.file).exists():
+        target = root / a.file
+    if not target.exists() and not a.force:
+        _p(f"파일이 없습니다: {target}")
+        _p("  지운 파일의 이력을 보려면 --force 를 붙이세요.")
+        return 1
+    if target.exists():
+        target = target.resolve()
+
+    try:
+        commits, names = gitkit.file_history(root, target, limit=a.limit,
+                                             since=a.since or "")
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    if not commits:
+        _p("이력이 없습니다. (git 이 추적하지 않는 파일일 수 있습니다)")
+        return 1
+
+    added = sum(c.added for c in commits)
+    deleted = sum(c.deleted for c in commits)
+    people = sorted({c.author for c in commits})
+    _p(f"{target}  커밋 {len(commits)}개  ·  +{added:,} -{deleted:,}  ·  "
+       f"{commits[-1].when:%Y-%m-%d} ~ {commits[0].when:%Y-%m-%d}")
+    _p(f"  손댄 사람: {', '.join(people)}")
+    if len(names) > 1:
+        _p(f"  지나온 이름: {' <- '.join(names)}")
+
+    _grid(["날짜", "사람", "추가", "삭제", "무엇을"],
+          [[f"{c.when:%Y-%m-%d}", _cut(c.author, 12), f"+{c.added:,}",
+            f"-{c.deleted:,}", _cut(c.subject, 46)] for c in commits],
+          limit=50)
+    if a.limit and len(commits) == a.limit:
+        _p(f"\n{a.limit}개까지만 봤습니다. --limit 로 늘리세요.")
+    return 0
+
+
 def cmd_git_hook(a) -> int:
     """커밋 전 점검을 git 훅으로 걸어 둔다. 기본은 미리보기다."""
     root = _repo(a)
@@ -551,6 +596,16 @@ def add_commands(sub) -> None:
                     help="병합 중이어도 추적 파일 전부를 훑는다")
     cf.add_argument("--limit", type=int, default=20, metavar="곳")
     cf.set_defaults(func=cmd_git_conflicts)
+
+    hs = gp.add_parser("history", help="한 파일의 이력 - 누가 언제 무엇을 (이름 바꿔도 따라감)")
+    hs.add_argument("file", metavar="파일")
+    hs.add_argument("dir", nargs="?", default=".")
+    hs.add_argument("--limit", type=int, default=20, metavar="개",
+                    help="최근 몇 개까지 (기본 20, 0 이면 전부)")
+    hs.add_argument("--since", metavar="때", help="예: '30 days ago', '2026-01-01'")
+    hs.add_argument("--force", action="store_true",
+                    help="지금 없는 파일(지운 파일)도 찾아본다")
+    hs.set_defaults(func=cmd_git_history)
 
     hk = gp.add_parser("hook", help="커밋 전 점검을 git 훅으로 걸기")
     hk.add_argument("dir", nargs="?", default=".")

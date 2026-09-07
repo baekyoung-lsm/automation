@@ -485,5 +485,61 @@ class HookTest(unittest.TestCase):
         self.assertIn("at git scan -q", made.read_text(encoding="utf-8"))
 
 
+class FileHistoryTest(unittest.TestCase):
+    """한 파일의 이력. 이름을 바꾼 뒤에도 앞을 찾는지가 핵심이다."""
+
+    def setUp(self):
+        import subprocess
+
+        self.root = Path(tempfile.mkdtemp())
+        self.run = lambda *args: subprocess.run(
+            ["git", *args], cwd=self.root, capture_output=True, text=True)
+        self.run("init", "-q")
+        self.run("config", "user.email", "t@e.c")
+        self.run("config", "user.name", "테스터")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def commit(self, name, body, message):
+        (self.root / name).write_text(body, encoding="utf-8")
+        self.run("add", "-A")
+        self.run("commit", "-q", "-m", message)
+
+    def test_lists_commits_newest_first(self):
+        self.commit("가.py", "x = 1\n", "처음")
+        self.commit("가.py", "x = 1\ny = 2\n", "한 줄 더")
+        commits, names = gitkit.file_history(self.root, Path("가.py"))
+        self.assertEqual([c.subject for c in commits], ["한 줄 더", "처음"])
+        self.assertEqual(names, ["가.py"])
+
+    def test_follows_a_rename(self):
+        self.commit("옛이름.py", "x = 1\n", "처음")
+        self.run("mv", "옛이름.py", "새이름.py")
+        self.run("commit", "-q", "-m", "이름 바꿈")
+        commits, names = gitkit.file_history(self.root, Path("새이름.py"))
+        self.assertEqual(len(commits), 2)          # 이름 바뀌기 전 것도 나온다
+        self.assertIn("옛이름.py", " ".join(names))
+
+    def test_limit(self):
+        for i in range(4):
+            self.commit("가.py", f"x = {i}\n", f"{i}번")
+        commits, _names = gitkit.file_history(self.root, Path("가.py"), limit=2)
+        self.assertEqual(len(commits), 2)
+
+    def test_untracked_file_has_no_history(self):
+        # --follow 는 이력 없는 경로를 주면 저장소 전체 이력을 낸다. 그 함정
+        self.commit("가.py", "x = 1\n", "처음")
+        (self.root / "새것.py").write_text("x", encoding="utf-8")   # add 하지 않는다
+        commits, _names = gitkit.file_history(self.root, Path("새것.py"))
+        self.assertEqual(commits, [])
+
+    def test_added_and_deleted_counts(self):
+        self.commit("가.py", "1\n2\n3\n", "처음")
+        self.commit("가.py", "1\n", "두 줄 지움")
+        commits, _names = gitkit.file_history(self.root, Path("가.py"))
+        self.assertEqual((commits[0].added, commits[0].deleted), (0, 2))
+
+
 if __name__ == "__main__":
     unittest.main()
