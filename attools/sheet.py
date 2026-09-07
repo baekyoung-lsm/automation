@@ -1541,6 +1541,86 @@ FORMAT_CHECKS = {
 }
 
 
+# ------------------------------------------------------------- 날짜 쪼개기
+
+WEEKDAYS_KO = ("월", "화", "수", "목", "금", "토", "일")
+
+DATE_PARTS: dict[str, str] = {
+    "연도": "2026",
+    "월": "3",
+    "일": "2",
+    "요일": "월",
+    "연월": "2026-03",
+    "분기": "2026 Q1",
+    "주차": "2026-W10",
+}
+
+
+def date_part(value: date, part: str) -> object:
+    """날짜에서 한 조각. 피벗·필터에 쓸 파생 열을 만든다."""
+    if part == "연도":
+        return value.year
+    if part == "월":
+        return value.month
+    if part == "일":
+        return value.day
+    if part == "요일":
+        return WEEKDAYS_KO[value.weekday()]
+    if part == "연월":
+        return f"{value.year:04d}-{value.month:02d}"
+    if part == "분기":
+        return f"{value.year} Q{(value.month - 1) // 3 + 1}"
+    if part == "주차":
+        # ISO 주차. 연말·연초의 주는 해가 넘어갈 수 있어 그 해까지 붙인다
+        iso = value.isocalendar()
+        return f"{iso[0]:04d}-W{iso[1]:02d}"
+    raise SheetError(f"모르는 조각: {part} ({', '.join(DATE_PARTS)})")
+
+
+def _as_date(cell: object) -> date | None:
+    if isinstance(cell, datetime):
+        return cell.date()
+    if isinstance(cell, date):
+        return cell
+    if _is_blank(cell):
+        return None
+    return parse_date(to_text(cell))
+
+
+def add_date_parts(table: Table, column: str, parts: list[str]
+                   ) -> tuple[Table, list[tuple[int, str]]]:
+    """날짜 열에서 요일·월·분기 같은 열을 만들어 붙인다. (새 표, 못 읽은 칸)
+
+    피벗을 돌리기 전에 늘 손으로 만드는 열이다. 날짜로 못 읽은 칸은 비워
+    두고 몇 행이었는지 알려 준다 - 오늘 날짜 같은 걸 채워 넣으면 그 행이
+    엉뚱한 달에 잡힌다.
+    """
+    for part in parts:
+        if part not in DATE_PARTS:
+            raise SheetError(f"모르는 조각: {part} ({', '.join(DATE_PARTS)})")
+    if not parts:
+        raise SheetError("만들 열을 하나 이상 고르세요. "
+                         f"({', '.join(DATE_PARTS)})")
+
+    index = table.index_of(column)
+    headers = list(table.headers) + [f"{column} {p}" for p in parts]
+    rows: list[list] = []
+    failed: list[tuple[int, str]] = []
+
+    for line, row in enumerate(table.rows, 2):
+        row = list(row) + [None] * (len(table.headers) - len(row))
+        when = _as_date(row[index] if index < len(row) else None)
+        if when is None:
+            if not _is_blank(row[index]):
+                failed.append((line, to_text(row[index])))
+            rows.append(row + [None] * len(parts))
+            continue
+        rows.append(row + [date_part(when, p) for p in parts])
+
+    return Table(_dedupe_headers(headers), rows, source=table.source,
+                 sheet=table.sheet), failed
+
+
 # ---------------------------------------------------------------- SQL 로
 
 SQL_DIALECTS = {"sqlite": '"', "postgres": '"', "mysql": "`"}

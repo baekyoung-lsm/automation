@@ -397,6 +397,27 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_dates(a) -> int:
+    """날짜 열에서 요일·월·분기 열을 만든다. 피벗 돌리기 전에 하는 일."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, failed = sheet.add_date_parts(t, a.column, a.add or [])
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if failed:
+        _p(f"날짜로 못 읽은 칸 {len(failed):,}개 - 비워 두었습니다")
+        for line, value in failed[:a.limit]:
+            _p(f"  {line}행  {_cut(value, 40)}")
+        if len(failed) > a.limit:
+            _p(f"  ... {len(failed) - a.limit:,}개 더")
+        _p("")
+    return _sheet_result(a, result, f"{a.column} -> " + ", ".join(a.add))
+
+
 def cmd_sheet_to_sql(a) -> int:
     """표를 INSERT 문으로. 엑셀로 받은 자료를 개발 DB 에 넣을 때."""
     t = _load(a)
@@ -1804,6 +1825,17 @@ def add_commands(sub) -> None:
     sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
     sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
     sp2.set_defaults(func=cmd_sheet_sample)
+
+    dt = sheet_out(common(sh.add_parser(
+        "dates", help="날짜 열에서 요일·월·분기 열 만들기 (피벗 준비)")))
+    dt.add_argument("file")
+    dt.add_argument("-c", "--column", required=True, metavar="열")
+    dt.add_argument("--add", action="append", required=True,
+                    choices=list(sheet.DATE_PARTS),
+                    help="여러 번 쓸 수 있다: " + ", ".join(
+                        f"{k}({v})" for k, v in sheet.DATE_PARTS.items()))
+    dt.add_argument("--limit", type=int, default=10, metavar="개")
+    dt.set_defaults(func=cmd_sheet_dates)
 
     fdn = sheet_out(common(sh.add_parser("filldown", help="빈 칸을 바로 위 값으로 채우기 (병합 셀 푼 표)")))
     fdn.add_argument("file")

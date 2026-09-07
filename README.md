@@ -282,6 +282,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
 재야 하기 때문이다.
 
+`dates` 는 피벗을 돌리기 전에 늘 손으로 만드는 열을 대신 만든다(연도·월·일·요일·연월·분기·주차).
+**날짜로 못 읽은 칸은 비워 두고 몇 행이었는지 알려 준다** — 오늘 날짜 같은 걸 채워 넣으면 그
+행이 엉뚱한 달에 잡힌다. 주차는 ISO 기준이라 연말·연초의 주가 해를 넘길 수 있어 `2026-W53`
+처럼 그 해를 함께 적는다.
+
 `to-sql` 은 빈 칸을 **NULL** 로 넣는다. `''`(빈 글자)로 넣으면 «값이 없음» 과 «빈 글자» 가
 섞여 나중에 `IS NULL` 로 못 찾는다. 따옴표와 참거짓 표기는 `--dialect` 에 맞춰 바뀐다
 (sqlite·postgres 는 `"`, mysql 은 백틱). `--create` 로 CREATE TABLE 초안도 낼 수 있지만
@@ -705,6 +710,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
+| `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
@@ -766,6 +772,7 @@ at sheet validate 납품.csv --required 이름 --unique 사번 \
     --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
 at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
+at sheet dates 주문.xlsx -c 주문일 --add 연월 --add 요일 -o 피벗용.xlsx
 at sheet similar 거래처.xlsx -c 상호 -o 합칠후보.csv
 at sheet similar 명부.csv -c 이름 --threshold 0.9
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv

@@ -1630,5 +1630,54 @@ class ToSqlTest(unittest.TestCase):
             sheet.to_sql(sheet.Table(["가"], []), "users")
 
 
+class DatePartsTest(unittest.TestCase):
+    def table(self):
+        from datetime import date
+
+        return sheet.Table(["주문일", "금액"],
+                           [["2026-03-02", 100],
+                            [date(2026, 12, 31), 200],
+                            ["날짜아님", 300],
+                            [None, 400]])
+
+    def test_adds_columns_named_after_the_source(self):
+        new, _failed = sheet.add_date_parts(self.table(), "주문일", ["요일", "연월"])
+        self.assertEqual(new.headers[-2:], ["주문일 요일", "주문일 연월"])
+
+    def test_values(self):
+        new, _failed = sheet.add_date_parts(
+            self.table(), "주문일", ["연도", "월", "일", "요일", "연월", "분기", "주차"])
+        self.assertEqual(new.rows[0][2:],
+                         [2026, 3, 2, "월", "2026-03", "2026 Q1", "2026-W10"])
+
+    def test_week_number_carries_its_own_year(self):
+        # 연말·연초의 주는 해가 넘어간다. 그래서 그 해를 붙여 둔다
+        from datetime import date
+
+        self.assertEqual(sheet.date_part(date(2027, 1, 1), "주차"), "2026-W53")
+
+    def test_unreadable_cell_is_left_blank_and_reported(self):
+        new, failed = sheet.add_date_parts(self.table(), "주문일", ["요일"])
+        self.assertIsNone(new.rows[2][2])
+        self.assertEqual(failed, [(4, "날짜아님")])
+
+    def test_blank_cell_is_not_an_error(self):
+        _new, failed = sheet.add_date_parts(self.table(), "주문일", ["요일"])
+        self.assertNotIn(5, [line for line, _v in failed])
+
+    def test_unknown_part(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.add_date_parts(self.table(), "주문일", ["별자리"])
+
+    def test_no_parts(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.add_date_parts(self.table(), "주문일", [])
+
+    def test_duplicate_header_gets_a_number(self):
+        t = sheet.Table(["주문일", "주문일 요일"], [["2026-03-02", "월"]])
+        new, _failed = sheet.add_date_parts(t, "주문일", ["요일"])
+        self.assertEqual(len(set(new.headers)), len(new.headers))
+
+
 if __name__ == "__main__":
     unittest.main()
