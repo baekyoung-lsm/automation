@@ -82,17 +82,61 @@ def _split_spec(text: str) -> tuple[str, str]:
     return m.group("name"), (m.group("spec") or "").strip()
 
 
+TOML_SECTION = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+TOML_ARRAY = re.compile(r"""^\s*(["']?[A-Za-z0-9_.\-]+["']?)\s*=\s*\[(.*)$""")
+
+
+def rough_pyproject(text: str) -> list[tuple[str, str]]:
+    """tomllib 이 없을 때 pyproject 를 눈대중으로 읽는다. (항목, 묶음)
+
+    [project] 의 dependencies 와 [project.optional-dependencies] 의 묶음까지
+    본다. 앞엣것만 읽으면 개발용 의존성이 통째로 빠져 «없다»로 보인다.
+    """
+    found: list[tuple[str, str]] = []
+    section = ""
+    key: str | None = None
+    buffer = ""
+
+    for line in text.splitlines():
+        if key is None:
+            match = TOML_SECTION.match(line)
+            if match:
+                section = match.group(1).strip()
+                continue
+            match = TOML_ARRAY.match(line)
+            if not match:
+                continue
+            key = match.group(1).strip("\"'")
+            buffer = ""
+            line = match.group(2)
+
+        end = line.find("]")
+        buffer += line if end < 0 else line[:end]
+        if end < 0:
+            continue
+
+        if section == "project" and key == "dependencies":
+            group = ""
+        elif section == "project.optional-dependencies":
+            group = key
+        else:
+            key = None
+            continue
+        for item in re.findall(r'["\']([^"\']+)["\']', buffer):
+            found.append((item, group))
+        key = None
+    return found
+
+
 def _parse_pyproject(path: Path) -> DepFile:
     out = DepFile(path, "pyproject")
     data = _load_toml(path)
 
     if data is None:
-        # tomllib 이 없으면 dependencies 배열만 눈으로 훑는다
         text = path.read_text(encoding="utf-8", errors="replace")
-        for block in re.finditer(r"dependencies\s*=\s*\[(.*?)\]", text, re.S):
-            for item in re.findall(r'["\']([^"\']+)["\']', block.group(1)):
-                name, spec = _split_spec(item)
-                out.deps.append(Dependency(name, spec, str(path)))
+        for item, group in rough_pyproject(text):
+            name, spec = _split_spec(item)
+            out.deps.append(Dependency(name, spec, str(path), group))
         out.notes.append("tomllib 이 없어 대충 읽었습니다. Python 3.11 이상에서 정확합니다.")
         return out
 

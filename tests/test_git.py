@@ -393,5 +393,31 @@ class HeavyBlobTest(unittest.TestCase):
         self.assertEqual([b.path for b in blobs], ["큰것.bin"])
 
 
+class StampTest(unittest.TestCase):
+    """git 이 찍는 시각 읽기.
+
+    파이썬 3.10 의 fromisoformat 은 'Z' 도, 콜론 없는 +0000 도 모른다.
+    git 판본에 따라 그렇게 찍히면 커밋이 하나도 없는 것처럼 보인다.
+    """
+
+    def test_shapes_git_can_print(self):
+        cases = {
+            "2026-09-07T01:23:50+00:00": "2026-09-07 01:23:50+00:00",
+            "2026-09-07T01:23:50Z": "2026-09-07 01:23:50+00:00",
+            "2026-09-07T01:23:50+0000": "2026-09-07 01:23:50+00:00",
+            "2026-09-07 01:23:50 +0000": "2026-09-07 01:23:50+00:00",
+            "2026-09-07T01:23:50-07:00": "2026-09-07 01:23:50-07:00",
+            "2026-09-07T01:23:50.123456789Z": "2026-09-07 01:23:50+00:00",
+        }
+        for stamp, want in cases.items():
+            # 초 아래는 파이썬 판본마다 살리기도 버리기도 한다. 거기까지는 안 본다.
+            got = gitkit.parse_stamp(stamp)
+            self.assertEqual(str(got.replace(microsecond=0)), want, stamp)
+
+    def test_nonsense_is_none(self):
+        for stamp in ("", "   ", "엉터리", "2026-13-40T99:99:99"):
+            self.assertIsNone(gitkit.parse_stamp(stamp), stamp)
+
+
 if __name__ == "__main__":
     unittest.main()

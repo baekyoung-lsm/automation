@@ -394,6 +394,18 @@ class DepsTest(unittest.TestCase):
         groups = {d.name: d.group for d in result.deps}
         self.assertEqual(groups["pytest"], "test")
 
+    def test_pyproject_rough_reading(self):
+        """tomllib 이 없을 때(3.10)도 개발용 의존성까지 읽어야 한다."""
+        text = ('[project]\nname = "x"\n'
+                'dependencies = ["requests>=2"]\n'
+                '[project.optional-dependencies]\n'
+                'test = ["pytest==8.1"]\n'
+                'docs = [\n  "mkdocs",\n  "mkdocs-material",\n]\n'
+                '[tool.other]\ndependencies = ["세면 안 되는 것"]\n')
+        found = deps.rough_pyproject(text)
+        self.assertEqual(found, [("requests>=2", ""), ("pytest==8.1", "test"),
+                                 ("mkdocs", "docs"), ("mkdocs-material", "docs")])
+
     def test_find_files(self):
         self.write("pyproject.toml", "[project]\n")
         self.write("requirements.txt", "x\n")

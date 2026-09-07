@@ -266,6 +266,33 @@ class FileChurn:
 LOG_FORMAT = "%x01%H%x02%an%x02%aI%x02%s"
 
 
+def parse_stamp(stamp: str):
+    """git 이 찍은 ISO 시각을 읽는다. 못 읽으면 None.
+
+    파이썬 3.10 의 fromisoformat 은 끝의 'Z' 를 모른다. git 판본에 따라
+    UTC 를 'Z' 로 찍기도 해서, 그대로 두면 커밋이 하나도 없는 것처럼 보인다.
+    조용히 빈 목록이 나오는 자리라 여기서 한 번에 다듬는다.
+    """
+    stamp = stamp.strip()
+    if not stamp:
+        return None
+    if stamp[-1] in "Zz":
+        stamp = stamp[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(stamp)
+    except ValueError:
+        pass
+    # 소수점 이하 자릿수가 제각각인 것도 3.10 에서는 걸린다. 초 아래는 버린다.
+    trimmed = re.sub(r"\.\d+", "", stamp)
+    for shape in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S %z",
+                  "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(trimmed, shape)
+        except ValueError:
+            continue
+    return None
+
+
 def read_log(root: Path, *, since: str = "", until: str = "",
              paths: list[str] | None = None, limit: int = 0) -> list[Commit]:
     """git log --numstat 을 읽어 커밋 목록으로."""
@@ -291,9 +318,8 @@ def read_log(root: Path, *, since: str = "", until: str = "",
         if len(parts) < 4:
             continue
         sha, author, stamp, subject = parts[0], parts[1], parts[2], parts[3]
-        try:
-            when = datetime.fromisoformat(stamp)
-        except ValueError:
+        when = parse_stamp(stamp)
+        if when is None:
             continue
         current = Commit(sha[:9], author, when.replace(tzinfo=None), subject)
         commits.append(current)
@@ -422,9 +448,8 @@ def read_log_range(root: Path, span: str) -> list[Commit]:
         parts = head.split("\x02")
         if len(parts) < 4:
             continue
-        try:
-            when = datetime.fromisoformat(parts[2])
-        except ValueError:
+        when = parse_stamp(parts[2])
+        if when is None:
             continue
         commit = Commit(parts[0][:9], parts[1], when.replace(tzinfo=None), parts[3])
         for line in body.splitlines():
@@ -508,10 +533,8 @@ def list_branches(root: Path, *, remote: bool = False) -> list[Branch]:
         if len(cells) < 7:
             continue
         head, name, stamp, author, subject, upstream, track = cells[:7]
-        try:
-            when = datetime.fromisoformat(stamp).replace(tzinfo=None)
-        except ValueError:
-            when = None
+        parsed = parse_stamp(stamp)
+        when = parsed.replace(tzinfo=None) if parsed else None
 
         branch = Branch(name, head.strip() == "*", when, author, subject, upstream)
         if "gone" in track:
