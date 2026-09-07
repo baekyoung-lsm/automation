@@ -659,5 +659,60 @@ class MaskInPlaceTest(unittest.TestCase):
         self.assertEqual(self.log.read_text(encoding="utf-8"), before)
 
 
+class CertTest(unittest.TestCase):
+    """인증서 읽기. 네트워크가 필요한 자리는 여기서 부르지 않는다."""
+
+    def cert(self, **over):
+        base = {
+            "subject": ((("commonName", "example.com"),),),
+            "issuer": ((("organizationName", "테스트 CA"),
+                        ("commonName", "테스트 R3"),),),
+            "notBefore": "Jun  1 12:00:00 2026 GMT",
+            "notAfter": "Sep  1 12:00:00 2026 GMT",
+            "subjectAltName": (("DNS", "example.com"), ("DNS", "www.example.com"),
+                               ("IP Address", "1.2.3.4")),
+        }
+        base.update(over)
+        return base
+
+    def test_reads_names_and_dates(self):
+        from datetime import datetime, timezone
+
+        info = devkit.parse_cert("example.com", self.cert(), protocol="TLSv1.3")
+        self.assertEqual(info.subject, "commonName=example.com")
+        self.assertIn("테스트 CA", info.issuer)
+        self.assertEqual(info.names, ["example.com", "www.example.com"])  # DNS 만
+        self.assertEqual(info.not_after,
+                         datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc))
+        self.assertEqual(info.protocol, "TLSv1.3")
+
+    def test_days_left(self):
+        from datetime import datetime, timezone
+
+        info = devkit.parse_cert("example.com", self.cert())
+        self.assertEqual(info.days_left(datetime(2026, 8, 25, tzinfo=timezone.utc)), 7)
+        self.assertEqual(info.days_left(datetime(2026, 9, 3, tzinfo=timezone.utc)), -2)
+
+    def test_missing_dates_are_none_not_a_guess(self):
+        info = devkit.parse_cert("example.com", {"subject": ()})
+        self.assertIsNone(info.not_after)
+        self.assertIsNone(info.days_left())
+
+    def test_broken_date_is_ignored(self):
+        info = devkit.parse_cert("example.com", self.cert(notAfter="언젠가"))
+        self.assertIsNone(info.not_after)
+
+    def test_no_san(self):
+        cert = self.cert()
+        del cert["subjectAltName"]
+        self.assertEqual(devkit.parse_cert("example.com", cert).names, [])
+
+    def test_connection_error_is_reported_not_raised(self):
+        # 127.0.0.1 의 닫힌 포트라 바깥 네트워크가 없어도 된다
+        info = devkit.fetch_cert("127.0.0.1", port=9, timeout=1.0)
+        self.assertTrue(info.error)
+        self.assertIsNone(info.not_after)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -190,6 +190,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
 | `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나 |
+| `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
@@ -237,6 +238,8 @@ at dev loc src --glob '*.ts' --top 20
 at dev imports attools                  # 많이 불리는 모듈·고아·고리
 at dev imports attools --module sheet    # 이 모듈의 앞뒤만
 at dev doctor                          # 방금 클론한 저장소, 뭐부터 하지
+at dev cert example.com                # 며칠 남았나
+at dev cert api.example.com:8443 --warn 14
 at dev outline src/ --sort 갈림길                      # 조건이 많은 함수부터
 at dev outline src/ --file models.py                   # 그 파일의 클래스·함수
 at dev api openapi.json                                # 엔드포인트 한눈에
@@ -362,6 +365,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 `at text find --docx` 도 같은 방법으로 워드 문서 안을 찾고, `at text diff` 는 워드 두 판을
 문단 단위로 견준다(서식·그림·머리글의 차이는 안 보이므로 그렇다고 함께 적는다). 줄 번호는 문단 번호이고,
 **워드 문서는 `at text replace` 로 고치지 못한다** (찾기 전용이라 기본은 꺼져 있다).
+
+`at dev cert` 는 서버 인증서가 **언제 끝나는지**와 **어떤 이름으로 쓸 수 있는지**(SAN)를 본다.
+만료됐거나 `--warn` 일 안에 끝나면 1 로 끝내므로 cron·CI 에 걸어 둘 수 있다. 파이썬 기본 검증을
+그대로 쓰고, 검증에 실패하면 왜 실패했는지 그대로 옮긴다 — 만료 말고도 이름이 안 맞거나 사슬이
+끊긴 경우가 있다. **여기서 통과했다고 모든 브라우저가 믿는다는 뜻은 아니다.**
 
 `at dev doctor` 는 방금 클론한 저장소를 훑는다. 마커 파일(`pyproject.toml`, `package.json`,
 `go.mod` …)로 무엇으로 만들어졌는지 보고, 요구 판과 여기 깔린 판, 설치 흔적(`.venv/`,

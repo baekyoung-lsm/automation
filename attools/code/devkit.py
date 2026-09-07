@@ -722,3 +722,78 @@ def parse_header(text: str) -> tuple[str, str]:
     if not sep:
         raise ValueError(f"'이름: 값' 꼴로 적어 주세요: {text}")
     return name.strip(), value.strip()
+
+
+# ------------------------------------------------------------- 인증서 확인
+
+@dataclass
+class CertInfo:
+    host: str
+    subject: str = ""
+    issuer: str = ""
+    not_before: datetime | None = None
+    not_after: datetime | None = None
+    names: list[str] = field(default_factory=list)   # SAN (여기에 없으면 그 이름으로는 못 쓴다)
+    protocol: str = ""
+    error: str = ""
+
+    def days_left(self, now: datetime | None = None) -> int | None:
+        if self.not_after is None:
+            return None
+        now = now or datetime.now(timezone.utc)
+        return (self.not_after - now).days
+
+
+def _cert_name(pairs) -> str:
+    """(('commonName', 'example.com'),) 꼴을 사람이 읽는 한 줄로."""
+    out = []
+    for group in pairs or ():
+        for item in group:
+            if len(item) == 2:
+                out.append(f"{item[0]}={item[1]}")
+    return ", ".join(out)
+
+
+def parse_cert(host: str, cert: dict, *, protocol: str = "") -> CertInfo:
+    """getpeercert() 가 준 값을 정리한다. 네트워크는 여기서 건드리지 않는다.
+
+    날짜 꼴('Jun  1 12:00:00 2026 GMT')은 로캘을 타지 않도록 직접 읽는다.
+    """
+    info = CertInfo(host, protocol=protocol)
+    info.subject = _cert_name(cert.get("subject"))
+    info.issuer = _cert_name(cert.get("issuer"))
+    info.names = [value for kind, value in cert.get("subjectAltName", ())
+                  if kind.lower() == "dns"]
+
+    for key, field_name in (("notBefore", "not_before"), ("notAfter", "not_after")):
+        raw = cert.get(key)
+        if not raw:
+            continue
+        try:
+            when = datetime.strptime(raw.replace("GMT", "").strip(),
+                                     "%b %d %H:%M:%S %Y")
+        except ValueError:
+            continue
+        setattr(info, field_name, when.replace(tzinfo=timezone.utc))
+    return info
+
+
+def fetch_cert(host: str, *, port: int = 443, timeout: float = 5.0) -> CertInfo:
+    """그 서버의 인증서를 받아 온다. 네트워크가 필요한 유일한 자리다.
+
+    파이썬 기본 검증을 그대로 쓴다. 검증에 실패하면 왜 실패했는지 그대로
+    남긴다 - 만료 말고도 이름이 안 맞거나 사슬이 끊긴 경우가 있다.
+    """
+    import socket
+    import ssl
+
+    context = ssl.create_default_context()
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as raw:
+            with context.wrap_socket(raw, server_hostname=host) as tls:
+                return parse_cert(host, tls.getpeercert() or {},
+                                  protocol=tls.version() or "")
+    except ssl.SSLCertVerificationError as exc:
+        return CertInfo(host, error=f"인증서 검증 실패: {exc.verify_message or exc}")
+    except (OSError, ssl.SSLError) as exc:
+        return CertInfo(host, error=f"연결하지 못했습니다: {exc}")

@@ -471,6 +471,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("파이썬", 줄수)
         관계 = self.run_cli("dev", "imports", str(소스))
         self.assertIn("고리", 관계)
+        인증서 = self.run_cli("dev", "cert", "127.0.0.1", "--port", "9",
+                            "--timeout", "1", expect=1)
+        self.assertIn("연결하지 못했습니다", 인증서)
         훑기 = self.run_cli("dev", "doctor", str(소스))
         self.assertIn("찾은 것만 적었습니다", 훑기)
 

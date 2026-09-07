@@ -567,6 +567,54 @@ def cmd_dev_http(a) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_dev_cert(a) -> int:
+    """서버 인증서가 언제 끝나는지. 만료를 넘기면 서비스가 멈춘다."""
+    host = a.host
+    port = a.port
+    if ":" in host and not host.startswith("["):
+        host, _, tail = host.partition(":")
+        if tail.isdigit():
+            port = int(tail)
+
+    info = devkit.fetch_cert(host, port=port, timeout=a.timeout)
+    _p(f"{host}:{port}")
+    if info.error:
+        _p(f"  {info.error}")
+        return 1
+
+    left = info.days_left()
+    _p(f"  주체    {info.subject or '(없음)'}")
+    _p(f"  발급자  {info.issuer or '(없음)'}")
+    if info.not_before and info.not_after:
+        _p(f"  기간    {info.not_before:%Y-%m-%d} ~ {info.not_after:%Y-%m-%d}"
+           + (f"  ({left:,}일 남음)" if left is not None and left >= 0
+              else f"  ({-left:,}일 지남)" if left is not None else ""))
+    else:
+        _p("  기간    확인 못 함")
+    if info.protocol:
+        _p(f"  TLS     {info.protocol}")
+    if info.names:
+        _p(f"  이 이름들로 쓸 수 있습니다 ({len(info.names)}개)")
+        for name in info.names[:a.limit]:
+            _p(f"    {name}")
+        if len(info.names) > a.limit:
+            _p(f"    ... {len(info.names) - a.limit}개 더")
+    else:
+        _p("  SAN 이 없습니다. 요즘 브라우저는 SAN 없는 인증서를 믿지 않습니다.")
+
+    _p("\n파이썬 기본 검증을 그대로 씁니다. 여기서 통과했다고 모든 브라우저가 "
+       "믿는다는 뜻은 아닙니다.")
+    if left is None:
+        return 1
+    if left < 0:
+        _p(f"만료됐습니다 ({-left:,}일 지남).")
+        return 1
+    if left <= a.warn:
+        _p(f"{a.warn}일 안에 만료됩니다. 갱신을 잡아 두세요.")
+        return 1
+    return 0
+
+
 def cmd_dev_doctor(a) -> int:
     """새로 받은 저장소를 훑는다. 무엇으로 만들어졌고 뭐부터 하면 되나."""
     root = Path(a.path)
@@ -1329,6 +1377,16 @@ def add_commands(sub) -> None:
                     help="이미 있는 파일을 덮어쓴다")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
+
+    ct2 = dp.add_parser("cert", help="서버 인증서 만료일·이름 확인 (https)")
+    ct2.add_argument("host", metavar="호스트", help="예: example.com 또는 example.com:8443")
+    ct2.add_argument("--port", type=int, default=443, metavar="포트")
+    ct2.add_argument("--timeout", type=float, default=5.0, metavar="초")
+    ct2.add_argument("--warn", type=int, default=30, metavar="일",
+                     help="이 안에 만료되면 1 로 끝낸다 (기본 30)")
+    ct2.add_argument("--limit", type=int, default=10, metavar="개",
+                     help="이름을 몇 개까지 보일지")
+    ct2.set_defaults(func=cmd_dev_cert)
 
     dr = dp.add_parser("doctor", help="새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나")
     dr.add_argument("path", nargs="?", default=".", metavar="폴더")
