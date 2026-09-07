@@ -451,6 +451,53 @@ def tidy_save(payload: dict) -> dict:
             "command": _tidy_commands(payload, out)}
 
 
+def _dated(payload: dict):
+    table = _open(payload)
+    column = form.text(payload, "dcol")
+    if not column:
+        raise UiError("날짜가 든 열을 골라 주세요.")
+    raw = payload.get("dparts")
+    parts = [p for p in raw if isinstance(p, str)] if isinstance(raw, list) else []
+    if not parts:
+        raise UiError("만들 열을 하나 이상 고르세요. "
+                      f"({', '.join(sheet.DATE_PARTS)})")
+    try:
+        return table, *sheet.add_date_parts(table, column, parts), column, parts
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+
+def _dates_command(payload: dict, column: str, parts: list[str], out=None) -> str:
+    args: list[object] = ["sheet", "dates", *_source_args(payload), "-c", column]
+    for part in parts:
+        args += ["--add", part]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def dates_preview(payload: dict) -> dict:
+    _before, table, failed, column, parts = _dated(payload)
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "failed": [[str(line), value] for line, value in failed[:20]],
+            "command": _dates_command(payload, column, parts)}
+
+
+def dates_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(날짜)» 파일을 만든다."""
+    before, table, failed, column, parts = _dated(payload)
+    source = Path(before.source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (날짜){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "headers": table.headers,
+            "rows": _cells(table, PEEK_ROWS), "count": len(table.rows),
+            "shown": min(len(table.rows), PEEK_ROWS),
+            "failed": [[str(line), value] for line, value in failed[:20]],
+            "command": _dates_command(payload, column, parts, out)}
+
+
 def _mask_specs(payload: dict) -> list[tuple[str, str]]:
     raw = payload.get("mspecs")
     if not isinstance(raw, list) or not raw:
@@ -871,6 +918,21 @@ BODY = """
 </section>
 
 <section class="card" data-panel="고치기" hidden>
+  <h2>날짜에서 열 만들기</h2>
+  <p class="note">피벗을 돌리기 전에 늘 손으로 만드는 열입니다. 요일·연월·분기
+     같은 열을 날짜 열에서 만들어 붙입니다. <b>날짜로 못 읽은 칸은 비워 두고</b>
+     몇 행이었는지 알려 줍니다 - 아무 날짜나 채우면 그 행이 엉뚱한 달에 잡힙니다.</p>
+  <div class="row">
+    <div><label for="dcol">날짜 열</label><select id="dcol"></select></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-dates">만들어 보기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-dates-save" disabled>새 파일로 저장</button></div>
+  </div>
+  <div class="checks" id="dparts">%(dateparts)s</div>
+  <div id="datesmsg"></div>
+  <div id="datesout"></div>
+</section>
+
+<section class="card" data-panel="고치기" hidden>
   <h2>빈 칸 채우기 · 합계 줄</h2>
   <p class="note">병합된 셀을 풀면 첫 칸만 남고 아래가 빕니다. 그대로 두면
      정렬·피벗·필터가 어긋납니다. 빈 칸을 <b>바로 위 값</b>으로 채우고,
@@ -1286,6 +1348,46 @@ BODY = """
     } catch (e) { AT.message($("simmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function datesValues() {
+    const b = values();
+    b.dcol = $("dcol").value;
+    b.dparts = [...document.querySelectorAll("#dparts input:checked")]
+      .map(el => el.value);
+    return b;
+  }
+
+  function drawDates(d) {
+    $("datesout").innerHTML =
+      (d.failed.length
+        ? "<h2>날짜로 못 읽은 칸</h2>" +
+          AT.table(["행", "값"], d.failed, ["num", null])
+        : "") +
+      AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  $("btn-dates").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/dates_preview", datesValues());
+      drawDates(d);
+      AT.message($("datesmsg"), "이대로 저장할 수 있습니다.", "ok");
+      $("btn-dates-save").disabled = false;
+    } catch (e) {
+      AT.message($("datesmsg"), AT.esc(e.message), "bad");
+      $("btn-dates-save").disabled = true;
+    }
+  });
+
+  $("btn-dates-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/dates_save", datesValues());
+      drawDates(d);
+      AT.message($("datesmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-dates-save").disabled = true;
+    } catch (e) { AT.message($("datesmsg"), AT.esc(e.message), "bad"); }
+  });
+
   let mspecs = [];
 
   function drawMspecs() {
@@ -1427,6 +1529,7 @@ BODY = """
       options($("fcol"), data.headers, "");
       options($("mcol"), data.headers, "");
       options($("simcol"), data.headers, "");
+      options($("dcol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
@@ -1485,7 +1588,10 @@ BODY = """
   });
 })();
 </script>
-"""
+""" % {"dateparts": "".join(
+    f'<label><input type="checkbox" value="{k}"'
+    f'{" checked" if k in ("요일", "연월") else ""}> {k} ({v})</label>'
+    for k, v in sheet.DATE_PARTS.items())}
 
 
 def make() -> App:
@@ -1504,6 +1610,8 @@ def make() -> App:
                  "mask_preview": mask_preview, "mask_save": mask_save,
                  "collect_preview": collect_preview,
                  "collect_save": collect_save,
+                 "dates_preview": dates_preview,
+                 "dates_save": dates_save,
                  "similar": similar,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,

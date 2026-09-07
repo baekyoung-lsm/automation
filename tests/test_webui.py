@@ -475,6 +475,32 @@ class SheetAppTest(UiCase):
             self.post("/api/sheet/similar", {"path": str(self.csv())})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_dates_adds_columns(self):
+        path = self.csv("주문.csv", "주문일,금액\n2026-03-02,100\n곧,200\n")
+        _, data = self.post("/api/sheet/dates_preview",
+                            {"path": str(path), "dcol": "주문일",
+                             "dparts": ["요일", "연월"]})
+        self.assertEqual(data["headers"][-2:], ["주문일 요일", "주문일 연월"])
+        self.assertEqual(data["rows"][0][-2:], ["월", "2026-03"])
+        # 날짜로 못 읽은 칸은 비워 두고 몇 행인지 알려 준다
+        self.assertEqual(data["failed"], [["3", "곧"]])
+
+    def test_dates_needs_a_part(self):
+        path = self.csv("주문.csv", "주문일\n2026-03-02\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/dates_preview",
+                      {"path": str(path), "dcol": "주문일", "dparts": []})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_dates_save_leaves_the_original(self):
+        path = self.csv("주문.csv", "주문일\n2026-03-02\n")
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/dates_save",
+                            {"path": str(path), "dcol": "주문일",
+                             "dparts": ["분기"]})
+        self.assertIn("(날짜)", data["saved"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
     def merged(self):
         return self.csv("병합.csv",
                         "부서,이름,금액\n영업,홍길동,100\n,김철수,200\n"
@@ -2023,6 +2049,14 @@ class CommandHintTest(UiCase):
                            {"cfolder": str(room), "cells": "B3=담당자",
                             "cglob": "*.csv"})
         self.accepts(got["command"])
+
+    def test_sheet_dates_command(self):
+        path = self.work / "주문.csv"
+        path.write_text("주문일\n2026-03-02\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/dates_preview",
+                            {"path": str(path), "dcol": "주문일",
+                             "dparts": ["요일", "주차"]})
+        self.accepts(data["command"])
 
     def test_sheet_tidy_commands(self):
         path = self.work / "병합.csv"
