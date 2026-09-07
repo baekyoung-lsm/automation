@@ -64,6 +64,7 @@ attools/
     assets.py       CSS·JS·페이지 껍데기 (여기만 색과 글꼴을 만진다)
     form.py         화면에서 온 값 검사 (경로·숫자·선택지)
     recent.py       최근에 넣은 경로 기억 (~/.attools/ui-recent.json)
+    check.py        화면을 브라우저로 열어 JS 오류 잡기 (at ui --check)
     apps/<이름>.py   화면 하나 = 파일 하나. all_apps() 에 등록한다
 
   files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교·zip·이미지
@@ -103,7 +104,9 @@ tests/
    화면 파일에는 쓰지 않는다. 파일을 고치는 동작은 CLI 와 같은 백업·되돌리기
    기계를 쓴다(`files.apply_moves`, `text.apply_changes`) - 화면마다 되돌리기를
    새로 만들면 언젠가 하나는 백업 없이 고치게 된다. 값은 `webui/form.py` 로
-   한 번 더 보고, 적용할 때 계획을 서버에서 다시 세운다.
+   한 번 더 보고, 적용할 때 계획을 서버에서 다시 세운다. 화면 안의 자바스크립트는
+   파이썬 문자열 안에 있으므로 역슬래시 이스케이프가 살아남지 못한다 - 따옴표를
+   섞어 쓰고, 고친 뒤에는 반드시 `at ui --check` 로 실제로 열어 본다.
 5. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
    `at find` 와 `at completion` 은 파서를 걸어 다니며 목록을 만들므로 따로 고칠 것이 없다.
 

@@ -150,8 +150,11 @@ window.AT = (function () {
         list.id = "recent-" + el.id;
         document.body.appendChild(list);
       }
-      list.innerHTML = values.map(v => "<option value=\"" +
-        esc(v).replace(/"/g, "&quot;") + "\">").join("");
+      // 이 JS 는 파이썬 문자열 안에 있다. 역슬래시 이스케이프는 살아남지
+      // 못하므로 따옴표를 섞어 쓴다.
+      list.innerHTML = values.map(function (v) {
+        return '<option value="' + esc(v).replace(/"/g, "&quot;") + '">';
+      }).join("");
       el.setAttribute("list", list.id);
     }
 

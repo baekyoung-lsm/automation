@@ -1349,6 +1349,62 @@ class RecentTest(UiCase):
         self.assertLess(body.index("window.AT"), body.index("<main>"))
 
 
+class BrowserCheckTest(unittest.TestCase):
+    """화면 점검. 브라우저가 없는 곳에서도 이 시험은 돌아야 한다."""
+
+    def test_finds_nothing_when_pointed_at_a_missing_file(self):
+        import os
+
+        from attools.webui import check
+
+        previous = os.environ.get(check.BROWSER_ENV)
+        os.environ[check.BROWSER_ENV] = "/없는/자리/chrome"
+        try:
+            self.assertIsNone(check.find_browser())
+        finally:
+            if previous is None:
+                os.environ.pop(check.BROWSER_ENV, None)
+            else:
+                os.environ[check.BROWSER_ENV] = previous
+
+    def test_console_lines_are_picked_and_noise_dropped(self):
+        from attools.webui import check
+
+        self.assertTrue(check.CONSOLE.search(
+            '[1:1:INFO:CONSOLE:12] "Uncaught SyntaxError: x"'))
+        self.assertTrue(check.NOISE.search(
+            "[1:1:ERROR:dbus/bus.cc:408] Failed to connect to the bus"))
+
+    def test_missing_browser_is_reported_not_crashed(self):
+        from attools.webui import check
+
+        messages = check.check_page("/없는/자리/chrome", "http://127.0.0.1:1/")
+        self.assertEqual(len(messages), 1)
+        self.assertIn("실행하지 못했습니다", messages[0])
+
+    def test_cli_says_so_without_a_browser(self):
+        import contextlib
+        import io
+        import os
+
+        from attools import cli
+        from attools.webui import check
+
+        previous = os.environ.get(check.BROWSER_ENV)
+        os.environ[check.BROWSER_ENV] = "/없는/자리/chrome"
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                code = cli.main(["ui", "--check"])
+        finally:
+            if previous is None:
+                os.environ.pop(check.BROWSER_ENV, None)
+            else:
+                os.environ[check.BROWSER_ENV] = previous
+        self.assertEqual(code, 1)
+        self.assertIn("찾지 못했습니다", out.getvalue())
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()
