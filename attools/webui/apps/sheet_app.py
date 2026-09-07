@@ -742,17 +742,25 @@ BODY = """
   <div id="msg"></div>
 </section>
 
-<section class="card">
+<nav class="tabs" id="tabs">
+  <button data-tab="훑어보기" aria-selected="true">훑어보기</button>
+  <button data-tab="고치기" aria-selected="false">고치기</button>
+  <button data-tab="골라내기" aria-selected="false">골라내기</button>
+  <button data-tab="여러 파일" aria-selected="false">여러 파일</button>
+  <button data-tab="내보내기 전에" aria-selected="false">내보내기 전에</button>
+</nav>
+
+<section class="card" data-panel="훑어보기">
   <h2>열마다 무엇이 들어 있나</h2>
   <div id="cols"><div class="empty">파일을 열면 여기에 나옵니다.</div></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="훑어보기">
   <h2>내용 미리보기</h2>
   <div id="rows"><div class="empty">아직 없습니다.</div></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="훑어보기">
   <h2>점검</h2>
   <p class="note">중복된 열쇠, 빈 칸, 섞인 자료형처럼 나중에 문제가 되는 것을 찾습니다.</p>
   <div class="row">
@@ -766,7 +774,7 @@ BODY = """
   <div id="issues"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="여러 파일" hidden>
   <h2>다른 파일과 견주기</h2>
   <p class="note">지난달 명단과 이번달 명단처럼 두 파일을 비교하거나 합칩니다.
      <b>원본은 둘 다 그대로 둡니다.</b></p>
@@ -790,7 +798,7 @@ BODY = """
   <div id="pair"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="여러 파일" hidden>
   <h2>여러 파일에서 찾기</h2>
   <p class="note">«이 사번이 어느 파일에 있나»를 폴더째 훑어 찾습니다.
      xlsx 는 시트를 모두 봅니다. <b>읽기만 합니다.</b></p>
@@ -811,7 +819,7 @@ BODY = """
   <div id="searchout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="골라내기" hidden>
   <h2>집계</h2>
   <p class="note">부서별 인원, 월별 매출처럼 묶어서 셉니다. 엑셀의 피벗과
      같은 일입니다.</p>
@@ -833,7 +841,7 @@ BODY = """
   <div id="sumout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="골라내기" hidden>
   <h2>골라내기</h2>
   <p class="note">조건에 맞는 행만 남기고, 정렬하고, 필요한 열만 고릅니다.
      <b>원본은 그대로 두고</b> 저장하면 옆에 «(골라낸)» 파일을 만듭니다.</p>
@@ -862,7 +870,7 @@ BODY = """
   <div id="pickout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="고치기" hidden>
   <h2>빈 칸 채우기 · 합계 줄</h2>
   <p class="note">병합된 셀을 풀면 첫 칸만 남고 아래가 빕니다. 그대로 두면
      정렬·피벗·필터가 어긋납니다. 빈 칸을 <b>바로 위 값</b>으로 채우고,
@@ -890,7 +898,7 @@ BODY = """
   <div id="tidyout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="고치기" hidden>
   <h2>표기 통일</h2>
   <p class="note">전화번호·사업자번호처럼 사람마다 다르게 적은 열을 한 꼴로
      맞춥니다. <b>규칙을 모르는 값은 손대지 않고</b> 몇 행인지 알려 줍니다.</p>
@@ -908,7 +916,7 @@ BODY = """
   <div id="formatreport"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="내보내기 전에" hidden>
   <h2>같은 곳으로 보이는 값</h2>
   <p class="note">«(주)가나» 와 «주식회사 가나» 처럼 같은 곳이 따로 들어간 자리를
      찾습니다. <b>합치지는 않습니다</b> - 표기가 같아 보여도 정말 다른 곳일 수
@@ -924,7 +932,7 @@ BODY = """
   <div id="simout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="내보내기 전에" hidden>
   <h2>개인정보 가리기</h2>
   <p class="note">밖으로 보낼 명단을 만듭니다. 이름 <b>홍*동</b>, 전화
      <b>010-****-5678</b>, 주민번호는 성별 자리까지, 계좌는 뒤 네 자리만 남깁니다.
@@ -944,7 +952,7 @@ BODY = """
   <div id="maskout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="여러 파일" hidden>
   <h2>양식 취합</h2>
   <p class="note">부서마다 같은 서식에 채워 보낸 파일들에서 <b>같은 칸</b>만 뽑아
      한 표로 만듭니다. 칸은 엑셀에서 보이는 주소(B3, C7)로 적습니다. 칸이 비어도
@@ -970,7 +978,7 @@ BODY = """
   <div id="collectout"></div>
 </section>
 
-<section class="card">
+<section class="card" data-panel="고치기" hidden>
   <h2>정리</h2>
   <p class="note">앞뒤 공백·전각 문자를 다듬고, 숫자와 날짜를 제대로 읽고,
      빈 행을 지웁니다. 저장하면 <b>원본 옆에 «(정리)» 파일</b>이 새로 생깁니다.</p>
@@ -990,6 +998,17 @@ BODY = """
 (function () {
   const $ = (id) => document.getElementById(id);
   let opened = false;
+
+  document.querySelectorAll("#tabs button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll("#tabs button").forEach(function (b) {
+        b.setAttribute("aria-selected", String(b === btn));
+      });
+      document.querySelectorAll("[data-panel]").forEach(function (panel) {
+        panel.hidden = panel.dataset.panel !== btn.dataset.tab;
+      });
+    });
+  });
 
   function values() {
     return {

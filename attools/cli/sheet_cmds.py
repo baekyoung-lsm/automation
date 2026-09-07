@@ -1827,7 +1827,7 @@ def add_commands(sub) -> None:
     sp2.set_defaults(func=cmd_sheet_sample)
 
     dt = sheet_out(common(sh.add_parser(
-        "dates", help="날짜 열에서 요일·월·분기 열 만들기 (피벗 준비)")))
+        "dates", help="날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비)")))
     dt.add_argument("file")
     dt.add_argument("-c", "--column", required=True, metavar="열")
     dt.add_argument("--add", action="append", required=True,
