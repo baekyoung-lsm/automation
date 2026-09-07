@@ -451,6 +451,150 @@ def tidy_save(payload: dict) -> dict:
             "command": _tidy_commands(payload, out)}
 
 
+def _mask_specs(payload: dict) -> list[tuple[str, str]]:
+    raw = payload.get("mspecs")
+    if not isinstance(raw, list) or not raw:
+        raise UiError("어느 열을 어떻게 가릴지 골라 주세요.")
+    out = []
+    for item in raw:
+        if not (isinstance(item, list) and len(item) == 2
+                and all(isinstance(x, str) for x in item)):
+            raise UiError("고른 목록이 깨졌습니다. 화면을 새로 고쳐 주세요.")
+        column, kind = item[0].strip(), item[1].strip()
+        if kind not in sheet.MASK_KINDS:
+            raise UiError(f"알 수 없는 가림: {kind}")
+        out.append((column, kind))
+    return out
+
+
+def _masked(payload: dict):
+    table = _open(payload)
+    reports = []
+    for column, kind in _mask_specs(payload):
+        try:
+            table, rep = sheet.mask_column(table, column, kind)
+        except sheet.SheetError as exc:
+            raise UiError(str(exc)) from None
+        reports.append(rep)
+    return table, reports
+
+
+def _mask_command(payload: dict, out=None) -> str:
+    flags = {"이름": "--name", "전화": "--phone", "이메일": "--email",
+             "주민번호": "--rrn", "계좌": "--account", "주소": "--address"}
+    args: list[object] = ["sheet", "mask", *_source_args(payload)]
+    for column, kind in _mask_specs(payload):
+        args += [flags[kind], column]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _mask_rows(reports) -> list[list[str]]:
+    return [[r.column, r.kind, str(r.masked), str(r.blank), str(len(r.unclear))]
+            for r in reports]
+
+
+def _mask_unclear(reports) -> list[list[str]]:
+    rows = []
+    for rep in reports:
+        for line, value in rep.unclear[:20]:
+            rows.append([rep.column, str(line), value])
+    return rows
+
+
+def mask_preview(payload: dict) -> dict:
+    table, reports = _masked(payload)
+    return {"report": _mask_rows(reports), "unclear": _mask_unclear(reports),
+            "headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "command": _mask_command(payload)}
+
+
+def mask_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(가림)» 파일을 만든다."""
+    table, reports = _masked(payload)
+    source = Path(_open(payload).source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (가림){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "count": len(table.rows),
+            "report": _mask_rows(reports), "unclear": _mask_unclear(reports),
+            "headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "shown": min(len(table.rows), PEEK_ROWS),
+            "command": _mask_command(payload, out)}
+
+
+def _collect_targets(payload: dict) -> tuple[Path, list[Path], str]:
+    root = form.folder(payload, "cfolder")
+    pattern = form.text(payload, "cglob") or "*"
+    targets = [q for q in sorted(root.rglob(pattern))
+               if q.is_file()
+               and q.suffix.lower() in (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)]
+    if not targets:
+        raise UiError(f"{root} 안에서 엑셀·csv 를 찾지 못했습니다.")
+    return root, targets, pattern
+
+
+def _collected(payload: dict):
+    root, targets, _pattern = _collect_targets(payload)
+    raw = form.text(payload, "cells")
+    specs = []
+    for piece in raw.replace("\n", ",").split(","):
+        piece = piece.strip()
+        if piece:
+            try:
+                specs.append(sheet.parse_cell(piece))
+            except sheet.SheetError as exc:
+                raise UiError(str(exc)) from None
+    if not specs:
+        raise UiError("뽑을 칸을 적어 주세요. 예: B3=담당자, C7=금액")
+    table, skipped = sheet.collect_cells(targets, specs,
+                                         sheet=form.text(payload, "csheet") or None)
+    return root, table, skipped, specs
+
+
+def _collect_command(payload: dict, out=None) -> str:
+    root, _targets, pattern = _collect_targets(payload)
+    args: list[object] = ["sheet", "collect", root]
+    for piece in form.text(payload, "cells").replace("\n", ",").split(","):
+        if piece.strip():
+            args += ["--cell", piece.strip()]
+    if form.text(payload, "csheet"):
+        args += ["--sheet", form.text(payload, "csheet")]
+    if pattern != "*":
+        args += ["--glob", pattern]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _collect_result(root, table, skipped, specs) -> dict:
+    empty = [r[0] for r in table.rows if all(v is None or v == "" for v in r[1:])]
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "cells": len(specs), "empty": empty[:20],
+            "skipped": [[Path(name).name, why] for name, why in skipped[:20]]}
+
+
+def collect_preview(payload: dict) -> dict:
+    root, table, skipped, specs = _collected(payload)
+    out = _collect_result(root, table, skipped, specs)
+    out["command"] = _collect_command(payload)
+    return out
+
+
+def collect_save(payload: dict) -> dict:
+    """취합 결과는 훑은 폴더 «옆» 에 만든다. 안에 넣으면 다음 취합에 딸려 온다."""
+    root, table, skipped, specs = _collected(payload)
+    if not table.rows:
+        raise UiError("모은 것이 없습니다.")
+    out = files.unique_path(root.parent / f"{root.name} 취합.csv")
+    sheet.save(table, out)
+    result = _collect_result(root, table, skipped, specs)
+    result["saved"] = str(out)
+    result["command"] = _collect_command(payload, out)
+    return result
+
+
 MAX_HITS = 200
 
 
@@ -744,6 +888,52 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>개인정보 가리기</h2>
+  <p class="note">밖으로 보낼 명단을 만듭니다. 이름 <b>홍*동</b>, 전화
+     <b>010-****-5678</b>, 주민번호는 성별 자리까지, 계좌는 뒤 네 자리만 남깁니다.
+     <b>꼴을 모르는 값은 통째로 가리고</b> 몇 행이었는지 알려 줍니다 -
+     못 가리고 새는 것보다 낫기 때문입니다.</p>
+  <div class="row">
+    <div><label for="mcol">열</label><select id="mcol"></select></div>
+    <div><label for="mkind">어떻게</label><select id="mkind"><option value="이름">이름 · 홍*동</option><option value="전화">전화 · 010-****-5678</option><option value="이메일">이메일 · ho**@example.com</option><option value="주민번호">주민번호 · 900101-1******</option><option value="계좌">계좌·카드 · 뒤 네 자리만</option><option value="주소">주소 · 시·군·구까지만</option></select></div>
+    <div style="flex:0 0 auto"><button id="btn-madd">목록에 더하기</button></div>
+  </div>
+  <div id="mspecs" class="note" style="margin-top:.6rem"></div>
+  <div class="actions">
+    <button class="primary" id="btn-mask">가리면 어떻게 되나</button>
+    <button id="btn-mask-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="maskmsg"></div>
+  <div id="maskout"></div>
+</section>
+
+<section class="card">
+  <h2>양식 취합</h2>
+  <p class="note">부서마다 같은 서식에 채워 보낸 파일들에서 <b>같은 칸</b>만 뽑아
+     한 표로 만듭니다. 칸은 엑셀에서 보이는 주소(B3, C7)로 적습니다. 칸이 비어도
+     그 파일을 빼지 않고 표에 남깁니다 - 무엇이 안 왔는지 알아야 하기 때문입니다.</p>
+  <div class="row">
+    <div><label for="cfolder">받은 파일이 있는 폴더</label>
+      <input type="text" id="cfolder" spellcheck="false" placeholder="/home/나/부서제출">
+      <button class="browse" data-for="cfolder">찾아보기</button></div>
+    <div style="flex:0 1 9rem"><label for="cglob">고를 무늬</label>
+      <input type="text" id="cglob" spellcheck="false" placeholder="*.xlsx"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div><label for="cells">뽑을 칸 (쉼표로)</label>
+      <input type="text" id="cells" spellcheck="false" placeholder="B3=담당자, C7=금액"></div>
+    <div style="flex:0 1 10rem"><label for="csheet">시트 이름</label>
+      <input type="text" id="csheet" spellcheck="false" placeholder="첫 시트"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-collect">모아 보기</button>
+    <button id="btn-collect-save" disabled>표로 저장</button>
+  </div>
+  <div id="collectmsg"></div>
+  <div id="collectout"></div>
+</section>
+
+<section class="card">
   <h2>정리</h2>
   <p class="note">앞뒤 공백·전각 문자를 다듬고, 숫자와 날짜를 제대로 읽고,
      빈 행을 지웁니다. 저장하면 <b>원본 옆에 «(정리)» 파일</b>이 새로 생깁니다.</p>
@@ -1021,6 +1211,116 @@ BODY = """
     } catch (e) { AT.message($("tidymsg"), AT.esc(e.message), "bad"); }
   });
 
+  let mspecs = [];
+
+  function drawMspecs() {
+    $("mspecs").innerHTML = mspecs.length
+      ? mspecs.map(function (s, i) {
+          return '<button data-i="' + i + '" class="spec">' + AT.esc(s[0]) +
+                 " \u2192 " + AT.esc(s[1]) + " \u00d7</button>";
+        }).join(" ")
+      : "아직 고른 것이 없습니다.";
+    $("mspecs").querySelectorAll("button.spec").forEach(function (b) {
+      b.addEventListener("click", function () {
+        mspecs.splice(Number(b.dataset.i), 1);
+        drawMspecs();
+        $("btn-mask-save").disabled = true;
+      });
+    });
+  }
+  drawMspecs();
+
+  $("btn-madd").addEventListener("click", function () {
+    const column = $("mcol").value;
+    if (!column) { AT.message($("maskmsg"), "먼저 파일을 열어 주세요.", "bad"); return; }
+    if (!mspecs.some(s => s[0] === column && s[1] === $("mkind").value)) {
+      mspecs.push([column, $("mkind").value]);
+      drawMspecs();
+      $("btn-mask-save").disabled = true;
+    }
+  });
+
+  function maskValues() {
+    const b = values();
+    b.mspecs = mspecs;
+    return b;
+  }
+
+  function drawMask(d) {
+    $("maskout").innerHTML =
+      AT.table(["열", "가림", "가린 값", "빈칸", "꼴을 몰라 통째로"], d.report,
+               [null, null, "num", "num", "num"]) +
+      (d.unclear.length
+        ? "<h2>꼴을 몰라 통째로 가린 값</h2>" +
+          AT.table(["열", "행", "원래 값"], d.unclear, [null, "num", null])
+        : "") +
+      AT.table(d.headers, d.rows) + AT.command(d.command);
+  }
+
+  $("btn-mask").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/mask_preview", maskValues());
+      drawMask(d);
+      AT.message($("maskmsg"), "이대로 저장할 수 있습니다.", "ok");
+      $("btn-mask-save").disabled = false;
+    } catch (e) {
+      AT.message($("maskmsg"), AT.esc(e.message), "bad");
+      $("btn-mask-save").disabled = true;
+    }
+  });
+
+  $("btn-mask-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/mask_save", maskValues());
+      drawMask(d);
+      AT.message($("maskmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-mask-save").disabled = true;
+    } catch (e) { AT.message($("maskmsg"), AT.esc(e.message), "bad"); }
+  });
+
+  function collectValues() {
+    return {
+      cfolder: $("cfolder").value, cglob: $("cglob").value,
+      cells: $("cells").value, csheet: $("csheet").value,
+    };
+  }
+
+  function drawCollect(d) {
+    $("collectout").innerHTML = AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "개 가운데 " +
+        d.shown + "개만 보입니다.</p>" : "") +
+      (d.empty.length
+        ? '<p class="note">뽑은 칸이 모두 빈 파일: ' +
+          d.empty.map(AT.esc).join(", ") + " (양식이나 시트가 다릅니다)</p>"
+        : "") +
+      (d.skipped.length
+        ? "<h2>못 읽은 것</h2>" + AT.table(["파일", "까닭"], d.skipped) : "") +
+      AT.command(d.command);
+  }
+
+  $("btn-collect").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/collect_preview", collectValues());
+      drawCollect(d);
+      AT.remember("sheet", "cfolder", $("cfolder").value);
+      AT.message($("collectmsg"), "파일 <b>" + d.count + "개</b>에서 칸 " +
+                 d.cells + "개를 뽑았습니다.", "ok");
+      $("btn-collect-save").disabled = d.count === 0;
+    } catch (e) {
+      AT.message($("collectmsg"), AT.esc(e.message), "bad");
+      $("btn-collect-save").disabled = true;
+    }
+  });
+
+  $("btn-collect-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/collect_save", collectValues());
+      drawCollect(d);
+      AT.message($("collectmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-collect-save").disabled = true;
+    } catch (e) { AT.message($("collectmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-search").addEventListener("click", async function () {
     try {
       const b = values();
@@ -1050,6 +1350,7 @@ BODY = """
       options($("sheet"), data.sheets, "첫 시트");
       options($("key"), data.headers, "고르지 않음");
       options($("fcol"), data.headers, "");
+      options($("mcol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
@@ -1124,6 +1425,9 @@ def make() -> App:
                  "pick_save": pick_save, "sum_preview": sum_preview,
                  "sum_save": sum_save,
                  "tidy_preview": tidy_preview, "tidy_save": tidy_save,
+                 "mask_preview": mask_preview, "mask_save": mask_save,
+                 "collect_preview": collect_preview,
+                 "collect_save": collect_save,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

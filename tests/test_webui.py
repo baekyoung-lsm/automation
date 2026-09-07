@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import webui
+from attools import sheet, webui
 
 
 class UiCase(unittest.TestCase):
@@ -369,6 +369,63 @@ class SheetAppTest(UiCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/sheet/check", {"path": str(path), "key": "없는열"})
         self.assertEqual(ctx.exception.code, 400)
+
+    def test_mask_hides_and_reports(self):
+        path = self.csv("연락처.csv",
+                        "이름,연락처\n홍길동,010-1234-5678\n이영희,연락처 없음\n")
+        _, data = self.post("/api/sheet/mask_preview",
+                            {"path": str(path),
+                             "mspecs": [["이름", "이름"], ["연락처", "전화"]]})
+        self.assertEqual(data["rows"][0], ["홍*동", "010-****-5678"])
+        # 꼴을 모르는 값은 남기지 않고 통째로 가린 뒤 몇 행인지 알려 준다
+        self.assertEqual(data["rows"][1][1], sheet.HIDDEN)
+        self.assertEqual(data["unclear"], [["연락처", "3", "연락처 없음"]])
+
+    def test_mask_needs_a_pick(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/mask_preview", {"path": str(self.csv())})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_mask_save_leaves_the_original(self):
+        path = self.csv("연락처.csv", "이름\n홍길동\n")
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/mask_save",
+                            {"path": str(path), "mspecs": [["이름", "이름"]]})
+        self.assertIn("(가림)", data["saved"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def forms(self):
+        room = self.work / "제출"
+        room.mkdir(exist_ok=True)
+        (room / "영업.csv").write_text("제목,3월\n\n담당자,홍길동\n",
+                                       encoding="utf-8")
+        (room / "개발.csv").write_text("제목,3월\n\n담당자,김철수\n",
+                                       encoding="utf-8")
+        (room / "다른양식.csv").write_text("아무것도\n", encoding="utf-8")
+        return room
+
+    def test_collect_pulls_the_same_cell(self):
+        _, data = self.post("/api/sheet/collect_preview",
+                            {"cfolder": str(self.forms()), "cells": "B3=담당자"})
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(sorted(r[1] for r in data["rows"]),
+                         ["", "김철수", "홍길동"])
+        self.assertEqual(data["empty"], ["다른양식.csv"])
+
+    def test_collect_rejects_a_bad_address(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/collect_preview",
+                      {"cfolder": str(self.forms()), "cells": "담당자"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_collect_saves_beside_the_folder(self):
+        room = self.forms()
+        _, data = self.post("/api/sheet/collect_save",
+                            {"cfolder": str(room), "cells": "B3=담당자"})
+        saved = Path(data["saved"])
+        # 폴더 안에 넣으면 다음 취합에 자기 자신이 딸려 온다
+        self.assertEqual(saved.parent, room.parent)
+        self.assertTrue(saved.exists())
 
     def merged(self):
         return self.csv("병합.csv",
@@ -1837,6 +1894,23 @@ class CommandHintTest(UiCase):
                             {"path": str(path), "grows": "부서",
                              "agg": "sum", "gvalues": "연봉"})
         self.accepts(data["command"])
+
+    def test_sheet_mask_and_collect_commands(self):
+        path = self.work / "명단.csv"
+        path.write_text("이름,연락처\n홍길동,010-1234-5678\n", encoding="utf-8")
+        _, masked = self.post("/api/sheet/mask_save",
+                              {"path": str(path),
+                               "mspecs": [["이름", "이름"], ["연락처", "전화"]]})
+        self.accepts(masked["command"])
+
+        room = self.work / "제출"
+        room.mkdir(exist_ok=True)
+        (room / "가.csv").write_text("제목,3월\n\n담당자,홍길동\n",
+                                     encoding="utf-8")
+        _, got = self.post("/api/sheet/collect_preview",
+                           {"cfolder": str(room), "cells": "B3=담당자",
+                            "cglob": "*.csv"})
+        self.accepts(got["command"])
 
     def test_sheet_tidy_commands(self):
         path = self.work / "병합.csv"
