@@ -261,6 +261,10 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 거기 import 는 대개 다시 내보내기라 파일 안에서 안 쓰이는 것이 정상이다. 동적으로 부르는
 이름은 볼 수 없으니 지우기 전에 확인하고, 남겨야 하면 그 줄에 `attools:ignore` 를 적는다.
 
+`at sheet from-docx` 는 워드 표를 그대로 표로 옮긴다. 첫 줄이 비어 있거나 이름이 겹치면
+머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
+어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
+
 `at doc from-docx` 는 받은 워드 문서에서 **문단·제목·표만** 꺼낸다. 그림·머리글·바닥글·
 각주·메모는 옮기지 않는다 — 옮긴 척하면 «넘겼는데 내용이 빠졌다» 를 나중에 알게 된다.
 `at text find --docx` 도 같은 방법으로 워드 문서 안을 찾는다. 줄 번호는 문단 번호이고,
@@ -640,6 +644,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
+| `at sheet from-docx <파일>` | 워드 문서 안의 표를 엑셀·csv 로 (손으로 다시 치지 않게) |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
 ```bash
@@ -668,6 +673,8 @@ at sheet rename 거래처A.xlsx --map '수량=개수' --map '금액=총액' -o �
 at sheet rename 거래처B.xlsx --map-file 매핑.json -o 맞춘본2.xlsx
 at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet convert 명단.csv -o 명단.docx     # 보고서에 붙일 워드 표로
+at sheet from-docx 받은보고서.docx -o 표들.xlsx   # 표마다 시트 하나로
+at sheet from-docx 받은보고서.docx --table 2 -o 두번째표.csv
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet where 명단.csv --empty 연락처         # 빈 칸만 (채워 넣을 것 찾기)

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .hangul import josa
 
-from . import xlsx
+from . import docx, xlsx
 
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
@@ -1538,6 +1538,40 @@ FORMAT_CHECKS = {
     "우편번호": lambda v: bool(POSTCODE_RE.fullmatch(to_text(v).strip())),
     "이메일": lambda v: bool(EMAIL_RE.fullmatch(to_text(v).strip())),
 }
+
+
+# --------------------------------------------------------- 워드 표 꺼내기
+
+def tables_from_docx(path: Path) -> list[Table]:
+    """워드 문서 안의 표를 순서대로 꺼낸다. 표가 없으면 빈 목록.
+
+    보고서에 붙은 표를 엑셀로 옮기려고 손으로 다시 치는 일을 대신한다.
+    첫 줄을 머리글로 삼되, 병합 때문에 첫 줄이 비면 그 줄도 자료로 남긴다 -
+    머리글을 지어내면 어느 열이 무엇인지 아무도 모르게 된다.
+    """
+    path = Path(path)
+    try:
+        parts = docx.read_document(path)
+    except docx.DocxError as exc:
+        raise SheetError(str(exc)) from None
+
+    out: list[Table] = []
+    for order, (kind, body) in enumerate([p for p in parts if p[0] == "표"], 1):
+        grid = [[parse_value(c) for c in row] for row in body]  # type: ignore[union-attr]
+        if not any(any(c not in (None, "") for c in row) for row in grid):
+            continue
+        first = [to_text(c).strip() for c in grid[0]]
+        if all(first) and len(set(first)) == len(first):
+            table = table_from_grid(grid, header_row=0, source=str(path),
+                                    sheet_name=f"표{order}", label=str(path))
+        else:                     # 머리글로 쓸 수 없는 첫 줄이면 자리를 만들어 준다
+            width = max(len(r) for r in grid)
+            headers = [f"열{i + 1}" for i in range(width)]
+            table = table_from_grid([headers] + grid, header_row=0,
+                                    source=str(path), sheet_name=f"표{order}",
+                                    label=str(path))
+        out.append(table)
+    return out
 
 
 # ------------------------------------------------------------- 양식 취합

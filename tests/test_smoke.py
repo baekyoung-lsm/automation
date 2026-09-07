@@ -480,6 +480,8 @@ class SmokeTest(unittest.TestCase):
             self.assertIn("word/document.xml", z.namelist())
         되돌린 = self.run_cli("doc", "from-docx", 워드)
         self.assertIn("하나", 되돌린)
+        표뽑기 = self.run_cli("sheet", "from-docx", 워드, expect=1)
+        self.assertIn("표가 없습니다", 표뽑기)
         되돌린 = self.run_cli("doc", "from-docx", 워드)
         self.assertIn("하나", 되돌린)
 

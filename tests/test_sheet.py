@@ -1453,5 +1453,63 @@ class CollectCellsTest(unittest.TestCase):
             sheet.collect_cells([], [])
 
 
+class TablesFromDocxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, tables, name="보고서.docx"):
+        from attools import docx
+
+        parts = [docx.paragraph("보고")]
+        for rows in tables:
+            parts.append(docx.table(rows))
+        path = self.root / name
+        docx.write_document(path, parts)
+        return path
+
+    def test_first_row_becomes_the_headers(self):
+        path = self.make([[["이름", "부서"], ["홍길동", "영업"]]])
+        table = sheet.tables_from_docx(path)[0]
+        self.assertEqual(table.headers, ["이름", "부서"])
+        self.assertEqual(table.rows, [["홍길동", "영업"]])
+
+    def test_numbers_are_read_as_numbers(self):
+        path = self.make([[["이름", "금액"], ["홍길동", "1,200"]]])
+        self.assertEqual(sheet.tables_from_docx(path)[0].rows[0][1], 1200)
+
+    def test_blank_first_cell_keeps_the_row_as_data(self):
+        # 병합 때문에 첫 줄이 비면 머리글을 지어내지 않고 자리만 만든다
+        path = self.make([[["", "1월", "2월"], ["매출", "10", "20"]]])
+        table = sheet.tables_from_docx(path)[0]
+        self.assertEqual(table.headers, ["열1", "열2", "열3"])
+        self.assertEqual(len(table.rows), 2)
+
+    def test_duplicate_header_row_is_not_used_as_headers(self):
+        path = self.make([[["값", "값"], ["1", "2"]]])
+        self.assertEqual(sheet.tables_from_docx(path)[0].headers,
+                         ["열1", "열2"])
+
+    def test_every_table_in_order(self):
+        path = self.make([[["가"], ["1"]], [["나"], ["2"]]])
+        tables = sheet.tables_from_docx(path)
+        self.assertEqual([t.sheet for t in tables], ["표1", "표2"])
+
+    def test_document_without_tables(self):
+        from attools import docx
+
+        path = self.root / "글만.docx"
+        docx.write_document(path, [docx.paragraph("표가 없다")])
+        self.assertEqual(sheet.tables_from_docx(path), [])
+
+    def test_not_a_word_file(self):
+        bad = self.root / "가짜.docx"
+        bad.write_text("zip 이 아니다", encoding="utf-8")
+        with self.assertRaises(sheet.SheetError):
+            sheet.tables_from_docx(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
