@@ -163,7 +163,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev deps [경로]` | 의존성 파일 훑기 — 개수, 버전 고정 여부, 파일 사이 충돌 |
 | `at dev ports [이름\|번호]` | 지금 열려 있는 포트 전부 (프로세스·PID와 함께) |
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
-| `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기 |
+| `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기. `--since/--until` 로 시간대만 잘라 `-o` 로 저장 |
 | `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청 |
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
@@ -202,6 +202,7 @@ at dev enc "SGVsbG8gd29ybGQ="
 at dev bench -n 20 -- pytest -q
 at dev bench --cmd "sort a.txt" --cmd "sort -S1M a.txt"   # 두 방식 비교
 at dev log app.log                      # 전체 요약
+at dev log app.log --since 10:00 --until 11:00 -o 사고시간.log
 at dev log app.log -l ERROR -b 10m      # 에러만 10분 단위로
 kubectl logs pod | at dev log -
 at dev slow app.log --over 500          # 500ms 넘는 요청 비율까지
@@ -241,6 +242,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 `at dev bench` 는 첫 실행(캐시가 비어 느린 회차)을 예열로 빼고 잰다. 두 명령을 비교할 때
 중앙값 차이가 편차보다 작으면 "차이가 뚜렷하지 않다"고 알려 준다 — 측정 잡음을 개선으로
 착각하지 않기 위해서다.
+
+`at dev log --since/--until` 은 사고 난 시간대만 잘라 낸다. 시각만 적으면(`10:00`) 로그 첫
+줄과 같은 날로 본다. **시각을 못 읽은 줄은 잘라낸 결과에서 뺀다** — 남겨 두면 «10시부터 11시»
+라고 자른 파일에 엉뚱한 줄이 섞인다(스택 트레이스는 앞 줄에 붙어 함께 남는다). 몇 줄을 뺐는지
+알려 주고, `-o` 로 그 구간을 원문 그대로 저장할 수 있다.
 
 `at dev log` 는 숫자·UUID·IP·경로·따옴표 문자열을 `<n>`, `<uuid>` 같은 자리표시자로 바꿔서
 같은 사고끼리 묶는다. `결제 실패 order=8821` 과 `order=8822` 가 한 줄로 합쳐지므로

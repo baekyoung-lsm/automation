@@ -563,5 +563,54 @@ class RegexTest(unittest.TestCase):
             devkit.replace_regex(r"(\d+)", self.BODY, r"\9")
 
 
+class LogSliceTest(unittest.TestCase):
+    def entries(self):
+        return logkit.parse([
+            "2026-09-01 09:59:00 INFO 준비",
+            "2026-09-01 10:00:01 INFO 시작",
+            "2026-09-01 10:30:00 ERROR 실패",
+            "2026-09-01 11:30:00 INFO 끝",
+            "시각이 없는 줄",
+        ])
+
+    def test_moment_formats(self):
+        from datetime import datetime
+
+        base = datetime(2026, 9, 1, 9, 0)
+        self.assertEqual(logkit.parse_moment("2026-09-07 10:00:30"),
+                         datetime(2026, 9, 7, 10, 0, 30))
+        self.assertEqual(logkit.parse_moment("2026-09-07"),
+                         datetime(2026, 9, 7))
+        # 시각만 주면 로그의 첫 줄과 같은 날로 본다
+        self.assertEqual(logkit.parse_moment("10:00", base=base),
+                         datetime(2026, 9, 1, 10, 0))
+
+    def test_bad_moment(self):
+        with self.assertRaises(ValueError):
+            logkit.parse_moment("아까")
+
+    def test_slice_between(self):
+        from datetime import datetime
+
+        kept, unknown = logkit.slice_time(
+            self.entries(), since=datetime(2026, 9, 1, 10, 0),
+            until=datetime(2026, 9, 1, 11, 0))
+        self.assertEqual([e.message for e in kept], ["시작", "실패"])
+        # 시각을 모르는 줄은 «10시부터» 에 섞이면 안 된다
+        self.assertEqual(unknown, 1)
+
+    def test_only_since(self):
+        from datetime import datetime
+
+        kept, _unknown = logkit.slice_time(self.entries(),
+                                           since=datetime(2026, 9, 1, 11, 0))
+        self.assertEqual([e.message for e in kept], ["끝"])
+
+    def test_no_bounds_keeps_everything(self):
+        kept, unknown = logkit.slice_time(self.entries())
+        self.assertEqual(len(kept), 5)
+        self.assertEqual(unknown, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -911,6 +911,29 @@ def cmd_dev_log(a) -> int:
         return 1
 
     entries = logkit.parse(lines)
+
+    if a.since or a.until:
+        first, _last = logkit.span(entries)
+        try:
+            since = logkit.parse_moment(a.since, base=first) if a.since else None
+            until = logkit.parse_moment(a.until, base=first) if a.until else None
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        before = len(entries)
+        entries, no_time = logkit.slice_time(entries, since=since, until=until)
+        _p(f"{before:,}줄 중 {len(entries):,}줄" +
+           (f"  (시각을 못 읽은 {no_time:,}줄은 뺐습니다)" if no_time else ""))
+        if not entries:
+            _p("그 사이에 걸리는 줄이 없습니다.")
+            return 1
+        if a.out:
+            out = Path(a.out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text("\n".join(e.raw for e in entries) + "\n",
+                           encoding="utf-8")
+            _p(f"잘라 저장: {out}")
+
     levels = {l.upper() for l in a.level} if a.level else None
     if levels:
         unknown = levels - set(logkit.LEVELS) - {"WARN", "FATAL"}
@@ -1196,6 +1219,11 @@ def add_commands(sub) -> None:
                 help="분포는 최근 이만큼만 보여준다")
     lg.add_argument("--width", type=int, default=90, metavar="칸")
     lg.add_argument("--lines", action="store_true", help="해당 줄 번호도 표시")
+    lg.add_argument("--since", metavar="시각",
+                    help="이 시각부터 (예: '10:00' 또는 '2026-09-07 10:00')")
+    lg.add_argument("--until", metavar="시각", help="이 시각까지")
+    lg.add_argument("-o", "--out", metavar="파일",
+                    help="--since/--until 로 자른 줄을 그대로 저장한다")
     lg.set_defaults(func=cmd_dev_log)
 
     sl = dp.add_parser("slow", help="로그의 응답 시간 - 경로별 p50/p95 와 느린 요청")

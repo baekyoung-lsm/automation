@@ -381,6 +381,10 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("DB_PASSWORD=<db_password>", synced)
         self.assertNotIn("비밀", synced)          # 비밀값이 새어 나가면 안 된다
         self.assertIn("ERROR", self.run_cli("dev", "log", self.path("app.log")))
+        자름 = self.run_cli("dev", "log", self.path("app.log"),
+                          "--since", "2026-09-01 10:00", "-o", self.path("자른.log"))
+        self.assertIn("줄 중", 자름)
+        self.assertTrue(Path(self.path("자른.log")).is_file())
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
         import sqlite3

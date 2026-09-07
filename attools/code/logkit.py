@@ -109,6 +109,52 @@ def parse(lines, *, attach_traces: bool = True) -> list[Entry]:
     return entries
 
 
+MOMENT_FORMATS = (("%Y-%m-%d %H:%M:%S", True), ("%Y-%m-%d %H:%M", True),
+                  ("%Y-%m-%d", True), ("%H:%M:%S", False), ("%H:%M", False))
+
+
+def parse_moment(text: str, *, base: datetime | None = None) -> datetime:
+    """'2026-09-07 10:00', '10:00', '10:00:30' 을 시각으로.
+
+    시각만 준 것은 로그의 첫 줄과 같은 날로 본다. 로그를 볼 때 사람은
+    «열 시부터» 라고 말하지 날짜를 다시 적지 않는다.
+    """
+    body = text.strip().replace("/", "-").replace("T", " ")
+    for fmt, dated in MOMENT_FORMATS:
+        try:
+            when = datetime.strptime(body, fmt)
+        except ValueError:
+            continue
+        if dated:
+            return when
+        day = (base or datetime.now()).date()
+        return when.replace(year=day.year, month=day.month, day=day.day)
+    raise ValueError(f"시각을 읽지 못했습니다: {text} "
+                     "(예: '10:00' 또는 '2026-09-07 10:00')")
+
+
+def slice_time(entries: list[Entry], *, since: datetime | None = None,
+               until: datetime | None = None) -> tuple[list[Entry], int]:
+    """그 시각 사이의 항목만. (걸린 항목, 시각을 못 읽어 뺀 항목 수)
+
+    시각이 없는 줄은 앞 줄에 붙지 않는 한 걸러 낸다. 시각을 모르는 줄을
+    남겨 두면 «10시부터 11시» 라고 자른 결과에 엉뚱한 줄이 섞인다.
+    """
+    if since is None and until is None:
+        return list(entries), 0
+    kept, unknown = [], 0
+    for entry in entries:
+        if entry.when is None:
+            unknown += 1
+            continue
+        if since and entry.when < since:
+            continue
+        if until and entry.when > until:
+            continue
+        kept.append(entry)
+    return kept, unknown
+
+
 def group_messages(entries: list[Entry], *, levels: set[str] | None = None,
                    top: int = 10) -> list[Group]:
     buckets: dict[str, Group] = {}
