@@ -210,12 +210,16 @@ def to_markdown(parts: list[tuple[str, object]]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def read_text(path: Path) -> str:
-    """문서의 글자만. 찾기·세기용이다."""
+def read_text(path: Path, *, separator: str = "\n") -> str:
+    """문서의 글자만. 찾기·세기용이다.
+
+    기본은 한 줄에 한 문단이다 - 찾기에서 «몇 번째 문단» 을 줄 번호로 쓴다.
+    문단 단위로 견주려면 separator 를 빈 줄로 준다.
+    """
     out = []
     for kind, body in read_document(path):
         if kind == "표":
             out += [" ".join(str(c) for c in row) for row in body]  # type: ignore[union-attr]
         else:
             out.append(str(body))
-    return "\n".join(out)
+    return separator.join(out)

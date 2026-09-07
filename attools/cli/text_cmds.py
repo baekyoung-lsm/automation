@@ -6,7 +6,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from .. import files, hangul, sheet, text
+from .. import docx, files, hangul, sheet, text
 from ..docs import report
 from .common import _p, _cut, _grid
 
@@ -369,15 +369,18 @@ def cmd_text_diff(a) -> int:
             _p(f"파일이 없습니다: {path}")
             return 1
     try:
-        old, _ = text.read_text_any(left)
-        new, _ = text.read_text_any(right)
-    except text.TextError as e:
+        old, old_kind = text.read_words_or_text(left)
+        new, new_kind = text.read_words_or_text(right)
+    except (text.TextError, docx.DocxError) as e:
         _p(f"읽지 못했습니다: {e}")
         return 1
 
     unit = {"줄": "line", "문장": "sentence", "문단": "para"}[a.unit]
     report = text.diff_units(old, new, unit=unit, similar=a.similar)
     _p(f"{left} -> {right}  ({a.unit} 단위)")
+    if "워드 문단" in (old_kind, new_kind):
+        _p("  워드 문서는 문단 글자만 견줍니다. "
+           "서식·그림·머리글·각주의 차이는 안 보입니다.")
 
     shown = report.edits[:a.limit]
     for e in shown:

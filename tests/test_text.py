@@ -406,6 +406,34 @@ class PickTest(unittest.TestCase):
         self.assertEqual(len(text.unique_picked(text.pick(body))), 2)
 
 
+class ReadWordsOrTextTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_plain_file_says_its_encoding(self):
+        path = self.root / "메모.txt"
+        path.write_text("한 줄\n", encoding="utf-8")
+        body, kind = text.read_words_or_text(path)
+        self.assertEqual(body, "한 줄\n")
+        self.assertNotEqual(kind, "워드 문단")
+
+    def test_word_file_paragraphs_are_separated_by_a_blank_line(self):
+        path = self.root / "계약서.docx"
+        docx.write_document(path, [docx.paragraph("제1조"), docx.paragraph("제2조")])
+        body, kind = text.read_words_or_text(path)
+        self.assertEqual(kind, "워드 문단")
+        # 문단 단위로 견줄 때 한 덩어리가 되면 안 된다
+        self.assertEqual(body, "제1조\n\n제2조")
+
+    def test_find_still_gets_one_paragraph_per_line(self):
+        path = self.root / "계약서.docx"
+        docx.write_document(path, [docx.paragraph("가"), docx.paragraph("나")])
+        self.assertEqual(docx.read_text(path), "가\n나")
+
+
 class FindInWordFilesTest(unittest.TestCase):
     """워드 문서 찾기. 켜야만 보고, 켰으면 그렇다고 말한다."""
 

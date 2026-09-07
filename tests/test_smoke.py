@@ -481,6 +481,10 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("doc", "docx", md, "-o", 워드)
         with zipfile.ZipFile(워드) as z:
             self.assertIn("word/document.xml", z.namelist())
+        워드2 = self.path("문서2.docx")
+        self.run_cli("doc", "docx", md, "-o", 워드2)
+        견줌 = self.run_cli("text", "diff", 워드, 워드2, expect=0)
+        self.assertIn("워드 문서는 문단 글자만", 견줌)
         되돌린 = self.run_cli("doc", "from-docx", 워드)
         self.assertIn("하나", 되돌린)
         표뽑기 = self.run_cli("sheet", "from-docx", 워드, expect=1)

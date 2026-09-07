@@ -214,6 +214,20 @@ class FileHits:
         return sum(h.count for h in self.hits)
 
 
+def read_words_or_text(path: Path) -> tuple[str, str]:
+    """글자를 꺼낸다. 워드 문서면 문단만 꺼낸다. (글자, 무엇으로 읽었는지)
+
+    두 문서를 견주는 자리에서 쓴다. 워드에서 꺼낸 글에는 서식·그림이 없으므로
+    «무엇으로 읽었는지» 를 함께 돌려주어 부르는 쪽이 밝힐 수 있게 한다.
+    """
+    path = Path(path)
+    if path.suffix.lower() in DOCUMENT_SUFFIXES:
+        # 문단 사이를 빈 줄로 띄운다. 문단 단위로 견줄 때 한 덩어리가 되지 않게.
+        return docx.read_text(path, separator="\n\n"), "워드 문단"
+    body, encoding = read_text_any(path)
+    return body, encoding
+
+
 def find_in_files(files, pattern: re.Pattern[str], *, context: int = 0,
                   per_file: int = 0, documents: bool = False) -> list[FileHits]:
     """바꾸지 않고 찾기만 한다. 파일마다 걸린 줄을 모아 돌려준다.
