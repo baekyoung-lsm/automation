@@ -285,6 +285,41 @@ def worktime(payload: dict) -> dict:
                     "규모와 근로 형태에 따라 달라집니다."}
 
 
+def annual(payload: dict) -> dict:
+    raw = form.text(payload, "joined")
+    if not raw:
+        raise UiError("입사일을 적어 주세요. 예: 2023-03-02")
+    try:
+        joined = life.parse_date(raw)
+        on = (life.parse_date(form.text(payload, "on"))
+              if form.text(payload, "on") else _date.today())
+    except ValueError as exc:
+        raise UiError(f"날짜를 읽지 못했습니다: {exc}") from None
+    try:
+        got = life.annual_leave(joined, on)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    ahead = int(form.number(payload, "ahead", 5, low=0, high=40))
+    rows = []
+    for step in range(1, ahead + 1):
+        years = got.years + step
+        when = life.add_years(joined, years)
+        rows.append([f"{years}년차", f"{when:%Y-%m-%d}", f"{life.annual_days(years)}일"])
+
+    span = f"근속 {got.years}년" if got.years else f"근속 {got.months}개월"
+    return {"headline": f"{got.days}일",
+            "span": f"입사 {joined:%Y-%m-%d} · 기준 {on:%Y-%m-%d} · {span}",
+            "basis": got.basis,
+            "next": (f"{got.next_date:%Y-%m-%d}({life.weekday_ko(got.next_date)}) "
+                     f"· {got.next_days}일" if got.next_date else ""),
+            "rows": rows,
+            "command": form.command("life", "annual", f"{joined:%Y-%m-%d}",
+                                    *(["--on", f"{on:%Y-%m-%d}"]
+                                      if form.text(payload, "on") else []),
+                                    *(["--table", ahead] if ahead else []))}
+
+
 def won(payload: dict) -> dict:
     amount = _amount(payload, "amount")
     return {"plain": life.format_won(amount),
@@ -303,6 +338,7 @@ BODY = """
   <button data-tab="saving" aria-selected="false">적금·예금</button>
   <button data-tab="rent" aria-selected="false">전월세</button>
   <button data-tab="worktime" aria-selected="false">근무 시간</button>
+  <button data-tab="annual" aria-selected="false">연차</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
 </nav>
 
@@ -447,6 +483,24 @@ BODY = """
   <div id="worktime-out"></div>
 </section>
 
+<section class="card" data-panel="annual" hidden>
+  <h2>연차 며칠 생기나</h2>
+  <p class="note">입사일 기준으로 근로기준법 제60조 그대로 셉니다. 1년 미만은
+     한 달 개근마다 하루(최대 11일), 1년부터 15일, 3년째부터 2년마다 하루씩
+     늘어 최대 25일입니다. <b>회계연도 기준으로 운영하는 회사는 회사 규정이
+     우선</b>이고, 출근율 80% 미달·휴직은 반영하지 않습니다.</p>
+  <div class="row">
+    <div><label for="a-joined">입사일</label>
+      <input type="text" id="a-joined" placeholder="2023-03-02" spellcheck="false"></div>
+    <div><label for="a-on">기준일 (비우면 오늘)</label>
+      <input type="text" id="a-on" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="a-ahead">앞으로 몇 년</label>
+      <input type="text" id="a-ahead" value="5" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-annual">계산</button></div>
+  </div>
+  <div id="annual-out"></div>
+</section>
+
 <section class="card" data-panel="won" hidden>
   <h2>계약서에 쓰는 금액 표기</h2>
   <div class="row">
@@ -485,6 +539,18 @@ BODY = """
       $("dday-out").innerHTML = big(AT.esc(d.headline)) +
         '<p class="note">' + AT.esc(d.target) + " · 만 " + d.age + "년</p>" +
         AT.table(["기념일", "날짜", "언제"], d.rows);
+    });
+  });
+
+  $("btn-annual").addEventListener("click", function () {
+    run("annual-out", "/api/life/annual",
+        { joined: $("a-joined").value, on: $("a-on").value,
+          ahead: $("a-ahead").value }, function (d) {
+      $("annual-out").innerHTML = big(AT.esc(d.headline)) +
+        '<p class="note">' + AT.esc(d.span) + "<br>" + AT.esc(d.basis) +
+        (d.next ? " · 다음 발생 " + AT.esc(d.next) : "") + "</p>" +
+        (d.rows.length ? AT.table(["근속", "그 날짜", "연차"], d.rows) : "") +
+        AT.command(d.command);
     });
   });
 
@@ -606,6 +672,7 @@ def make() -> App:
         subtitle="숫자만 다룹니다 · 파일은 건드리지 않습니다",
         body=lambda: BODY,
         actions={"dday": dday, "split": split, "loan": loan, "unit": unit,
+                 "annual": annual,
                  "tax": tax, "won": won, "workday": workday,
                  "holidays": holidays, "saving": saving, "rent": rent,
                  "worktime": worktime},

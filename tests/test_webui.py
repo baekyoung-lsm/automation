@@ -427,6 +427,19 @@ class SheetAppTest(UiCase):
         self.assertEqual(saved.parent, room.parent)
         self.assertTrue(saved.exists())
 
+    def test_similar_finds_the_same_company(self):
+        path = self.csv("거래처.csv",
+                        "상호\n(주)가나상사\n주식회사 가나상사\n마바무역\n")
+        _, data = self.post("/api/sheet/similar",
+                            {"path": str(path), "simcol": "상호"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["rows"][0][0], "표기만 다름")
+
+    def test_similar_needs_a_column(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/similar", {"path": str(self.csv())})
+        self.assertEqual(ctx.exception.code, 400)
+
     def merged(self):
         return self.csv("병합.csv",
                         "부서,이름,금액\n영업,홍길동,100\n,김철수,200\n"
@@ -1257,6 +1270,36 @@ class DocAppTest(UiCase):
             "### 나\n", encoding="utf-8")
         return path
 
+    def word(self, name="보고서.docx"):
+        from attools import docx
+
+        path = self.work / name
+        docx.write_document(path, [docx.paragraph("첫 문단"),
+                                   docx.table([["가", "나"], ["1", "2"]])])
+        return path
+
+    def test_from_docx_reads_paragraphs_and_tables(self):
+        _, data = self.post("/api/doc/from_docx",
+                            {"docx_path": str(self.word())})
+        self.assertIn("첫 문단", data["text"])
+        self.assertIn("| 가 | 나 |", data["text"])
+        self.assertNotIn("saved", data)
+
+    def test_from_docx_saves_beside_the_document(self):
+        path = self.word()
+        _, data = self.post("/api/doc/from_docx",
+                            {"docx_path": str(path), "save": True})
+        saved = Path(data["saved"])
+        self.assertEqual(saved.parent, path.parent)
+        self.assertTrue(saved.read_text(encoding="utf-8").startswith("첫 문단"))
+
+    def test_from_docx_refuses_other_formats(self):
+        other = self.work / "메모.md"
+        other.write_text("# 가", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/from_docx", {"docx_path": str(other)})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_check_finds_dead_anchor(self):
         path = self.markdown()
         _, data = self.post("/api/doc/check", {"path": str(path)})
@@ -1933,6 +1976,27 @@ class CommandHintTest(UiCase):
                                  {"path": str(path),
                                   "specs": [["연락처", "전화"]]})
         self.accepts(formatted["command"])
+
+    def test_life_annual_and_doc_docx_commands(self):
+        _, annual = self.post("/api/life/annual",
+                              {"joined": "2023-03-02", "on": "2026-09-07",
+                               "ahead": "3"})
+        self.accepts(annual["command"])
+
+        from attools import docx
+
+        path = self.work / "보고서.docx"
+        docx.write_document(path, [docx.paragraph("가")])
+        _, moved = self.post("/api/doc/from_docx", {"docx_path": str(path)})
+        self.accepts(moved["command"])
+
+    def test_sheet_similar_command(self):
+        path = self.work / "거래처.csv"
+        path.write_text("상호\n(주)가나\n주식회사 가나\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/similar",
+                            {"path": str(path), "simcol": "상호",
+                             "threshold": "0.9"})
+        self.accepts(data["command"])
 
     def test_doc_commands(self):
         path = self.work / "문서.md"

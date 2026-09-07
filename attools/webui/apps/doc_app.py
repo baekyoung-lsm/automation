@@ -98,6 +98,36 @@ def from_html(payload: dict) -> dict:
                     "스크립트로 그려지는 본문은 담기지 않습니다."}
 
 
+def from_docx(payload: dict) -> dict:
+    """받은 워드 문서를 마크다운으로. 저장은 문서 옆에 .md 를 만든다."""
+    path = form.existing_file({"path": form.text(payload, "docx_path")})
+    if path.suffix.lower() != ".docx":
+        raise UiError(f"워드 문서(.docx)가 아닙니다: {path.suffix or '확장자 없음'}")
+    try:
+        parts = docx.read_document(path)
+    except docx.DocxError as exc:
+        raise UiError(str(exc)) from None
+    if not parts:
+        raise UiError("옮길 내용이 없습니다. "
+                      "(그림·머리글·각주만 있는 문서일 수 있습니다)")
+
+    made = docx.to_markdown(parts)
+    kinds: dict[str, int] = {}
+    for kind, _body in parts:
+        kinds[kind] = kinds.get(kind, 0) + 1
+    result = {"text": made,
+              "counts": [[kind, str(n)] for kind, n in sorted(kinds.items())],
+              "note": "문단·제목·표만 옮깁니다. 그림·머리글·바닥글·각주·메모는 "
+                      "옮기지 않습니다.",
+              "command": form.command("doc", "from-docx", path)}
+    if form.flag(payload, "save"):
+        out = files.unique_path(path.with_suffix(".md"))
+        out.write_text(made, encoding="utf-8")
+        result["saved"] = str(out)
+        result["command"] = form.command("doc", "from-docx", path, "-o", out)
+    return result
+
+
 def _fixed(payload: dict) -> tuple[Path, str, str, str]:
     path, before = _markdown(payload)
     kind = form.choice(payload, "fix", FIXES, "toc")
@@ -230,6 +260,21 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>워드 문서 열기</h2>
+  <p class="note">받은 워드 문서(.docx)를 마크다운으로 옮깁니다. 문단·제목·표만
+     가져오고 <b>그림·머리글·바닥글·각주·메모는 옮기지 않습니다</b>.
+     저장하면 문서 옆에 같은 이름의 .md 를 만듭니다.</p>
+  <div class="row">
+    <div><label for="docx_path">워드 파일</label>
+      <input type="text" id="docx_path" spellcheck="false" data-browse=".docx"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-fromdocx">옮기기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-fromdocx-save">.md 로 저장</button></div>
+  </div>
+  <div id="docxmsg"></div>
+  <div id="docxout"></div>
+</section>
+
+<section class="card">
   <h2>다른 형식으로 내보내기</h2>
   <div class="row">
     <div><label for="kind">형식</label><select id="kind">%(exports)s</select></div>
@@ -347,6 +392,24 @@ BODY = """
     } catch (e) { AT.message($("htmlmsg"), AT.esc(e.message), "bad"); }
   });
 
+  async function runDocx(save) {
+    try {
+      const d = await AT.call("/api/doc/from_docx", {
+        docx_path: $("docx_path").value, save: save });
+      $("docxout").innerHTML =
+        AT.table(["무엇", "개수"], d.counts, [null, "num"]) +
+        '<pre class="diff">' + AT.esc(d.text) + "</pre>" +
+        '<p class="note">' + AT.esc(d.note) + "</p>" + AT.command(d.command);
+      AT.remember("doc", "docx_path", $("docx_path").value);
+      AT.message($("docxmsg"), d.saved
+        ? "저장했습니다: <b>" + AT.esc(d.saved) + "</b>"
+        : "옮겼습니다. 저장하려면 «.md 로 저장»을 누르세요.", "ok");
+    } catch (e) { AT.message($("docxmsg"), AT.esc(e.message), "bad"); }
+  }
+
+  $("btn-fromdocx").addEventListener("click", function () { runDocx(false); });
+  $("btn-fromdocx-save").addEventListener("click", function () { runDocx(true); });
+
   $("btn-export").addEventListener("click", async function () {
     try {
       const d = await AT.call("/api/doc/export", values());
@@ -368,6 +431,7 @@ def make() -> App:
         subtitle="점검 → 다듬기 → 내보내기",
         body=lambda: BODY,
         actions={"check": check, "terms": terms, "images": images,
+                 "from_docx": from_docx,
                  "from_html": from_html,
                  "fix_preview": fix_preview, "fix_apply": fix_apply,
                  "export": export},

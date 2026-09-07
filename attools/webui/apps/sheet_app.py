@@ -595,6 +595,27 @@ def collect_save(payload: dict) -> dict:
     return result
 
 
+def similar(payload: dict) -> dict:
+    """같은 곳으로 보이는 값 찾기. 합치지 않고 후보만 낸다."""
+    table = _open(payload)
+    column = form.text(payload, "simcol")
+    if not column:
+        raise UiError("어느 열에서 찾을지 골라 주세요.")
+    threshold = form.number(payload, "threshold", 0.85, low=0.5, high=1.0)
+    try:
+        pairs, cut = sheet.find_similar(table, column, threshold=float(threshold))
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    rows = [[p.reason, f"{p.score:.2f}", str(p.left_row), p.left,
+             str(p.right_row), p.right] for p in pairs[:PEEK_ROWS]]
+    args: list[object] = ["sheet", "similar", *_source_args(payload), "-c", column]
+    if float(threshold) != 0.85:
+        args += ["--threshold", f"{float(threshold):g}"]
+    return {"rows": rows, "count": len(pairs), "shown": len(rows), "cut": cut,
+            "command": form.command(*args)}
+
+
 MAX_HITS = 200
 
 
@@ -885,6 +906,22 @@ BODY = """
   </div>
   <div id="formatmsg"></div>
   <div id="formatreport"></div>
+</section>
+
+<section class="card">
+  <h2>같은 곳으로 보이는 값</h2>
+  <p class="note">«(주)가나» 와 «주식회사 가나» 처럼 같은 곳이 따로 들어간 자리를
+     찾습니다. <b>합치지는 않습니다</b> - 표기가 같아 보여도 정말 다른 곳일 수
+     있어서 사람이 보고 정할 일입니다. 다듬은 이름의 앞 두 글자가 같은 것끼리만
+     견주므로 첫 글자가 다른 오타는 찾지 못합니다.</p>
+  <div class="row">
+    <div><label for="simcol">열</label><select id="simcol"></select></div>
+    <div style="flex:0 1 9rem"><label for="threshold">닮은 정도</label>
+      <input type="text" id="threshold" value="0.85" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-similar">찾기</button></div>
+  </div>
+  <div id="simmsg"></div>
+  <div id="simout"></div>
 </section>
 
 <section class="card">
@@ -1211,6 +1248,25 @@ BODY = """
     } catch (e) { AT.message($("tidymsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-similar").addEventListener("click", async function () {
+    try {
+      const b = values();
+      b.simcol = $("simcol").value; b.threshold = $("threshold").value;
+      const d = await AT.call("/api/sheet/similar", b);
+      $("simout").innerHTML = (d.count
+          ? AT.table(["왜", "닮음", "행", "값", "행", "값"], d.rows,
+                     [null, "num", "num", null, "num", null])
+          : '<div class="empty">같은 곳으로 보이는 짝이 없습니다.</div>') +
+        (d.count > d.shown ? '<p class="note">' + d.count + "개 가운데 " +
+          d.shown + "개만 보입니다.</p>" : "") +
+        (d.cut ? '<p class="note">너무 많아 도중에 멈췄습니다.</p>' : "") +
+        AT.command(d.command);
+      AT.message($("simmsg"), d.count
+        ? "<b>" + d.count + "짝</b>이 같은 곳으로 보입니다. 합치지 않았습니다."
+        : "같은 곳으로 보이는 짝이 없습니다.", d.count ? "ok" : "");
+    } catch (e) { AT.message($("simmsg"), AT.esc(e.message), "bad"); }
+  });
+
   let mspecs = [];
 
   function drawMspecs() {
@@ -1351,6 +1407,7 @@ BODY = """
       options($("key"), data.headers, "고르지 않음");
       options($("fcol"), data.headers, "");
       options($("mcol"), data.headers, "");
+      options($("simcol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
@@ -1428,6 +1485,7 @@ def make() -> App:
                  "mask_preview": mask_preview, "mask_save": mask_save,
                  "collect_preview": collect_preview,
                  "collect_save": collect_save,
+                 "similar": similar,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},
