@@ -521,6 +521,22 @@ def _parse_log(out: str) -> list[Commit]:
     return commits
 
 
+def my_name(root: Path) -> str:
+    """이 저장소에서 내가 쓰는 이름. 못 찾으면 빈 글자."""
+    try:
+        return run(["config", "user.name"], root).strip()
+    except RuntimeError:
+        return ""
+
+
+def by_day(commits: list[Commit]) -> list[tuple[str, list[Commit]]]:
+    """날짜별로 묶는다. 최근 날짜가 먼저 온다 (보고서에 그 차례로 적는다)."""
+    days: dict[str, list[Commit]] = {}
+    for commit in commits:
+        days.setdefault(f"{commit.when:%Y-%m-%d}", []).append(commit)
+    return sorted(days.items(), key=lambda kv: kv[0], reverse=True)
+
+
 def file_history(root: Path, target: Path, *, limit: int = 0,
                  since: str = "") -> tuple[list[Commit], list[str]]:
     """한 파일의 이력. (커밋, 지나온 이름들)

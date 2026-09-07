@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from .. import files, text
+from .. import files, life, text
 from ..code import gitkit, todo
 from .common import _p, _cut, _grid
 
@@ -239,6 +239,65 @@ def cmd_git_conflicts(a) -> int:
     if not merging:
         _p("병합 중이 아닌데 표시가 남아 있습니다. 커밋에 섞여 들어갔을 수 있습니다.")
     return 1
+
+
+def cmd_git_mine(a) -> int:
+    """내가 한 일을 날짜별로. 주간보고를 쓸 때 여기서 옮겨 적는다."""
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    who = a.author or gitkit.my_name(root)
+    if not who:
+        _p("누구 커밋인지 알 수 없습니다. --author 로 이름을 주거나 "
+           "git config user.name 을 설정하세요.")
+        return 1
+
+    try:
+        commits = gitkit.read_log(root, since=a.since, until=a.until or "")
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+
+    mine = [c for c in commits if who.lower() in c.author.lower()]
+    if not mine:
+        _p(f"'{who}' 의 커밋이 없습니다. ({a.since} 부터, 전체 {len(commits)}개 중)")
+        others = sorted({c.author for c in commits})
+        if others:
+            _p("  이 기간에 커밋한 사람: " + ", ".join(others[:8]))
+        return 1
+
+    added = sum(c.added for c in mine)
+    deleted = sum(c.deleted for c in mine)
+    touched = {path for c in mine for path in c.files}
+    _p(f"{who}  ·  {a.since} 부터  ·  커밋 {len(mine)}개  ·  "
+       f"파일 {len(touched)}개  ·  +{added:,} -{deleted:,}")
+
+    days = gitkit.by_day(mine)
+    lines: list[str] = []
+    for day, group in days:
+        weekday = gitkit.parse_stamp(day + "T00:00:00")
+        mark = f"{day} ({life.weekday_ko(weekday.date())})" if weekday else day
+        lines.append(f"\n{mark}  커밋 {len(group)}개")
+        for commit in group:
+            lines.append(f"  - {commit.subject}")
+            if a.files:
+                for path in sorted(commit.files)[:a.limit]:
+                    lines.append(f"      {path}")
+    for line in lines:
+        _p(line)
+
+    if a.out:
+        out = Path(a.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        body = [f"# {who} · {a.since} 부터", ""]
+        for day, group in days:
+            body.append(f"## {day}")
+            body += [f"- {c.subject}" for c in group]
+            body.append("")
+        out.write_text("\n".join(body), encoding="utf-8")
+        _p(f"\n저장: {out}")
+    return 0
 
 
 def cmd_git_history(a) -> int:
@@ -596,6 +655,19 @@ def add_commands(sub) -> None:
                     help="병합 중이어도 추적 파일 전부를 훑는다")
     cf.add_argument("--limit", type=int, default=20, metavar="곳")
     cf.set_defaults(func=cmd_git_conflicts)
+
+    mn = gp.add_parser("mine", help="내가 한 일 - 날짜별 커밋 목록 (주간보고)")
+    mn.add_argument("dir", nargs="?", default=".")
+    mn.add_argument("--since", default="7 days ago", metavar="기간",
+                    help="예: '7 days ago', 'yesterday', '2026-09-01'")
+    mn.add_argument("--until", metavar="기간")
+    mn.add_argument("--author", metavar="이름",
+                    help="기본은 git config user.name")
+    mn.add_argument("--files", action="store_true", help="바뀐 파일도 함께")
+    mn.add_argument("--limit", type=int, default=5, metavar="개",
+                    help="커밋마다 파일을 몇 개까지 보일지")
+    mn.add_argument("-o", "--out", metavar="파일.md", help="마크다운으로 저장")
+    mn.set_defaults(func=cmd_git_mine)
 
     hs = gp.add_parser("history", help="한 파일의 이력 - 누가 언제 무엇을 (이름 바꿔도 따라감)")
     hs.add_argument("file", metavar="파일")

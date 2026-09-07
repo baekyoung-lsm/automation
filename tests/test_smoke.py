@@ -502,6 +502,8 @@ class SmokeTest(unittest.TestCase):
         repo = self.path("저장소")
         self.assertIn("홍길동", self.run_cli("git", "todo", repo))
         self.assertIn("시크릿", self.run_cli("git", "scan", repo))
+        내일 = self.run_cli("git", "mine", repo, "--since", "10 years ago")
+        self.assertIn("커밋", 내일)
         이력 = self.run_cli("git", "history", "코드.py", repo)
         self.assertIn("커밋", 이력)
         훅 = self.run_cli("git", "hook", repo)

@@ -541,5 +541,56 @@ class FileHistoryTest(unittest.TestCase):
         self.assertEqual((commits[0].added, commits[0].deleted), (0, 2))
 
 
+class MineTest(unittest.TestCase):
+    def setUp(self):
+        import subprocess
+
+        self.root = Path(tempfile.mkdtemp())
+        self.run = lambda *args: subprocess.run(
+            ["git", *args], cwd=self.root, capture_output=True, text=True)
+        self.run("init", "-q")
+        self.run("config", "user.email", "t@e.c")
+        self.run("config", "user.name", "테스터")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def commit(self, name, body, message):
+        (self.root / name).write_text(body, encoding="utf-8")
+        self.run("add", "-A")
+        self.run("commit", "-q", "-m", message)
+
+    def test_my_name_comes_from_the_repo(self):
+        self.assertEqual(gitkit.my_name(self.root), "테스터")
+
+    def test_by_day_groups_newest_first(self):
+        self.commit("가.py", "1\n", "첫 커밋")
+        self.commit("가.py", "2\n", "둘째 커밋")
+        days = gitkit.by_day(gitkit.read_log(self.root))
+        self.assertEqual(len(days), 1)
+        self.assertEqual(len(days[0][1]), 2)
+
+    def test_by_day_sorts_days(self):
+        from datetime import datetime
+
+        made = [gitkit.Commit("a", "나", datetime(2026, 9, 1), "옛것"),
+                gitkit.Commit("b", "나", datetime(2026, 9, 7), "새것")]
+        self.assertEqual([day for day, _g in gitkit.by_day(made)],
+                         ["2026-09-07", "2026-09-01"])
+
+    def test_no_name_configured(self):
+        import subprocess
+
+        bare = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q"], cwd=bare, capture_output=True)
+        subprocess.run(["git", "config", "--local", "--unset", "user.name"],
+                       cwd=bare, capture_output=True)
+        try:
+            # 전역 설정이 있으면 그것이 나오므로 «없다» 만 확인하지 않는다
+            self.assertIsInstance(gitkit.my_name(bare), str)
+        finally:
+            shutil.rmtree(bare, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
