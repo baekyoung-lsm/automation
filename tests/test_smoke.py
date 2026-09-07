@@ -145,6 +145,8 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "big", self.path())
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
+        폴더훑기 = self.run_cli("file", "audit", self.path("문서"))
+        self.assertIn("본 것", 폴더훑기)
         목록 = Path(self.path("이름목록.csv"))
         목록.write_text("현재 이름,새 이름\n보고서.txt,제출-001.txt\n",
                       encoding="utf-8")

@@ -7,7 +7,7 @@ from pathlib import Path
 from .. import files
 from ..code import devkit
 from ..hangul import is_decomposed
-from .common import _pad, _p, _confirm, _grid
+from .common import _pad, _p, _confirm, _grid, _cut
 
 
 DRY = "[미리보기]"
@@ -483,6 +483,31 @@ def cmd_file_rename(a) -> int:
     journal = files.apply_moves(moves)
     _p(f"\n{len(moves)}개 이름을 바꿨습니다.")
     _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
+def cmd_file_audit(a) -> int:
+    """받은 폴더를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    rep = files.audit_folder(root, recursive=not a.no_recursive,
+                             include_hidden=a.hidden, dupes=not a.no_dupes,
+                             samples=a.limit)
+    _p(f"{root}  파일 {rep.files:,}개  ·  {files.human_size(rep.total)}")
+    if not rep.notes:
+        _p("\n볼 것이 없습니다.")
+    for note in rep.notes:
+        _p(f"\n[{note.kind}] {note.detail}")
+        for line in note.samples:
+            _p(f"  {_cut(line, 76)}")
+
+    _p("\n본 것: " + " · ".join(rep.looked))
+    for line in rep.skipped:
+        _p(f"  못 본 것 - {line}")
+    _p("  고치지는 않았습니다. 여기 없는 문제가 없다는 뜻은 아닙니다.")
     return 0
 
 
@@ -1042,6 +1067,16 @@ def add_commands(sub) -> None:
     b.add_argument("--depth", type=int, default=1)
     b.add_argument("--top", type=int, default=15)
     b.set_defaults(func=cmd_file_big)
+
+    au = fp.add_parser("audit", help="받은 폴더 한 번에 훑기 (구성·이름·중복·찌꺼기)")
+    au.add_argument("dir")
+    au.add_argument("--hidden", action="store_true", help="숨김 파일도 본다")
+    au.add_argument("--no-recursive", action="store_true", help="아래 폴더는 안 본다")
+    au.add_argument("--no-dupes", action="store_true",
+                    help="내용이 같은 파일은 찾지 않는다 (큰 폴더에서 빠르게)")
+    au.add_argument("--limit", type=int, default=5, metavar="개",
+                    help="갈래마다 예시를 몇 개 보일지")
+    au.set_defaults(func=cmd_file_audit)
 
     pk2 = fp.add_parser("pack", help="메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담기")
     pk2.add_argument("dir")

@@ -374,6 +374,129 @@ def dir_sizes(root: Path, *, depth: int = 1) -> tuple[list[tuple[Path, int]], li
     return sorted(totals.items(), key=lambda x: -x[1]), biggest, grand
 
 
+# ------------------------------------------------------- 폴더 한 번에 훑기
+
+# 압축·공유 과정에서 딸려 오는 찌꺼기. 지우지는 않고 알리기만 한다.
+JUNK_NAMES = {".DS_Store", "Thumbs.db", "desktop.ini", "__MACOSX"}
+JUNK_PREFIX = ("~$",)                 # 워드·엑셀이 열어 둔 동안 만드는 임시 파일
+WINDOWS_BAD = set('\\/:*?"<>|')      # 윈도우에서 못 쓰는 글자
+NAME_BYTES = 255                      # 파일 이름 길이 한도 (대개 바이트 기준)
+
+
+@dataclass
+class FolderNote:
+    kind: str                 # 중복 · 이름 · 찌꺼기 · 빈 파일 · 큰 파일 · 구성
+    detail: str
+    samples: list[str] = field(default_factory=list)
+
+
+@dataclass
+class FolderReport:
+    root: Path
+    files: int = 0
+    total: int = 0
+    notes: list[FolderNote] = field(default_factory=list)
+    looked: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+
+
+def audit_folder(root: Path, *, recursive: bool = True,
+                 include_hidden: bool = False, dupes: bool = True,
+                 samples: int = 5) -> FolderReport:
+    """받은 폴더를 한 번에 훑는다. 고치지 않고 «볼 만한 곳» 만 모은다.
+
+    납품 자료·제출 자료를 받아 열었을 때 무엇부터 봐야 하는지 알려 준다.
+    무엇을 봤는지와 못 봤는지를 함께 적는다 - «문제 없음» 이 «다 봤다» 로
+    읽히면 안 된다.
+    """
+    root = Path(root)
+    report = FolderReport(root)
+    report.looked = ["파일 구성", "이름에 문제가 있는 파일", "빈 파일",
+                     "찌꺼기 파일", "큰 파일"]
+    if dupes:
+        report.looked.append("내용이 같은 파일")
+    else:
+        report.skipped.append("내용이 같은 파일은 보지 않았습니다 (--no-dupes)")
+
+    targets = sorted(iter_targets(root, recursive=recursive,
+                                  include_hidden=include_hidden))
+    report.files = len(targets)
+    if not targets:
+        report.skipped.append("파일이 없어 아무것도 보지 못했습니다.")
+        return report
+
+    kinds: dict[str, int] = {}
+    empty: list[Path] = []
+    junk: list[Path] = []
+    bad_names: list[tuple[Path, str]] = []
+    biggest: list[tuple[int, Path]] = []
+
+    for path in targets:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        report.total += size
+        suffix = path.suffix.lower() or "(확장자 없음)"
+        kinds[suffix] = kinds.get(suffix, 0) + 1
+        biggest.append((size, path))
+        if size == 0:
+            empty.append(path)
+        if path.name in JUNK_NAMES or path.name.startswith(JUNK_PREFIX):
+            junk.append(path)
+            continue
+
+        why = []
+        if is_decomposed(path.name):
+            why.append("자모가 분리된 한글 (맥에서 만든 이름)")
+        if set(path.name) & WINDOWS_BAD:
+            why.append("윈도우에서 못 쓰는 글자")
+        if len(path.name.encode("utf-8")) > NAME_BYTES:
+            why.append("이름이 너무 김")
+        if path.name != path.name.strip() or "  " in path.name:
+            why.append("앞뒤·가운데 공백")
+        if why:
+            bad_names.append((path, ", ".join(why)))
+
+    order = sorted(kinds.items(), key=lambda x: -x[1])
+    report.notes.append(FolderNote(
+        "구성", f"파일 {len(targets):,}개 · {human_size(report.total)}",
+        [f"{name} {count:,}개" for name, count in order[:samples]]))
+
+    if bad_names:
+        report.notes.append(FolderNote(
+            "이름", f"손볼 이름 {len(bad_names):,}개 (at file fixname 으로 정리)",
+            [f"{p.relative_to(root)} - {why}" for p, why in bad_names[:samples]]))
+    if junk:
+        report.notes.append(FolderNote(
+            "찌꺼기", f"딸려 온 파일 {len(junk):,}개",
+            [str(p.relative_to(root)) for p in junk[:samples]]))
+    if empty:
+        report.notes.append(FolderNote(
+            "빈 파일", f"크기가 0인 파일 {len(empty):,}개",
+            [str(p.relative_to(root)) for p in empty[:samples]]))
+
+    biggest.sort(key=lambda x: -x[0])
+    if biggest:
+        report.notes.append(FolderNote(
+            "큰 파일", f"가장 큰 것 {human_size(biggest[0][0])}",
+            [f"{p.relative_to(root)} {human_size(size)}"
+             for size, p in biggest[:samples]]))
+
+    if dupes:
+        groups = find_duplicates(root, recursive=recursive,
+                                 include_hidden=include_hidden)
+        if groups:
+            wasted = sum(g[0].stat().st_size * (len(g) - 1) for g in groups)
+            report.notes.append(FolderNote(
+                "중복", f"내용이 같은 파일 {len(groups):,}묶음 "
+                        f"· 겹치는 용량 {human_size(wasted)} "
+                        "(at file dupes 로 자세히)",
+                [" = ".join(str(p.relative_to(root)) for p in g[:3])
+                 for g in groups[:samples]]))
+    return report
+
+
 # ------------------------------------------------------- 첨부용 나눠 담기
 
 @dataclass

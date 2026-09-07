@@ -948,5 +948,70 @@ class RenameByMapTest(unittest.TestCase):
         self.assertTrue((self.root / "가.pdf").exists())
 
 
+class FolderAuditTest(unittest.TestCase):
+    """받은 폴더 훑기. 무엇을 봤는지도 함께 내는지 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def kinds(self, **kwargs):
+        return {n.kind: n for n in files.audit_folder(self.root, **kwargs).notes}
+
+    def test_empty_folder(self):
+        rep = files.audit_folder(self.root)
+        self.assertEqual(rep.files, 0)
+        self.assertTrue(rep.skipped)
+
+    def test_composition_is_always_there(self):
+        (self.root / "가.txt").write_text("내용", encoding="utf-8")
+        self.assertIn("구성", self.kinds())
+
+    def test_duplicate_files(self):
+        (self.root / "가.txt").write_text("같은 내용", encoding="utf-8")
+        (self.root / "나.txt").write_text("같은 내용", encoding="utf-8")
+        self.assertIn("중복", self.kinds())
+
+    def test_no_dupes_flag_says_it_skipped(self):
+        (self.root / "가.txt").write_text("같은 내용", encoding="utf-8")
+        (self.root / "나.txt").write_text("같은 내용", encoding="utf-8")
+        rep = files.audit_folder(self.root, dupes=False)
+        self.assertNotIn("중복", {n.kind for n in rep.notes})
+        self.assertTrue(any("보지 않았습니다" in line for line in rep.skipped))
+
+    def test_decomposed_hangul_name(self):
+        import unicodedata
+
+        name = unicodedata.normalize("NFD", "한글.txt")
+        (self.root / name).write_text("x", encoding="utf-8")
+        note = self.kinds()["이름"]
+        self.assertIn("자모가 분리된", note.samples[0])
+
+    def test_double_space_in_a_name(self):
+        (self.root / "가운데  공백.txt").write_text("x", encoding="utf-8")
+        self.assertIn("이름", self.kinds())
+
+    def test_junk_files_are_not_name_problems(self):
+        (self.root / ".DS_Store").write_text("junk", encoding="utf-8")
+        kinds = self.kinds(include_hidden=True)
+        self.assertIn("찌꺼기", kinds)
+        self.assertNotIn("이름", kinds)
+
+    def test_empty_file(self):
+        (self.root / "빈것.txt").write_text("", encoding="utf-8")
+        self.assertIn("빈 파일", self.kinds())
+
+    def test_office_temp_file(self):
+        (self.root / "~$문서.xlsx").write_text("temp", encoding="utf-8")
+        self.assertIn("찌꺼기", self.kinds())
+
+    def test_clean_folder_has_only_composition_and_size(self):
+        (self.root / "보고서.pdf").write_text("가", encoding="utf-8")
+        (self.root / "명단.csv").write_text("나", encoding="utf-8")
+        self.assertEqual(set(self.kinds()), {"구성", "큰 파일"})
+
+
 if __name__ == "__main__":
     unittest.main()
