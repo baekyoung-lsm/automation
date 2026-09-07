@@ -246,6 +246,23 @@ def listing_save(payload: dict) -> dict:
             "command": form.command("file", "list", root, "-o", out)}
 
 
+def audit(payload: dict) -> dict:
+    """받은 폴더를 한 번에 훑는다. 고치지 않고 볼 만한 곳만."""
+    root = form.folder(payload, "aroot")
+    rep = files.audit_folder(root, include_hidden=form.flag(payload, "ahidden"),
+                             dupes=not form.flag(payload, "anodupes"))
+    args: list[object] = ["file", "audit", root]
+    if form.flag(payload, "ahidden"):
+        args.append("--hidden")
+    if form.flag(payload, "anodupes"):
+        args.append("--no-dupes")
+    return {"notes": [{"kind": n.kind, "detail": n.detail, "samples": n.samples}
+                      for n in rep.notes],
+            "files": rep.files, "total": files.human_size(rep.total),
+            "looked": rep.looked, "skipped": rep.skipped,
+            "command": form.command(*args)}
+
+
 def _pack_plan(payload: dict):
     root = form.folder(payload, "packroot")
     try:
@@ -435,6 +452,25 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>받은 폴더 한 번에 훑기</h2>
+  <p class="note">납품·제출 자료를 받았을 때 <b>무엇부터 봐야 하는지</b> 모아 줍니다 -
+     구성, 손볼 이름(맥에서 만든 자모 분리 한글·윈도우 금지 문자), 빈 파일,
+     딸려 온 찌꺼기(.DS_Store, ~$문서.xlsx), 큰 파일, 내용이 같은 파일.
+     <b>고치지는 않습니다.</b></p>
+  <div class="row">
+    <div style="flex:3 1 20rem"><label for="aroot">폴더</label>
+      <input type="text" id="aroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-audit">훑어보기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="ahidden"> 숨김 파일도</label>
+    <label><input type="checkbox" id="anodupes"> 같은 파일 찾기는 건너뛰기 (큰 폴더)</label>
+  </div>
+  <div id="auditmsg"></div>
+  <div id="auditout"></div>
+</section>
+
+<section class="card">
   <h2>메일 첨부로 나눠 담기</h2>
   <p class="note">첨부 한도에 맞춰 여러 zip 으로 나눕니다. <b>압축한 크기가 아니라
      원본 크기로 묶습니다</b> - jpg 처럼 이미 눌린 파일은 압축해도 안 줄어들어서,
@@ -592,6 +628,26 @@ BODY = """
     } catch (e) { AT.message($("dupemsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-audit").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/audit", {
+        aroot: $("aroot").value, ahidden: $("ahidden").checked,
+        anodupes: $("anodupes").checked });
+      $("auditout").innerHTML = d.notes.map(function (n) {
+        return "<h2>" + AT.esc(n.kind) + "</h2><p>" + AT.esc(n.detail) + "</p>" +
+          (n.samples.length ? '<pre class="diff">' +
+            n.samples.map(AT.esc).join("<br>") + "</pre>" : "");
+      }).join("") +
+        '<p class="note">본 것: ' + d.looked.map(AT.esc).join(" · ") +
+        (d.skipped.length ? "<br>못 본 것: " + d.skipped.map(AT.esc).join("<br>") : "") +
+        "<br>고치지는 않았습니다. 여기 없는 문제가 없다는 뜻은 아닙니다.</p>" +
+        AT.command(d.command);
+      AT.remember("files", "aroot", $("aroot").value);
+      AT.message($("auditmsg"), "파일 <b>" + d.files + "개</b> · " +
+                 AT.esc(d.total) + " · 볼 만한 곳 " + d.notes.length + "가지", "ok");
+    } catch (e) { AT.message($("auditmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function packValues() {
     return { packroot: $("packroot").value, packmax: $("packmax").value,
              packglob: $("packglob").value, packhidden: $("packhidden").checked };
@@ -724,6 +780,7 @@ def make() -> App:
         body=lambda: BODY,
         actions={"preview": preview, "apply": apply, "dupes": dupes,
                  "pack_preview": pack_preview, "pack_apply": pack_apply,
+                 "audit": audit,
                  "listing": listing, "listing_save": listing_save,
                  "compare": compare,
                  "collect_preview": collect_preview,

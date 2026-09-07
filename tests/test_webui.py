@@ -128,6 +128,22 @@ class WebUiTest(UiCase):
         self.assertEqual(data["count"], 1)
         self.assertTrue((self.work / "사진.jpg").exists())
 
+    def test_audit_reports_what_it_looked_at(self):
+        (self.work / "가.txt").write_text("같은 내용", encoding="utf-8")
+        (self.work / "나.txt").write_text("같은 내용", encoding="utf-8")
+        _, data = self.post("/api/files/audit", {"aroot": str(self.work)})
+        kinds = {n["kind"] for n in data["notes"]}
+        self.assertIn("중복", kinds)
+        self.assertTrue(data["looked"])
+
+    def test_audit_can_skip_duplicate_search(self):
+        (self.work / "가.txt").write_text("같은 내용", encoding="utf-8")
+        (self.work / "나.txt").write_text("같은 내용", encoding="utf-8")
+        _, data = self.post("/api/files/audit",
+                            {"aroot": str(self.work), "anodupes": True})
+        self.assertNotIn("중복", {n["kind"] for n in data["notes"]})
+        self.assertTrue(any("보지 않았습니다" in line for line in data["skipped"]))
+
     def test_pack_groups_under_the_limit(self):
         import os
 
@@ -2137,6 +2153,12 @@ class CommandHintTest(UiCase):
                      {"path": str(self.work), "mode": "crlf"}):
             _, data = self.post("/api/text/preview", body)
             self.accepts(data["command"])
+
+    def test_files_audit_command(self):
+        (self.work / "가.txt").write_text("내용", encoding="utf-8")
+        _, data = self.post("/api/files/audit",
+                            {"aroot": str(self.work), "ahidden": True})
+        self.accepts(data["command"])
 
     def test_files_pack_command(self):
         import os
