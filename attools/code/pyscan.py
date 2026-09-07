@@ -137,6 +137,52 @@ def module_uses(root: Path) -> list[ModuleUse]:
     return sorted(uses.values(), key=lambda u: u.module)
 
 
+def import_graph(root: Path) -> dict[str, set[str]]:
+    """모듈 -> 그 모듈이 부르는 모듈들. module_uses 를 뒤집어 만든다.
+
+    같은 판정을 두 번 쓰지 않으려고 뒤집기만 한다. 한쪽은 «누가 나를»,
+    다른 쪽은 «내가 누구를» 인데 서로 다르게 세면 그림이 어긋난다.
+    """
+    uses = module_uses(root)
+    graph: dict[str, set[str]] = {u.module: set() for u in uses}
+    for use in uses:
+        for caller in use.imported_by:
+            graph.setdefault(caller, set()).add(use.module)
+    return graph
+
+
+def find_cycles(graph: dict[str, set[str]], *, limit: int = 20) -> list[list[str]]:
+    """서로 물고 있는 고리를 찾는다. 같은 고리는 한 번만 낸다.
+
+    고리가 있으면 어느 쪽을 먼저 읽어야 할지 알 수 없고, 나중에 한쪽을
+    떼어내려 할 때 반드시 걸린다.
+    """
+    found: list[list[str]] = []
+    seen: set[tuple[str, ...]] = set()
+
+    def walk(node: str, path: list[str], visiting: set[str]) -> None:
+        if len(found) >= limit:
+            return
+        for nxt in sorted(graph.get(node, ())):
+            if nxt in visiting:
+                cycle = path[path.index(nxt):]
+                start = cycle.index(min(cycle))       # 어디서 시작해도 같은 고리다
+                key = tuple(cycle[start:] + cycle[:start])
+                if key not in seen:
+                    seen.add(key)
+                    found.append(list(key))
+                continue
+            if len(path) > 12:                        # 너무 깊으면 접는다
+                continue
+            walk(nxt, path + [nxt], visiting | {nxt})
+
+    for module in sorted(graph):
+        walk(module, [module], {module})
+        if len(found) >= limit:
+            break
+    return found
+
+
 # ------------------------------------------------------------- 소스 구조 훑기
 
 @dataclass

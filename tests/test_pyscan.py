@@ -210,5 +210,59 @@ class BranchCountTest(unittest.TestCase):
         self.assertEqual(pyscan.outline(path).branchy.name, "복잡")
 
 
+class ImportGraphTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp()) / "패키지"
+        self.root.mkdir()
+        (self.root / "__init__.py").write_text("", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root.parent, ignore_errors=True)
+
+    def make(self, name, body=""):
+        (self.root / name).write_text(body, encoding="utf-8")
+
+    def test_graph_points_the_other_way_than_module_uses(self):
+        self.make("가.py", "from . import 나\n")
+        self.make("나.py", "")
+        graph = pyscan.import_graph(self.root)
+        self.assertEqual(graph["패키지.가"], {"패키지.나"})
+        self.assertEqual(graph["패키지.나"], set())
+
+    def test_finds_a_two_module_cycle(self):
+        self.make("가.py", "from . import 나\n")
+        self.make("나.py", "from . import 가\n")
+        cycles = pyscan.find_cycles(pyscan.import_graph(self.root))
+        self.assertEqual(len(cycles), 1)
+        self.assertEqual(sorted(cycles[0]), ["패키지.가", "패키지.나"])
+
+    def test_finds_a_longer_cycle(self):
+        self.make("가.py", "from . import 나\n")
+        self.make("나.py", "from . import 다\n")
+        self.make("다.py", "from . import 가\n")
+        cycles = pyscan.find_cycles(pyscan.import_graph(self.root))
+        self.assertEqual(len(cycles), 1)
+        self.assertEqual(len(cycles[0]), 3)
+
+    def test_the_same_cycle_is_reported_once(self):
+        # 어디서 시작해도 같은 고리다
+        self.make("가.py", "from . import 나\n")
+        self.make("나.py", "from . import 가\n")
+        self.make("다.py", "from . import 가\n")
+        self.assertEqual(len(pyscan.find_cycles(pyscan.import_graph(self.root))), 1)
+
+    def test_no_cycle(self):
+        self.make("가.py", "from . import 나\n")
+        self.make("나.py", "")
+        self.assertEqual(pyscan.find_cycles(pyscan.import_graph(self.root)), [])
+
+    def test_limit_stops_early(self):
+        for i in range(6):
+            self.make(f"가{i}.py", f"from . import 나{i}\n")
+            self.make(f"나{i}.py", f"from . import 가{i}\n")
+        cycles = pyscan.find_cycles(pyscan.import_graph(self.root), limit=2)
+        self.assertEqual(len(cycles), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

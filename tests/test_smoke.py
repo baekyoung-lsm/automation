@@ -406,6 +406,8 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("a.py", 구조)
         줄수 = self.run_cli("dev", "loc", str(소스))
         self.assertIn("파이썬", 줄수)
+        관계 = self.run_cli("dev", "imports", str(소스))
+        self.assertIn("고리", 관계)
 
         잠금 = self.run_cli("dev", "lock", 옛락, 새락)
         self.assertIn("react", 잠금)

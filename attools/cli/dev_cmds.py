@@ -563,6 +563,69 @@ def cmd_dev_http(a) -> int:
     return 0 if result.ok else 1
 
 
+def cmd_dev_imports(a) -> int:
+    """모듈 사이의 import 관계. 지우기 전에·나누기 전에 본다."""
+    root = Path(a.path)
+    if not root.is_dir():
+        _p(f"폴더가 아닙니다: {root}")
+        _p("  패키지 폴더를 주세요. 예: at dev imports attools")
+        return 1
+
+    graph = pyscan.import_graph(root)
+    if not graph:
+        _p("파이썬 모듈을 찾지 못했습니다.")
+        return 1
+    callers: dict[str, set] = {name: set() for name in graph}
+    for name, targets in graph.items():
+        for target in targets:
+            callers.setdefault(target, set()).add(name)
+
+    if a.module:
+        name = a.module if a.module in graph else f"{root.name}.{a.module}"
+        if name not in graph:
+            _p(f"그런 모듈이 없습니다: {a.module}")
+            close = [m for m in sorted(graph) if a.module in m]
+            if close:
+                _p("  이건 어떤가요: " + ", ".join(close[:5]))
+            return 1
+        _p(name)
+        _p(f"\n이 모듈을 부르는 곳 {len(callers[name])}개")
+        for who in sorted(callers[name]) or ["(없음)"]:
+            _p(f"  {who}")
+        _p(f"\n이 모듈이 부르는 것 {len(graph[name])}개")
+        for who in sorted(graph[name]) or ["(없음)"]:
+            _p(f"  {who}")
+        if not callers[name]:
+            _p("\n아무도 부르지 않습니다. 진입점(스크립트·패키지 최상단)일 수도 "
+               "있으니 지우기 전에 확인하세요.")
+        return 0
+
+    _p(f"{root}  모듈 {len(graph):,}개")
+    ranked = sorted(callers.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    _grid(["부르는 곳", "모듈", "누가"],
+          [[str(len(who)), name, _cut(", ".join(sorted(who)), 46)]
+           for name, who in ranked[:a.top] if who], limit=50)
+
+    orphans = [name for name, who in ranked if not who]
+    if orphans:
+        _p(f"\n아무도 부르지 않는 모듈 {len(orphans):,}개 "
+           "(진입점은 원래 그렇습니다)")
+        for name in orphans[:a.limit]:
+            _p(f"  {name}")
+        if len(orphans) > a.limit:
+            _p(f"  ... {len(orphans) - a.limit:,}개 더")
+
+    cycles = pyscan.find_cycles(graph, limit=a.limit)
+    if cycles:
+        _p(f"\n서로 물고 있는 고리 {len(cycles):,}개")
+        for cycle in cycles:
+            _p("  " + " -> ".join(cycle + [cycle[0]]))
+        _p("  고리가 있으면 어느 쪽을 먼저 읽어야 할지 알 수 없습니다.")
+    else:
+        _p("\n서로 물고 있는 고리는 없습니다.")
+    return 0
+
+
 def cmd_dev_loc(a) -> int:
     """줄 수를 언어별로 센다. 인수인계·견적·«이 저장소 얼마나 큰가» 용이다."""
     roots = [Path(p) for p in a.paths]
@@ -1182,6 +1245,14 @@ def add_commands(sub) -> None:
     ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
+
+    im = dp.add_parser("imports", help="모듈 import 관계 - 누가 누구를 부르나, 고리는 없나")
+    im.add_argument("path", nargs="?", default=".", metavar="폴더")
+    im.add_argument("--module", metavar="이름", help="그 모듈의 앞뒤만 본다")
+    im.add_argument("--top", type=int, default=15, metavar="개",
+                    help="많이 불리는 모듈을 몇 개 보일지")
+    im.add_argument("--limit", type=int, default=15, metavar="개")
+    im.set_defaults(func=cmd_dev_imports)
 
     lc = dp.add_parser("loc", help="줄 수 세기 - 언어별 코드·주석·빈 줄")
     lc.add_argument("paths", nargs="*", default=["."], metavar="경로")

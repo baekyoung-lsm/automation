@@ -165,6 +165,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
 | `at dev outline [경로]` | 파이썬 소스 구조 - 파일별 클래스·함수·긴 함수·설명 없는 것 |
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
+| `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
@@ -208,6 +209,8 @@ at dev unused src/ --modules                           # 걸리면 exit 1
 at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
 at dev loc .                       # 이 저장소가 얼마나 큰가
 at dev loc src --glob '*.ts' --top 20
+at dev imports attools                  # 많이 불리는 모듈·고아·고리
+at dev imports attools --module sheet    # 이 모듈의 앞뒤만
 at dev outline src/ --sort 갈림길                      # 조건이 많은 함수부터
 at dev outline src/ --file models.py                   # 그 파일의 클래스·함수
 at dev api openapi.json                                # 엔드포인트 한눈에
@@ -277,6 +280,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 각주·메모는 옮기지 않는다 — 옮긴 척하면 «넘겼는데 내용이 빠졌다» 를 나중에 알게 된다.
 `at text find --docx` 도 같은 방법으로 워드 문서 안을 찾는다. 줄 번호는 문단 번호이고,
 **워드 문서는 `at text replace` 로 고치지 못한다** (찾기 전용이라 기본은 꺼져 있다).
+
+`at dev imports` 는 지우기 전에·나누기 전에 본다. «이 모듈을 부르는 곳» 과 «이 모듈이
+부르는 것» 을 같은 판정으로 뒤집어 만들므로 양쪽 그림이 어긋나지 않는다. 서로 물고 있는
+고리가 있으면 함께 보여 준다 — 고리가 있으면 어느 쪽을 먼저 읽어야 할지 알 수 없고,
+나중에 한쪽을 떼어내려 할 때 반드시 걸린다.
 
 `at dev loc` 은 주석 규칙을 **아는 확장자만** 주석을 가른다. 모르는 확장자는 줄 수만 세고
 주석 칸에 `?` 를 적는다 — 아무 규칙이나 갖다 대면 숫자가 조용히 틀린다. 블록 주석은 그 줄이
