@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, sheet, text
 from ..docs import fromhtml, mdkit
-from .common import _cut, _p, _grid, MD_SUFFIXES
+from .common import _cut, _p, _grid, MD_SUFFIXES, _may_write
 
 
 def _md_files(paths) -> list[Path]:
@@ -194,6 +194,8 @@ def cmd_doc_tables(a) -> int:
 
     out = Path(a.out)
     if len(tables) == 1:
+        if not _may_write(a, out):
+            return 1
         _p(f"저장: {sheet.save(tables[0], out)}")
         return 0
 
@@ -774,13 +776,14 @@ def add_commands(sub) -> None:
     dm = dc.add_parser("merge", help="쪼개 둔 문서를 하나로 (split 의 반대)")
     dm.add_argument("files", nargs="+", metavar="파일|폴더")
     dm.add_argument("-o", "--out", metavar="파일")
+    dm.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     dm.add_argument("--title", metavar="제목", help="맨 위에 붙일 제목")
     dm.add_argument("--shift", type=int, default=0, metavar="단계",
                     help="각 문서의 제목을 이만큼 내린다 (# -> ##)")
     dm.add_argument("--rule", action="store_true", help="문서 사이에 --- 선을 넣는다")
     dm.add_argument("--mark-source", action="store_true",
                     help="어느 파일에서 왔는지 주석으로 남긴다")
-    dm.add_argument("--overwrite", action="store_true")
     dm.add_argument("--limit", type=int, default=15, metavar="개")
     dm.set_defaults(func=cmd_doc_merge)
 
@@ -809,6 +812,8 @@ def add_commands(sub) -> None:
                     help="몇 번째 표인지 (기본: 목록만)")
     dg.add_argument("-o", "--out", metavar="파일|디렉터리",
                     help="표가 여럿이면 디렉터리로 준다")
+    dg.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     dg.add_argument("--suffix", default=".csv", metavar="확장자",
                     help="여러 개 저장할 때 형식 (기본 .csv)")
     dg.add_argument("--limit", type=int, default=20)
@@ -845,12 +850,13 @@ def add_commands(sub) -> None:
     dh2 = dc.add_parser("html", help="마크다운을 HTML 한 장으로 (인쇄·공유용)")
     dh2.add_argument("file", metavar="파일")
     dh2.add_argument("-o", "--out", metavar="파일", help="기본: 같은 이름의 .html")
+    dh2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     dh2.add_argument("--title", default="", metavar="제목",
                      help="맨 위에 넣을 제목 (문서에 제목이 있으면 안 줘도 된다)")
     dh2.add_argument("--toc", action="store_true", help="목차를 넣는다")
     dh2.add_argument("--note", default="", metavar="문구", help="아래에 넣을 한 줄")
     dh2.add_argument("--no-note", action="store_true", help="아래 문구를 넣지 않는다")
-    dh2.add_argument("--overwrite", action="store_true")
     dh2.set_defaults(func=cmd_doc_html)
 
     ds2 = dc.add_parser("slides", help="마크다운을 넘겨 보는 슬라이드 HTML 로")

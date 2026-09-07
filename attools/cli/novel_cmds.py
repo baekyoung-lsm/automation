@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import sheet, text
 from ..write import manuscript, names
-from .common import InputError, _pad, _p, _read_input, _cut, _grid
+from .common import InputError, _pad, _p, _read_input, _cut, _grid, _may_write
 
 
 def _print_stats(s: manuscript.Stats, *, name: str | None = None) -> None:
@@ -232,6 +232,8 @@ def cmd_novel_outline(a) -> int:
 
     if a.out:
         table = sheet.Table(header, body_rows)
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name='장면')}")
     return 0
 
@@ -646,6 +648,8 @@ def cmd_novel_say(a) -> int:
 
     body = "\n".join(lines).rstrip() + "\n"
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         Path(a.out).write_text(body, encoding="utf-8")
         _p(f"저장: {a.out}  ({sum(counts.values()):,}줄)")
     else:
@@ -813,6 +817,8 @@ def cmd_novel_wordlist(a) -> int:
         out_table = sheet.Table(["말", "횟수", "처음 나온 곳", "쓰인 곳 수"],
                                 [[w.text, w.count, w.first_source, w.spread]
                                  for w in words])
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(out_table, Path(a.out), sheet_name='어휘')}")
     return 0
 
@@ -910,6 +916,8 @@ def add_commands(sub) -> None:
     ol.add_argument("--limit", type=int, default=50)
     ol.add_argument("--width", type=int, default=30, metavar="칸")
     ol.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    ol.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ol.set_defaults(func=cmd_novel_outline)
 
     fd = np_.add_parser("find", help="원고에서 문맥과 함께 찾기 (복선·소재 추적)")
@@ -948,6 +956,8 @@ def add_commands(sub) -> None:
     ex = np_.add_parser("export", help="여러 화를 한 파일로 - 투고·인쇄용")
     ex.add_argument("paths", nargs="+")
     ex.add_argument("-o", "--out", metavar="파일")
+    ex.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ex.add_argument("-f", "--format", default="html",
                     choices=["html", "txt", "md", "epub", "docx"])
     ex.add_argument("--title", default="", metavar="제목")
@@ -983,6 +993,8 @@ def add_commands(sub) -> None:
     wl.add_argument("--limit", type=int, default=40)
     wl.add_argument("--width", type=int, default=24, metavar="칸")
     wl.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    wl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     wl.set_defaults(func=cmd_novel_wordlist)
 
     sn = np_.add_parser("snap", help="원고 스냅샷 저장/목록")
@@ -1033,6 +1045,8 @@ def add_commands(sub) -> None:
     sp = np_.add_parser("split", help="한 파일에 몰아 쓴 원고를 화 단위로 나누기")
     sp.add_argument("file", metavar="파일")
     sp.add_argument("-o", "--out", metavar="디렉터리", help="기본은 파일 이름과 같은 폴더")
+    sp.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     sp.add_argument("--suffix", default=".md", metavar="확장자")
     sp.add_argument("--digits", type=int, default=2, metavar="자리")
     sp.add_argument("--drop-preface", action="store_true", help="첫 화 앞의 글을 버린다")
@@ -1048,6 +1062,8 @@ def add_commands(sub) -> None:
     sy.add_argument("--mark-unknown", action="store_true",
                     help="화자를 못 찾은 대사에 ? 를 붙인다")
     sy.add_argument("-o", "--out", metavar="파일")
+    sy.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     sy.add_argument("--limit", type=int, default=30)
     sy.set_defaults(func=cmd_novel_say)
 

@@ -11,7 +11,7 @@ from ..code import (dbkit, deps, devkit, fakedata, jsonkit, loc, logkit,
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
-                     _grid)
+                     _grid, _may_write)
 
 
 def _read_log_lines(sources: list[str]) -> list[str] | None:
@@ -283,6 +283,8 @@ def cmd_dev_db(a) -> int:
         _p(f"  ... {a.limit}행까지만 보여줍니다 (--limit 로 늘리세요)")
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         table = sheet.Table(headers, rows, source=str(path))
         _p(f"저장: {sheet.save(table, Path(a.out))}")
     return 0
@@ -406,6 +408,8 @@ def cmd_dev_fake(a) -> int:
         _p("사업자번호는 검증번호까지 맞지만 실제로 등록된 번호가 아닙니다.")
     _p("전부 무작위입니다. 실제 사람·회사와 관계없습니다.")
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(table, Path(a.out))}")
     return 0
 
@@ -937,6 +941,8 @@ def cmd_dev_log(a) -> int:
             return 1
         if a.out:
             out = Path(a.out)
+            if not _may_write(a, out):
+                return 1
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_text("\n".join(e.raw for e in entries) + "\n",
                            encoding="utf-8")
@@ -1232,6 +1238,8 @@ def add_commands(sub) -> None:
     lg.add_argument("--until", metavar="시각", help="이 시각까지")
     lg.add_argument("-o", "--out", metavar="파일",
                     help="--since/--until 로 자른 줄을 그대로 저장한다")
+    lg.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     lg.set_defaults(func=cmd_dev_log)
 
     sl = dp.add_parser("slow", help="로그의 응답 시간 - 경로별 p50/p95 와 느린 요청")
@@ -1263,6 +1271,8 @@ def add_commands(sub) -> None:
     db.add_argument("--table", metavar="이름", help="그 표의 열 구성과 앞 몇 행")
     db.add_argument("-q", "--query", metavar="SQL", help="직접 조회 (SELECT 만)")
     db.add_argument("-o", "--out", metavar="파일", help="결과를 csv/xlsx 로 저장")
+    db.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     db.add_argument("--limit", type=int, default=20, metavar="행")
     db.set_defaults(func=cmd_dev_db)
 
@@ -1284,6 +1294,8 @@ def add_commands(sub) -> None:
     fk.add_argument("-n", "--rows", type=int, default=10, metavar="행")
     fk.add_argument("--seed", type=int, metavar="씨앗", help="같은 값을 다시 만들 때")
     fk.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx 로 저장")
+    fk.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     fk.add_argument("--limit", type=int, default=10)
     fk.set_defaults(func=cmd_dev_fake)
 
@@ -1313,6 +1325,8 @@ def add_commands(sub) -> None:
     ht.add_argument("--head", action="store_true", help="헤더만 보고 본문은 안 본다")
     ht.add_argument("--timeout", type=float, default=10.0, metavar="초")
     ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
+    ht.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
 
