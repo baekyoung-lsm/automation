@@ -6,6 +6,8 @@ import shutil
 import tempfile
 import threading
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from .. import webui
 from ..webui import check as uicheck
@@ -32,9 +34,20 @@ def _check(apps, port: int) -> int:
         uicheck.ScreenCheck(app.key, app.name) for app in apps]
     profile = tempfile.mkdtemp(prefix="attools-ui-")
     try:
+        # 브라우저를 한 번 띄우는 데 몇 초씩 걸린다. 화면이 열둘이면 그것만으로
+        # 1분이 넘으므로 몇 개씩 같이 띄운다. 프로필은 따로 줘야 서로 잠금을
+        # 다투지 않는다.
+        def look(result):
+            room = Path(profile) / (result.key or "런처")
+            room.mkdir(parents=True, exist_ok=True)
+            return uicheck.check_page(browser, f"{base}/{result.key}?t={token}",
+                                      profile=str(room))
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for result, found in zip(results, pool.map(look, results)):
+                result.messages, result.trouble = found
+
         for result in results:
-            result.messages, result.trouble = uicheck.check_page(
-                browser, f"{base}/{result.key}?t={token}", profile=profile)
             mark = "OK  " if result.ok else ("못 봄" if result.trouble else "오류")
             _p(f"  {mark}  {result.name}")
             for line in ([result.trouble] if result.trouble else result.messages[:5]):
