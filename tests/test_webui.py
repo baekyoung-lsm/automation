@@ -1052,6 +1052,38 @@ class DevAppTest(UiCase):
             self.post("/api/dev/db", {"path": str(self.log())})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_depends(self):
+        (self.work / "requirements.txt").write_text(
+            "requests==2.31.0\nflask>=2\n", encoding="utf-8")
+        _, data = self.post("/api/dev/depends", {"path": str(self.work)})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["loose"], 1)          # flask 는 열려 있다
+
+    def test_depends_missing_path(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/depends", {"path": str(self.work / "없음")})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_depends_nothing_found(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/depends", {"path": str(self.work)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_lock_diff(self):
+        def lock(name, version):
+            path = self.work / name
+            path.write_text(json.dumps(
+                {"lockfileVersion": 3,
+                 "packages": {"node_modules/react": {"version": version}}}),
+                encoding="utf-8")
+            return path
+
+        _, data = self.post("/api/dev/locks",
+                            {"before": str(lock("a.json", "18.2.0")),
+                             "after": str(lock("b.json", "18.3.1"))})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["rows"][0][0], "올림")
+
     def test_env_diff(self):
         (self.work / ".env.example").write_text("API_KEY=changeme\nDB=1\n",
                                                 encoding="utf-8")
@@ -1088,6 +1120,22 @@ class DocAppTest(UiCase):
         path.write_bytes(b"x")
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/doc/check", {"path": str(path)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_from_html(self):
+        _, data = self.post("/api/doc/from_html",
+                            {"html": "<h1>제목</h1><ul><li>하나</li></ul>"})
+        self.assertIn("# 제목", data["text"])
+        self.assertIn("- 하나", data["text"])
+
+    def test_from_html_needs_something(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/from_html", {"html": "   "})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_from_html_empty_result(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/from_html", {"html": "<script>x=1</script>"})
         self.assertEqual(ctx.exception.code, 400)
 
     def test_terms(self):
@@ -1321,6 +1369,20 @@ class GitAppTest(UiCase):
         subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
         _, data = self.post("/api/git/ready", {"path": str(root)})
         self.assertEqual(data["count"], 0)
+
+    def test_release_draft(self):
+        import subprocess
+
+        root = self.repo()
+        (root / "새것.py").write_text("x = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=root, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "feat: 새 기능"],
+                       cwd=root, capture_output=True)
+        _, data = self.post("/api/git/release",
+                            {"path": str(root), "title": "v0.1"})
+        self.assertGreater(data["count"], 0)
+        self.assertIn("## v0.1", data["text"])
+        self.assertIn("새 기능", data["text"])
 
     def test_conflicts(self):
         root = self.repo()

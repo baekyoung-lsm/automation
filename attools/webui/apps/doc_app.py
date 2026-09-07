@@ -6,7 +6,7 @@ from pathlib import Path
 
 from ... import docx, files
 from ... import text as textkit
-from ...docs import mdkit
+from ...docs import fromhtml, mdkit
 from .. import App, UiError, form
 
 FIXES = {"toc": "목차 갱신 (<!-- toc --> 자리)", "tables": "표 칸 맞추기"}
@@ -73,6 +73,29 @@ def images(payload: dict) -> dict:
             "count": len(rows),
             "note": "설명(alt)이 없는 그림은 화면 낭독기와 그림이 안 뜰 때 "
                     "아무것도 알려 주지 못합니다."}
+
+
+def from_html(payload: dict) -> dict:
+    """웹에서 복사한 HTML 을 마크다운으로. 붙여넣기나 파일 둘 다 받는다."""
+    body = form.raw_text(payload, "html")
+    source = ""
+    if not body.strip():
+        where = form.text(payload, "html_path")
+        if not where:
+            raise UiError("HTML 을 붙여 넣거나 파일 경로를 적어 주세요.")
+        path = form.existing_file({"path": where})
+        body = path.read_text(encoding="utf-8", errors="replace")
+        source = str(path)
+
+    parser = fromhtml.Converter()
+    parser.feed(body)
+    made = parser.result()
+    if not made.strip():
+        raise UiError("옮길 내용이 없습니다. 본문이 스크립트로 그려지는 "
+                      "쪽이면 브라우저에서 보이는 것을 복사해 넣어 보세요.")
+    return {"text": made, "source": source,
+            "note": "표·목록·제목·링크만 옮깁니다. 그림은 주소만 남고, "
+                    "스크립트로 그려지는 본문은 담기지 않습니다."}
 
 
 def _fixed(payload: dict) -> tuple[Path, str, str, str]:
@@ -192,6 +215,21 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>웹 문서를 마크다운으로</h2>
+  <p class="note">브라우저에서 «페이지 소스 보기»로 복사해 붙여 넣거나,
+     저장해 둔 html 파일 경로를 적으세요.</p>
+  <div class="row">
+    <div><label for="html_path">html 파일 (또는 아래에 붙여넣기)</label>
+      <input type="text" id="html_path" spellcheck="false" data-browse=".html,.htm"></div>
+  </div>
+  <textarea id="html" spellcheck="false" style="margin-top:.8rem"
+            placeholder="&lt;h1&gt;제목&lt;/h1&gt;..."></textarea>
+  <div class="actions"><button class="primary" id="btn-fromhtml">옮기기</button></div>
+  <div id="htmlmsg"></div>
+  <div id="htmlout"></div>
+</section>
+
+<section class="card">
   <h2>다른 형식으로 내보내기</h2>
   <div class="row">
     <div><label for="kind">형식</label><select id="kind">%(exports)s</select></div>
@@ -299,6 +337,16 @@ BODY = """
     } catch (e) { AT.message($("fixmsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-fromhtml").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/doc/from_html", {
+        html: $("html").value, html_path: $("html_path").value });
+      $("htmlout").innerHTML = '<pre class="diff">' + AT.esc(d.text) +
+        "</pre>" + '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("htmlmsg"), "옮겼습니다. 붙여 넣어 쓰세요.", "ok");
+    } catch (e) { AT.message($("htmlmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-export").addEventListener("click", async function () {
     try {
       const d = await AT.call("/api/doc/export", values());
@@ -320,6 +368,7 @@ def make() -> App:
         subtitle="점검 → 다듬기 → 내보내기",
         body=lambda: BODY,
         actions={"check": check, "terms": terms, "images": images,
+                 "from_html": from_html,
                  "fix_preview": fix_preview, "fix_apply": fix_apply,
                  "export": export},
         aliases=("문서", "마크다운", "md"),

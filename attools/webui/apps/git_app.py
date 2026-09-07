@@ -93,6 +93,28 @@ def todos(payload: dict) -> dict:
             "note": "주석 안에 있는 것만 셉니다. 문자열 속 TODO 는 세지 않습니다."}
 
 
+def release(payload: dict) -> dict:
+    """태그 사이 커밋으로 변경 로그 초안을 만든다."""
+    root = _root(payload)
+    since = form.text(payload, "since")
+    try:
+        if not since:
+            since = gitkit.latest_tag(root)
+        changes = gitkit.collect_changes(root, since=since)
+    except RuntimeError as exc:
+        raise UiError(str(exc)) from None
+
+    if not changes:
+        return {"text": "", "count": 0, "since": since,
+                "note": "그 범위에 커밋이 없습니다. 시작 태그를 바꿔 보세요."}
+
+    groups = gitkit.group_changes(changes)
+    text = gitkit.render_changelog(groups, title=form.text(payload, "title"))
+    return {"text": text, "count": len(changes), "since": since,
+            "note": "초안입니다. 관례 접두사(feat:, fix:)가 있으면 그것으로, "
+                    "없으면 바뀐 위치로 묶습니다. 사람이 읽고 다듬어야 합니다."}
+
+
 def stats(payload: dict) -> dict:
     root = _root(payload)
     since = form.text(payload, "since") or "3 months ago"
@@ -127,6 +149,7 @@ BODY = """
   <button data-tab="conflicts" aria-selected="false">충돌 표시</button>
     <button data-tab="todos" aria-selected="false">TODO</button>
     <button data-tab="stats" aria-selected="false">커밋 통계</button>
+  <button data-tab="release" aria-selected="false">변경 로그</button>
   </nav>
   <p class="note">이 화면은 읽기만 합니다. 지우거나 커밋하지 않습니다.</p>
   <div id="msg"></div>
@@ -175,6 +198,18 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-stats">세기</button></div>
   </div>
   <div id="stats-out"></div>
+</section>
+
+<section class="card" data-panel="release" hidden>
+  <h2>변경 로그 초안</h2>
+  <div class="row">
+    <div><label for="since">시작 태그 (비우면 마지막 태그)</label>
+      <input type="text" id="since" placeholder="v1.0.0" spellcheck="false"></div>
+    <div><label for="title">제목</label>
+      <input type="text" id="title" placeholder="v1.1.0" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-release">만들기</button></div>
+  </div>
+  <div id="release-out"></div>
 </section>
 
 <script>
@@ -261,6 +296,18 @@ BODY = """
     });
   });
 
+  $("btn-release").addEventListener("click", function () {
+    run("/api/git/release", where({ since: $("since").value,
+                                    title: $("title").value }), function (d) {
+      $("release-out").innerHTML = (d.count
+          ? big(d.count + "개 커밋") +
+            '<pre class="diff">' + AT.esc(d.text) + "</pre>"
+          : '<div class="empty">그 범위에 커밋이 없습니다.</div>') +
+        note((d.since ? "시작: " + d.since + " · " : "") + d.note);
+      AT.message($("msg"), "만들었습니다.", "ok");
+    });
+  });
+
   $("btn-stats").addEventListener("click", function () {
     run("/api/git/stats", where({ since: $("since").value }), function (d) {
       $("stats-out").innerHTML = big(d.count + "개 커밋 (" + AT.esc(d.since) + " 이후)") +
@@ -284,11 +331,12 @@ def make() -> App:
     return App(
         key="git",
         name="저장소 훑기",
-        summary="커밋 전 점검·시크릿·묵은 브랜치·충돌·TODO·커밋 통계 (읽기만)",
+        summary="커밋 전 점검·시크릿·브랜치·충돌·TODO·통계·변경 로그 (읽기만)",
         subtitle="읽기만 합니다 · 지우거나 커밋하지 않습니다",
         body=lambda: BODY,
         actions={"scan": scan, "branches": branches, "conflicts": conflicts,
-                 "todos": todos, "stats": stats, "ready": ready},
+                 "todos": todos, "stats": stats, "ready": ready,
+                 "release": release},
         aliases=("git", "저장소"),
         section="개발",
     )

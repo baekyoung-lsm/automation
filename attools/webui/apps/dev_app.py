@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 from ... import life
-from ...code import dbkit, devkit, logkit
+from ...code import dbkit, deps, devkit, logkit
 from ...code.schedule import Cron, CronError
 from .. import App, UiError, form
 
@@ -161,6 +162,63 @@ def db(payload: dict) -> dict:
             "note": "읽기 전용(mode=ro)으로 엽니다. 고칠 수 없습니다."}
 
 
+def depends(payload: dict) -> dict:
+    """의존성 파일을 훑는다. 몇 개인지, 버전이 고정돼 있는지."""
+    where = form.text(payload, "path")
+    if not where:
+        raise UiError("의존성 파일이나 프로젝트 폴더 경로를 적어 주세요.")
+    root = Path(where).expanduser()
+    if not root.exists():
+        raise UiError(f"그런 경로가 없습니다: {root}")
+
+    targets = deps.find_files(root) if root.is_dir() else [root]
+    if not targets:
+        raise UiError("의존성 파일을 찾지 못했습니다. "
+                      "(requirements.txt, pyproject.toml, package.json, go.mod)")
+
+    rows, notes, files_seen = [], [], []
+    for path in targets[:10]:
+        found = deps.read_file(path)
+        files_seen.append(found)
+        notes += [f"{path.name}: {note}" for note in found.notes]
+        for item in found.deps[:200]:
+            rows.append([path.name, item.group, item.name, item.spec or "-",
+                         "고정" if item.pinned else "열림"])
+
+    clashes = [[name, ", ".join(f"{where_}: {spec}" for where_, spec in items)]
+               for name, items in deps.conflicts(files_seen)]
+    loose = sum(1 for f in files_seen for d in f.deps if not d.pinned)
+    return {"rows": rows, "files": [str(p) for p in targets],
+            "conflicts": clashes, "loose": loose,
+            "count": sum(len(f.deps) for f in files_seen), "notes": notes,
+            "note": "«열림»은 버전을 하나로 묶지 않은 것입니다. 나쁘다는 뜻이 "
+                    "아니라, 다시 설치하면 다른 것이 올 수 있다는 뜻입니다."}
+
+
+def locks(payload: dict) -> dict:
+    """잠금 파일 두 개를 비교한다. 무엇이 얼마나 올라갔는지."""
+    before = form.existing_file(payload, "before")
+    after = form.existing_file(payload, "after")
+    try:
+        old, new = deps.read_lock(before), deps.read_lock(after)
+    except Exception as exc:
+        raise UiError(f"잠금 파일을 읽지 못했습니다: {exc}") from None
+    if not old and not new:
+        raise UiError("잠금 파일에서 읽은 것이 없습니다. "
+                      "(package-lock.json, Pipfile.lock, poetry.lock 등)")
+
+    changes = deps.lock_diff(old, new)
+    rows = [[c.kind, c.name, c.before or "-", c.after or "-"] for c in changes]
+    kinds: dict[str, int] = {}
+    for change in changes:
+        kinds[change.kind] = kinds.get(change.kind, 0) + 1
+    return {"rows": rows[:200], "count": len(changes),
+            "summary": [[kind, str(n)] for kind, n in sorted(kinds.items())],
+            "before": len(old), "after": len(new),
+            "note": "버전 문자열만 견줍니다. 무엇이 왜 올라갔는지는 각 꾸러미의 "
+                    "변경 기록을 봐야 합니다."}
+
+
 def env(payload: dict) -> dict:
     example = form.existing_file(payload, "example")
     actual = form.existing_file(payload, "actual")
@@ -188,6 +246,7 @@ BODY = """
   <button data-tab="log" aria-selected="false">로그</button>
   <button data-tab="db" aria-selected="false">sqlite</button>
   <button data-tab="env" aria-selected="false">.env 대조</button>
+  <button data-tab="deps" aria-selected="false">의존성</button>
 </nav>
 
 <section class="card" data-panel="jwt">
@@ -287,6 +346,25 @@ BODY = """
               placeholder="SELECT * FROM 주문 WHERE 상태 = '대기' LIMIT 20"></textarea>
   </div>
   <div id="db-out"></div>
+</section>
+
+<section class="card" data-panel="deps" hidden>
+  <h2>의존성 훑기</h2>
+  <div class="row">
+    <div><label for="p-path">프로젝트 폴더 또는 의존성 파일</label>
+      <input type="text" id="p-path" placeholder="~/코드/내프로젝트" spellcheck="false" data-browse="any"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-deps">훑기</button></div>
+  </div>
+  <div id="deps-out"></div>
+  <h2 style="margin-top:1.4rem">잠금 파일 두 개 비교</h2>
+  <div class="row">
+    <div><label for="p-before">전</label>
+      <input type="text" id="p-before" spellcheck="false" data-browse=".json,.lock"></div>
+    <div><label for="p-after">후</label>
+      <input type="text" id="p-after" spellcheck="false" data-browse=".json,.lock"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-locks">비교</button></div>
+  </div>
+  <div id="locks-out"></div>
 </section>
 
 <section class="card" data-panel="env" hidden>
@@ -415,6 +493,31 @@ BODY = """
     });
   });
 
+  $("btn-deps").addEventListener("click", function () {
+    run("deps-out", "/api/dev/depends", { path: $("p-path").value },
+        function (d) {
+      $("deps-out").innerHTML = big(d.count + "개") +
+        (d.conflicts.length
+          ? "<h2>파일마다 다르게 적힌 것</h2>" +
+            AT.table(["이름", "어디에 어떻게"], d.conflicts) : "") +
+        AT.table(["파일", "묶음", "이름", "버전", "고정"], d.rows) +
+        note("열려 있는 것 " + d.loose + "개 · 파일 " + d.files.length + "개") +
+        (d.notes.length ? note(d.notes.join(" / ")) : "") + note(d.note);
+    });
+  });
+
+  $("btn-locks").addEventListener("click", function () {
+    run("locks-out", "/api/dev/locks",
+        { before: $("p-before").value, after: $("p-after").value },
+        function (d) {
+      $("locks-out").innerHTML = big(d.count ? d.count + "개가 달라졌습니다"
+                                             : "달라진 것이 없습니다") +
+        (d.summary.length ? AT.table(["무엇", "개수"], d.summary, [null, "num"]) : "") +
+        (d.count ? AT.table(["무엇", "이름", "전", "후"], d.rows) : "") +
+        note("전 " + d.before + "개 · 후 " + d.after + "개") + note(d.note);
+    });
+  });
+
   $("btn-env").addEventListener("click", function () {
     run("env-out", "/api/dev/env",
         { example: $("v-example").value, actual: $("v-actual").value },
@@ -434,12 +537,12 @@ def make() -> App:
     return App(
         key="dev",
         name="개발 잡일",
-        summary="JWT·시각·cron·가리기·인코딩·키 생성·.env·로그·sqlite",
+        summary="JWT·시각·cron·가리기·인코딩·키·.env·로그·sqlite·의존성",
         subtitle="읽고 계산할 뿐, 고치지 않습니다",
         body=lambda: BODY,
         actions={"jwt": jwt, "when": when, "cron": cron, "mask": mask,
                  "encode": encode, "secret": secret, "env": env,
-                 "log": log, "db": db},
+                 "log": log, "db": db, "depends": depends, "locks": locks},
         aliases=("개발", "dev잡일"),
         section="개발",
     )
