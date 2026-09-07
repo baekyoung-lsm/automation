@@ -808,7 +808,7 @@ class SaveSheetsTest(unittest.TestCase):
         self.assertEqual(len(loaded.rows), 2)
 
     def test_sheet_name_is_cleaned_for_excel(self):
-        tables = {"영업/1분기 [초안] 아주 긴 이름을 넣어 서른한 자를 넘겨 봅니다": 
+        tables = {"영업/1분기 [초안] 아주 긴 이름을 넣어 서른한 자를 넘겨 봅니다":
                   sheet.Table(["가"], [["1"]])}
         path = sheet.save_sheets(tables, self.root / "정리.xlsx")
         name = sheet.xlsx.sheet_names(path)[0]

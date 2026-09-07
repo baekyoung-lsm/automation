@@ -1,5 +1,6 @@
 """파일 분류·개명·중복·감시·압축 시험."""
 
+import os
 import shutil
 import tempfile
 import unicodedata
@@ -18,9 +19,19 @@ from attools.write import names
 class FilesTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
+        # 저널을 안 주면 files 는 홈에 쓴다. 홈을 임시 폴더로 돌려 두지 않으면
+        # 시험을 돌릴 때마다 진짜 ~/.attools/journal 에 파일이 쌓인다.
+        self.home = Path(tempfile.mkdtemp())
+        self.prev_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.home)
 
     def tearDown(self):
+        if self.prev_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.prev_home
         shutil.rmtree(self.root, ignore_errors=True)
+        shutil.rmtree(self.home, ignore_errors=True)
 
     def make(self, name, content="x"):
         p = self.root / name
@@ -37,6 +48,7 @@ class FilesTest(unittest.TestCase):
         self.assertTrue(all(Path(m.src).exists() for m in moves))  # 계획만으로는 안 옮긴다
 
         journal = files.apply_moves(moves)
+        self.assertEqual(journal.parent, self.home / ".attools" / "journal")
         self.assertTrue((self.root / "문서" / "보고서.pdf").exists())
         self.assertTrue((self.root / "기타" / "메모").exists())
 
