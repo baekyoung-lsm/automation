@@ -56,22 +56,21 @@ class ScreenCheck:
         return not self.messages and not self.trouble
 
 
-def check_page(browser: str, url: str, *, timeout: float = 60.0,
-               profile: str | None = None) -> tuple[list[str], str]:
+def check_page(browser: str, url: str, *,
+               timeout: float = 60.0) -> tuple[list[str], str]:
     """한 화면을 열고 콘솔 오류를 모은다. (오류 목록, 못 연 이유)
 
     못 연 것과 열었는데 오류가 있는 것은 다르다. 섞어서 «오류»라고 하면
     브라우저가 느린 것을 코드 문제로 읽게 된다.
     """
     # --disable-dev-shm-usage 가 없으면 컨테이너에서 크로미움이 멎는 일이 있다.
+    # --user-data-dir 은 주지 않는다. 우분투의 크로미움은 스냅이라 자기 홈
+    # 밖의 폴더를 못 읽고, 그걸 주면 창이 뜨지도 않은 채 시간만 흘러간다.
     args = [browser, "--headless", "--no-sandbox", "--disable-gpu",
             "--disable-dev-shm-usage", "--no-first-run",
             "--no-default-browser-check", "--disable-extensions",
             "--enable-logging=stderr", "--v=1", "--virtual-time-budget=3000",
             "--dump-dom", url]
-    if profile:
-        # 기본 프로필을 쓰면 첫 실행이 오래 걸리고 서로 잠금을 다툰다
-        args.insert(1, f"--user-data-dir={profile}")
     try:
         done = subprocess.run(args, capture_output=True, text=True,
                               timeout=timeout)

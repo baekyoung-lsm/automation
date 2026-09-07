@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import shutil
-import tempfile
 import threading
 import webbrowser
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 
 from .. import webui
 from ..webui import check as uicheck
@@ -32,23 +29,12 @@ def _check(apps, port: int) -> int:
     _p(f"브라우저: {browser}")
     results = [uicheck.ScreenCheck("", "런처")] + [
         uicheck.ScreenCheck(app.key, app.name) for app in apps]
-    # 프로필은 홈 아래에 만든다. 우분투의 chromium 은 스냅이라 /tmp 아래를
-    # 못 읽고, 그러면 창이 뜨지도 않은 채 시간만 흘러간다.
-    try:
-        base_dir = Path.home() / ".attools" / "ui-check"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        profile = tempfile.mkdtemp(prefix="화면-", dir=base_dir)
-    except OSError:
-        profile = tempfile.mkdtemp(prefix="attools-ui-")
     try:
         # 브라우저를 한 번 띄우는 데 몇 초씩 걸린다. 화면이 열둘이면 그것만으로
         # 1분이 넘으므로 몇 개씩 같이 띄운다. 프로필은 따로 줘야 서로 잠금을
         # 다투지 않는다.
         def look(result):
-            room = Path(profile) / (result.key or "런처")
-            room.mkdir(parents=True, exist_ok=True)
-            return uicheck.check_page(browser, f"{base}/{result.key}?t={token}",
-                                      profile=str(room))
+            return uicheck.check_page(browser, f"{base}/{result.key}?t={token}")
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             for result, found in zip(results, pool.map(look, results)):
@@ -63,11 +49,6 @@ def _check(apps, port: int) -> int:
         run.server.shutdown()
         run.server.server_close()
         thread.join(timeout=5)
-        shutil.rmtree(profile, ignore_errors=True)
-        try:                      # 비었으면 껍데기 폴더도 치운다
-            Path(profile).parent.rmdir()
-        except OSError:
-            pass
 
     broken = [r for r in results if r.messages]
     missed = [r for r in results if r.trouble]
