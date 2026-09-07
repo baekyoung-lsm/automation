@@ -128,6 +128,41 @@ class WebUiTest(UiCase):
         self.assertEqual(data["count"], 1)
         self.assertTrue((self.work / "사진.jpg").exists())
 
+    def test_pack_groups_under_the_limit(self):
+        import os
+
+        for name in ("가.bin", "나.bin", "다.bin"):
+            (self.work / name).write_bytes(os.urandom(40_000))
+        _, data = self.post("/api/files/pack_preview",
+                            {"packroot": str(self.work), "packmax": "100000B"})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["big"], [])
+
+    def test_pack_names_a_file_that_is_too_big(self):
+        import os
+
+        (self.work / "큰것.bin").write_bytes(os.urandom(200_000))
+        _, data = self.post("/api/files/pack_preview",
+                            {"packroot": str(self.work), "packmax": "100000B"})
+        self.assertEqual(data["big"][0][0], "큰것.bin")
+
+    def test_pack_apply_writes_beside_the_folder(self):
+        import os
+
+        (self.work / "가.bin").write_bytes(os.urandom(10_000))
+        _, data = self.post("/api/files/pack_apply",
+                            {"packroot": str(self.work), "packmax": "100000B"})
+        made = list(self.work.parent.glob(f"{self.work.name}-*.zip"))
+        self.assertEqual(len(made), 1)
+        self.assertEqual(data["saved"], str(self.work.parent))
+        self.assertTrue((self.work / "가.bin").exists())    # 원본은 그대로
+
+    def test_pack_rejects_a_bad_size(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/pack_preview",
+                      {"packroot": str(self.work), "packmax": "아주크게"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_apply_then_undo(self):
         self.make("사진.jpg")
         self.make("보고서.txt")
@@ -1922,6 +1957,15 @@ class CommandHintTest(UiCase):
                      {"path": str(self.work), "mode": "crlf"}):
             _, data = self.post("/api/text/preview", body)
             self.accepts(data["command"])
+
+    def test_files_pack_command(self):
+        import os
+
+        (self.work / "가.bin").write_bytes(os.urandom(1_000))
+        _, data = self.post("/api/files/pack_preview",
+                            {"packroot": str(self.work), "packmax": "1MB",
+                             "packglob": "*.bin"})
+        self.accepts(data["command"])
 
     def test_apply_shows_how_to_undo(self):
         (self.work / "가.txt").write_text("내용", encoding="utf-8")

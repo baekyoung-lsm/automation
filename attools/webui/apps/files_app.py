@@ -246,6 +246,69 @@ def listing_save(payload: dict) -> dict:
             "command": form.command("file", "list", root, "-o", out)}
 
 
+def _pack_plan(payload: dict):
+    root = form.folder(payload, "packroot")
+    try:
+        limit = files.parse_size(form.text(payload, "packmax") or "25MB")
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+    globs = [g.strip() for g in form.text(payload, "packglob").split(",") if g.strip()]
+    targets = files.plan_archive(root, glob=globs or None,
+                                 include_hidden=form.flag(payload, "packhidden"))
+    if not targets:
+        raise UiError("담을 파일이 없습니다.")
+    packs, too_big = files.plan_packs(targets, max_bytes=limit)
+    return root, limit, packs, too_big
+
+
+def _pack_command(payload: dict, root: Path, *, apply: bool = False) -> str:
+    args: list[object] = ["file", "pack", root, "--max",
+                          form.text(payload, "packmax") or "25MB"]
+    for glob in [g.strip() for g in form.text(payload, "packglob").split(",") if g.strip()]:
+        args += ["-g", glob]
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
+def _pack_result(root: Path, limit: int, packs, too_big) -> dict:
+    return {
+        "rows": [[f"{root.name}-{p.index}.zip", str(len(p.files)),
+                  files.human_size(p.size)] for p in packs],
+        "limit": files.human_size(limit),
+        "count": len(packs),
+        "big": [[str(path.relative_to(root)), files.human_size(size)]
+                for path, size in too_big[:20]],
+    }
+
+
+def pack_preview(payload: dict) -> dict:
+    root, limit, packs, too_big = _pack_plan(payload)
+    out = _pack_result(root, limit, packs, too_big)
+    out["command"] = _pack_command(payload, root)
+    return out
+
+
+def pack_apply(payload: dict) -> dict:
+    """zip 은 폴더 «옆» 에 만든다. 안에 만들면 다음번에 자기 자신을 담는다."""
+    import zipfile
+
+    root, limit, packs, too_big = _pack_plan(payload)
+    made = []
+    for pack in packs:
+        target = files.unique_path(root.parent / f"{root.name}-{pack.index}.zip")
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+            for path in pack.files:
+                z.write(path, str(path.relative_to(root)))
+        made.append([target.name, str(len(pack.files)),
+                     files.human_size(target.stat().st_size)])
+    out = _pack_result(root, limit, packs, too_big)
+    out["rows"] = made
+    out["saved"] = str(root.parent)
+    out["command"] = _pack_command(payload, root, apply=True)
+    return out
+
+
 def journals(payload: dict) -> dict:
     base = files.journal_dir()
     if not base.exists():
@@ -369,6 +432,31 @@ BODY = """
   </div>
   <div id="cmpmsg"></div>
   <div id="cmp"></div>
+</section>
+
+<section class="card">
+  <h2>메일 첨부로 나눠 담기</h2>
+  <p class="note">첨부 한도에 맞춰 여러 zip 으로 나눕니다. <b>압축한 크기가 아니라
+     원본 크기로 묶습니다</b> - jpg 처럼 이미 눌린 파일은 압축해도 안 줄어들어서,
+     압축 결과를 낙관하면 한도를 넘긴 첨부가 나옵니다. 혼자서 한도를 넘는 파일은
+     담지 않고 이름을 알려 줍니다. <b>원본은 그대로 둡니다.</b></p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="packroot">보낼 파일이 있는 폴더</label>
+      <input type="text" id="packroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 1 8rem"><label for="packmax">한 통의 한도</label>
+      <input type="text" id="packmax" value="25MB" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="packglob">고를 무늬</label>
+      <input type="text" id="packglob" placeholder="*.pdf" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="packhidden"> 숨김 파일도</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-pack">어떻게 나뉘나</button>
+    <button id="btn-pack-save" disabled>zip 만들기</button>
+  </div>
+  <div id="packmsg"></div>
+  <div id="packout"></div>
 </section>
 
 <section class="card">
@@ -504,6 +592,45 @@ BODY = """
     } catch (e) { AT.message($("dupemsg"), AT.esc(e.message), "bad"); }
   });
 
+  function packValues() {
+    return { packroot: $("packroot").value, packmax: $("packmax").value,
+             packglob: $("packglob").value, packhidden: $("packhidden").checked };
+  }
+
+  function drawPack(d) {
+    $("packout").innerHTML =
+      AT.table(["파일", "담긴 개수", "크기"], d.rows, [null, "num", "num"]) +
+      (d.big.length
+        ? "<h2>혼자서 한도를 넘는 파일</h2>" +
+          AT.table(["파일", "크기"], d.big, [null, "num"]) +
+          '<p class="note">나눠 담을 수 없습니다. 파일 자체를 줄이거나 따로 보내세요.</p>'
+        : "") + AT.command(d.command);
+  }
+
+  $("btn-pack").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/pack_preview", packValues());
+      drawPack(d);
+      AT.remember("files", "packroot", $("packroot").value);
+      AT.message($("packmsg"), "한도 " + AT.esc(d.limit) + " 로 <b>" + d.count +
+                 "통</b>이 됩니다. 아직 만들지 않았습니다.", "ok");
+      $("btn-pack-save").disabled = d.count === 0;
+    } catch (e) {
+      AT.message($("packmsg"), AT.esc(e.message), "bad");
+      $("btn-pack-save").disabled = true;
+    }
+  });
+
+  $("btn-pack-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/pack_apply", packValues());
+      drawPack(d);
+      AT.message($("packmsg"), "만들었습니다: <b>" + AT.esc(d.saved) +
+                 "</b> 밑에 " + d.count + "통. 원본은 그대로입니다.", "ok");
+      $("btn-pack-save").disabled = true;
+    } catch (e) { AT.message($("packmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-compare").addEventListener("click", async function () {
     try {
       const d = await AT.call("/api/files/compare", {
@@ -596,6 +723,7 @@ def make() -> App:
         subtitle="미리보기 → 옮기기 → 되돌리기",
         body=lambda: BODY,
         actions={"preview": preview, "apply": apply, "dupes": dupes,
+                 "pack_preview": pack_preview, "pack_apply": pack_apply,
                  "listing": listing, "listing_save": listing_save,
                  "compare": compare,
                  "collect_preview": collect_preview,
