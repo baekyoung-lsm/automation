@@ -777,6 +777,16 @@ class KeysAppTest(UiCase):
             self.post("/api/keys/table", {"group": "없는그룹"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_gaps_lists_unconfirmed_cells(self):
+        _, data = self.post("/api/keys/gaps", {})
+        self.assertGreater(data["count"], 0)
+        self.assertEqual(len(data["rows"][0]), 4)
+
+    def test_gaps_can_be_narrowed_to_one_group(self):
+        _, all_gaps = self.post("/api/keys/gaps", {})
+        _, one = self.post("/api/keys/gaps", {"group": "os"})
+        self.assertLess(one["count"], all_gaps["count"])
+
     def test_marks_are_kept_apart(self):
         """확인 못 한 칸(?)과 단축키가 없는 것(—)을 섞지 않는다."""
         _, data = self.post("/api/keys/table", {})

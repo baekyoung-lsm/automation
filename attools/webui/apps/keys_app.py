@@ -49,6 +49,22 @@ def table(payload: dict) -> dict:
     }
 
 
+def gaps(payload: dict) -> dict:
+    """아직 확인하지 못한 칸. 무엇이 비었는지 알아야 채울 수 있다."""
+    found = _groups()
+    wanted = form.text(payload, "group")
+    rows = []
+    for group, item, missing in keys.gaps(found):
+        if wanted and group.id != wanted:
+            continue
+        rows.append([group.name, item.name, item.cat,
+                     ", ".join(group.app_name(app) for app in missing)])
+    return {"rows": rows, "count": len(rows),
+            "note": "빈칸으로 두면 «없다»로 읽히므로 ? 로 둡니다. "
+                    "확인한 것만 채워 넣습니다. 내가 아는 것은 "
+                    "~/.attools/shortcuts.json 에 적으면 여기에 반영됩니다."}
+
+
 BODY = """
 <section class="card">
   <h2>어느 프로그램의 단축키</h2>
@@ -59,6 +75,9 @@ BODY = """
       <input type="text" id="query" placeholder="예: 찾기, ctrl f, 서식"
              spellcheck="false" autocomplete="off">
     </div>
+  </div>
+  <div class="actions">
+    <button id="btn-gaps">아직 확인하지 못한 칸</button>
   </div>
   <div id="msg"></div>
 </section>
@@ -88,6 +107,19 @@ BODY = """
         (d.unknown ? " · 확인하지 못한 칸 " + d.unknown + "개" : ""), "ok");
     } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   }
+
+  $("btn-gaps").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/keys/gaps", { group: current });
+      $("title").textContent = "아직 확인하지 못한 칸";
+      $("table").innerHTML = (d.count
+          ? AT.table(["프로그램", "기능", "갈래", "모르는 칸"], d.rows)
+          : '<div class="empty">이 그룹은 다 확인했습니다.</div>') +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+      AT.message($("msg"), "<b>" + d.count + "개</b>가 남았습니다.",
+                 d.count ? "bad" : "ok");
+    } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
+  });
 
   $("query").addEventListener("input", function () {
     clearTimeout(timer);
@@ -126,7 +158,7 @@ def make() -> App:
         summary="한글·워드·엑셀·PPT·구글 문서 단축키를 나란히 놓고 찾는다",
         subtitle="읽기만 합니다",
         body=lambda: BODY,
-        actions={"groups": groups, "table": table},
+        actions={"groups": groups, "table": table, "gaps": gaps},
         aliases=("단축키", "키"),
         section="그 밖",
     )
