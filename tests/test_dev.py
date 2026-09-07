@@ -522,5 +522,46 @@ class EncodeUrlTest(unittest.TestCase):
         self.assertEqual(devkit.encode_url(url), url)
 
 
+class RegexTest(unittest.TestCase):
+    """정규식 걸어 보기. 머릿속으로 맞추기 어려운 것을 실제로 걸어 본다."""
+
+    BODY = "주문 A-1001 (2026-03-15)\n주문 B-2002 (2026-04-01)\n"
+
+    def test_matches_with_named_groups(self):
+        hits = devkit.try_regex(r"(?P<종류>[A-Z])-(?P<번호>\d+)", self.BODY)
+        self.assertEqual([h.text for h in hits], ["A-1001", "B-2002"])
+        self.assertEqual(hits[0].groups, [("종류", "A"), ("번호", "1001")])
+
+    def test_line_numbers(self):
+        hits = devkit.try_regex(r"B-\d+", self.BODY)
+        self.assertEqual(hits[0].line, 2)
+
+    def test_optional_group_that_did_not_match(self):
+        """안 걸린 그룹을 빈 값으로 두면 «빈 문자열이 걸렸다»로 읽힌다."""
+        hits = devkit.try_regex(r"(가)?나", "나")
+        self.assertEqual(hits[0].groups, [("1", "(없음)")])
+
+    def test_flags(self):
+        self.assertEqual(len(devkit.try_regex("주문", self.BODY)), 2)
+        self.assertEqual(len(devkit.try_regex("^주문", self.BODY)), 1)
+        self.assertEqual(len(devkit.try_regex("^주문", self.BODY, flags="m")), 2)
+
+    def test_bad_pattern_and_flag(self):
+        with self.assertRaises(ValueError):
+            devkit.try_regex("(", self.BODY)
+        with self.assertRaises(ValueError):
+            devkit.try_regex("가", self.BODY, flags="z")
+
+    def test_replace_preview(self):
+        made, count = devkit.replace_regex(r"(\d{4})-(\d{2})-(\d{2})",
+                                           self.BODY, r"\3/\2/\1")
+        self.assertEqual(count, 2)
+        self.assertIn("15/03/2026", made)
+
+    def test_replace_bad_template(self):
+        with self.assertRaises(ValueError):
+            devkit.replace_regex(r"(\d+)", self.BODY, r"\9")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -672,6 +672,57 @@ def cmd_dev_wait(a) -> int:
     return 1
 
 
+def cmd_dev_re(a) -> int:
+    """정규식을 실제 글에 걸어 본다. 머릿속으로 맞추는 것보다 빠르다."""
+    if a.text:
+        body = " ".join(a.text)
+    elif a.file:
+        try:
+            body = _read_input(a.file)
+        except InputError as e:
+            _p(str(e))
+            return 1
+    else:
+        body = sys.stdin.read()
+
+    if not body:
+        _p("걸어 볼 글을 주세요. 예: at dev re '\\d+' '주문 12건'")
+        return 1
+
+    try:
+        hits = devkit.try_regex(a.pattern, body, flags=a.flags)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    if not hits:
+        _p("걸린 곳이 없습니다.")
+        _p(f"  쓴 옵션: {a.flags or '없음'}  "
+           f"(i 대소문자 무시, m 여러 줄, s 점이 줄바꿈도, x 공백 허용)")
+        return 1
+
+    _p(f"{len(hits)}곳이 걸립니다.\n")
+    for hit in hits[:a.limit]:
+        _p(f"  {hit.line}행 {hit.start}~{hit.end}  {_cut(hit.text, 60)}")
+        for name, value in hit.groups:
+            _p(f"      {name}: {_cut(value, 50)}")
+    if len(hits) > a.limit:
+        _p(f"  ... {len(hits) - a.limit}곳 더")
+
+    if a.replace is not None:
+        try:
+            made, count = devkit.replace_regex(a.pattern, body, a.replace,
+                                               flags=a.flags)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        _p(f"\n바꾸면 이렇게 됩니다 ({count}곳)")
+        for line in made.splitlines()[:a.limit]:
+            _p(f"  {_cut(line, 78)}")
+        _p("\n파일을 실제로 고치려면 at text replace -e 를 쓰세요.")
+    return 0
+
+
 def cmd_dev_cron(a) -> int:
     try:
         cron = Cron(a.expression)
@@ -959,6 +1010,18 @@ def add_commands(sub) -> None:
     wt.add_argument("-i", "--interval", type=float, default=1.0, metavar="초")
     wt.add_argument("-q", "--quiet", action="store_true")
     wt.set_defaults(func=cmd_dev_wait)
+
+    rx = dp.add_parser("re", help="정규식 걸어 보기 - 매치·그룹·치환 미리보기")
+    rx.add_argument("pattern", metavar="정규식")
+    rx.add_argument("text", nargs="*", metavar="글",
+                    help="비우고 -f 파일 또는 표준 입력을 줄 수 있다")
+    rx.add_argument("-f", "--file", metavar="파일", help="글 대신 파일에서 읽는다")
+    rx.add_argument("--flags", default="", metavar="옵션",
+                    help="i 대소문자 무시, m 여러 줄, s 점이 줄바꿈도, x 공백 허용")
+    rx.add_argument("--replace", metavar="바꿀것",
+                    help=r"바꾼 결과를 미리 본다 (\1, \g<이름> 을 쓴다)")
+    rx.add_argument("--limit", type=int, default=20, metavar="개")
+    rx.set_defaults(func=cmd_dev_re)
 
     cr = dp.add_parser("cron", help="cron 표현식 해석과 다음 실행 시각")
     cr.add_argument("expression", help='예: "0 9 * * 1-5", @daily')

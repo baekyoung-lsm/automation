@@ -340,6 +340,8 @@ class SmokeTest(unittest.TestCase):
     # ------------------------------------------------------------- dev
 
     def test_dev_group(self):
+        self.assertIn("곳이 걸립니다",
+                      self.run_cli("dev", "re", r"\d+", "주문 12건"))
         self.assertIn("빠진 키",
                       self.run_cli("dev", "env", self.path(".env.example"),
                                    self.path(".env"), expect=1))

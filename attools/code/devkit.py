@@ -595,6 +595,69 @@ class HttpResult:
                  else value) for name, value in self.headers]
 
 
+@dataclass
+class RegexHit:
+    text: str
+    start: int
+    end: int
+    line: int
+    groups: list          # (이름 또는 번호, 값)
+
+
+REGEX_FLAGS = {"i": ("대소문자 무시", re.I), "m": ("여러 줄(^$가 줄마다)", re.M),
+               "s": ("점이 줄바꿈도", re.S), "x": ("공백·주석 허용", re.X)}
+
+
+def try_regex(pattern: str, body: str, *, flags: str = "") -> list[RegexHit]:
+    """정규식을 글에 걸어 본다. 어디가 걸렸고 그룹이 무엇인지 돌려준다.
+
+    정규식은 머릿속으로 맞추기 어렵다. 실제로 걸어 보는 것이 제일 빠르다.
+    """
+    unknown = [f for f in flags if f not in REGEX_FLAGS]
+    if unknown:
+        raise ValueError(f"모르는 옵션: {', '.join(unknown)} "
+                         f"(쓸 수 있는 것: {', '.join(REGEX_FLAGS)})")
+    bits = 0
+    for flag in flags:
+        bits |= REGEX_FLAGS[flag][1]
+
+    try:
+        compiled = re.compile(pattern, bits)
+    except re.error as exc:
+        raise ValueError(f"정규식이 잘못됐습니다: {exc}") from None
+
+    names = {number: name for name, number in compiled.groupindex.items()}
+    starts = [0]
+    for line in body.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+
+    out: list[RegexHit] = []
+    for match in compiled.finditer(body):
+        line = max(1, len([s for s in starts if s <= match.start()]))
+        groups = []
+        for number in range(1, (compiled.groups or 0) + 1):
+            value = match.group(number)
+            groups.append((names.get(number, str(number)),
+                           "(없음)" if value is None else value))
+        out.append(RegexHit(match.group(0), match.start(), match.end(),
+                            line, groups))
+    return out
+
+
+def replace_regex(pattern: str, body: str, replacement: str, *,
+                  flags: str = "") -> tuple[str, int]:
+    """바꾼 결과를 미리 본다. (새 글, 바꾼 횟수)"""
+    bits = 0
+    for flag in flags:
+        if flag not in REGEX_FLAGS:
+            raise ValueError(f"모르는 옵션: {flag}")
+        bits |= REGEX_FLAGS[flag][1]
+    try:
+        return re.subn(pattern, replacement, body, flags=bits)
+    except re.error as exc:
+        raise ValueError(f"바꿀 내용이 잘못됐습니다: {exc}") from None
+
+
 def encode_url(url: str) -> str:
     """한글이 든 주소를 그대로 보낼 수 있는 꼴로 바꾼다.
 
