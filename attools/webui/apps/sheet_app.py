@@ -498,6 +498,95 @@ def dates_save(payload: dict) -> dict:
             "command": _dates_command(payload, column, parts, out)}
 
 
+def outliers(payload: dict) -> dict:
+    """숫자 열에서 드문 값 찾기. 지우지 않고 어디인지만."""
+    table = _open(payload)
+    column = form.text(payload, "ocol")
+    if not column:
+        raise UiError("숫자가 든 열을 골라 주세요.")
+    method = form.choice(payload, "omethod", sheet.OUTLIER_METHODS, "iqr")
+    factor = float(form.number(payload, "ofactor", 1.5, low=0.1, high=10))
+    try:
+        rep = sheet.find_outliers(table, column, method=method, factor=factor)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    def shown(value: float) -> str:
+        return f"{int(value):,}" if float(value).is_integer() else f"{value:,.2f}"
+
+    args: list[object] = ["sheet", "outliers", *_source_args(payload), "-c", column]
+    if method != "iqr":
+        args += ["--method", method]
+    if factor != 1.5:
+        args += ["--factor", f"{factor:g}"]
+
+    return {"rows": [[str(o.row), shown(o.value), o.side] for o in rep.found[:PEEK_ROWS]],
+            "count": len(rep.found), "counted": rep.counted,
+            "note": rep.note,
+            "middle": shown(round(rep.middle, 2)),
+            "range": f"{shown(round(rep.low, 2))} ~ {shown(round(rep.high, 2))}",
+            "how": sheet.OUTLIER_METHODS[method],
+            "command": form.command(*args)}
+
+
+def _replaced(payload: dict):
+    table = _open(payload)
+    find = form.raw_text(payload, "rfind")
+    if not find:
+        raise UiError("찾을 값을 적어 주세요.")
+    columns = [c.strip() for c in form.text(payload, "rcols").split(",") if c.strip()]
+    try:
+        return table, *sheet.replace_values(
+            table, find, form.raw_text(payload, "rto"), columns=columns or None,
+            exact=form.flag(payload, "rexact"),
+            ignore_case=form.flag(payload, "rcase"))
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+
+def _replace_command(payload: dict, out=None) -> str:
+    args: list[object] = ["sheet", "replace", *_source_args(payload),
+                          form.raw_text(payload, "rfind"), form.raw_text(payload, "rto")]
+    for column in [c.strip() for c in form.text(payload, "rcols").split(",") if c.strip()]:
+        args += ["-c", column]
+    if form.flag(payload, "rexact"):
+        args.append("--exact")
+    if form.flag(payload, "rcase"):
+        args.append("-i")
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _replace_result(table, rep) -> dict:
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "changed": rep.changed, "changed_rows": rep.rows,
+            "columns": rep.columns, "skipped": rep.skipped_typed}
+
+
+def replace_preview(payload: dict) -> dict:
+    _before, table, rep = _replaced(payload)
+    out = _replace_result(table, rep)
+    out["command"] = _replace_command(payload)
+    return out
+
+
+def replace_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(바꾼)» 파일을 만든다."""
+    before, table, rep = _replaced(payload)
+    if not rep.changed:
+        raise UiError("바꿀 것이 없습니다.")
+    source = Path(before.source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (바꾼){suffix}"))
+    sheet.save(table, out)
+    result = _replace_result(table, rep)
+    result["saved"] = str(out)
+    result["command"] = _replace_command(payload, out)
+    return result
+
+
 def _mask_specs(payload: dict) -> list[tuple[str, str]]:
     raw = payload.get("mspecs")
     if not isinstance(raw, list) or not raw:
@@ -807,6 +896,24 @@ BODY = """
   <div id="rows"><div class="empty">아직 없습니다.</div></div>
 </section>
 
+<section class="card" data-panel="훑어보기" hidden>
+  <h2>드문 값 찾기</h2>
+  <p class="note">숫자 열에서 «0 하나, 1억 하나» 같은 입력 실수를 찾습니다.
+     기본은 사분위 범위입니다 - 평균과 표준편차는 이상치 하나에 끌려가서
+     정작 그 값을 보통 범위 안에 넣어 버립니다. <b>지우지 않습니다.</b>
+     드문 값이 곧 틀린 값은 아니니 원본에서 확인하세요.</p>
+  <div class="row">
+    <div><label for="ocol">숫자 열</label><select id="ocol"></select></div>
+    <div style="flex:0 1 12rem"><label for="omethod">어떻게</label>
+      <select id="omethod"><option value="iqr">사분위 범위 (기본)</option><option value="sigma">평균 ± 표준편차</option></select></div>
+    <div style="flex:0 1 7rem"><label for="ofactor">배수</label>
+      <input type="text" id="ofactor" value="1.5" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-outliers">찾기</button></div>
+  </div>
+  <div id="outmsg"></div>
+  <div id="outout"></div>
+</section>
+
 <section class="card" data-panel="훑어보기">
   <h2>점검</h2>
   <p class="note">중복된 열쇠, 빈 칸, 섞인 자료형처럼 나중에 문제가 되는 것을 찾습니다.</p>
@@ -915,6 +1022,31 @@ BODY = """
   </div>
   <div id="pickmsg"></div>
   <div id="pickout"></div>
+</section>
+
+<section class="card" data-panel="고치기" hidden>
+  <h2>값 찾아 바꾸기</h2>
+  <p class="note">엑셀의 «모두 바꾸기» 를 파일째 합니다. <b>숫자·날짜 칸은
+     건드리지 않습니다</b> - 글자로 바뀌면 그 열의 합계와 정렬이 어긋납니다.
+     저장하면 옆에 «(바꾼)» 파일이 새로 생깁니다.</p>
+  <div class="row">
+    <div><label for="rfind">찾을 값</label>
+      <input type="text" id="rfind" spellcheck="false"></div>
+    <div><label for="rto">바꿀 값</label>
+      <input type="text" id="rto" spellcheck="false"></div>
+    <div><label for="rcols">이 열만 (쉼표로, 비우면 전부)</label>
+      <input type="text" id="rcols" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="rexact"> 칸 전체가 같을 때만</label>
+    <label><input type="checkbox" id="rcase"> 대소문자 무시</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-replace">바꿔 보기</button>
+    <button id="btn-replace-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="repmsg"></div>
+  <div id="repout"></div>
 </section>
 
 <section class="card" data-panel="고치기" hidden>
@@ -1348,6 +1480,67 @@ BODY = """
     } catch (e) { AT.message($("simmsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-outliers").addEventListener("click", async function () {
+    try {
+      const b = values();
+      b.ocol = $("ocol").value; b.omethod = $("omethod").value;
+      b.ofactor = $("ofactor").value;
+      const d = await AT.call("/api/sheet/outliers", b);
+      $("outout").innerHTML = (d.note
+          ? '<div class="empty">' + AT.esc(d.note) + "</div>"
+          : '<p class="note">' + AT.esc(d.how) + " · 가운데 " +
+            AT.esc(d.middle) + " · 보통 범위 " + AT.esc(d.range) + "</p>" +
+            (d.count
+              ? AT.table(["행", "값", "어느 쪽"], d.rows, ["num", "num", null])
+              : '<div class="empty">범위를 벗어난 값이 없습니다.</div>')) +
+        AT.command(d.command);
+      AT.message($("outmsg"), d.note ? AT.esc(d.note)
+        : (d.count ? "숫자 " + d.counted + "개 가운데 <b>" + d.count +
+                     "개</b>가 드뭅니다. 원본에서 확인하세요."
+                   : "숫자 " + d.counted + "개, 드문 값 없음"),
+        d.count ? "bad" : "ok");
+    } catch (e) { AT.message($("outmsg"), AT.esc(e.message), "bad"); }
+  });
+
+  function replaceValues() {
+    const b = values();
+    b.rfind = $("rfind").value; b.rto = $("rto").value;
+    b.rcols = $("rcols").value; b.rexact = $("rexact").checked;
+    b.rcase = $("rcase").checked;
+    return b;
+  }
+
+  function drawReplace(d) {
+    $("repout").innerHTML =
+      '<p class="note">' + d.changed + "칸(" + d.changed_rows + "행) 바뀜" +
+      (d.columns.length ? " · 바뀐 열: " + d.columns.map(AT.esc).join(", ") : "") +
+      (d.skipped ? " · 숫자·날짜 칸 " + d.skipped +
+        "개는 건드리지 않았습니다" : "") + "</p>" +
+      AT.table(d.headers, d.rows) + AT.command(d.command);
+  }
+
+  $("btn-replace").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/replace_preview", replaceValues());
+      drawReplace(d);
+      AT.message($("repmsg"), d.changed
+        ? "이대로 저장할 수 있습니다." : "찾지 못했습니다.", d.changed ? "ok" : "");
+      $("btn-replace-save").disabled = d.changed === 0;
+    } catch (e) {
+      AT.message($("repmsg"), AT.esc(e.message), "bad");
+      $("btn-replace-save").disabled = true;
+    }
+  });
+
+  $("btn-replace-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/replace_save", replaceValues());
+      drawReplace(d);
+      AT.message($("repmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("btn-replace-save").disabled = true;
+    } catch (e) { AT.message($("repmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function datesValues() {
     const b = values();
     b.dcol = $("dcol").value;
@@ -1530,6 +1723,7 @@ BODY = """
       options($("mcol"), data.headers, "");
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
+      options($("ocol"), data.headers, "");
       options($("dkey"), data.headers, "고르지 않음");
       options($("wcol"), data.headers, "고르지 않음");
       options($("scol"), data.headers, "정렬 안 함");
@@ -1612,7 +1806,9 @@ def make() -> App:
                  "collect_save": collect_save,
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
-                 "similar": similar,
+                 "similar": similar, "outliers": outliers,
+                 "replace_preview": replace_preview,
+                 "replace_save": replace_save,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

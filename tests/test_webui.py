@@ -501,6 +501,48 @@ class SheetAppTest(UiCase):
         self.assertIn("(날짜)", data["saved"])
         self.assertEqual(path.read_text(encoding="utf-8"), before)
 
+    def numbers(self):
+        rows = "\n".join(str(v) for v in
+                         [100, 105, 98, 102, 99, 101, 103, 97, 0, 100000])
+        return self.csv("금액.csv", "금액\n" + rows + "\n")
+
+    def test_outliers_finds_both_ends(self):
+        _, data = self.post("/api/sheet/outliers",
+                            {"path": str(self.numbers()), "ocol": "금액"})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["counted"], 10)
+        self.assertEqual({r[2] for r in data["rows"]}, {"높음", "낮음"})
+
+    def test_outliers_says_when_there_is_too_little(self):
+        path = self.csv("적은것.csv", "금액\n1\n2\n3\n")
+        _, data = self.post("/api/sheet/outliers",
+                            {"path": str(path), "ocol": "금액"})
+        self.assertIn("말할 수 없습니다", data["note"])
+        self.assertEqual(data["rows"], [])
+
+    def test_replace_leaves_numbers_alone(self):
+        path = self.csv("부서.csv", "부서,금액\n영업1팀,1000\n개발팀,2000\n")
+        _, data = self.post("/api/sheet/replace_preview",
+                            {"path": str(path), "rfind": "1000", "rto": "X"})
+        self.assertEqual(data["changed"], 0)
+        self.assertEqual(data["skipped"], 1)
+
+    def test_replace_save_keeps_the_original(self):
+        path = self.csv("부서.csv", "부서\n영업1팀\n")
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/replace_save",
+                            {"path": str(path), "rfind": "영업1팀",
+                             "rto": "세일즈1팀"})
+        self.assertIn("(바꾼)", data["saved"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def test_replace_with_nothing_found(self):
+        path = self.csv("부서.csv", "부서\n영업1팀\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/replace_save",
+                      {"path": str(path), "rfind": "없는값", "rto": "가"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def merged(self):
         return self.csv("병합.csv",
                         "부서,이름,금액\n영업,홍길동,100\n,김철수,200\n"
@@ -2120,6 +2162,21 @@ class CommandHintTest(UiCase):
                            {"cfolder": str(room), "cells": "B3=담당자",
                             "cglob": "*.csv"})
         self.accepts(got["command"])
+
+    def test_sheet_outliers_and_replace_commands(self):
+        path = self.work / "금액.csv"
+        path.write_text("금액,부서\n" + "\n".join(
+            f"{v},영업1팀" for v in [100, 105, 98, 102, 99, 101, 103, 97, 0]) + "\n",
+            encoding="utf-8")
+        _, found = self.post("/api/sheet/outliers",
+                             {"path": str(path), "ocol": "금액",
+                              "omethod": "sigma", "ofactor": "2"})
+        self.accepts(found["command"])
+        _, changed = self.post("/api/sheet/replace_preview",
+                               {"path": str(path), "rfind": "영업1팀",
+                                "rto": "세일즈1팀", "rcols": "부서",
+                                "rexact": True})
+        self.accepts(changed["command"])
 
     def test_sheet_dates_command(self):
         path = self.work / "주문.csv"
