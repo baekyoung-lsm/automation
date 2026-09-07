@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 # ------------------------------------------------------------ 숫자 읽기
@@ -863,3 +863,61 @@ def annual_leave(joined: date, on: date | None = None) -> Annual:
     return Annual(joined, on, 0, months, months,
                   f"1년 미만 - 한 달 개근마다 하루 (최대 {MAX_MONTHLY}일)",
                   nxt, months + 1 if months < MAX_MONTHLY else annual_days(1))
+
+
+# ----------------------------------------------------------------- 퇴직금
+
+SEVERANCE_MIN_DAYS = 365     # 계속근로 1년 이상이어야 법정 퇴직금이 생긴다
+
+
+@dataclass
+class Severance:
+    joined: date
+    left: date
+    worked_days: int          # 재직일수 (퇴사일 포함하지 않는다)
+    window_days: int          # 평균임금을 낸 3개월의 달력 일수
+    base_pay: float           # 그 3개월에 받은 임금 총액 (더한 것 포함)
+    daily: float              # 1일 평균임금
+    ordinary_daily: float     # 1일 통상임금 (준 경우에만)
+    used_daily: float         # 실제로 쓴 1일 임금
+    amount: float             # 퇴직금 (세전)
+    eligible: bool            # 1년을 채웠는가
+    notes: list[str] = field(default_factory=list)
+
+
+def severance_pay(joined: date, left: date, *, base_pay: float,
+                  bonus: float = 0.0, leave_pay: float = 0.0,
+                  ordinary_daily: float = 0.0) -> Severance:
+    """법정 퇴직금(세전). 근로자퇴직급여 보장법 제8조 기준.
+
+    평균임금 = 퇴직 전 3개월 임금총액 / 그 기간의 달력 일수. 연간 상여금과
+    전년도 연차수당은 3/12 만 더한다. 통상임금이 더 크면 그쪽을 쓴다.
+
+    실제 지급액은 회사 규정·퇴직연금 운용 결과에 따라 달라진다. 여기서
+    세금은 빼지 않는다 - 퇴직소득세는 근속연수공제 등이 얽혀 있어 이 자리에서
+    맞출 수 없다.
+    """
+    if left <= joined:
+        raise ValueError("퇴사일이 입사일보다 뒤여야 합니다.")
+    if base_pay < 0 or bonus < 0 or leave_pay < 0:
+        raise ValueError("임금은 0 보다 작을 수 없습니다.")
+
+    worked = (left - joined).days
+    window_start = _add_months(left, -3)
+    window = (left - window_start).days
+    total = base_pay + bonus * 3 / 12 + leave_pay * 3 / 12
+    daily = total / window if window else 0.0
+    used = max(daily, ordinary_daily) if ordinary_daily else daily
+
+    notes = []
+    if ordinary_daily and ordinary_daily > daily:
+        notes.append("통상임금이 평균임금보다 커서 통상임금으로 계산했습니다.")
+    if bonus or leave_pay:
+        notes.append("연간 상여금과 연차수당은 3/12 만 더했습니다.")
+
+    eligible = worked >= SEVERANCE_MIN_DAYS
+    amount = used * 30 * worked / 365 if eligible else 0.0
+    if not eligible:
+        notes.append("계속근로 1년 미만이라 법정 퇴직금은 생기지 않습니다.")
+    return Severance(joined, left, worked, window, total, daily,
+                     ordinary_daily, used, amount, eligible, notes)

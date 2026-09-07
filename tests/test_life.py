@@ -410,5 +410,60 @@ class AnnualLeaveTest(unittest.TestCase):
             life.annual_leave(self.date(2026, 3, 1), self.date(2026, 2, 28))
 
 
+class SeveranceTest(unittest.TestCase):
+    def setUp(self):
+        from datetime import date
+
+        self.date = date
+
+    def test_basic_formula(self):
+        got = life.severance_pay(self.date(2021, 3, 2), self.date(2026, 9, 1),
+                                 base_pay=15_000_000)
+        self.assertEqual(got.worked_days, 2009)
+        self.assertEqual(got.window_days, 92)          # 6·7·8월 달력 일수
+        self.assertAlmostEqual(got.daily, 15_000_000 / 92, places=6)
+        self.assertAlmostEqual(got.amount, got.daily * 30 * 2009 / 365, places=4)
+
+    def test_bonus_counts_only_three_twelfths(self):
+        plain = life.severance_pay(self.date(2021, 3, 2), self.date(2026, 9, 1),
+                                   base_pay=15_000_000)
+        with_bonus = life.severance_pay(self.date(2021, 3, 2), self.date(2026, 9, 1),
+                                        base_pay=15_000_000, bonus=4_000_000)
+        self.assertAlmostEqual(with_bonus.base_pay - plain.base_pay,
+                               4_000_000 * 3 / 12, places=6)
+
+    def test_ordinary_wage_wins_when_bigger(self):
+        got = life.severance_pay(self.date(2021, 3, 2), self.date(2026, 9, 1),
+                                 base_pay=15_000_000, ordinary_daily=200_000)
+        self.assertEqual(got.used_daily, 200_000)
+        self.assertTrue(any("통상임금" in n for n in got.notes))
+
+    def test_ordinary_wage_ignored_when_smaller(self):
+        got = life.severance_pay(self.date(2021, 3, 2), self.date(2026, 9, 1),
+                                 base_pay=15_000_000, ordinary_daily=100_000)
+        self.assertAlmostEqual(got.used_daily, got.daily, places=6)
+
+    def test_under_one_year_gets_nothing(self):
+        got = life.severance_pay(self.date(2026, 3, 2), self.date(2026, 9, 1),
+                                 base_pay=9_000_000)
+        self.assertFalse(got.eligible)
+        self.assertEqual(got.amount, 0.0)
+        self.assertTrue(any("1년 미만" in n for n in got.notes))
+
+    def test_exactly_one_year_counts(self):
+        got = life.severance_pay(self.date(2025, 3, 2), self.date(2026, 3, 2),
+                                 base_pay=9_000_000)
+        self.assertEqual(got.worked_days, 365)
+        self.assertTrue(got.eligible)
+
+    def test_bad_input(self):
+        with self.assertRaises(ValueError):
+            life.severance_pay(self.date(2026, 3, 2), self.date(2026, 3, 2),
+                               base_pay=1)
+        with self.assertRaises(ValueError):
+            life.severance_pay(self.date(2020, 1, 1), self.date(2026, 1, 1),
+                               base_pay=-1)
+
+
 if __name__ == "__main__":
     unittest.main()

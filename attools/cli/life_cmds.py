@@ -393,6 +393,51 @@ def cmd_life_cal(a) -> int:
     return 0
 
 
+def cmd_life_severance(a) -> int:
+    """법정 퇴직금(세전). 회사 규정과 퇴직연금 운용 결과는 다를 수 있다."""
+    try:
+        joined = life.parse_date(a.joined)
+        left = life.parse_date(a.left)
+    except ValueError as e:
+        _p(f"날짜를 읽지 못했습니다: {e}")
+        return 1
+    try:
+        got = life.severance_pay(
+            joined, left,
+            base_pay=life.parse_amount(a.pay),
+            bonus=life.parse_amount(a.bonus) if a.bonus else 0.0,
+            leave_pay=life.parse_amount(a.leave_pay) if a.leave_pay else 0.0,
+            ordinary_daily=(life.parse_amount(a.ordinary) if a.ordinary else 0.0))
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    years, days = divmod(got.worked_days, 365)
+    _p(f"입사 {got.joined}  퇴사 {got.left}  재직 {got.worked_days:,}일 "
+       f"({years}년 {days}일)")
+    _grid(["항목", "값"],
+          [["3개월 임금총액", life.format_won(got.base_pay)],
+           ["그 기간의 일수", f"{got.window_days}일"],
+           ["1일 평균임금", life.format_won(got.daily)]]
+          + ([["1일 통상임금", life.format_won(got.ordinary_daily)]]
+             if got.ordinary_daily else [])
+          + [["계산에 쓴 1일 임금", life.format_won(got.used_daily)]], limit=30)
+
+    if got.eligible:
+        _p(f"\n퇴직금(세전)  {life.format_won(got.amount)}")
+        _p(f"  {life.format_won(got.used_daily)} x 30일 x "
+           f"{got.worked_days:,}/365")
+    else:
+        _p("\n퇴직금  없음")
+
+    for note in got.notes:
+        _p(f"  {note}")
+    _p("\n근로자퇴직급여 보장법 제8조 기준입니다.")
+    _p("  퇴직소득세는 빼지 않았습니다. 근속연수공제가 얽혀 있어 여기서 못 맞춥니다.")
+    _p("  퇴직연금(DC)에 든 회사는 운용 결과에 따라 실제 금액이 달라집니다.")
+    return 0
+
+
 def cmd_life_annual(a) -> int:
     """연차 일수. 회사 규정이 아니라 법이 정한 최소치를 센다."""
     try:
@@ -526,6 +571,18 @@ def add_commands(sub) -> None:
     ln.add_argument("--table", type=int, default=0, metavar="회차",
                     help="상환표 출력 (-1 이면 전체)")
     ln.set_defaults(func=cmd_life_loan)
+
+    sv = lp.add_parser("severance", help="퇴직금 계산 (평균임금 기준, 세전)")
+    sv.add_argument("joined", metavar="입사일")
+    sv.add_argument("left", metavar="퇴사일")
+    sv.add_argument("--pay", required=True, metavar="금액",
+                    help="퇴직 전 3개월에 받은 임금 총액 (예: 1500만)")
+    sv.add_argument("--bonus", metavar="금액", help="연간 상여금 (3/12 만 더한다)")
+    sv.add_argument("--leave-pay", metavar="금액",
+                    help="전년도 연차수당 (3/12 만 더한다)")
+    sv.add_argument("--ordinary", metavar="금액",
+                    help="1일 통상임금 - 평균임금보다 크면 이쪽으로 계산한다")
+    sv.set_defaults(func=cmd_life_severance)
 
     an = lp.add_parser("annual", help="연차 일수 - 입사일 기준 (근로기준법 제60조)")
     an.add_argument("joined", metavar="입사일", help="예: 2023-03-02")
