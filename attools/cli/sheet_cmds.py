@@ -939,6 +939,53 @@ def cmd_sheet_split(a) -> int:
     return 0
 
 
+def cmd_sheet_unbook(a) -> int:
+    """엑셀 한 파일의 시트들을 파일로 나눈다 (at sheet book 의 반대)."""
+    source = Path(a.file)
+    if not source.is_file():
+        _p(f"파일이 없습니다: {source}")
+        return 1
+    if source.suffix.lower() not in sheet.XLSX_SUFFIXES:
+        _p(f"엑셀 파일이 아닙니다: {source.suffix or '확장자 없음'}")
+        return 1
+
+    try:
+        infos = sheet.describe_sheets(source, header_row=a.header_row - 1)
+    except sheet.SheetError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    out_dir = Path(a.out) if a.out else source.parent
+    suffix = a.format if a.format.startswith(".") else "." + a.format
+    _p(f"{source.name}  시트 {len(infos)}개 -> {out_dir}")
+
+    made = 0
+    for info in infos:
+        safe = hangul.sanitize_filename(f"{source.stem}-{info.name}{suffix}")
+        target = out_dir / safe
+        if info.error:
+            _p(f"  건너뜀  {info.name}  ({info.error})")
+            continue
+        if info.rows == 0 and not info.headers:
+            _p(f"  건너뜀  {info.name}  (비어 있음)")
+            continue
+        if not a.apply:
+            _p(f"  [미리보기] {target.name}  {info.rows:,}행 x {info.columns}열")
+            made += 1
+            continue
+        table = sheet.load(source, sheet=info.name, header_row=a.header_row - 1)
+        sheet.save(table, target, sheet_name=info.name)
+        _p(f"  {target}  {info.rows:,}행")
+        made += 1
+
+    if not made:
+        _p("\n낼 것이 없습니다.")
+        return 1
+    if not a.apply:
+        _p("\n실제로 저장하려면 --apply 를 붙이세요.")
+    return 0
+
+
 def cmd_sheet_fill(a) -> int:
     t = _load(a)
     if t is None:
@@ -1667,6 +1714,15 @@ def add_commands(sub) -> None:
                     help="파일 여러 개 대신 한 xlsx 의 시트로 나눈다")
     sl.add_argument("--apply", action="store_true")
     sl.set_defaults(func=cmd_sheet_split)
+
+    ub = sh.add_parser("unbook", help="엑셀의 시트들을 파일로 나누기 (book 의 반대)")
+    ub.add_argument("file")
+    ub.add_argument("-o", "--out", metavar="폴더", help="기본은 원본 옆")
+    ub.add_argument("--format", default=".xlsx", metavar="확장자",
+                    help="csv 로 내려면 --format csv (기본 xlsx)")
+    ub.add_argument("--header-row", type=int, default=1, metavar="행")
+    ub.add_argument("--apply", action="store_true", help="실제로 파일을 만든다")
+    ub.set_defaults(func=cmd_sheet_unbook)
 
     fl = common(sh.add_parser("fill", help="명단 + 틀 -> 개인별 문서 (메일 머지)"))
     fl.add_argument("file", metavar="명단파일")

@@ -251,6 +251,13 @@ class SmokeTest(unittest.TestCase):
                      "-o", self.path("통합.xlsx"))
         self.assertIn("직원", self.run_cli("sheet", "sheets",
                                           self.path("명단.xlsx")))
+        나눔 = self.run_cli("sheet", "unbook", self.path("통합.xlsx"),
+                           "-o", self.path("나눈것"))
+        self.assertIn("미리보기", 나눔)            # 기본은 미리보기다
+        self.assertFalse(Path(self.path("나눈것")).exists())
+        self.run_cli("sheet", "unbook", self.path("통합.xlsx"),
+                     "-o", self.path("나눈것"), "--apply")
+        self.assertTrue(list(Path(self.path("나눈것")).glob("*.xlsx")))
         self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,
                                            "--date", "입사일", "--number", "연봉"))

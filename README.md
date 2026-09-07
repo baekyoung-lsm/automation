@@ -648,6 +648,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet row <파일> --eq <열=값>` | 한 행을 세로로 보기 (열이 많아 가로로 안 보일 때) |
 | `at sheet find <값> <파일\|폴더…>` | 여러 엑셀·csv에서 값 찾기 — 어느 파일 어느 시트 몇 행인지 |
 | `at sheet book <파일들> -o 통합.xlsx` | 여러 파일을 한 엑셀의 여러 시트로 (split 의 반대) |
+| `at sheet unbook <파일>` | 엑셀의 시트들을 파일로 나눈다 (book 의 반대) |
 | `at sheet sheets <파일>` | 엑셀 안의 시트 목록 — 시트마다 행·열 수와 머리글 |
 | `at sheet format <파일> --phone <열>` | 열 표기 통일 — 전화번호·사업자번호·우편번호·날짜·숫자. 규칙을 모르는 값은 손대지 않고 몇 행인지 알려 준다 |
 | `at sheet mask <파일> --name <열>` | 개인정보를 가린 사본 (이름·전화·이메일·주민번호·계좌·주소) |
@@ -718,6 +719,7 @@ at sheet total 매출.xlsx -c 금액 -o 합계본.xlsx
 at sheet total 근태.csv -c 근무시간 --kind avg --label 평균근무
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 전체.xlsx --by 부서 --sheets 부서별.xlsx --apply   # 한 파일 여러 탭
+at sheet unbook 통합.xlsx -o 부서별/ --apply     # 시트마다 파일 하나로
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때
 curl -s https://api.example.com/users | at sheet from-json - -o 사용자.xlsx
 at sheet from-json 응답.json --path data.users -o 표.csv
