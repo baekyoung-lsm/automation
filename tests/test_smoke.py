@@ -322,6 +322,10 @@ class SmokeTest(unittest.TestCase):
                                                  "--cols", "이름,부서", "--into", "표시"))
         self.assertIn("열 구조가 같습니다",
                       self.run_cli("sheet", "diff", csv, csv, "--columns"))
+        내역 = self.path("변경내역.csv")
+        self.run_cli("sheet", "diff", csv, self.path("급여.csv"),
+                     "--key", "사번", "-o", 내역, expect=1)
+        self.assertIn("무엇", Path(내역).read_text(encoding="utf-8-sig"))
         시트견줌 = self.run_cli("sheet", "diff", self.path("명단.xlsx"),
                              "--sheet", "직원", "--other-sheet", "직원",
                              "--key", "사번")

@@ -816,6 +816,18 @@ def cmd_sheet_diff(a) -> int:
         _grid([a.key, "열", "이전", "이후"],
               [[k, col, f'"{sheet.to_text(b)}"', f'"{sheet.to_text(x)}"']
                for k, col, b, x in d.changed[:a.limit]])
+
+    if a.out:
+        rows: list[list] = []
+        for row in d.added:
+            rows.append(["추가", sheet.to_text(row[key_i]), "", "", ""])
+        bkey = before.index_of(a.key)
+        for row in d.removed:
+            rows.append(["삭제", sheet.to_text(row[bkey]), "", "", ""])
+        for k, col, b, x in d.changed:
+            rows.append(["바뀜", k, col, b, x])
+        table = sheet.Table(["무엇", a.key, "열", "이전", "이후"], rows)
+        _p(f"\n저장: {sheet.save(table, Path(a.out))}  ({len(rows):,}건)")
     return 1
 
 
@@ -1855,6 +1867,8 @@ def add_commands(sub) -> None:
     df.add_argument("--columns", action="store_true",
                     help="행 대신 열 구조만 비교 (키가 없어도 된다)")
     df.add_argument("--limit", type=int, default=20)
+    df.add_argument("-o", "--out", metavar="파일",
+                    help="변경 내역을 표로 저장 (추가·삭제·바뀜)")
     df.set_defaults(func=cmd_sheet_diff)
 
     pv = common(sh.add_parser("pivot", help="그룹별 집계·교차표"))
