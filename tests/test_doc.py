@@ -406,5 +406,52 @@ class DocIndexTest(unittest.TestCase):
         self.assertIn("- [설치](#설치)", new)
 
 
+class MergeTest(unittest.TestCase):
+    def test_shift_moves_headings_down(self):
+        body, deep = mdkit.shift_headings("# 가\n\n## 나\n", 1)
+        self.assertEqual(body, "## 가\n\n### 나")
+        self.assertEqual(deep, 0)
+
+    def test_shift_leaves_code_blocks_alone(self):
+        text = "# 가\n\n```\n# 주석\n```\n"
+        body, _deep = mdkit.shift_headings(text, 1)
+        self.assertIn("# 주석", body)
+        self.assertIn("## 가", body)
+
+    def test_cannot_go_past_six_levels(self):
+        body, deep = mdkit.shift_headings("###### 깊은 제목\n", 1)
+        self.assertEqual(deep, 1)
+        self.assertIn("###### 깊은 제목", body)   # 그대로 둔다
+
+    def test_no_shift_returns_the_same_text(self):
+        self.assertEqual(mdkit.shift_headings("# 가\n", 0), ("# 가\n", 0))
+
+    def test_merge_joins_with_blank_lines(self):
+        pieces = [mdkit.MergePiece("가.md", "# 가\n"),
+                  mdkit.MergePiece("나.md", "# 나\n")]
+        self.assertEqual(mdkit.merge_documents(pieces), "# 가\n\n# 나\n")
+
+    def test_merge_with_title_and_rule(self):
+        pieces = [mdkit.MergePiece("가.md", "# 가\n"),
+                  mdkit.MergePiece("나.md", "# 나\n")]
+        out = mdkit.merge_documents(pieces, title="합본", rule=True)
+        self.assertTrue(out.startswith("# 합본\n"))
+        self.assertIn("---", out)
+
+    def test_source_marks_are_off_by_default(self):
+        pieces = [mdkit.MergePiece("가.md", "내용\n")]
+        self.assertNotIn("가.md", mdkit.merge_documents(pieces))
+        self.assertIn("<!-- 가.md -->",
+                      mdkit.merge_documents(pieces, mark_source=True))
+
+    def test_split_then_merge_round_trip(self):
+        text = "# 문서\n\n## 가\n\n하나\n\n## 나\n\n둘\n"
+        _preface, sections = mdkit.split_sections(text, level=2)
+        pieces = [mdkit.MergePiece(f"{s.number}.md", s.body) for s in sections]
+        merged = mdkit.merge_documents(pieces)
+        self.assertIn("## 가", merged)
+        self.assertIn("## 나", merged)
+
+
 if __name__ == "__main__":
     unittest.main()

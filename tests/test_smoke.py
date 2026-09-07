@@ -484,6 +484,16 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("doc", "links", md)
         self.run_cli("doc", "check", md)
 
+        조각들 = Path(self.path("조각"))
+        조각들.mkdir(exist_ok=True)
+        (조각들 / "01.md").write_text("# 하나\n\n첫\n", encoding="utf-8")
+        (조각들 / "02.md").write_text("# 둘\n\n둘째\n", encoding="utf-8")
+        합본 = self.run_cli("doc", "merge", str(조각들), "--shift", "1",
+                          "--title", "합본", "-o", self.path("합본.md"))
+        self.assertIn("저장", 합본)
+        self.assertIn("## 하나",
+                      Path(self.path("합본.md")).read_text(encoding="utf-8"))
+
         out = self.path("쪼갠글")
         self.assertIn("--apply", self.run_cli("doc", "split", md, "-o", out))
         self.assertFalse(Path(out).exists())

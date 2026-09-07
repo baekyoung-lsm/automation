@@ -605,6 +605,58 @@ def cmd_doc_check(a) -> int:
     return 1
 
 
+def cmd_doc_merge(a) -> int:
+    """쪼개 둔 문서를 다시 하나로. at doc split 의 반대."""
+    targets: list[Path] = []
+    for name in a.files:
+        path = Path(name)
+        if path.is_dir():
+            targets += sorted(q for q in path.rglob("*.md") if q.is_file())
+        else:
+            targets.append(path)
+    missing = [p for p in targets if not p.is_file()]
+    if missing:
+        _p("파일이 없습니다: " + ", ".join(str(m) for m in missing[:5]))
+        return 1
+    if len(targets) < 2:
+        _p("합칠 파일을 두 개 이상 주세요. 폴더를 주면 그 안의 .md 를 모읍니다.")
+        return 1
+
+    pieces = []
+    deep_total = 0
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        body, too_deep = mdkit.shift_headings(body, a.shift)
+        deep_total += too_deep
+        pieces.append(mdkit.MergePiece(path.name, body, a.shift, too_deep))
+
+    merged = mdkit.merge_documents(pieces, title=a.title or "", rule=a.rule,
+                                   mark_source=a.mark_source)
+
+    _p(f"파일 {len(pieces)}개  ->  {len(merged.splitlines()):,}줄")
+    for piece in pieces[:a.limit]:
+        note = f"  (제목 {piece.too_deep}개는 더 못 내렸습니다)" if piece.too_deep else ""
+        _p(f"  {piece.name}  {len(piece.body.splitlines()):,}줄{note}")
+    if len(pieces) > a.limit:
+        _p(f"  ... {len(pieces) - a.limit}개 더")
+    if deep_total:
+        _p(f"\n제목 {deep_total}개는 6단계를 넘어 그대로 두었습니다. "
+           "--shift 를 줄이세요.")
+
+    if not a.out:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+        return 0
+    out = Path(a.out)
+    if out.exists() and not a.overwrite:
+        _p(f"\n이미 있는 파일입니다: {out} (--overwrite 로 덮어씁니다)")
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(merged, encoding="utf-8")
+    _p(f"\n저장: {out}")
+    _p("목차가 필요하면 at doc toc 로 넣으세요.")
+    return 0
+
+
 def cmd_doc_split(a) -> int:
     path = Path(a.file)
     if not path.is_file():
@@ -712,6 +764,19 @@ def add_commands(sub) -> None:
     dh.add_argument("--outline", action="store_true", help="제목 구조도 출력")
     dh.add_argument("--limit", type=int, default=40)
     dh.set_defaults(func=cmd_doc_check)
+
+    dm = dc.add_parser("merge", help="쪼개 둔 문서를 하나로 (split 의 반대)")
+    dm.add_argument("files", nargs="+", metavar="파일|폴더")
+    dm.add_argument("-o", "--out", metavar="파일")
+    dm.add_argument("--title", metavar="제목", help="맨 위에 붙일 제목")
+    dm.add_argument("--shift", type=int, default=0, metavar="단계",
+                    help="각 문서의 제목을 이만큼 내린다 (# -> ##)")
+    dm.add_argument("--rule", action="store_true", help="문서 사이에 --- 선을 넣는다")
+    dm.add_argument("--mark-source", action="store_true",
+                    help="어느 파일에서 왔는지 주석으로 남긴다")
+    dm.add_argument("--overwrite", action="store_true")
+    dm.add_argument("--limit", type=int, default=15, metavar="개")
+    dm.set_defaults(func=cmd_doc_merge)
 
     ds = dc.add_parser("split", help="긴 문서를 제목 단위 파일로 쪼개기")
     ds.add_argument("file", metavar="파일")

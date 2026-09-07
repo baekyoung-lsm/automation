@@ -215,6 +215,58 @@ class Section:
         return github_slug(self.title)
 
 
+@dataclass
+class MergePiece:
+    name: str                 # 어디서 온 것인지 (파일 이름)
+    body: str
+    shifted: int = 0          # 제목을 몇 단계 내렸나
+    too_deep: int = 0         # 6단계를 넘어 그대로 둔 제목 수
+
+
+def shift_headings(text: str, steps: int) -> tuple[str, int]:
+    """제목 수준을 steps 단계 내린다. (바뀐 글, 못 내린 제목 수)
+
+    마크다운 제목은 여섯 단계까지다. 그 아래로는 못 내리므로 그대로 두고
+    몇 개였는지 알려 준다 - 조용히 #######로 적으면 제목이 아니라 글자가 된다.
+    """
+    if steps <= 0:
+        return text, 0
+    lines = text.splitlines()
+    inside = {no for no, _line in _outside_fences(text)}
+    too_deep = 0
+    for i, line in enumerate(lines):
+        if (i + 1) not in inside:
+            continue
+        m = HEADING_RE.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1))
+        if depth + steps > 6:
+            too_deep += 1
+            continue
+        lines[i] = "#" * (depth + steps) + " " + m.group(2).strip()
+    return "\n".join(lines), too_deep
+
+
+def merge_documents(pieces: list[MergePiece], *, title: str = "",
+                    rule: bool = False, mark_source: bool = False) -> str:
+    """여러 문서를 한 문서로 잇는다. 나눠 둔 장을 합쳐 낼 때.
+
+    문서 사이는 빈 줄로 띄운다. 어디서 온 것인지 남길지는 부르는 쪽이 정한다 -
+    최종 문서에 파일 이름이 남으면 곤란한 자리가 있다.
+    """
+    out: list[str] = []
+    if title:
+        out.append(f"# {title}\n")
+    for i, piece in enumerate(pieces):
+        if i and rule:
+            out.append("---\n")
+        if mark_source:
+            out.append(f"<!-- {piece.name} -->")
+        out.append(piece.body.strip() + "\n")
+    return "\n".join(out).strip() + "\n"
+
+
 def split_sections(text: str, *, level: int = 2,
                    keep_heading: bool = True) -> tuple[str, list[Section]]:
     """제목 수준을 기준으로 쪼갠다. (첫 제목 앞의 머리말, 절 목록)"""

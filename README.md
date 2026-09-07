@@ -482,6 +482,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc links <경로…>` | 깨진 상대 경로 링크와 없는 앵커(`#제목`)를 찾는다. `--external` 이면 바깥 주소도 실제로 두드려 본다 |
 | `at doc check <경로…>` | 제목 단계 건너뜀(H2 → H4), 같은 제목 반복, H1 중복 |
 | `at doc split <파일>` | 긴 문서를 제목 단위 파일로 쪼갠다 (번호를 앞에 붙여 순서 유지) |
+| `at doc merge <파일들|폴더>` | 쪼개 둔 문서를 하나로 (split 의 반대, 제목 단계 조정) |
 | `at doc table <경로…>` | 마크다운 표의 칸 너비를 맞춘다. 한글을 두 칸으로 센다 |
 | `at doc tables <파일>` | 문서 안의 표를 csv·xlsx 로 뽑는다 |
 | `at doc images <경로…>` | 문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·안 쓰는 그림 |
@@ -500,6 +501,7 @@ at doc toc docs/ --apply --depth 2
 at doc links docs/                # 깨진 게 있으면 exit 1
 at doc check README.md --outline
 at doc split 기획서.md -o 기획서/          # 미리보기
+at doc merge 장/ --shift 1 --title 최종본 -o 합본.md
 at doc split 기획서.md -o 기획서/ --apply  # H2 마다 01-…md, 02-…md
 at doc table README.md                     # 미리보기 (차이까지)
 at doc table docs/ --apply
@@ -567,6 +569,11 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 세기 때문에 한글 표는 소스에서 어긋나 보인다. 정렬 표시(`:---`, `:-:`, `---:`)는 그대로
 두고, `\|` 로 escape 한 막대는 칸 구분으로 보지 않는다. 코드 블록 안의 표는 건드리지
 않는다. 고친 파일은 `~/.attools/text/<시각>/` 에 백업하므로 `at text undo` 로 되돌린다.
+
+`merge` 는 `split` 의 반대다. 폴더를 주면 그 안의 `.md` 를 이름순으로 모은다. `--shift` 로 각
+문서의 제목 단계를 내릴 수 있는데(`#` → `##`), **여섯 단계를 넘는 제목은 그대로 두고 몇 개인지
+알려 준다** — 조용히 `#######` 로 적으면 제목이 아니라 그냥 글자가 된다. 어디서 온 파일인지는
+`--mark-source` 를 붙일 때만 주석으로 남긴다.
 
 `split` 은 원본을 건드리지 않고 새 파일만 만든다. 쓰려는 자리에 같은 이름이 하나라도
 있으면 아무것도 쓰지 않고 멈춘다 — 덮어쓴 것을 되돌릴 방법이 없기 때문이다.
