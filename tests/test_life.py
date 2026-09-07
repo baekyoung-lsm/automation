@@ -359,5 +359,56 @@ class HolidaysBetweenTest(unittest.TestCase):
         self.assertLess(short, full)      # 공휴일을 빼먹으면 날짜가 앞당겨진다
 
 
+class AnnualLeaveTest(unittest.TestCase):
+    """연차. 다른 시험처럼 date 는 안에서 들여온다."""
+
+    def setUp(self):
+        from datetime import date
+
+        self.date = date
+
+    def test_first_year_gives_one_day_per_full_month(self):
+        got = life.annual_leave(self.date(2026, 3, 1), self.date(2026, 9, 7))
+        self.assertEqual((got.years, got.months, got.days), (0, 6, 6))
+        self.assertEqual(got.next_date, self.date(2026, 10, 1))
+
+    def test_first_month_is_not_yet_a_day(self):
+        got = life.annual_leave(self.date(2026, 3, 1), self.date(2026, 3, 31))
+        self.assertEqual(got.days, 0)
+
+    def test_first_year_stops_at_eleven(self):
+        got = life.annual_leave(self.date(2026, 3, 1), self.date(2027, 2, 28))
+        self.assertEqual(got.days, life.MAX_MONTHLY)
+        self.assertEqual(got.next_date, self.date(2027, 3, 1))   # 1년이 되는 날
+
+    def test_one_year_gives_fifteen(self):
+        got = life.annual_leave(self.date(2026, 3, 1), self.date(2027, 3, 1))
+        self.assertEqual((got.years, got.days), (1, 15))
+
+    def test_two_years_still_fifteen(self):
+        self.assertEqual(life.annual_days(2), 15)
+
+    def test_third_year_adds_one(self):
+        self.assertEqual(life.annual_days(3), 16)
+        self.assertEqual(life.annual_days(4), 16)
+        self.assertEqual(life.annual_days(5), 17)
+
+    def test_capped_at_twenty_five(self):
+        self.assertEqual(life.annual_days(21), 25)
+        self.assertEqual(life.annual_days(40), life.MAX_ANNUAL)
+
+    def test_under_one_year_has_no_annual_days(self):
+        self.assertEqual(life.annual_days(0), 0)
+
+    def test_leap_day_joiner_moves_to_march_first(self):
+        # 2월 29일이 없는 해에는 3월 1일로 본다
+        self.assertEqual(life.add_years(self.date(2024, 2, 29), 1), self.date(2025, 3, 1))
+        self.assertEqual(life.add_years(self.date(2024, 2, 29), 4), self.date(2028, 2, 29))
+
+    def test_before_joining_is_an_error(self):
+        with self.assertRaises(ValueError):
+            life.annual_leave(self.date(2026, 3, 1), self.date(2026, 2, 28))
+
+
 if __name__ == "__main__":
     unittest.main()

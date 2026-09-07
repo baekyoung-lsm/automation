@@ -393,6 +393,46 @@ def cmd_life_cal(a) -> int:
     return 0
 
 
+def cmd_life_annual(a) -> int:
+    """연차 일수. 회사 규정이 아니라 법이 정한 최소치를 센다."""
+    try:
+        joined = life.parse_date(a.joined)
+        on = life.parse_date(a.on) if a.on else None
+    except ValueError as e:
+        _p(f"날짜를 읽지 못했습니다: {e}")
+        return 1
+    try:
+        got = life.annual_leave(joined, on)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    if got.years:
+        span = f"근속 {got.years}년"
+    else:
+        span = f"근속 {got.months}개월"
+    _p(f"입사 {got.joined}  기준 {got.on}  ({span})")
+    _p(f"\n이 시점의 연차  {got.days}일")
+    _p(f"  {got.basis}")
+    if got.next_date:
+        _p(f"다음 발생  {got.next_date} ({life.weekday_ko(got.next_date)})  "
+           f"{got.next_days}일")
+
+    if a.table:
+        _p(f"\n앞으로 {a.table}년")
+        rows = []
+        for step in range(1, a.table + 1):
+            years = got.years + step
+            when = life.add_years(joined, years)
+            rows.append([f"{years}년차", str(when), f"{life.annual_days(years)}일"])
+        _grid(["근속", "그 날짜", "연차"], rows, limit=20)
+
+    _p("\n근로기준법 제60조, 입사일 기준입니다.")
+    _p("  회계연도 기준으로 운영하는 회사는 회사 규정이 우선입니다.")
+    _p("  출근율 80% 미달·휴직·중도 입퇴사는 반영하지 않았습니다.")
+    return 0
+
+
 def cmd_life_workday(a) -> int:
     from datetime import date as _date
 
@@ -486,6 +526,13 @@ def add_commands(sub) -> None:
     ln.add_argument("--table", type=int, default=0, metavar="회차",
                     help="상환표 출력 (-1 이면 전체)")
     ln.set_defaults(func=cmd_life_loan)
+
+    an = lp.add_parser("annual", help="연차 일수 - 입사일 기준 (근로기준법 제60조)")
+    an.add_argument("joined", metavar="입사일", help="예: 2023-03-02")
+    an.add_argument("--on", metavar="기준일", help="이 날 기준 (기본 오늘)")
+    an.add_argument("--table", type=int, default=0, metavar="년",
+                    help="앞으로 몇 년치를 표로")
+    an.set_defaults(func=cmd_life_annual)
 
     wd = lp.add_parser("workday", help="영업일 계산과 공휴일 목록")
     wd.add_argument("start", nargs="?", metavar="시작일")

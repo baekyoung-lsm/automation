@@ -793,3 +793,73 @@ def parse_span(text: str) -> Span:
 def work_minutes(spans: list[Span], *, rest: int = 0) -> int:
     """일한 시간에서 휴게를 뺀다. 음수가 되면 0 으로 두지 않고 그대로 알린다."""
     return sum(s.minutes for s in spans) - rest
+
+
+# ------------------------------------------------------------------- 연차
+
+MAX_ANNUAL = 25          # 근로기준법 제60조 제4항: 가산해도 25일을 넘지 않는다
+MAX_MONTHLY = 11         # 1년 미만일 때 월마다 하루씩, 열한 번까지
+
+
+@dataclass
+class Annual:
+    joined: date
+    on: date
+    years: int               # 만 근속 연수
+    months: int              # 1년 미만일 때 채운 개월 수
+    days: int                # 이 시점에 생긴 연차 일수
+    basis: str               # 어떻게 나온 수인지
+    next_date: date | None   # 다음으로 연차가 생기는 날
+    next_days: int
+
+
+def add_years(day: date, years: int) -> date:
+    """윤년 2월 29일 입사자는 3월 1일로 본다 (그 해에 2월 29일이 없다)."""
+    try:
+        return day.replace(year=day.year + years)
+    except ValueError:
+        return day.replace(year=day.year + years, month=3, day=1)
+
+
+def _add_months(day: date, months: int) -> date:
+    total = day.month - 1 + months
+    year, month = day.year + total // 12, total % 12 + 1
+    last = [31, 29 if (year % 4 == 0 and year % 100 != 0) or year % 400 == 0 else 28,
+            31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
+    return date(year, month, min(day.day, last))
+
+
+def annual_days(years: int) -> int:
+    """1년 이상 근속자의 연차 일수. 3년째부터 2년마다 하루씩 는다."""
+    if years < 1:
+        return 0
+    return min(15 + max(0, (years - 1) // 2), MAX_ANNUAL)
+
+
+def annual_leave(joined: date, on: date | None = None) -> Annual:
+    """입사일 기준 연차. 근로기준법 제60조 그대로 센다.
+
+    회계연도 기준으로 운영하는 회사가 많지만 그건 회사 규정이라 여기서
+    계산하지 않는다. 출근율 80% 미달·휴직도 반영하지 않는다 - 근태 자료 없이
+    맞출 수 없는 것을 그럴듯하게 채우면 실제 일수와 다른 답이 나온다.
+    """
+    on = on or date.today()
+    if on < joined:
+        raise ValueError("기준일이 입사일보다 앞섭니다.")
+
+    years = on.year - joined.year - ((on.month, on.day) < (joined.month, joined.day))
+    if years >= 1:
+        days = annual_days(years)
+        nxt = add_years(joined, years + 1)
+        return Annual(joined, on, years, 0, days,
+                      f"근속 {years}년차", nxt, annual_days(years + 1))
+
+    months = (on.year - joined.year) * 12 + on.month - joined.month
+    if on.day < joined.day:
+        months -= 1
+    months = max(0, min(months, MAX_MONTHLY))
+    nxt = (_add_months(joined, months + 1) if months < MAX_MONTHLY
+           else add_years(joined, 1))
+    return Annual(joined, on, 0, months, months,
+                  f"1년 미만 - 한 달 개근마다 하루 (최대 {MAX_MONTHLY}일)",
+                  nxt, months + 1 if months < MAX_MONTHLY else annual_days(1))
