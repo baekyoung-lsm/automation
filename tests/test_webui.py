@@ -2,6 +2,7 @@
 
 import json
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -1422,11 +1423,39 @@ class BrowserCheckTest(unittest.TestCase):
             "[1:1:ERROR:dbus/bus.cc:408] Failed to connect to the bus"))
 
     def test_missing_browser_is_reported_not_crashed(self):
+        """못 연 것과 열었는데 오류가 있는 것은 다르게 센다."""
         from attools.webui import check
 
-        messages = check.check_page("/없는/자리/chrome", "http://127.0.0.1:1/")
-        self.assertEqual(len(messages), 1)
-        self.assertIn("실행하지 못했습니다", messages[0])
+        messages, trouble = check.check_page("/없는/자리/chrome",
+                                             "http://127.0.0.1:1/")
+        self.assertEqual(messages, [])
+        self.assertIn("실행하지 못했습니다", trouble)
+
+    def test_timeout_is_trouble_not_an_error(self):
+        import shutil
+        import tempfile
+
+        from attools.webui import check
+
+        root = tempfile.mkdtemp()
+        try:
+            slow = pathlib.Path(root) / "느린브라우저.sh"
+            slow.write_text("#!/bin/sh\nsleep 5\n", encoding="utf-8")
+            slow.chmod(0o755)
+            messages, trouble = check.check_page(str(slow),
+                                                 "http://127.0.0.1:1/",
+                                                 timeout=0.3)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        self.assertEqual(messages, [])
+        self.assertIn("끝나지 않았습니다", trouble)
+
+    def test_screen_check_ok_flag(self):
+        from attools.webui import check
+
+        self.assertTrue(check.ScreenCheck("a", "가").ok)
+        self.assertFalse(check.ScreenCheck("a", "가", trouble="느림").ok)
+        self.assertFalse(check.ScreenCheck("a", "가", messages=["x"]).ok)
 
     def test_cli_says_so_without_a_browser(self):
         import contextlib

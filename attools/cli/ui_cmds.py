@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import threading
 import webbrowser
 
@@ -28,22 +30,30 @@ def _check(apps, port: int) -> int:
     _p(f"브라우저: {browser}")
     results = [uicheck.ScreenCheck("", "런처")] + [
         uicheck.ScreenCheck(app.key, app.name) for app in apps]
+    profile = tempfile.mkdtemp(prefix="attools-ui-")
     try:
         for result in results:
-            result.messages = uicheck.check_page(
-                browser, f"{base}/{result.key}?t={token}")
-            _p(f"  {'OK  ' if result.ok else '오류'}  {result.name}")
-            for line in result.messages[:5]:
+            result.messages, result.trouble = uicheck.check_page(
+                browser, f"{base}/{result.key}?t={token}", profile=profile)
+            mark = "OK  " if result.ok else ("못 봄" if result.trouble else "오류")
+            _p(f"  {mark}  {result.name}")
+            for line in ([result.trouble] if result.trouble else result.messages[:5]):
                 _p(f"        {line}")
     finally:
         run.server.shutdown()
         run.server.server_close()
         thread.join(timeout=5)
+        shutil.rmtree(profile, ignore_errors=True)
 
-    bad = [r for r in results if not r.ok]
+    broken = [r for r in results if r.messages]
+    missed = [r for r in results if r.trouble]
     _p("")
-    if bad:
-        _p(f"화면 {len(bad)}개에 자바스크립트 오류가 있습니다.")
+    if broken:
+        _p(f"화면 {len(broken)}개에 자바스크립트 오류가 있습니다.")
+    if missed:
+        _p(f"화면 {len(missed)}개는 열어 보지 못했습니다. "
+           "(브라우저가 느리거나 실행되지 않았습니다)")
+    if broken or missed:
         return 1
     _p(f"화면 {len(results)}개 모두 깨끗합니다.")
     return 0

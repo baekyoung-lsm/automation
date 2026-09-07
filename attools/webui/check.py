@@ -49,24 +49,33 @@ class ScreenCheck:
     key: str
     name: str
     messages: list[str] = field(default_factory=list)
+    trouble: str = ""          # 아예 열어 보지 못한 이유
 
     @property
     def ok(self) -> bool:
-        return not self.messages
+        return not self.messages and not self.trouble
 
 
-def check_page(browser: str, url: str, *, timeout: float = 30.0) -> list[str]:
-    """한 화면을 열고 콘솔 오류를 모은다."""
+def check_page(browser: str, url: str, *, timeout: float = 90.0,
+               profile: str | None = None) -> tuple[list[str], str]:
+    """한 화면을 열고 콘솔 오류를 모은다. (오류 목록, 못 연 이유)
+
+    못 연 것과 열었는데 오류가 있는 것은 다르다. 섞어서 «오류»라고 하면
+    브라우저가 느린 것을 코드 문제로 읽게 된다.
+    """
     args = [browser, "--headless", "--no-sandbox", "--disable-gpu",
             "--enable-logging=stderr", "--v=1", "--virtual-time-budget=3000",
             "--dump-dom", url]
+    if profile:
+        # 기본 프로필을 쓰면 첫 실행이 오래 걸리고 서로 잠금을 다툰다
+        args.insert(1, f"--user-data-dir={profile}")
     try:
         done = subprocess.run(args, capture_output=True, text=True,
                               timeout=timeout)
     except subprocess.TimeoutExpired:
-        return [f"브라우저가 {timeout:.0f}초 안에 끝나지 않았습니다."]
+        return [], f"브라우저가 {timeout:.0f}초 안에 끝나지 않았습니다."
     except OSError as exc:
-        return [f"브라우저를 실행하지 못했습니다: {exc}"]
+        return [], f"브라우저를 실행하지 못했습니다: {exc}"
 
     out: list[str] = []
     for line in done.stderr.splitlines():
@@ -75,4 +84,4 @@ def check_page(browser: str, url: str, *, timeout: float = 30.0) -> list[str]:
         # [pid:pid:시각:INFO:CONSOLE(줄)] "본문", source: ...
         body = line.split("] ", 1)[-1]
         out.append(body.strip())
-    return out
+    return out, ""
