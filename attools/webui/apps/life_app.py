@@ -285,6 +285,50 @@ def worktime(payload: dict) -> dict:
                     "규모와 근로 형태에 따라 달라집니다."}
 
 
+def severance(payload: dict) -> dict:
+    try:
+        joined = life.parse_date(form.text(payload, "sjoined"))
+        left = life.parse_date(form.text(payload, "sleft"))
+    except ValueError as exc:
+        raise UiError(f"날짜를 읽지 못했습니다: {exc}") from None
+    try:
+        got = life.severance_pay(
+            joined, left,
+            base_pay=_amount(payload, "spay"),
+            bonus=_amount(payload, "sbonus") if form.text(payload, "sbonus") else 0.0,
+            leave_pay=(_amount(payload, "sleave")
+                       if form.text(payload, "sleave") else 0.0),
+            ordinary_daily=(_amount(payload, "sordinary")
+                            if form.text(payload, "sordinary") else 0.0))
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    years, days = divmod(got.worked_days, 365)
+    rows = [["3개월 임금총액", life.format_won(got.base_pay)],
+            ["그 기간의 일수", f"{got.window_days}일"],
+            ["1일 평균임금", life.format_won(got.daily)]]
+    if got.ordinary_daily:
+        rows.append(["1일 통상임금", life.format_won(got.ordinary_daily)])
+    rows.append(["계산에 쓴 1일 임금", life.format_won(got.used_daily)])
+
+    args: list[object] = ["life", "severance", f"{joined:%Y-%m-%d}",
+                          f"{left:%Y-%m-%d}", "--pay", form.text(payload, "spay")]
+    for flag, key in (("--bonus", "sbonus"), ("--leave-pay", "sleave"),
+                      ("--ordinary", "sordinary")):
+        if form.text(payload, key):
+            args += [flag, form.text(payload, key)]
+
+    return {"headline": life.format_won(got.amount) if got.eligible else "없음",
+            "span": f"재직 {got.worked_days:,}일 ({years}년 {days}일)",
+            "rows": rows,
+            "notes": got.notes + [
+                "근로자퇴직급여 보장법 제8조 기준, 세전입니다.",
+                "퇴직소득세는 빼지 않았습니다. 근속연수공제가 얽혀 있어 여기서 "
+                "못 맞춥니다.",
+                "퇴직연금(DC)에 든 회사는 운용 결과에 따라 달라집니다."],
+            "command": form.command(*args)}
+
+
 def annual(payload: dict) -> dict:
     raw = form.text(payload, "joined")
     if not raw:
@@ -339,6 +383,7 @@ BODY = """
   <button data-tab="rent" aria-selected="false">전월세</button>
   <button data-tab="worktime" aria-selected="false">근무 시간</button>
   <button data-tab="annual" aria-selected="false">연차</button>
+  <button data-tab="severance" aria-selected="false">퇴직금</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
 </nav>
 
@@ -501,6 +546,31 @@ BODY = """
   <div id="annual-out"></div>
 </section>
 
+<section class="card" data-panel="severance" hidden>
+  <h2>퇴직금 얼마나 나오나</h2>
+  <p class="note">평균임금(퇴직 전 3개월 임금총액 ÷ 그 기간의 달력 일수) x 30일 x
+     재직일수 ÷ 365. 연간 상여금과 전년도 연차수당은 <b>3/12 만</b> 더합니다.
+     <b>세전</b>이고, 퇴직소득세는 빼지 않습니다.</p>
+  <div class="row">
+    <div><label for="s-joined">입사일</label>
+      <input type="text" id="s-joined" placeholder="2021-03-02" spellcheck="false"></div>
+    <div><label for="s-left">퇴사일</label>
+      <input type="text" id="s-left" placeholder="2026-09-01" spellcheck="false"></div>
+    <div><label for="s-pay">3개월 임금총액</label>
+      <input type="text" id="s-pay" placeholder="1500만" spellcheck="false"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div><label for="s-bonus">연간 상여금 (없으면 비움)</label>
+      <input type="text" id="s-bonus" spellcheck="false"></div>
+    <div><label for="s-leave">전년도 연차수당</label>
+      <input type="text" id="s-leave" spellcheck="false"></div>
+    <div><label for="s-ordinary">1일 통상임금</label>
+      <input type="text" id="s-ordinary" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-severance">계산</button></div>
+  </div>
+  <div id="severance-out"></div>
+</section>
+
 <section class="card" data-panel="won" hidden>
   <h2>계약서에 쓰는 금액 표기</h2>
   <div class="row">
@@ -539,6 +609,20 @@ BODY = """
       $("dday-out").innerHTML = big(AT.esc(d.headline)) +
         '<p class="note">' + AT.esc(d.target) + " · 만 " + d.age + "년</p>" +
         AT.table(["기념일", "날짜", "언제"], d.rows);
+    });
+  });
+
+  $("btn-severance").addEventListener("click", function () {
+    run("severance-out", "/api/life/severance",
+        { sjoined: $("s-joined").value, sleft: $("s-left").value,
+          spay: $("s-pay").value, sbonus: $("s-bonus").value,
+          sleave: $("s-leave").value, sordinary: $("s-ordinary").value },
+        function (d) {
+      $("severance-out").innerHTML = big(AT.esc(d.headline)) +
+        '<p class="note">' + AT.esc(d.span) + "</p>" +
+        AT.table(["항목", "값"], d.rows) +
+        '<p class="note">' + d.notes.map(AT.esc).join("<br>") + "</p>" +
+        AT.command(d.command);
     });
   });
 
@@ -672,7 +756,7 @@ def make() -> App:
         subtitle="숫자만 다룹니다 · 파일은 건드리지 않습니다",
         body=lambda: BODY,
         actions={"dday": dday, "split": split, "loan": loan, "unit": unit,
-                 "annual": annual,
+                 "annual": annual, "severance": severance,
                  "tax": tax, "won": won, "workday": workday,
                  "holidays": holidays, "saving": saving, "rent": rent,
                  "worktime": worktime},

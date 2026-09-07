@@ -969,6 +969,31 @@ class LifeAppTest(UiCase):
         self.assertEqual(data["formal"], "일금 일백이십오만원정")
 
 
+class LifeSeveranceTest(UiCase):
+    """퇴직금 화면. 조건을 화면에서도 밝히는지까지 본다."""
+
+    def test_amount_and_notes(self):
+        _, data = self.post("/api/life/severance",
+                            {"sjoined": "2021-03-02", "sleft": "2026-09-01",
+                             "spay": "1500만"})
+        self.assertIn("원", data["headline"])
+        self.assertTrue(any("세전" in n for n in data["notes"]))
+        self.assertTrue(any("퇴직소득세" in n for n in data["notes"]))
+
+    def test_under_one_year_says_none(self):
+        _, data = self.post("/api/life/severance",
+                            {"sjoined": "2026-03-02", "sleft": "2026-09-01",
+                             "spay": "900만"})
+        self.assertEqual(data["headline"], "없음")
+        self.assertTrue(any("1년 미만" in n for n in data["notes"]))
+
+    def test_bad_dates(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/severance",
+                      {"sjoined": "언제", "sleft": "2026-09-01", "spay": "100만"})
+        self.assertEqual(ctx.exception.code, 400)
+
+
 class TextAppTest(UiCase):
     """일괄 바꾸기 화면. 고친 뒤 되돌아오는지까지 본다."""
 
@@ -2020,6 +2045,12 @@ class CommandHintTest(UiCase):
                                  {"path": str(path),
                                   "specs": [["연락처", "전화"]]})
         self.accepts(formatted["command"])
+
+    def test_life_severance_command(self):
+        _, data = self.post("/api/life/severance",
+                            {"sjoined": "2021-03-02", "sleft": "2026-09-01",
+                             "spay": "1500만", "sbonus": "400만"})
+        self.accepts(data["command"])
 
     def test_life_annual_and_doc_docx_commands(self):
         _, annual = self.post("/api/life/annual",
