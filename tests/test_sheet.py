@@ -1799,5 +1799,90 @@ class OutlierTest(unittest.TestCase):
         self.assertEqual(sheet._quantile([], 0.5), 0.0)
 
 
+class ExcelFormulaTest(unittest.TestCase):
+    def headers(self):
+        return ["이름", "수량", "단가"]
+
+    def test_arithmetic_uses_a1_references(self):
+        self.assertEqual(sheet.excel_formula("수량*단가", self.headers(), 2),
+                         "(B2 * C2)")
+
+    def test_row_number_follows(self):
+        self.assertEqual(sheet.excel_formula("수량+1", self.headers(), 7),
+                         "(B7 + 1)")
+
+    def test_condition_becomes_if(self):
+        got = sheet.excel_formula('"A" if 수량 > 3 else "B"', self.headers(), 2)
+        self.assertEqual(got, 'IF((B2 > 3), "A", "B")')
+
+    def test_functions_are_renamed(self):
+        self.assertEqual(sheet.excel_formula("min(수량, 단가)", self.headers(), 2),
+                         "MIN(B2, C2)")
+        # 엑셀 ROUND 는 자릿수를 꼭 받는다
+        self.assertEqual(sheet.excel_formula("round(수량)", self.headers(), 2),
+                         "ROUND(B2, 0)")
+
+    def test_modulo_and_power(self):
+        self.assertEqual(sheet.excel_formula("수량 % 2", self.headers(), 2),
+                         "MOD(B2, 2)")
+        self.assertEqual(sheet.excel_formula("수량 ** 2", self.headers(), 2),
+                         "(B2 ^ 2)")
+
+    def test_quotes_in_text_are_doubled(self):
+        self.assertEqual(sheet.excel_formula('\'큰"따옴표\'', self.headers(), 2),
+                         '"큰""따옴표"')
+
+    def test_column_with_spaces_uses_braces(self):
+        headers = ["매출 합계", "수량"]
+        self.assertEqual(sheet.excel_formula("{매출 합계}/수량", headers, 3),
+                         "(A3 / B3)")
+
+    def test_things_excel_cannot_do_are_refused(self):
+        for bad in ("수량//2", "[1,2]", "sum(수량)", "1 < 수량 < 3"):
+            with self.assertRaises(sheet.SheetError):
+                sheet.excel_formula(bad, self.headers(), 2)
+
+    def test_unknown_column(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.excel_formula("없는열*2", self.headers(), 2)
+
+
+class FormulaColumnTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def table(self):
+        return sheet.Table(["수량", "단가"], [[3, 1000], [5, 2000]])
+
+    def test_cells_hold_formula_and_value(self):
+        new, _rep = sheet.add_formula_column(self.table(), "금액", "수량*단가")
+        cell = new.rows[0][2]
+        self.assertIsInstance(cell, xlsx.Formula)
+        self.assertEqual(cell.body, "(A2 * B2)")
+        self.assertEqual(cell.cached, 3000)
+
+    def test_xlsx_holds_both(self):
+        import zipfile
+
+        new, _rep = sheet.add_formula_column(self.table(), "금액", "수량*단가")
+        path = self.root / "견적.xlsx"
+        sheet.save(new, path)
+        with zipfile.ZipFile(path) as z:
+            body = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn("<f>(A2 * B2)</f>", body)
+        self.assertIn("<v>3000</v>", body)
+        # 캐시된 값이 있어 우리 리더도 숫자로 읽는다
+        self.assertEqual(xlsx.read_sheet(path)[1], [3, 1000, 3000])
+
+    def test_csv_writes_the_formula_text(self):
+        new, _rep = sheet.add_formula_column(self.table(), "금액", "수량*단가")
+        path = self.root / "견적.csv"
+        sheet.save(new, path)
+        self.assertIn("=(A2 * B2)", path.read_text(encoding="utf-8-sig"))
+
+
 if __name__ == "__main__":
     unittest.main()

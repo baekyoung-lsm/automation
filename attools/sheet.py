@@ -1281,8 +1281,8 @@ def _check_expression(tree: _ast.AST, allowed_names: set[str]) -> None:
             raise SheetError(f"'{node.id}' 는 열 이름도 함수도 아닙니다")
 
 
-def compile_expression(expression: str, headers: list[str]):
-    """수식을 확인하고 (실행 코드, 자리표시자 대응표) 를 돌려준다.
+def _alias_expression(expression: str, headers: list[str]):
+    """열 이름을 파이썬 이름으로 바꾼다. (바뀐 식, 자리표시자 대응표)
 
     열 이름에 공백이 있으면 {매출 합계} 처럼 중괄호로 감싼다.
     """
@@ -1302,6 +1302,15 @@ def compile_expression(expression: str, headers: list[str]):
             aliases[key] = header
             body = body.replace(header, key)
 
+    unknown = [aliases[k] for k in aliases if aliases[k] not in headers]
+    if unknown:
+        raise SheetError(f"없는 열: {', '.join(unknown)}")
+    return body, aliases
+
+
+def compile_expression(expression: str, headers: list[str]):
+    """수식을 확인하고 (실행 코드, 자리표시자 대응표) 를 돌려준다."""
+    body, aliases = _alias_expression(expression, headers)
     try:
         tree = _ast.parse(body, mode="eval")
     except SyntaxError as e:
@@ -1309,10 +1318,109 @@ def compile_expression(expression: str, headers: list[str]):
 
     names = {h for h in headers if h.isidentifier()} | set(aliases)
     _check_expression(tree, names)
-    unknown = [aliases[k] for k in aliases if aliases[k] not in headers]
-    if unknown:
-        raise SheetError(f"없는 열: {', '.join(unknown)}")
     return compile(tree, "<수식>", "eval"), aliases
+
+
+EXCEL_FUNCS = {"abs": "ABS", "round": "ROUND", "min": "MIN", "max": "MAX",
+               "int": "INT", "len": "LEN"}
+_EXCEL_BINOPS = {_ast.Add: "+", _ast.Sub: "-", _ast.Mult: "*", _ast.Div: "/",
+                 _ast.Pow: "^"}
+_EXCEL_COMPARE = {_ast.Eq: "=", _ast.NotEq: "<>", _ast.Lt: "<", _ast.LtE: "<=",
+                  _ast.Gt: ">", _ast.GtE: ">="}
+
+
+def excel_formula(expression: str, headers: list[str], row: int) -> str:
+    """수식을 그 행의 엑셀 수식으로 옮긴다 (= 는 빼고).
+
+    옮길 수 있는 것만 옮긴다. 파이썬에서만 되는 문법을 엑셀 수식인 척
+    적어 두면, 파일을 여는 사람 화면에서 #NAME? 이 뜬다.
+    """
+    body, aliases = _alias_expression(expression, headers)
+    try:
+        tree = _ast.parse(body, mode="eval")
+    except SyntaxError as e:
+        raise SheetError(f"수식을 읽지 못했습니다: {e.msg}") from None
+
+    letters = {h: xlsx.index_to_col(i) for i, h in enumerate(headers)}
+
+    def where(name: str) -> str:
+        header = aliases.get(name, name)
+        if header not in letters:
+            raise SheetError(f"없는 열: {header}")
+        return f"{letters[header]}{row}"
+
+    def walk(node) -> str:
+        if isinstance(node, _ast.Name):
+            return where(node.id)
+        if isinstance(node, _ast.Constant):
+            if isinstance(node.value, bool):
+                return "TRUE" if node.value else "FALSE"
+            if isinstance(node.value, (int, float)):
+                return repr(node.value)
+            if isinstance(node.value, str):
+                return '"' + node.value.replace('"', '""') + '"'
+            raise SheetError("엑셀 수식으로 옮길 수 없는 값입니다.")
+        if isinstance(node, _ast.BinOp):
+            if type(node.op) is _ast.Mod:
+                return f"MOD({walk(node.left)}, {walk(node.right)})"
+            mark = _EXCEL_BINOPS.get(type(node.op))
+            if mark is None:
+                raise SheetError("엑셀 수식으로 옮길 수 없는 연산입니다 "
+                                 "(// 같은 것은 INT(a/b) 로 적어 주세요).")
+            return f"({walk(node.left)} {mark} {walk(node.right)})"
+        if isinstance(node, _ast.UnaryOp):
+            if type(node.op) is _ast.USub:
+                return f"-{walk(node.operand)}"
+            if type(node.op) is _ast.UAdd:
+                return walk(node.operand)
+            if type(node.op) is _ast.Not:
+                return f"NOT({walk(node.operand)})"
+        if isinstance(node, _ast.BoolOp):
+            name = "AND" if isinstance(node.op, _ast.And) else "OR"
+            return name + "(" + ", ".join(walk(v) for v in node.values) + ")"
+        if isinstance(node, _ast.Compare):
+            if len(node.ops) != 1:
+                raise SheetError("비교는 한 번만 쓸 수 있습니다 (a < b < c 는 안 됩니다).")
+            mark = _EXCEL_COMPARE.get(type(node.ops[0]))
+            if mark is None:
+                raise SheetError("엑셀 수식으로 옮길 수 없는 비교입니다.")
+            return f"({walk(node.left)} {mark} {walk(node.comparators[0])})"
+        if isinstance(node, _ast.IfExp):
+            return (f"IF({walk(node.test)}, {walk(node.body)}, "
+                    f"{walk(node.orelse)})")
+        if isinstance(node, _ast.Call):
+            if not isinstance(node.func, _ast.Name) or node.func.id not in EXCEL_FUNCS:
+                raise SheetError("엑셀 수식으로 옮길 수 없는 함수입니다 "
+                                 f"(되는 것: {', '.join(EXCEL_FUNCS)})")
+            if node.keywords:
+                raise SheetError("엑셀 수식에는 이름 붙인 인자를 쓸 수 없습니다.")
+            args = ", ".join(walk(a) for a in node.args)
+            if node.func.id == "round" and len(node.args) == 1:
+                args += ", 0"          # 엑셀 ROUND 는 자릿수를 꼭 받는다
+            return f"{EXCEL_FUNCS[node.func.id]}({args})"
+        raise SheetError("엑셀 수식으로 옮길 수 없는 식입니다.")
+
+    return walk(tree.body)
+
+
+def add_formula_column(table: Table, name: str, expression: str
+                       ) -> tuple[Table, FxReport]:
+    """계산 «결과» 대신 엑셀 수식을 넣은 열을 붙인다.
+
+    받는 사람이 숫자를 고치면 엑셀이 다시 계산한다. 값으로 넣어 두면 원본이
+    바뀌어도 그대로 남아 조용히 틀린 표가 된다.
+    """
+    computed, report = add_column(table, name, expression)   # 지금 값도 함께 넣는다
+    target = computed.headers.index(name)
+
+    rows = []
+    for number, row in enumerate(computed.rows, 2):
+        row = list(row)
+        body = excel_formula(expression, table.headers, number)
+        row[target] = xlsx.Formula(body, row[target])
+        rows.append(row)
+    return Table(list(computed.headers), rows, source=table.source,
+                 sheet=table.sheet), report
 
 
 def add_column(table: Table, name: str, expression: str, *,

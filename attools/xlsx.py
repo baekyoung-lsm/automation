@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import zipfile
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -301,7 +302,33 @@ STYLES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 STYLE_PLAIN, STYLE_HEADER, STYLE_DATE, STYLE_DATETIME = 0, 1, 2, 3
 
 
+@dataclass(frozen=True)
+class Formula:
+    """셀에 넣을 엑셀 수식. body 에는 «=» 를 빼고 담는다.
+
+    지금 계산한 값(cached)도 함께 넣는다. 그 값이 없으면 엑셀이 파일을 열어
+    다시 계산하기 전까지 빈 칸으로 보이고, 우리 리더도 빈 칸으로 읽는다.
+    값을 고치면 엑셀이 그때 다시 계산하므로 낡은 값이 남지는 않는다.
+    """
+    body: str
+    cached: object = None
+
+    def __str__(self) -> str:
+        return "=" + self.body
+
+
 def _cell_xml(ref: str, value, style: int) -> str:
+    if isinstance(value, Formula):
+        body = f'<c r="{ref}" s="{style}"><f>{_esc(value.body)}</f>'
+        if isinstance(value.cached, bool):
+            return body + f"<v>{int(value.cached)}</v></c>"
+        if isinstance(value.cached, (int, float)):
+            return body + f"<v>{value.cached!r}</v></c>"
+        if value.cached is not None and value.cached != "":
+            return (f'<c r="{ref}" s="{style}" t="str"><f>{_esc(value.body)}</f>'
+                    f"<v>{_esc(str(value.cached))}</v></c>")
+        return body + "</c>"
+
     if value is None or value == "":
         return f'<c r="{ref}" s="{style}"/>' if style else ""
     if isinstance(value, bool):

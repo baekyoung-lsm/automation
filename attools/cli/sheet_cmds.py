@@ -1501,8 +1501,12 @@ def cmd_sheet_fx(a) -> int:
             _p("  예: --add '월급=연봉/12'  --add '등급=\"A\" if 연봉>5000만 else \"B\"'")
             return 1
         try:
-            t, report = sheet.add_column(t, name.strip(), expression.strip(),
-                                         digits=a.round)
+            if a.formula:
+                t, report = sheet.add_formula_column(t, name.strip(),
+                                                     expression.strip())
+            else:
+                t, report = sheet.add_column(t, name.strip(), expression.strip(),
+                                             digits=a.round)
         except sheet.SheetError as e:
             _p(f"{name.strip()}: {e}")
             return 1
@@ -1522,6 +1526,14 @@ def cmd_sheet_fx(a) -> int:
           limit=a.width)
     if len(t.rows) > a.rows:
         _p(f"  ... {len(t.rows) - a.rows:,}행 더")
+
+    if a.formula:
+        _p("\n수식으로 넣었습니다. 위 표에 보이는 것은 넣은 수식이고, "
+           "파일에는 지금 계산한 값도 함께 들어가 엑셀에서 바로 보입니다. "
+           "값을 고치면 엑셀이 다시 계산합니다.")
+        if a.out and Path(a.out).suffix.lower() not in sheet.XLSX_SUFFIXES:
+            _p("  csv 로 내면 수식이 «=...» 글자로 들어갑니다. "
+               "엑셀에서 열면 수식으로 읽히지만, 다른 프로그램에서는 글자입니다.")
 
     if a.out:
         _p(f"\n저장: {sheet.save(t, Path(a.out))}")
@@ -2026,6 +2038,8 @@ def add_commands(sub) -> None:
     fx.add_argument("file")
     fx.add_argument("--add", action="append", required=True, metavar="새열=수식",
                     help="예: '월급=연봉/12'. 여러 번 주면 순서대로 계산한다")
+    fx.add_argument("--formula", action="store_true",
+                    help="값 대신 엑셀 수식을 넣는다 (받는 쪽에서 다시 계산되게)")
     fx.add_argument("--round", type=int, default=None, metavar="자리",
                     help="숫자 결과를 이 자리에서 반올림")
     fx.add_argument("-o", "--out", metavar="파일")

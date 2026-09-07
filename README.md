@@ -295,6 +295,13 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
 재야 하기 때문이다.
 
+`fx --formula` 는 계산 **결과** 대신 엑셀 수식을 넣는다(`금액` 열에 `=(A2 * B2)`). 받는 사람이
+수량을 고치면 엑셀이 다시 계산한다 — 값으로 넣어 두면 원본이 바뀌어도 그대로 남아 조용히 틀린
+표가 된다. 지금 계산한 값도 함께 넣으므로 엑셀에서 바로 보이고, 우리 리더도 숫자로 읽는다.
+**엑셀에 없는 문법은 옮기지 않고 거절한다**(`//`, 리스트, 우리 계산기에만 있는 함수) — 옮긴
+척하면 파일을 여는 사람 화면에 `#NAME?` 이 뜬다. csv 로 내면 `=...` 글자로 들어가는데, 엑셀은
+수식으로 읽지만 다른 프로그램에서는 글자다.
+
 `outliers` 는 숫자 열에서 드문 값을 찾는다. 기본은 **사분위 범위(IQR)** 다 — 평균과 표준편차는
 이상치 하나에 끌려가서, 정작 그 이상치를 «보통 범위» 안으로 넣어 버린다(`--method sigma` 로
 바꿀 수 있다). 숫자가 여덟 개보다 적으면 «드문 값» 을 말할 수 없다고 하고 아무것도 내지 않는다.
@@ -741,7 +748,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
 | `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
-| `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신) |
+| `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등) |
@@ -806,6 +813,7 @@ at sheet validate 납품.csv --required 이름 --unique 사번 \
     --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
 at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
+at sheet fx 견적.xlsx --add '금액=수량*단가' --formula -o 견적본.xlsx
 at sheet dates 주문.xlsx -c 주문일 --add 연월 --add 요일 -o 피벗용.xlsx
 at sheet similar 거래처.xlsx -c 상호 -o 합칠후보.csv
 at sheet similar 명부.csv -c 이름 --threshold 0.9

@@ -345,6 +345,12 @@ class SmokeTest(unittest.TestCase):
                                    "--format", "사업자번호=사업자번호", expect=1))
         self.assertIn("월급", self.run_cli("sheet", "fx", csv,
                                            "--add", "월급=연봉/12", "--round", "0"))
+        수식본 = self.path("수식.xlsx")
+        self.run_cli("sheet", "fx", csv, "--add", "월급=연봉/12", "--formula",
+                     "-o", 수식본)
+        with zipfile.ZipFile(수식본) as z:
+            안 = z.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        self.assertIn("<f>", 안)
         out = self.path("보고서.html")
         self.run_cli("sheet", "report", csv, "--by", "부서", "--value", "연봉",
                      "-o", out)
