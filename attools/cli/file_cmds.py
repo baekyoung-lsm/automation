@@ -7,7 +7,7 @@ from pathlib import Path
 from .. import files
 from ..code import devkit
 from ..hangul import is_decomposed
-from .common import _pad, _p, _confirm, _grid, _cut
+from .common import _pad, _p, _confirm, _grid, _cut, _may_write
 
 
 DRY = "[미리보기]"
@@ -76,6 +76,8 @@ def cmd_file_list(a) -> int:
 
     total = sum(r.size for r in rows)
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         out = sheet.save(table, Path(a.out))
         _p(f"저장: {out}  (파일 {len(rows):,}개, 모두 {files.human_size(total)})")
         return 0
@@ -865,6 +867,8 @@ def cmd_file_hash(a) -> int:
 
     if a.out:
         target = Path(a.out)
+        if not _may_write(a, target):
+            return 1
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("\n".join(lines) + "\n", encoding="utf-8")
         _p(f"{len(lines):,}개 파일의 {a.algorithm} 를 적었습니다: {target}")
@@ -955,6 +959,8 @@ def add_commands(sub) -> None:
     ls = fp.add_parser("list", help="파일 목록을 표로 (엑셀에 붙일 자료 목록)")
     ls.add_argument("dir")
     ls.add_argument("-o", "--out", help="저장 경로 (.csv, .xlsx, .md)")
+    ls.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ls.add_argument("-g", "--glob", action="append", metavar="패턴",
                     help="예: -g '*.pdf' (여러 번)")
     ls.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
@@ -1083,6 +1089,8 @@ def add_commands(sub) -> None:
     pk2.add_argument("--max", default="25MB", metavar="크기",
                      help="한 묶음의 한도 (기본 25MB. 단위 없으면 MB)")
     pk2.add_argument("-o", "--out", metavar="폴더", help="기본은 그 폴더 옆")
+    pk2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     pk2.add_argument("--name", metavar="이름", help="zip 이름 앞부분 (기본 폴더 이름)")
     pk2.add_argument("-g", "--glob", action="append", metavar="패턴")
     pk2.add_argument("--hidden", action="store_true")
@@ -1097,6 +1105,8 @@ def add_commands(sub) -> None:
     ar = fp.add_parser("archive", help="오래된 파일을 zip 으로 보관")
     ar.add_argument("dir")
     ar.add_argument("-o", "--out", metavar="파일", help="기본: <디렉터리이름>-<날짜>.zip")
+    ar.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ar.add_argument("--older", type=float, default=0.0, metavar="일",
                     help="이만큼 오래된 것만 (예: 365)")
     ar.add_argument("-g", "--glob", action="append", metavar="패턴")
@@ -1143,6 +1153,8 @@ def add_commands(sub) -> None:
     ft = fp.add_parser("flatten", help="하위 폴더의 파일을 한 곳으로 모으기")
     ft.add_argument("dir", nargs="?", default=".")
     ft.add_argument("-o", "--out", metavar="디렉터리", help="기본은 그 디렉터리 자신")
+    ft.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     ft.add_argument("--keep-path", action="store_true",
                     help="폴더 이름을 파일명 앞에 붙인다")
     ft.add_argument("--sep", default="_", metavar="구분자")
@@ -1161,6 +1173,8 @@ def add_commands(sub) -> None:
     hs.add_argument("--hidden", action="store_true")
     hs.add_argument("--no-recursive", action="store_true")
     hs.add_argument("-o", "--out", metavar="파일", help="예: SHA256SUMS.txt")
+    hs.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     hs.add_argument("--check", metavar="파일", help="적어 둔 체크섬과 맞춰본다")
     hs.add_argument("--limit", type=int, default=20)
     hs.set_defaults(func=cmd_file_hash)

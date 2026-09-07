@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .. import docx, files, hangul, sheet, text
 from ..docs import report
-from .common import _p, _cut, _grid
+from .common import _p, _cut, _grid, _may_write
 
 
 def _text_targets(a, *, documents: bool = False):
@@ -165,6 +165,8 @@ def cmd_text_pick(a) -> int:
         table = sheet.Table(["종류", "값", "파일", "줄", "그 줄"],
                             [[p.kind, p.value, p.source, p.line, p.context]
                              for p in found])
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"저장: {sheet.save(table, Path(a.out))}  ({len(found):,}건)")
         return 0
 
@@ -233,6 +235,8 @@ def cmd_text_lines(a) -> int:
                 _p(f"  ... {len(rows) - a.limit:,}줄 더")
         if a.out:
             picked = result.get(a.pick, [])
+            if not _may_write(a, Path(a.out)):
+                return 1
             Path(a.out).write_text("\n".join(picked) + "\n", encoding="utf-8")
             _p(f"\n'{a.pick}' {len(picked):,}줄을 저장: {a.out}")
         return 0
@@ -260,6 +264,8 @@ def cmd_text_lines(a) -> int:
         return 0
 
     if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
         Path(a.out).write_text("\n".join(result) + "\n", encoding="utf-8")
         _p(f"\n{len(result):,}줄을 저장: {a.out}")
         return 0
@@ -319,6 +325,8 @@ def cmd_text_extract(a) -> int:
     if a.out:
         table = sheet.Table(result.headers,
                             [[sheet.parse_value(c) for c in row] for row in result.rows])
+        if not _may_write(a, Path(a.out)):
+            return 1
         _p(f"\n저장: {sheet.save(table, Path(a.out), sheet_name='추출')}")
     else:
         _p("\n표로 저장하려면 -o 로 csv 나 xlsx 를 지정하세요.")
@@ -599,6 +607,8 @@ def add_commands(sub) -> None:
                     help="쉼표로. 예: --only 이메일,전화 (기본 전부)")
     pk.add_argument("--unique", action="store_true", help="같은 값은 한 번만")
     pk.add_argument("-o", "--out", metavar="파일", help="표로 저장 (.csv, .xlsx)")
+    pk.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     pk.add_argument("--limit", type=int, default=40, metavar="개")
     pk.set_defaults(func=cmd_text_pick)
 
@@ -669,6 +679,8 @@ def add_commands(sub) -> None:
     ln2.add_argument("-i", "--ignore-case", action="store_true")
     ln2.add_argument("--blank", action="store_true", help="빈 줄도 센다")
     ln2.add_argument("-o", "--out", metavar="파일")
+    ln2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     ln2.add_argument("--limit", type=int, default=30)
     ln2.add_argument("--width", type=int, default=80, metavar="칸")
     ln2.set_defaults(func=cmd_text_lines)
@@ -719,6 +731,8 @@ def add_commands(sub) -> None:
     ex2.add_argument("files", nargs="+", metavar="파일", help="'-' 이면 표준 입력")
     ex2.add_argument("-i", "--ignore-case", action="store_true")
     ex2.add_argument("-o", "--out", metavar="파일", help="csv 또는 xlsx")
+    ex2.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     ex2.add_argument("--rows", type=int, default=15, metavar="개")
     ex2.add_argument("--width", type=int, default=22, metavar="칸")
     ex2.add_argument("-q", "--quiet", action="store_true", help="맞지 않은 줄 안내 생략")

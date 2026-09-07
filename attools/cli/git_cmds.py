@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, life, text
 from ..code import gitkit, todo
-from .common import _p, _cut, _grid
+from .common import _p, _cut, _grid, _may_write
 
 
 def _repo(a) -> Path | None:
@@ -289,6 +289,8 @@ def cmd_git_mine(a) -> int:
 
     if a.out:
         out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
         out.parent.mkdir(parents=True, exist_ok=True)
         body = [f"# {who} · {a.since} 부터", ""]
         for day, group in days:
@@ -636,6 +638,8 @@ def add_commands(sub) -> None:
                     help="커밋 링크 앞부분 (예: https://github.com/A/B/commit/)")
     rl.add_argument("--authors", action="store_true", help="기여자 목록도")
     rl.add_argument("-o", "--out", metavar="파일", help="CHANGELOG.md 맨 위에 붙인다")
+    rl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     rl.set_defaults(func=cmd_git_release)
 
     sc = gp.add_parser("scan", help="코드에 하드코딩된 시크릿·개인정보 찾기")
@@ -667,6 +671,8 @@ def add_commands(sub) -> None:
     mn.add_argument("--limit", type=int, default=5, metavar="개",
                     help="커밋마다 파일을 몇 개까지 보일지")
     mn.add_argument("-o", "--out", metavar="파일.md", help="마크다운으로 저장")
+    mn.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     mn.set_defaults(func=cmd_git_mine)
 
     hs = gp.add_parser("history", help="한 파일의 이력 - 누가 언제 무엇을 (이름 바꿔도 따라감)")

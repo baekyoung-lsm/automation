@@ -612,5 +612,52 @@ class LogSliceTest(unittest.TestCase):
         self.assertEqual(unknown, 0)
 
 
+class MaskInPlaceTest(unittest.TestCase):
+    """제자리에서 가리는 자리도 백업을 남긴다."""
+
+    def setUp(self):
+        import os
+
+        self.root = Path(tempfile.mkdtemp())
+        self.home = Path(tempfile.mkdtemp())
+        self.prev_home = os.environ.get("HOME")
+        os.environ["HOME"] = str(self.home)
+        self.log = self.root / "가릴것.log"
+        self.log.write_text("hong@example.com 이 010-1234-5678 로 로그인\n",
+                            encoding="utf-8")
+
+    def tearDown(self):
+        import os
+        import shutil as sh
+
+        if self.prev_home is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = self.prev_home
+        sh.rmtree(self.root, ignore_errors=True)
+        sh.rmtree(self.home, ignore_errors=True)
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+
+        from attools import cli
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = cli.main(list(args))
+        return code, out.getvalue()
+
+    def test_in_place_masking_can_be_undone(self):
+        before = self.log.read_text(encoding="utf-8")
+        code, out = self.run_cli("dev", "mask", str(self.log), "--in-place")
+        self.assertEqual(code, 0)
+        self.assertIn("되돌리기", out)
+        self.assertNotIn("hong@example.com", self.log.read_text(encoding="utf-8"))
+
+        self.run_cli("text", "undo")
+        self.assertEqual(self.log.read_text(encoding="utf-8"), before)
+
+
 if __name__ == "__main__":
     unittest.main()

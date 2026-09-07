@@ -775,8 +775,16 @@ def cmd_dev_mask(a) -> int:
     masked, counts = devkit.mask_text(text)
 
     if a.in_place and a.file != "-":
-        Path(a.file).write_text(masked, encoding="utf-8")
-        _p(f"{a.file} 을(를) 덮어썼습니다.")
+        # 로그를 제자리에서 고치는 자리다. 가리기는 되돌릴 수 없는 일이라
+        # 백업을 남긴다 - 원문이 필요해지는 일이 실제로 있다.
+        from .. import text as textkit
+
+        source = Path(a.file)
+        original, encoding = textkit.read_text_any(source)
+        journal = textkit.apply_changes(
+            [textkit.Change(source, original, masked, encoding, hits=1)])
+        _p(f"{a.file} 을(를) 덮어썼습니다."
+           + (f"  (되돌리기: at text undo · 백업 {journal.parent})" if journal else ""))
     else:
         sys.stdout.write(masked)
 
