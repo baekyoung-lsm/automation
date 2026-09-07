@@ -1297,6 +1297,58 @@ class FileSizeGuardTest(UiCase):
         self.assertEqual(status, 200)
 
 
+class RecentTest(UiCase):
+    """최근에 넣은 경로 기억. 화면은 실행마다 포트가 달라 서버에 둔다."""
+
+    def test_starts_empty(self):
+        _, data = self.post("/api/-/recent", {"app": "files"})
+        self.assertEqual(data["fields"], {})
+
+    def test_remembers_newest_first(self):
+        for value in ("~/다운로드", "~/사진", "~/다운로드"):
+            self.post("/api/-/remember",
+                      {"app": "files", "field": "path", "value": value})
+        _, data = self.post("/api/-/recent", {"app": "files"})
+        self.assertEqual(data["fields"]["path"], ["~/다운로드", "~/사진"])
+
+    def test_keeps_only_a_few(self):
+        for n in range(10):
+            self.post("/api/-/remember",
+                      {"app": "files", "field": "path", "value": f"/폴더{n}"})
+        _, data = self.post("/api/-/recent", {"app": "files"})
+        self.assertEqual(len(data["fields"]["path"]), 5)
+
+    def test_screens_are_kept_apart(self):
+        self.post("/api/-/remember",
+                  {"app": "files", "field": "path", "value": "/가"})
+        _, data = self.post("/api/-/recent", {"app": "sheet"})
+        self.assertEqual(data["fields"], {})
+
+    def test_unknown_screen(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/-/recent", {"app": "없는화면"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_bad_field_name(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/-/remember",
+                      {"app": "files", "field": "../탈출", "value": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_broken_store_does_not_break_the_screen(self):
+        """망가진 기록 파일 때문에 화면이 안 뜨면 안 된다."""
+        store = self.home / ".attools" / "ui-recent.json"
+        store.parent.mkdir(parents=True, exist_ok=True)
+        store.write_text("{망가짐", encoding="utf-8")
+        _, data = self.post("/api/-/recent", {"app": "files"})
+        self.assertEqual(data["fields"], {})
+
+    def test_page_defines_at_before_body_scripts(self):
+        """본문 스크립트가 불러오자마자 AT 를 쓰는 화면이 있다."""
+        _status, body = self.get("/files?t=" + self.run.token)
+        self.assertLess(body.index("window.AT"), body.index("<main>"))
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

@@ -232,7 +232,7 @@ BODY = """
   <h2>인코딩</h2>
   <div class="row">
     <div><label for="e-value">값</label>
-      <input type="text" id="e-value" spellcheck="false"></div>
+      <input type="text" id="e-value" spellcheck="false" data-forget></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-encode">바꾸기</button></div>
   </div>
   <div id="encode-out"></div>

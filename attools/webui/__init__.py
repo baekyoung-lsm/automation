@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
-from . import assets
+from . import assets, recent
 
 MAX_BODY = 1 << 20  # 1MB. 화면에서 보내는 것은 작은 JSON 뿐이다.
 
@@ -142,7 +142,8 @@ def make_handler(apps: list[App], token: str, *, only: App | None = None):
             if path == "/":
                 if only is not None:
                     self._html(200, assets.page(
-                        only.name, only.subtitle, only.body(), home=False))
+                        only.name, only.subtitle, only.body(), home=False,
+                        scope=only.key))
                     return
                 self._html(200, assets.page(
                     "attools", "내 컴퓨터에서 도는 도구",
@@ -156,7 +157,8 @@ def make_handler(apps: list[App], token: str, *, only: App | None = None):
                     "없습니다.</p></section>", home=only is None))
                 return
             self._html(200, assets.page(
-                app.name, app.subtitle, app.body(), home=only is None))
+                app.name, app.subtitle, app.body(), home=only is None,
+                scope=app.key))
 
         def do_POST(self) -> None:  # noqa: N802
             if not self._ok_post():
@@ -166,6 +168,20 @@ def make_handler(apps: list[App], token: str, *, only: App | None = None):
             parts = unquote(urlparse(self.path).path).strip("/").split("/")
             if len(parts) != 3 or parts[0] != "api":
                 self._json(404, {"error": "없는 주소입니다."})
+                return
+
+            if parts[1] == "-":                      # 화면과 상관없는 공용 동작
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > MAX_BODY:
+                    self._json(413, {"error": "보낸 내용이 너무 큽니다."})
+                    return
+                try:
+                    payload = json.loads(self.rfile.read(length) or b"{}")
+                except ValueError:
+                    self._json(400, {"error": "요청을 읽지 못했습니다."})
+                    return
+                self._json(*_common(parts[2], payload if isinstance(payload, dict) else {},
+                                    by_key))
                 return
             app = by_key.get(parts[1])
             if app is None or (only is not None and app is not only):
@@ -197,6 +213,24 @@ def make_handler(apps: list[App], token: str, *, only: App | None = None):
                 self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
 
     return Handler
+
+
+def _common(action: str, payload: dict, by_key: dict) -> tuple[int, dict]:
+    """어느 화면에나 있는 동작. 최근에 넣은 값을 기억하고 돌려준다."""
+    app = payload.get("app")
+    if not isinstance(app, str) or app not in by_key:
+        return 400, {"error": "어느 화면인지 알 수 없습니다."}
+
+    if action == "recent":
+        return 200, {"fields": recent.recent(app)}
+    if action == "remember":
+        field, value = payload.get("field"), payload.get("value")
+        if not isinstance(field, str) or not isinstance(value, str):
+            return 400, {"error": "기억할 값이 아닙니다."}
+        if not field.isidentifier() and not field.replace("_", "").isalnum():
+            return 400, {"error": "기억할 칸 이름이 아닙니다."}
+        return 200, {"values": recent.remember(app, field, value)}
+    return 404, {"error": "없는 동작입니다."}
 
 
 @dataclass

@@ -63,6 +63,7 @@ attools/
     __init__.py     127.0.0.1 서버, 열쇠(토큰) 검사, App 등록
     assets.py       CSS·JS·페이지 껍데기 (여기만 색과 글꼴을 만진다)
     form.py         화면에서 온 값 검사 (경로·숫자·선택지)
+    recent.py       최근에 넣은 경로 기억 (~/.attools/ui-recent.json)
     apps/<이름>.py   화면 하나 = 파일 하나. all_apps() 에 등록한다
 
   files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교·zip·이미지

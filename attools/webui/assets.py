@@ -133,12 +133,55 @@ window.AT = (function () {
     where.innerHTML = '<div class="msg ' + (kind || "") + '">' + text + "</div>";
   }
 
-  return { call: call, table: table, esc: esc, message: message, token: token };
+  // 화면마다 최근에 넣은 경로를 기억한다. 브라우저가 아니라 서버에 둔다 -
+  // 실행할 때마다 포트가 달라져 localStorage 는 매번 비어 있기 때문이다.
+  function remember(scope) {
+    if (!scope) return;
+    const boxes = [].slice.call(
+      document.querySelectorAll("input[type=text][id]"))
+      .filter(el => el.dataset.forget === undefined);
+    if (!boxes.length) return;
+
+    function fill(el, values) {
+      if (!values || !values.length) return;
+      let list = document.getElementById("recent-" + el.id);
+      if (!list) {
+        list = document.createElement("datalist");
+        list.id = "recent-" + el.id;
+        document.body.appendChild(list);
+      }
+      list.innerHTML = values.map(v => "<option value=\"" +
+        esc(v).replace(/"/g, "&quot;") + "\">").join("");
+      el.setAttribute("list", list.id);
+    }
+
+    call("/api/-/recent", { app: scope }).then(function (data) {
+      boxes.forEach(function (el) {
+        const values = data.fields[el.id];
+        fill(el, values);
+        if (!el.value && values && values.length) el.value = values[0];
+      });
+    }).catch(function () { /* 기억이 없어도 화면은 돈다 */ });
+
+    boxes.forEach(function (el) {
+      el.addEventListener("change", function () {
+        if (!el.value.trim()) return;
+        call("/api/-/remember",
+             { app: scope, field: el.id, value: el.value })
+          .then(function (data) { fill(el, data.values); })
+          .catch(function () {});
+      });
+    });
+  }
+
+  return { call: call, table: table, esc: esc, message: message,
+           token: token, remember: remember };
 })();
 """
 
 
-def page(title: str, subtitle: str, body: str, *, home: bool = True) -> str:
+def page(title: str, subtitle: str, body: str, *, home: bool = True,
+         scope: str = "") -> str:
     """화면 한 장. 머리글과 껍데기는 어느 화면이나 같다."""
     from html import escape
 
@@ -150,6 +193,9 @@ def page(title: str, subtitle: str, body: str, *, home: bool = True) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)} · attools</title>
 <style>{CSS}</style>
+<!-- AT 는 화면 본문의 스크립트보다 먼저 있어야 한다. 본문 스크립트가
+     불러오자마자 AT.call 을 쓰는 화면이 있다. -->
+<script>{JS}</script>
 </head>
 <body>
 <header><div class="inner">
@@ -161,7 +207,7 @@ def page(title: str, subtitle: str, body: str, *, home: bool = True) -> str:
 {body}
 </main>
 <footer>내 컴퓨터에서만 도는 화면입니다. 창을 닫고 터미널에서 Ctrl+C 를 누르면 끝납니다.</footer>
-<script>{JS}</script>
+<script>AT.remember({escape(scope)!r});</script>
 </body>
 </html>
 """
