@@ -182,8 +182,13 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
     suffix = path.suffix.lower()
 
     if suffix in XLSX_SUFFIXES:
-        grid = xlsx.read_sheet(path, sheet)
-        used_sheet = sheet or (xlsx.sheet_names(path) or [""])[0]
+        # xlsx 쪽 오류도 SheetError 로 바꿔 낸다. 시트 이름을 잘못 적는 일은
+        # 흔한데, 그때 파이썬 역추적이 뜨면 무엇을 고쳐야 할지 알 수 없다.
+        try:
+            grid = xlsx.read_sheet(path, sheet)
+            used_sheet = sheet or (xlsx.sheet_names(path) or [""])[0]
+        except xlsx.XlsxError as exc:
+            raise SheetError(str(exc)) from None
     elif suffix in CSV_SUFFIXES or not suffix:
         encoding = sniff_encoding(path)
         text = path.read_text(encoding=encoding)
@@ -218,8 +223,13 @@ def describe_sheets(path: Path, *, header_row: int = 0) -> list[SheetInfo]:
     if path.suffix.lower() not in XLSX_SUFFIXES:
         raise SheetError(f"엑셀 파일이 아닙니다: {path.suffix or '확장자 없음'}")
 
+    try:
+        names = xlsx.sheet_names(path)
+    except xlsx.XlsxError as exc:
+        raise SheetError(str(exc)) from None
+
     out: list[SheetInfo] = []
-    for name in xlsx.sheet_names(path):
+    for name in names:
         info = SheetInfo(name)
         try:
             grid = xlsx.read_sheet(path, name)
@@ -273,7 +283,11 @@ def save(table: Table, path: Path, *, excel_bom: bool = True, sheet_name: str = 
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if suffix in XLSX_SUFFIXES:
-        xlsx.write_sheets(path, {sheet_name or table.sheet or "Sheet1": table.as_rows()})
+        try:
+            xlsx.write_sheets(path,
+                              {sheet_name or table.sheet or "Sheet1": table.as_rows()})
+        except xlsx.XlsxError as exc:
+            raise SheetError(str(exc)) from None
         return path
 
     if suffix in MARKDOWN_SUFFIXES:

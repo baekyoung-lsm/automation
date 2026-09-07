@@ -66,7 +66,11 @@ RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof",
 def cmd_sheet_peek(a) -> int:
     path = Path(a.file)
     if path.suffix.lower() in sheet.XLSX_SUFFIXES:
-        names = sheet.xlsx.sheet_names(path)
+        try:
+            names = sheet.xlsx.sheet_names(path)
+        except sheet.xlsx.XlsxError as e:
+            _p(f"읽지 못했습니다: {e}")
+            return 1
         _p(f"시트 {len(names)}개: {', '.join(names)}")
 
     t = _load(a)

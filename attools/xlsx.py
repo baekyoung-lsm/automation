@@ -67,8 +67,25 @@ def safe_sheet_name(name: str) -> str:
     return cleaned[:31]
 
 
+def _open(path: Path) -> zipfile.ZipFile:
+    """xlsx 를 연다. zip 이 아니면 사람 말로 알린다.
+
+    옛 .xls 를 이름만 .xlsx 로 바꿔 두는 일이 흔하다. 그때 파이썬 역추적이
+    뜨면 파일이 잘못됐다는 것을 알 수 없다.
+    """
+    try:
+        return zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        raise XlsxError(
+            f"엑셀 파일이 아닙니다: {Path(path).name} "
+            "(xlsx 는 zip 인데 그렇지 않습니다. 옛 .xls 라면 엑셀에서 "
+            "«다른 이름으로 저장»으로 xlsx 로 바꿔 주세요)") from None
+    except OSError as exc:
+        raise XlsxError(f"열지 못했습니다: {exc}") from None
+
+
 def sheet_names(path: Path) -> list[str]:
-    with zipfile.ZipFile(path) as z:
+    with _open(path) as z:
         wb = ET.fromstring(z.read("xl/workbook.xml"))
         return [s.get("name", "") for s in wb.findall("m:sheets/m:sheet", NS)]
 
@@ -136,7 +153,7 @@ def _sheet_part(z: zipfile.ZipFile, name: str | None) -> str:
 
 def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
     """시트를 값의 2차원 리스트로 읽는다. 빈 칸은 None."""
-    with zipfile.ZipFile(path) as z:
+    with _open(path) as z:
         strings = _shared_strings(z)
         date_flags = _date_style_flags(z)
         part = _sheet_part(z, sheet)
@@ -190,7 +207,7 @@ def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[st
         return found
     rows_wanted = {row for row, _col in wanted}
 
-    with zipfile.ZipFile(path) as z:
+    with _open(path) as z:
         strings = _shared_strings(z)
         date_flags = _date_style_flags(z)
         part = _sheet_part(z, sheet)

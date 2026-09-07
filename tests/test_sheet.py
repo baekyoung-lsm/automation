@@ -1884,5 +1884,42 @@ class FormulaColumnTest(unittest.TestCase):
         self.assertIn("=(A2 * B2)", path.read_text(encoding="utf-8-sig"))
 
 
+class BadFileTest(unittest.TestCase):
+    """잘못된 파일에 파이썬 역추적이 아니라 사람 말이 나오는지."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.fake = self.root / "가짜.xlsx"
+        self.fake.write_text("zip 이 아니다", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_not_a_zip_is_a_sheet_error(self):
+        with self.assertRaises(sheet.SheetError) as ctx:
+            sheet.load(self.fake)
+        self.assertIn("엑셀 파일이 아닙니다", str(ctx.exception))
+
+    def test_describe_sheets_too(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.describe_sheets(self.fake)
+
+    def test_xlsx_layer_says_what_to_do(self):
+        with self.assertRaises(xlsx.XlsxError) as ctx:
+            xlsx.sheet_names(self.fake)
+        self.assertIn("xls", str(ctx.exception))
+
+    def test_wrong_sheet_name_is_a_sheet_error(self):
+        path = self.root / "진짜.xlsx"
+        xlsx.write_sheets(path, {"8월": [["가"], ["1"]]})
+        with self.assertRaises(sheet.SheetError) as ctx:
+            sheet.load(path, sheet="10월")
+        self.assertIn("있는 시트", str(ctx.exception))
+
+    def test_missing_file(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.load(self.root / "없는것.xlsx")
+
+
 if __name__ == "__main__":
     unittest.main()
