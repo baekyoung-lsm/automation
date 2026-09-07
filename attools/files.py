@@ -374,6 +374,85 @@ def dir_sizes(root: Path, *, depth: int = 1) -> tuple[list[tuple[Path, int]], li
     return sorted(totals.items(), key=lambda x: -x[1]), biggest, grand
 
 
+# ------------------------------------------------------- 첨부용 나눠 담기
+
+@dataclass
+class Pack:
+    index: int
+    files: list[Path] = field(default_factory=list)
+    size: int = 0                 # 원본 크기의 합
+
+
+def parse_size(text: str) -> int:
+    """'25MB', '20m', '1.5GiB' 를 바이트로. 단위가 없으면 MB 로 본다.
+
+    메일 첨부 한도를 사람은 «25MB» 라고 말한다. 숫자만 받으면 25바이트로
+    읽히는 실수가 반드시 한 번은 난다.
+    """
+    body = str(text).strip().replace(",", "").replace(" ", "").upper()
+    hit = re.fullmatch(r"([0-9]*\.?[0-9]+)(B|K|KB|KIB|M|MB|MIB|G|GB|GIB)?", body)
+    if not hit:
+        raise ValueError(f"크기를 읽지 못했습니다: {text} (예: 25MB)")
+    scale = {None: 1024 ** 2, "B": 1, "K": 1024, "KB": 1024, "KIB": 1024,
+             "M": 1024 ** 2, "MB": 1024 ** 2, "MIB": 1024 ** 2,
+             "G": 1024 ** 3, "GB": 1024 ** 3, "GIB": 1024 ** 3}[hit.group(2)]
+    size = float(hit.group(1)) * scale
+    if size <= 0:
+        raise ValueError("크기는 0보다 커야 합니다.")
+    return int(size)
+
+
+# zip 은 항목마다 머리말이 두 벌 붙고 끝에 목록이 하나 더 붙는다. 원본 크기만
+# 세어 한도에 딱 맞추면 만들어진 zip 이 한도를 아슬아슬하게 넘는다.
+ZIP_TAIL = 1024
+ZIP_ENTRY_OVERHEAD = 120
+
+
+def _entry_cost(path: Path, size: int) -> int:
+    return size + ZIP_ENTRY_OVERHEAD + 2 * len(str(path).encode("utf-8"))
+
+
+def plan_packs(files: list[Path], *, max_bytes: int) -> tuple[list[Pack], list[tuple[Path, int]]]:
+    """한도 안에 들어가도록 파일을 묶는다. (묶음들, 혼자서 한도를 넘는 파일들)
+
+    압축한 크기가 아니라 «원본 크기» 로 묶는다. jpg·zip 처럼 이미 눌린 것은
+    압축해도 안 줄어들어서, 압축 결과를 낙관하면 한도를 넘긴 첨부가 나온다.
+    zip 자체가 차지하는 자리도 미리 빼 둔다.
+    """
+    budget = max_bytes - ZIP_TAIL
+    if budget <= 0:
+        raise ValueError(f"한도가 너무 작습니다: {max_bytes} B")
+
+    sized = []
+    too_big: list[tuple[Path, int]] = []
+    for path in files:
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        if _entry_cost(path, size) > budget:
+            too_big.append((path, size))
+        else:
+            sized.append((path, size))
+
+    packs: list[Pack] = []
+    costs: dict[int, int] = {}
+    for path, size in sorted(sized, key=lambda x: -x[1]):    # 큰 것부터 담는다
+        cost = _entry_cost(path, size)
+        for pack in packs:
+            if costs[pack.index] + cost <= budget:
+                pack.files.append(path)
+                pack.size += size
+                costs[pack.index] += cost
+                break
+        else:
+            packs.append(Pack(len(packs) + 1, [path], size))
+            costs[len(packs)] = cost
+    for pack in packs:
+        pack.files.sort()
+    return packs, sorted(too_big, key=lambda x: -x[1])
+
+
 def human_size(n: float) -> str:
     for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
         if abs(n) < 1024 or unit == "TiB":

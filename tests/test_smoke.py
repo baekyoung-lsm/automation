@@ -145,6 +145,11 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "big", self.path())
         self.run_cli("file", "rename", self.path("문서"), "-t", "{seq:03d}{ext}")
         self.run_cli("file", "archive", self.path("문서"), "-g", "*.txt")
+        담기 = self.run_cli("file", "pack", self.path("문서"), "--max", "1MB")
+        self.assertIn("묶음", 담기)
+        self.run_cli("file", "pack", self.path("문서"), "--max", "1MB",
+                     "-o", self.path("보낼것"), "--apply")
+        self.assertTrue(list(Path(self.path("보낼것")).glob("*.zip")))
 
         import struct
         import zlib

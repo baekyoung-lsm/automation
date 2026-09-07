@@ -826,5 +826,73 @@ class ListFilesTest(unittest.TestCase):
         self.assertEqual(rows[0].suffix, "pdf")
 
 
+class PackTest(unittest.TestCase):
+    """첨부용 나눠 담기. 만들어진 zip 이 한도를 넘지 않는지까지 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, name, size):
+        path = self.root / name
+        path.write_bytes(os.urandom(size))      # 안 눌리는 자료로 재야 한다
+        return path
+
+    def test_parse_size_units(self):
+        self.assertEqual(files.parse_size("1B"), 1)
+        self.assertEqual(files.parse_size("2K"), 2048)
+        self.assertEqual(files.parse_size("25MB"), 25 * 1024 ** 2)
+        self.assertEqual(files.parse_size("1.5GiB"), int(1.5 * 1024 ** 3))
+
+    def test_bare_number_means_megabytes(self):
+        # 사람은 «25» 라고 적고 25MB 를 뜻한다. 25바이트로 읽으면 안 된다
+        self.assertEqual(files.parse_size("25"), 25 * 1024 ** 2)
+
+    def test_bad_size(self):
+        for bad in ("크게", "", "-3MB", "0"):
+            with self.assertRaises(ValueError):
+                files.parse_size(bad)
+
+    def test_groups_under_the_limit(self):
+        made = [self.make("가.bin", 40_000), self.make("나.bin", 40_000),
+                self.make("다.bin", 30_000)]
+        packs, too_big = files.plan_packs(made, max_bytes=100_000)
+        self.assertEqual(too_big, [])
+        self.assertEqual(len(packs), 2)
+        for pack in packs:
+            self.assertLessEqual(pack.size, 100_000)
+
+    def test_file_bigger_than_the_limit_is_left_out_and_named(self):
+        big = self.make("큰것.bin", 200_000)
+        small = self.make("작은것.bin", 1_000)
+        packs, too_big = files.plan_packs([big, small], max_bytes=100_000)
+        self.assertEqual([p for p, _s in too_big], [big])
+        self.assertEqual(packs[0].files, [small])
+
+    def test_the_zip_actually_fits(self):
+        import zipfile
+
+        made = [self.make(f"파일{i}.bin", 9_000) for i in range(12)]
+        limit = 50_000
+        packs, _too_big = files.plan_packs(made, max_bytes=limit)
+        for pack in packs:
+            target = self.root / f"묶음{pack.index}.zip"
+            with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+                for path in pack.files:
+                    z.write(path, path.name)
+            self.assertLessEqual(target.stat().st_size, limit)
+
+    def test_too_small_a_limit_is_an_error(self):
+        with self.assertRaises(ValueError):
+            files.plan_packs([], max_bytes=100)
+
+    def test_unreadable_file_is_skipped(self):
+        packs, too_big = files.plan_packs([self.root / "없는것.bin"],
+                                          max_bytes=100_000)
+        self.assertEqual((packs, too_big), ([], []))
+
+
 if __name__ == "__main__":
     unittest.main()

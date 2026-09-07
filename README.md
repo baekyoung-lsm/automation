@@ -63,6 +63,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file hash [경로]` | 체크섬 만들기·검증. `sha256sum -c` 와 같은 형식 |
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
+| `at file pack <폴더> --max 25MB` | 메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담기 |
 | `at file unzip <zip>` | 윈도우에서 만든 zip 의 깨진 한글 이름(cp949)을 되살려 푼다 |
 | `at file image [경로]` | 이미지 크기·비율·용량 훑기 (png·jpg·gif·bmp·webp) |
 | `at file route [경로] --rules <json>` | 내 규칙대로 폴더에 나눠 담는다 (이름 패턴 → 폴더) |
@@ -84,6 +85,7 @@ at file hash dist/ -o SHA256SUMS.txt
 at file hash dist/ --check SHA256SUMS.txt      # 달라진 게 있으면 exit 1
 at file diff 배포전/ 배포후/ -g '*.py'
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
+at file pack 납품자료 --max 20MB --apply    # 20MB 씩 나눠 담기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
 at file flatten ~/받은자료 --keep-path --apply   # 폴더 이름을 앞에 붙여 모은다
 at file route --example > 규칙.json        # 예시부터 보고 고쳐 쓴다
@@ -111,6 +113,12 @@ at file undo
 
 `diff` 는 크기가 같아도 해시를 비교하므로 **크기가 같고 내용만 바뀐 파일**을 잡는다.
 `--quick` 은 크기만 봐서 빠르지만 그런 변경은 놓치고, 결과에 그 사실을 함께 알려 준다.
+
+`pack` 은 메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담는다. **압축한 크기가 아니라 원본
+크기로 묶는다** — jpg·zip 처럼 이미 눌린 파일은 압축해도 안 줄어서, 압축 결과를 낙관하면
+한도를 넘긴 첨부가 나온다. zip 자체가 차지하는 자리(항목마다 붙는 머리말과 끝 목록)도 미리
+빼 둔다. 혼자서 한도를 넘는 파일은 담지 않고 이름을 알려 준다 — 한 파일을 쪼개지는 않는다.
+원본은 건드리지 않는다.
 
 `archive` 는 압축한 뒤 zip 을 다시 열어 **모든 파일이 같은 크기로 들어갔는지 확인한 다음에만**
 원본을 지운다. 확인에 실패하면 원본을 그대로 두고 무엇이 문제인지 알려 준다. 이미 있는

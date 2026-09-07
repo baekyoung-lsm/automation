@@ -427,6 +427,66 @@ def cmd_file_rename(a) -> int:
     return 0
 
 
+def cmd_file_pack(a) -> int:
+    """메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담는다."""
+    import zipfile
+
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+    try:
+        limit = files.parse_size(a.max)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    targets = files.plan_archive(root, glob=a.glob, include_hidden=a.hidden,
+                                 recursive=not a.no_recursive)
+    if not targets:
+        _p("담을 파일이 없습니다.")
+        return 0
+
+    packs, too_big = files.plan_packs(targets, max_bytes=limit)
+    total = sum(p.size for p in packs)
+    _p(f"{root}  파일 {len(targets)}개  ·  묶음 {len(packs)}개  "
+       f"(한도 {files.human_size(limit)})")
+
+    out_dir = Path(a.out) if a.out else root.parent
+    stem = a.name or root.name
+    for pack in packs:
+        target = out_dir / f"{stem}-{pack.index}.zip"
+        _p(f"\n{target.name}  {files.human_size(pack.size)}  "
+           f"파일 {len(pack.files)}개")
+        for path in pack.files[:a.limit]:
+            _p(f"  {path.relative_to(root)}  {files.human_size(path.stat().st_size)}")
+        if len(pack.files) > a.limit:
+            _p(f"  ... {len(pack.files) - a.limit}개 더")
+
+    if too_big:
+        _p(f"\n혼자서 한도를 넘는 파일 {len(too_big)}개 - 담지 않았습니다")
+        for path, size in too_big[:a.limit]:
+            _p(f"  {path.relative_to(root)}  {files.human_size(size)}")
+        _p("  나눠 담을 수 없습니다. 파일 자체를 줄이거나 따로 보내세요.")
+
+    if not a.apply:
+        _p(f"\n모두 {files.human_size(total)}. 실제로 만들려면 --apply 를 붙이세요.")
+        return 0
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _p("")
+    for pack in packs:
+        target = files.unique_path(out_dir / f"{stem}-{pack.index}.zip")
+        with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as z:
+            for path in pack.files:
+                z.write(path, str(path.relative_to(root)))
+        made = target.stat().st_size
+        mark = "  (한도를 넘었습니다)" if made > limit else ""
+        _p(f"{target}  {files.human_size(made)}{mark}")
+    _p("\n원본은 그대로 두었습니다.")
+    return 1 if too_big and a.strict else 0
+
+
 def cmd_file_archive(a) -> int:
     root = Path(a.dir)
     if not root.is_dir():
@@ -919,6 +979,22 @@ def add_commands(sub) -> None:
     b.add_argument("--depth", type=int, default=1)
     b.add_argument("--top", type=int, default=15)
     b.set_defaults(func=cmd_file_big)
+
+    pk2 = fp.add_parser("pack", help="메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담기")
+    pk2.add_argument("dir")
+    pk2.add_argument("--max", default="25MB", metavar="크기",
+                     help="한 묶음의 한도 (기본 25MB. 단위 없으면 MB)")
+    pk2.add_argument("-o", "--out", metavar="폴더", help="기본은 그 폴더 옆")
+    pk2.add_argument("--name", metavar="이름", help="zip 이름 앞부분 (기본 폴더 이름)")
+    pk2.add_argument("-g", "--glob", action="append", metavar="패턴")
+    pk2.add_argument("--hidden", action="store_true")
+    pk2.add_argument("--no-recursive", action="store_true")
+    pk2.add_argument("--limit", type=int, default=10, metavar="개",
+                     help="묶음마다 몇 개까지 보일지")
+    pk2.add_argument("--strict", action="store_true",
+                     help="혼자 한도를 넘는 파일이 있으면 1 로 끝낸다")
+    pk2.add_argument("--apply", action="store_true", help="실제로 zip 을 만든다")
+    pk2.set_defaults(func=cmd_file_pack)
 
     ar = fp.add_parser("archive", help="오래된 파일을 zip 으로 보관")
     ar.add_argument("dir")
