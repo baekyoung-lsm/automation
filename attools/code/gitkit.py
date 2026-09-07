@@ -86,6 +86,74 @@ def repo_root(start: Path) -> Path:
     return Path(run(["rev-parse", "--show-toplevel"], start).strip())
 
 
+# ------------------------------------------------------------- 커밋 훅
+
+HOOK_MARK = "# attools: 커밋 전 점검"
+HOOK_BODY = """#!/bin/sh
+{mark}
+# 넣은 것: at git hook --install --apply
+# 빼려면:  at git hook --remove --apply
+# 이번만 건너뛰려면: git commit --no-verify
+{command} || exit 1
+"""
+
+
+def hook_path(root: Path) -> Path:
+    """pre-commit 훅이 놓이는 자리. core.hooksPath 를 설정한 저장소도 따른다."""
+    try:
+        custom = run(["config", "--get", "core.hooksPath"], root).strip()
+    except RuntimeError:
+        custom = ""
+    base = (root / custom) if custom else (root / ".git" / "hooks")
+    return base / "pre-commit"
+
+
+def hook_text(command: str = "at git ready") -> str:
+    return HOOK_BODY.format(mark=HOOK_MARK, command=command)
+
+
+def hook_state(root: Path) -> tuple[str, str]:
+    """(상태, 지금 들어 있는 내용). 상태는 '없음' · '우리 것' · '남의 것'."""
+    path = hook_path(root)
+    if not path.exists():
+        return "없음", ""
+    try:
+        body = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return "못 읽음", str(exc)
+    return ("우리 것" if HOOK_MARK in body else "남의 것"), body
+
+
+def install_hook(root: Path, *, command: str = "at git ready") -> tuple[Path, Path | None]:
+    """훅을 넣는다. 남의 훅이 있으면 지우지 않고 옆에 밀어 둔다. (훅, 백업)"""
+    path = hook_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    state, _body = hook_state(root)
+    backup = None
+    if state == "남의 것":
+        backup = path.with_name(path.name + ".attools-bak")
+        if backup.exists():                     # 두 번째 백업까지 덮지 않는다
+            backup = path.with_name(path.name + f".attools-bak{datetime.now():%H%M%S}")
+        path.replace(backup)
+    path.write_text(hook_text(command), encoding="utf-8")
+    path.chmod(0o755)
+    return path, backup
+
+
+def remove_hook(root: Path) -> tuple[bool, Path | None]:
+    """우리가 넣은 훅만 지운다. 백업이 있으면 되돌린다. (지웠나, 되돌린 백업)"""
+    path = hook_path(root)
+    state, _body = hook_state(root)
+    if state != "우리 것":
+        return False, None
+    path.unlink()
+    for name in sorted(path.parent.glob(path.name + ".attools-bak*")):
+        name.replace(path)
+        path.chmod(0o755)
+        return True, path
+    return True, None
+
+
 # ------------------------------------------------------------ 브랜치 정리
 
 @dataclass
@@ -216,20 +284,6 @@ def scan_paths(root: Path, *, staged: bool = False, tracked: bool = True,
             continue
         findings.extend(scan_text(text, name, entropy_threshold=entropy_threshold))
     return findings
-
-
-HOOK = """#!/bin/sh
-# attools: 커밋 전 시크릿 검사
-exec {cmd} git scan --staged --quiet
-"""
-
-
-def install_hook(root: Path, command: str) -> Path:
-    hook = root / ".git" / "hooks" / "pre-commit"
-    hook.parent.mkdir(parents=True, exist_ok=True)
-    hook.write_text(HOOK.format(cmd=command), encoding="utf-8")
-    hook.chmod(0o755)
-    return hook
 
 
 @dataclass

@@ -419,5 +419,71 @@ class StampTest(unittest.TestCase):
             self.assertIsNone(gitkit.parse_stamp(stamp), stamp)
 
 
+class HookTest(unittest.TestCase):
+    """커밋 훅. 남의 훅을 지우지 않는지, 되돌아오는지를 본다."""
+
+    def setUp(self):
+        import subprocess
+
+        self.root = Path(tempfile.mkdtemp())
+        subprocess.run(["git", "init", "-q"], cwd=self.root,
+                       capture_output=True, text=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def hook(self):
+        return gitkit.hook_path(self.root)
+
+    def test_install_and_state(self):
+        self.assertEqual(gitkit.hook_state(self.root)[0], "없음")
+        made, backup = gitkit.install_hook(self.root)
+        self.assertIsNone(backup)
+        self.assertEqual(made, self.hook())
+        self.assertEqual(gitkit.hook_state(self.root)[0], "우리 것")
+        self.assertIn("at git ready", made.read_text(encoding="utf-8"))
+
+    def test_installed_hook_is_executable(self):
+        made, _backup = gitkit.install_hook(self.root)
+        self.assertTrue(made.stat().st_mode & 0o111)
+
+    def test_someone_elses_hook_is_moved_not_deleted(self):
+        self.hook().parent.mkdir(parents=True, exist_ok=True)
+        self.hook().write_text("#!/bin/sh\necho 원래것\n", encoding="utf-8")
+        self.assertEqual(gitkit.hook_state(self.root)[0], "남의 것")
+        _made, backup = gitkit.install_hook(self.root)
+        self.assertIsNotNone(backup)
+        self.assertIn("원래것", backup.read_text(encoding="utf-8"))
+
+    def test_remove_puts_the_old_hook_back(self):
+        self.hook().parent.mkdir(parents=True, exist_ok=True)
+        self.hook().write_text("#!/bin/sh\necho 원래것\n", encoding="utf-8")
+        gitkit.install_hook(self.root)
+        removed, restored = gitkit.remove_hook(self.root)
+        self.assertTrue(removed)
+        self.assertEqual(restored, self.hook())
+        self.assertIn("원래것", self.hook().read_text(encoding="utf-8"))
+
+    def test_remove_leaves_a_foreign_hook_alone(self):
+        self.hook().parent.mkdir(parents=True, exist_ok=True)
+        self.hook().write_text("#!/bin/sh\necho 남의것\n", encoding="utf-8")
+        removed, restored = gitkit.remove_hook(self.root)
+        self.assertEqual((removed, restored), (False, None))
+        self.assertIn("남의것", self.hook().read_text(encoding="utf-8"))
+
+    def test_second_install_does_not_overwrite_the_first_backup(self):
+        self.hook().parent.mkdir(parents=True, exist_ok=True)
+        self.hook().write_text("#!/bin/sh\necho 원래것\n", encoding="utf-8")
+        _made, first = gitkit.install_hook(self.root)
+        self.hook().write_text("#!/bin/sh\necho 다른것\n", encoding="utf-8")
+        _made2, second = gitkit.install_hook(self.root)
+        self.assertNotEqual(first, second)
+        self.assertIn("원래것", first.read_text(encoding="utf-8"))
+
+    def test_command_can_be_changed(self):
+        made, _backup = gitkit.install_hook(self.root, command="at git scan -q")
+        self.assertIn("at git scan -q", made.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

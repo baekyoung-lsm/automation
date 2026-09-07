@@ -62,9 +62,13 @@ def cmd_git_scan(a) -> int:
         return 1
 
     if a.install_hook:
-        hook = gitkit.install_hook(root, a.install_hook)
+        command = f"{a.install_hook} git scan --staged --quiet"
+        hook, backup = gitkit.install_hook(root, command=command)
         _p(f"pre-commit 훅을 설치했습니다: {hook}")
+        if backup:
+            _p(f"  먼저 있던 훅은 여기로 밀어 뒀습니다: {backup}")
         _p("커밋할 때마다 스테이징된 파일에서 시크릿을 검사합니다.")
+        _p("빼거나 다른 점검으로 바꾸려면 at git hook 을 쓰세요.")
         return 0
 
     findings = gitkit.scan_paths(root, staged=a.staged, tracked=not a.all,
@@ -235,6 +239,64 @@ def cmd_git_conflicts(a) -> int:
     if not merging:
         _p("병합 중이 아닌데 표시가 남아 있습니다. 커밋에 섞여 들어갔을 수 있습니다.")
     return 1
+
+
+def cmd_git_hook(a) -> int:
+    """커밋 전 점검을 git 훅으로 걸어 둔다. 기본은 미리보기다."""
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    path = gitkit.hook_path(root)
+    state, body = gitkit.hook_state(root)
+    _p(f"{path}")
+    _p(f"지금 상태: {state}")
+    if state == "못 읽음":
+        _p(f"  {body}")
+        return 1
+
+    if not a.install and not a.remove:
+        if state == "남의 것":
+            _p("  이미 다른 훅이 있습니다. --install --apply 로 넣으면 "
+               "그 훅은 지우지 않고 옆에 밀어 둡니다(.attools-bak).")
+            _p("  들어 있는 것:")
+            for line in body.splitlines()[:8]:
+                _p(f"    {_cut(line, 70)}")
+        elif state == "우리 것":
+            _p("  --remove --apply 로 뺄 수 있습니다.")
+        else:
+            _p("  --install --apply 로 넣습니다. 커밋할 때마다 "
+               f"«{a.command}» 를 돌리고, 걸리는 게 있으면 커밋을 막습니다.")
+        return 0
+
+    if a.remove:
+        if state != "우리 것":
+            _p("  우리가 넣은 훅이 아닙니다. 건드리지 않았습니다.")
+            return 1
+        if not a.apply:
+            _p("\n지울 것: 위 훅 (백업이 있으면 되돌립니다)")
+            _p("실제로 지우려면 --apply 를 붙이세요.")
+            return 0
+        _removed, restored = gitkit.remove_hook(root)
+        _p("\n뺐습니다." + (f" 밀어 뒀던 훅을 되돌렸습니다: {restored}"
+                            if restored else ""))
+        return 0
+
+    if not a.apply:
+        _p("\n넣을 내용")
+        for line in gitkit.hook_text(a.command).splitlines():
+            _p(f"  {line}")
+        if state == "남의 것":
+            _p("\n지금 훅은 지우지 않고 «.attools-bak» 으로 밀어 둡니다.")
+        _p("\n실제로 넣으려면 --apply 를 붙이세요.")
+        return 0
+
+    made, backup = gitkit.install_hook(root, command=a.command)
+    _p(f"\n넣었습니다: {made}")
+    if backup:
+        _p(f"  먼저 있던 훅은 여기로 밀어 뒀습니다: {backup}")
+    _p("  커밋을 급히 넘겨야 하면 git commit --no-verify 로 건너뜁니다.")
+    return 0
 
 
 def cmd_git_ready(a) -> int:
@@ -489,6 +551,15 @@ def add_commands(sub) -> None:
                     help="병합 중이어도 추적 파일 전부를 훑는다")
     cf.add_argument("--limit", type=int, default=20, metavar="곳")
     cf.set_defaults(func=cmd_git_conflicts)
+
+    hk = gp.add_parser("hook", help="커밋 전 점검을 git 훅으로 걸기")
+    hk.add_argument("dir", nargs="?", default=".")
+    hk.add_argument("--install", action="store_true", help="pre-commit 훅을 넣는다")
+    hk.add_argument("--remove", action="store_true", help="우리가 넣은 훅만 뺀다")
+    hk.add_argument("--command", default="at git ready", metavar="명령",
+                    help="훅에서 돌릴 명령 (기본 at git ready)")
+    hk.add_argument("--apply", action="store_true", help="실제로 파일을 고친다")
+    hk.set_defaults(func=cmd_git_hook)
 
     rd = gp.add_parser("ready", help="커밋 전 점검 - 시크릿·충돌·디버그 흔적·큰 파일")
     rd.add_argument("dir", nargs="?", default=".")

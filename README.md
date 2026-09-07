@@ -562,6 +562,7 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
 | `at git conflicts [경로]` | 충돌 표시가 남은 자리를 찾는다. 어느 쪽이 몇 줄인지까지 |
 | `at git ready [경로]` | 커밋 전 한 번에 점검 - 시크릿·충돌·디버그 흔적·큰 파일 |
+| `at git hook` | 커밋 전 점검을 pre-commit 훅으로 걸기 (미리보기 기본, 남의 훅은 백업) |
 | `at git heavy [경로]` | 저장소를 무겁게 하는 파일 (히스토리에만 남은 것까지) |
 
 ```bash
@@ -571,6 +572,9 @@ at git scan                       # 추적 중인 파일 전체
 at git scan --staged --quiet      # 커밋 직전 검사, 발견되면 exit 1
 at git scan --install-hook "$HOME/.local/bin/at"   # pre-commit 훅으로 설치
 at git ready                      # 커밋 직전. 걸리면 exit 1
+at git hook                        # 지금 훅이 뭔지
+at git hook --install --apply      # 커밋 전 점검을 걸어 둔다
+at git hook --remove --apply       # 빼고, 밀어 뒀던 훅을 되돌린다
 at git heavy --gone               # 지웠는데 히스토리에 남아 있는 것
 at git conflicts                  # 병합 중이면 충돌 파일만, 아니면 전체
 at git todo                       # 오래 방치된 순
@@ -600,6 +604,16 @@ at git stats --path src/ --weekday
 작업 디렉터리에 없는 파일도 함께 세고 `지워짐` 으로 표시한다. 판본 합계는 **압축 전** 크기라
 실제 `.git` 크기와는 다르다 — 어느 파일이 문제인지 가리는 용도다. 줄이려면 히스토리를 다시
 써야 하는데(`git filter-repo`) 그 판단과 실행은 사람이 한다.
+
+`at git hook` 은 커밋 전 점검(`at git ready`)을 pre-commit 훅으로 걸어 둔다. **기본은
+미리보기**라 `--apply` 를 붙여야 실제로 쓰고, 이미 다른 훅이 있으면 지우지 않고
+`pre-commit.attools-bak` 으로 밀어 둔다. `--remove --apply` 로 빼면 밀어 뒀던 훅이 제자리로
+돌아온다. 우리가 넣지 않은 훅은 빼지 않는다. 급할 때는 `git commit --no-verify` 로 건너뛴다.
+
+`at git hook` 은 그 점검을 pre-commit 훅으로 걸어 둔다. **기본은 미리보기**라 `--apply` 를
+붙여야 실제로 쓴다. 이미 다른 훅이 있으면 지우지 않고 `pre-commit.attools-bak` 으로 밀어 두고,
+`--remove --apply` 로 빼면 밀어 뒀던 훅이 제자리로 돌아온다. 우리가 넣지 않은 훅은 빼지 않는다.
+급할 때는 `git commit --no-verify` 로 건너뛴다.
 
 `at git ready` 는 커밋 직전에 한 번에 본다 — 스테이징된 파일의 시크릿, 남은 충돌 표시,
 **이번에 더한 줄**의 디버그 흔적(`console.log`, `debugger`, `breakpoint()`, `it.only`),
