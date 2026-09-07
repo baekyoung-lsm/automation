@@ -252,6 +252,7 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("형식", self.run_cli("sheet", "format", csv,
                                            "--date", "입사일", "--number", "연봉"))
         self.assertIn("사번", self.run_cli("sheet", "peek", csv))
+        self.assertIn("홍길동", self.run_cli("sheet", "row", csv, "--eq", "사번=E1"))
         self.assertIn("중앙값", self.run_cli("sheet", "peek", csv, "--stats"))
         self.assertIn("중복 키", self.run_cli("sheet", "check", csv, "--key", "사번",
                                               expect=1))

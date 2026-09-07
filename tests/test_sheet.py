@@ -1316,5 +1316,41 @@ class MaskTest(unittest.TestCase):
             sheet.mask_column(self.table(), "없는열", "이름")
 
 
+class FindRowsTest(unittest.TestCase):
+    def table(self):
+        return sheet.Table(["사번", "이름", "부서"],
+                           [["E1", "홍길동", "영업"],
+                            ["E2", "김철수", None],
+                            ["E3", "이영희", "인사"]])
+
+    def test_line_numbers_count_the_header_as_row_one(self):
+        found = sheet.find_rows(self.table(), number=3)
+        self.assertEqual(found, [(3, ["E2", "김철수", None])])
+
+    def test_condition_keeps_the_line_number(self):
+        found = sheet.find_rows(self.table(),
+                                [sheet.Condition.parse("eq", "부서=인사")])
+        self.assertEqual([line for line, _row in found], [4])
+
+    def test_no_condition_returns_every_row(self):
+        self.assertEqual(len(sheet.find_rows(self.table())), 3)
+
+    def test_short_rows_are_padded_to_the_headers(self):
+        t = sheet.Table(["가", "나", "다"], [["1"]])
+        _line, row = sheet.find_rows(t)[0]
+        self.assertEqual(row, ["1", None, None])
+
+    def test_unknown_column_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_rows(self.table(),
+                            [sheet.Condition.parse("eq", "없는열=값")])
+
+    def test_where_still_works_after_sharing_the_test(self):
+        # where 와 find_rows 가 같은 판정을 쓴다
+        kept = sheet.where(self.table(),
+                           [sheet.Condition.parse("has", "이름=철")])
+        self.assertEqual(len(kept.rows), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

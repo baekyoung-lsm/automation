@@ -881,10 +881,8 @@ def _comparable(cell, wanted: str):
     return to_text(cell), wanted
 
 
-def where(table: Table, conditions: list[Condition], *, contains: list[Condition] | None = None,
-          any_match: bool = False) -> Table:
-    """조건에 맞는 행만 남긴다. 기본은 모든 조건을 만족(AND)."""
-    checks = list(conditions) + list(contains or [])
+def _row_test(table: Table, checks: list[Condition], any_match: bool):
+    """조건을 한 행에 걸어 보는 함수를 만든다. where 와 find_rows 가 같이 쓴다."""
     indexes = {c.column: table.index_of(c.column) for c in checks}
 
     def passes(row: list) -> bool:
@@ -906,8 +904,34 @@ def where(table: Table, conditions: list[Condition], *, contains: list[Condition
                 results.append(False)
         return any(results) if any_match else all(results)
 
+    return passes
+
+
+def where(table: Table, conditions: list[Condition], *, contains: list[Condition] | None = None,
+          any_match: bool = False) -> Table:
+    """조건에 맞는 행만 남긴다. 기본은 모든 조건을 만족(AND)."""
+    passes = _row_test(table, list(conditions) + list(contains or []), any_match)
     return Table(table.headers, [r for r in table.rows if passes(r)],
                  source=table.source, sheet=table.sheet)
+
+
+def find_rows(table: Table, conditions: list[Condition] | None = None, *,
+              number: int | None = None,
+              any_match: bool = False) -> list[tuple[int, list]]:
+    """행을 골라 (줄 번호, 행) 로 돌려준다. 줄 번호는 머리글을 1행으로 센다.
+
+    엑셀에서 본 줄 번호와 같아야 «몇 행이 이상하다» 는 말이 통한다.
+    """
+    checks = list(conditions or [])
+    passes = _row_test(table, checks, any_match) if checks else None
+    found = []
+    for line, row in enumerate(table.rows, 2):
+        if number is not None and line != number:
+            continue
+        if passes is not None and not passes(row):
+            continue
+        found.append((line, list(row) + [None] * (len(table.headers) - len(row))))
+    return found
 
 
 def _is_blank(cell) -> bool:

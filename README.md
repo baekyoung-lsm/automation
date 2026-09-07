@@ -593,6 +593,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | --- | --- |
 | `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시. `--stats` 로 합계·평균·중앙값 |
 | `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
+| `at sheet row <파일> --eq <열=값>` | 한 행을 세로로 보기 (열이 많아 가로로 안 보일 때) |
 | `at sheet find <값> <파일\|폴더…>` | 여러 엑셀·csv에서 값 찾기 — 어느 파일 어느 시트 몇 행인지 |
 | `at sheet book <파일들> -o 통합.xlsx` | 여러 파일을 한 엑셀의 여러 시트로 (split 의 반대) |
 | `at sheet sheets <파일>` | 엑셀 안의 시트 목록 — 시트마다 행·열 수와 머리글 |
@@ -628,6 +629,8 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 at sheet peek 매출.xlsx --sheet 1분기 -n 10
 at sheet peek 매출.xlsx --stats            # 합계·평균·중앙값·최빈값
 at sheet check 직원명부.xlsx --key 사번 --required 입사일
+at sheet row 직원.xlsx --eq 사번=E2          # 그 사람 정보를 세로로
+at sheet row 직원.xlsx --at 15              # 엑셀에서 본 15행
 at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호 -o 정리본.xlsx
 at sheet convert 명단.csv -o 명단.md                          # 마크다운 표로
 at doc table 명단.md --apply                                 # 칸 너비 맞추기

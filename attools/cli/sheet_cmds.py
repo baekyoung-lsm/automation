@@ -9,7 +9,7 @@ from .. import files, hangul, sheet, text
 from ..code import devkit, jsonkit
 from ..docs import report
 from ..write import names
-from .common import _pad, _p, _cut, _grid
+from .common import _pad, _p, _cut, _grid, _width
 
 
 def _load(a, path: str | None = None) -> sheet.Table | None:
@@ -107,6 +107,47 @@ def cmd_sheet_peek(a) -> int:
         _p(f"\n앞 {a.rows}행")
         _grid(t.headers, [[sheet.to_text(v) for v in r] for r in t.rows[:a.rows]],
               limit=a.width)
+    return 0
+
+
+def cmd_sheet_row(a) -> int:
+    """한 행을 세로로 본다. 열이 서른 개면 가로로는 못 읽는다."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    conditions = []
+    try:
+        for op in ("eq", "has"):
+            for spec in getattr(a, op) or []:
+                conditions.append(sheet.Condition.parse(op, spec))
+        found = sheet.find_rows(t, conditions, number=a.at)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if a.at is None and not conditions:
+        _p("몇 행인지(--at) 또는 찾을 조건(--eq, --has)을 주세요.")
+        _p("  예: at sheet row 명단.xlsx --eq 사번=E2")
+        return 1
+
+    if not found:
+        if a.at == 1:
+            _p("1행은 머리글입니다. 자료는 2행부터입니다.")
+        else:
+            _p("맞는 행이 없습니다.")
+        return 1
+
+    _p(f"{Path(a.file).name}  자료 {len(t.rows):,}행 "
+       f"(줄 번호는 엑셀에서 보이는 번호입니다)")
+    width = max(_width(h) for h in t.headers)
+    for line, row in found[:a.rows]:
+        _p(f"\n{line}행")
+        for name, value in zip(t.headers, row):
+            shown = sheet.to_text(value)
+            _p(f"  {_pad(name, width)}  {shown if shown.strip() else '(빈 칸)'}")
+    if len(found) > a.rows:
+        _p(f"\n... {len(found) - a.rows:,}행 더 걸렸습니다. -n 으로 늘리세요.")
     return 0
 
 
@@ -1250,6 +1291,16 @@ def add_commands(sub) -> None:
     pk.add_argument("--stats", action="store_true",
                     help="숫자 열의 합계·평균·중앙값, 나머지 열의 최빈값")
     pk.set_defaults(func=cmd_sheet_peek)
+
+    rw = common(sh.add_parser("row", help="한 행을 세로로 보기 (열이 많은 표)"))
+    rw.add_argument("file")
+    rw.add_argument("--at", type=int, metavar="행",
+                    help="엑셀에서 보이는 줄 번호 (머리글이 1행)")
+    rw.add_argument("--eq", action="append", metavar="열=값", help="값이 같은 행")
+    rw.add_argument("--has", action="append", metavar="열=값", help="값을 포함하는 행")
+    rw.add_argument("-n", "--rows", type=int, default=5, metavar="개",
+                    help="여러 행이 걸리면 몇 개까지 보일지 (기본 5)")
+    rw.set_defaults(func=cmd_sheet_row)
 
     ck = common(sh.add_parser("check", help="중복 키·결측·타입 혼재 검증"))
     ck.add_argument("file")
