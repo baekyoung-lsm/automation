@@ -164,6 +164,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
 | `at dev outline [경로]` | 파이썬 소스 구조 - 파일별 클래스·함수·긴 함수·설명 없는 것 |
+| `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
@@ -205,6 +206,8 @@ at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
 at dev http localhost:8080/health --head               # 헤더만
 at dev unused src/ --modules                           # 걸리면 exit 1
 at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
+at dev loc .                       # 이 저장소가 얼마나 큰가
+at dev loc src --glob '*.ts' --top 20
 at dev outline src/ --sort 갈림길                      # 조건이 많은 함수부터
 at dev outline src/ --file models.py                   # 그 파일의 클래스·함수
 at dev api openapi.json                                # 엔드포인트 한눈에
@@ -257,6 +260,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 **별표 import(`from x import *`)는 판단하지 않고**, `__init__.py` 는 기본으로 건너뛴다 —
 거기 import 는 대개 다시 내보내기라 파일 안에서 안 쓰이는 것이 정상이다. 동적으로 부르는
 이름은 볼 수 없으니 지우기 전에 확인하고, 남겨야 하면 그 줄에 `attools:ignore` 를 적는다.
+
+`at dev loc` 은 주석 규칙을 **아는 확장자만** 주석을 가른다. 모르는 확장자는 줄 수만 세고
+주석 칸에 `?` 를 적는다 — 아무 규칙이나 갖다 대면 숫자가 조용히 틀린다. 블록 주석은 그 줄이
+여는 기호로 시작할 때만 주석으로 센다. 코드 뒤에 붙은 `/* ... */` 까지 주석으로 세면 코드
+줄이 사라진다. 파이썬 삼중 따옴표도 같은 규칙이라 `x = """...` 는 코드로 센다.
 
 `at dev lock` 은 `package-lock.json`(v1·v2·v3), `Pipfile.lock`, `poetry.lock`,
 `yarn.lock`, `requirements.txt`, `go.mod` 를 읽어 **무엇이 얼마나 바뀌었는지**만 낸다.

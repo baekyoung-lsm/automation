@@ -43,6 +43,7 @@ attools/
     fakedata.py     시험용 가짜 표 (한글 이름·전화·주소)
     gitkit.py       브랜치 정리, 시크릿 검사, 커밋 통계, 충돌 표시
     todo.py         TODO/FIXME 수집 (주석 안에 있을 때만)
+    loc.py          줄 수 세기 (언어별 코드·주석·빈 줄)
     logkit.py       로그 집계·분포·반복 에러 묶기, 응답 시간 백분위
     jsonkit.py      JSON 스키마·비교·평탄화·합치기
     deps.py         의존성 파일 훑기, 잠금 파일 비교

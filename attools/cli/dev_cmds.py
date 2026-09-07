@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import files, hangul, life, sheet, text
-from ..code import (dbkit, deps, devkit, fakedata, jsonkit, logkit, openapi,
-                    pyscan)
+from ..code import (dbkit, deps, devkit, fakedata, jsonkit, loc, logkit,
+                    openapi, pyscan)
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
@@ -561,6 +561,45 @@ def cmd_dev_http(a) -> int:
     if len(lines) > a.limit:
         _p(f"... {len(lines) - a.limit}줄 더 (--limit 로 늘리거나 -o 로 저장하세요)")
     return 0 if result.ok else 1
+
+
+def cmd_dev_loc(a) -> int:
+    """줄 수를 언어별로 센다. 인수인계·견적·«이 저장소 얼마나 큰가» 용이다."""
+    roots = [Path(p) for p in a.paths]
+    report = loc.scan(roots, glob=a.glob or "")
+    if not report.languages:
+        _p("셀 파일을 찾지 못했습니다.")
+        for name, why in report.skipped[:a.limit]:
+            _p(f"  {name}  {why}")
+        return 1
+
+    rows = []
+    for lang in report.languages:
+        rows.append([lang.language, f"{lang.files:,}", f"{lang.code:,}",
+                     f"{lang.comment:,}" if lang.known else "?",
+                     f"{lang.blank:,}", f"{lang.total:,}"])
+    rows.append(["합계", f"{len(report.files):,}", f"{report.code:,}",
+                 f"{sum(l.comment for l in report.languages):,}",
+                 f"{sum(l.blank for l in report.languages):,}",
+                 f"{report.total:,}"])
+    _grid(["언어", "파일", "코드", "주석", "빈 줄", "합계"], rows, limit=20)
+
+    unknown = [l.language for l in report.languages if not l.known]
+    if unknown:
+        _p(f"\n주석 규칙을 모르는 확장자: {', '.join(unknown[:10])}")
+        _p("  그 줄은 전부 코드로 셌습니다. 주석은 «?» 로 두었습니다.")
+
+    if a.top:
+        _p(f"\n코드가 많은 파일 {min(a.top, len(report.files))}개")
+        _grid(["코드", "주석", "파일"],
+              [[f"{f.code:,}", f"{f.comment:,}" if f.known else "?", f.path]
+               for f in report.files[:a.top]], limit=60)
+
+    if report.skipped:
+        _p(f"\n못 읽은 파일 {len(report.skipped):,}개")
+        for name, why in report.skipped[:a.limit]:
+            _p(f"  {_cut(name, 50)}  {why}")
+    return 0
 
 
 def cmd_dev_outline(a) -> int:
@@ -1143,6 +1182,15 @@ def add_commands(sub) -> None:
     ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
+
+    lc = dp.add_parser("loc", help="줄 수 세기 - 언어별 코드·주석·빈 줄")
+    lc.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    lc.add_argument("--glob", metavar="무늬", help="예: --glob '*.py'")
+    lc.add_argument("--top", type=int, default=10, metavar="개",
+                    help="코드가 많은 파일을 몇 개 보일지 (0이면 생략)")
+    lc.add_argument("--limit", type=int, default=10, metavar="개",
+                    help="못 읽은 파일을 몇 개까지 보일지")
+    lc.set_defaults(func=cmd_dev_loc)
 
     ol = dp.add_parser("outline", help="파이썬 소스 구조 - 파일별 클래스·함수·긴 함수")
     ol.add_argument("paths", nargs="*", default=["."], metavar="경로")
