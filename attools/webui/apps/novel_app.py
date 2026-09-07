@@ -149,8 +149,16 @@ def export(payload: dict) -> dict:
 
     if dropped:
         tail += f" 앞서 내보낸 파일 {dropped}개는 원고에서 뺐습니다."
+    args: list[object] = ["novel", "export", root, "-f", kind, "-o", out]
+    if title:
+        args += ["--title", title]
+    if author:
+        args += ["--author", author]
+    if indent:
+        args.append("--indent")
     return {"saved": str(out), "note": note, "tail": tail,
-            "chapters": len(chapters), "dropped": dropped}
+            "chapters": len(chapters), "dropped": dropped,
+            "command": form.command(*args)}
 
 
 BODY = """
@@ -276,7 +284,8 @@ BODY = """
     try {
       const d = await AT.call("/api/novel/export", body);
       AT.message($("exportmsg"), "저장했습니다: <b>" + AT.esc(d.saved) +
-                 "</b><br>" + AT.esc(d.note) + " · " + AT.esc(d.tail), "ok");
+                 "</b><br>" + AT.esc(d.note) + " · " + AT.esc(d.tail) +
+                 AT.command(d.command), "ok");
     } catch (e) { AT.message($("exportmsg"), AT.esc(e.message), "bad"); }
   });
 

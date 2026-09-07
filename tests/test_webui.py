@@ -1438,6 +1438,88 @@ class BrowserCheckTest(unittest.TestCase):
         self.assertIn("찾지 못했습니다", out.getvalue())
 
 
+class CommandHintTest(UiCase):
+    """화면이 보여 주는 터미널 명령이 실제로 되는 명령이어야 한다."""
+
+    def accepts(self, command):
+        """진짜 파서에 걸어 본다. 안내만 그럴듯하고 안 되면 더 나쁘다."""
+        import shlex
+
+        from attools import cli
+
+        parts = shlex.split(command)
+        self.assertEqual(parts[0], "at", command)
+        cli.build_parser().parse_args(parts[1:])
+
+    def test_file_commands(self):
+        (self.work / "가.txt").write_text("내용", encoding="utf-8")
+        for body in ({"path": str(self.work), "mode": "ext", "recursive": True},
+                     {"path": str(self.work), "mode": "photo-month",
+                      "mtime": True},
+                     {"path": str(self.work), "mode": "fixname"},
+                     {"path": str(self.work), "mode": "date-ext",
+                      "hidden": True, "fixname": True}):
+            _, data = self.post("/api/files/preview", body)
+            self.accepts(data["command"])
+
+    def test_text_commands(self):
+        (self.work / "가.md").write_text("리안\n", encoding="utf-8")
+        for body in ({"path": str(self.work), "needle": "리안",
+                      "replacement": "리언", "glob": "*.md",
+                      "ignore_case": True, "regex": True},
+                     {"path": str(self.work), "mode": "trim"},
+                     {"path": str(self.work), "mode": "crlf"}):
+            _, data = self.post("/api/text/preview", body)
+            self.accepts(data["command"])
+
+    def test_apply_shows_how_to_undo(self):
+        (self.work / "가.txt").write_text("내용", encoding="utf-8")
+        _, data = self.post("/api/files/apply",
+                            {"path": str(self.work), "mode": "ext"})
+        self.assertEqual(data["command"], "at file undo")
+        self.accepts(data["command"])
+
+    def test_sheet_commands(self):
+        path = self.work / "명단.csv"
+        path.write_text("이름,연락처\n홍길동,01012345678\n", encoding="utf-8")
+        _, clean = self.post("/api/sheet/clean_save",
+                             {"path": str(path), "dedupe": True})
+        self.accepts(clean["command"])
+        _, formatted = self.post("/api/sheet/format_save",
+                                 {"path": str(path),
+                                  "specs": [["연락처", "전화"]]})
+        self.accepts(formatted["command"])
+
+    def test_doc_commands(self):
+        path = self.work / "문서.md"
+        path.write_text("# 제목\n\n<!-- toc -->\n<!-- /toc -->\n\n## 가\n",
+                        encoding="utf-8")
+        _, fixed = self.post("/api/doc/fix_apply",
+                             {"path": str(path), "fix": "toc"})
+        self.accepts(fixed["command"])
+        for kind in ("html", "slides", "docx"):
+            _, made = self.post("/api/doc/export",
+                                {"path": str(path), "kind": kind, "toc": True})
+            self.accepts(made["command"])
+
+    def test_novel_command(self):
+        root = self.work / "원고"
+        root.mkdir()
+        (root / "1화.txt").write_text("리안은 웃었다.\n", encoding="utf-8")
+        _, data = self.post("/api/novel/export",
+                            {"path": str(root), "format": "epub",
+                             "title": "시험작", "author": "나"})
+        self.accepts(data["command"])
+
+    def test_quoting(self):
+        from attools.webui import form
+
+        self.assertEqual(form.command("file", "organize", "/a b"),
+                         "at file organize '/a b'")
+        self.assertEqual(form.command("x", "리안"), "at x 리안")  # 한글은 그대로
+        self.assertEqual(form.command("x", "it's"), "at x 'it'\\''s'")
+
+
 class RegistryTest(unittest.TestCase):
     def test_find_by_korean_name(self):
         apps = webui.load_apps()

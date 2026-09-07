@@ -71,6 +71,7 @@ td.num { text-align:right; font-variant-numeric:tabular-nums; }
 pre.diff { margin:.4rem 0 1rem; padding:.6rem .8rem; overflow-x:auto;
   background:var(--mark); border:1px solid var(--line); border-radius:8px;
   font:12.5px/1.55 "D2Coding","Menlo","Consolas",monospace; }
+pre.diff.cmd { color:var(--blue); user-select:all; }
 pre.diff .add { color:var(--green); }
 pre.diff .del { color:var(--red); }
 pre.diff .at { color:var(--dim); }
@@ -258,8 +259,16 @@ window.AT = (function () {
     });
   }
 
+  // 화면에서 한 일을 터미널 명령으로 보여 준다. 다음부터는 직접 칠 수 있다.
+  function command(text) {
+    if (!text) return "";
+    return '<p class="note">터미널에서는 이렇게 합니다</p>' +
+           '<pre class="diff cmd">' + esc(text) + "</pre>";
+  }
+
   return { call: call, table: table, esc: esc, message: message,
-           token: token, remember: remember, browse: browse };
+           token: token, remember: remember, browse: browse,
+           command: command };
 })();
 """
 

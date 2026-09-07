@@ -111,8 +111,15 @@ def fix_apply(payload: dict) -> dict:
     if not change.changed:
         raise UiError("바뀔 것이 없습니다.")
     journal = textkit.apply_changes([change])
+    kind = form.choice(payload, "fix", FIXES, "toc")
+    args: list[object] = ["doc", "toc" if kind == "toc" else "table", path]
+    if kind == "toc":
+        depth = int(form.number(payload, "depth", 3, low=1, high=6))
+        if depth != 3:
+            args += ["--depth", depth]
     return {"path": str(path), "note": note,
-            "journal": journal.parent.name if journal else ""}
+            "journal": journal.parent.name if journal else "",
+            "command": form.command(*args, "--apply")}
 
 
 def export(payload: dict) -> dict:
@@ -127,7 +134,8 @@ def export(payload: dict) -> dict:
         out = files.unique_path(path.with_suffix(".docx"))
         docx.write_document(out, parts)
         return {"saved": str(out),
-                "note": "문단 안의 굵게·기울임 표시는 글자만 남습니다."}
+                "note": "문단 안의 굵게·기울임 표시는 글자만 남습니다.",
+                "command": form.command("doc", "docx", path, "-o", out)}
 
     if kind == "slides":
         html = mdkit.to_slides(body, title=title)
@@ -139,7 +147,11 @@ def export(payload: dict) -> dict:
         note = "이미지와 링크는 상대 경로 그대로입니다. 같이 옮겨야 보입니다."
 
     out.write_text(html, encoding="utf-8")
-    return {"saved": str(out), "note": note}
+    return {"saved": str(out), "note": note,
+            "command": form.command("doc", "slides" if kind == "slides" else "html",
+                                    path, "-o", out,
+                                    *(["--toc"] if kind == "html"
+                                      and form.flag(payload, "toc") else []))}
 
 
 BODY = """
@@ -282,6 +294,7 @@ BODY = """
       const d = await AT.call("/api/doc/fix_apply", values());
       AT.message($("fixmsg"), AT.esc(d.note) + "를 고쳤습니다. 기록: " +
                  AT.esc(d.journal), "ok");
+      $("fix").innerHTML = AT.command(d.command);
       lock(false);
     } catch (e) { AT.message($("fixmsg"), AT.esc(e.message), "bad"); }
   });
@@ -290,7 +303,7 @@ BODY = """
     try {
       const d = await AT.call("/api/doc/export", values());
       AT.message($("exportmsg"), "저장했습니다: <b>" + AT.esc(d.saved) +
-                 "</b><br>" + AT.esc(d.note), "ok");
+                 "</b><br>" + AT.esc(d.note) + AT.command(d.command), "ok");
     } catch (e) { AT.message($("exportmsg"), AT.esc(e.message), "bad"); }
   });
 })();

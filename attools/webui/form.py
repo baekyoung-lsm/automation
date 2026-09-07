@@ -96,3 +96,31 @@ def existing_path(payload: dict, key: str = "path") -> Path:
     if not path.exists():
         raise UiError(f"그런 파일이나 폴더가 없습니다: {path}")
     return path.resolve()
+
+
+def command(*parts: object) -> str:
+    """화면이 한 일을 터미널 명령으로 적어 준다.
+
+    화면만 쓰다 보면 같은 일을 터미널에서 어떻게 하는지 알 수 없다. 여기서
+    한 줄 보여 주면 다음부터는 스스로 칠 수 있고, 여러 폴더에 되풀이할 때는
+    그쪽이 훨씬 빠르다.
+    """
+    out = []
+    for part in parts:
+        if part is None or part == "":
+            continue
+        out.append(_quote(str(part)))
+    return " ".join(["at", *out])
+
+
+# 셸이 뜻을 갖는 글자. 한글은 여기 없으므로 따옴표를 붙이지 않는다 -
+# shlex.quote 는 아스키가 아니면 무조건 감싸서 명령이 지저분해진다.
+_SPECIAL = set(" \t\n'\"\\$`*?[]{}();&|<>#~!")
+
+
+def _quote(text_: str) -> str:
+    if not text_:
+        return "''"
+    if not any(ch in _SPECIAL for ch in text_):
+        return text_
+    return "'" + text_.replace("'", "'\\''") + "'"

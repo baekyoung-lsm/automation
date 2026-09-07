@@ -94,9 +94,33 @@ def _rows(changes: list) -> list[dict]:
     return out
 
 
+def _command(payload: dict, *, apply: bool = False) -> str:
+    mode = form.choice(payload, "mode", MODES, "replace")
+    root = form.text(payload, "path")
+    names = {"replace": ["replace", form.raw_text(payload, "needle"),
+                         form.raw_text(payload, "replacement"), root],
+             "encoding": ["encoding", root],
+             "eol": ["eol", root],
+             "crlf": ["eol", root, "--to", "crlf"],
+             "trim": ["trim", root]}
+    args: list[object] = ["text", *names[mode]]
+    if mode == "replace":
+        for flag, option in (("regex", "-e"), ("ignore_case", "-i"),
+                             ("whole_word", "-w")):
+            if form.flag(payload, flag):
+                args.append(option)
+    for pattern in [g.strip() for g in form.text(payload, "glob").split(",") if g.strip()]:
+        args += ["-g", pattern]
+    if form.flag(payload, "hidden"):
+        args.append("--hidden")
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
 def preview(payload: dict) -> dict:
     changes = _plan(payload)
-    return {"count": len(changes),
+    return {"count": len(changes), "command": _command(payload, apply=True),
             "hits": sum(c.hits for c in changes),
             "shown": min(len(changes), MAX_SHOWN),
             "files": _rows(changes)}
@@ -111,7 +135,8 @@ def apply(payload: dict) -> dict:
     journal = textkit.apply_changes(changes, target_encoding=target)
     return {"applied": len(changes),
             "journal": journal.parent.name if journal else "",
-            "files": _rows(changes)}
+            "files": _rows(changes),
+            "command": form.command("text", "undo")}
 
 
 def journals(payload: dict) -> dict:

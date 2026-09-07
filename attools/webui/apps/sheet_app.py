@@ -205,8 +205,14 @@ def format_save(payload: dict) -> dict:
         suffix = ".csv"
     out = files.unique_path(source.with_name(f"{source.stem} (형식){suffix}"))
     sheet.save(table, out)
+    options = {"전화": "--phone", "사업자번호": "--bizno", "우편번호": "--post",
+               "날짜": "--date", "숫자": "--number"}
+    args: list[object] = ["sheet", "format", *_source_args(payload)]
+    for column, kind in _specs(payload):
+        args += [options[kind], column]
     return {"saved": str(out), "report": _format_rows(reports),
-            "left": _left_alone(reports)}
+            "left": _left_alone(reports),
+            "command": form.command(*args, "-o", out)}
 
 
 def _cleaned(payload: dict):
@@ -240,6 +246,17 @@ def clean_preview(payload: dict) -> dict:
             "count": len(after.rows)}
 
 
+def _source_args(payload: dict) -> list[object]:
+    args: list[object] = [form.text(payload, "path")]
+    name = form.text(payload, "sheet")
+    if name:
+        args += ["--sheet", name]
+    row = int(form.number(payload, "header_row", 1, low=1, high=1000))
+    if row != 1:
+        args += ["--header-row", row]
+    return args
+
+
 def clean_save(payload: dict) -> dict:
     """원본은 건드리지 않는다. 옆에 새 파일을 만든다."""
     before, (after, rep) = _cleaned(payload)
@@ -249,8 +266,12 @@ def clean_save(payload: dict) -> dict:
         suffix = ".csv"
     out = files.unique_path(source.with_name(f"{source.stem} (정리){suffix}"))
     sheet.save(after, out)
+    args = ["sheet", "clean", *_source_args(payload)]
+    if form.flag(payload, "dedupe"):
+        args.append("--dedupe")
     return {"saved": str(out), "report": _report_rows(before, after, rep),
-            "count": len(after.rows)}
+            "count": len(after.rows),
+            "command": form.command(*args, "-o", out)}
 
 
 BODY = """
@@ -449,6 +470,7 @@ BODY = """
       const d = await AT.call("/api/sheet/format_save", formatBody());
       drawFormat(d);
       AT.message($("formatmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b>", "ok");
+      $("formatreport").innerHTML += AT.command(d.command);
       $("btn-format-save").disabled = true;
     } catch (e) { AT.message($("formatmsg"), AT.esc(e.message), "bad"); }
   });

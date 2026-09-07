@@ -64,10 +64,35 @@ def _rows(root: Path, moves: list[files.Move]) -> list[list[str]]:
     return rows
 
 
+def _command(payload: dict, root: Path, *, apply: bool = False) -> str:
+    mode = form.choice(payload, "mode", MODES, "ext")
+    args: list[object] = ["file"]
+    if mode == "fixname":
+        args += ["fixname", root]
+    elif mode.startswith("photo-"):
+        args += ["photos", root, "--by", mode.split("-", 1)[1]]
+        if form.flag(payload, "mtime"):
+            args.append("--mtime")
+        if not form.flag(payload, "recursive"):
+            args.append("--flat")
+    else:
+        args += ["organize", root, "--by", mode]
+        if form.flag(payload, "fixname"):
+            args.append("--fixname")
+    if form.flag(payload, "recursive") and not mode.startswith("photo-"):
+        args.append("-r")
+    if form.flag(payload, "hidden"):
+        args.append("--hidden")
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
 def preview(payload: dict) -> dict:
     root, moves, notes = _plan(payload)
     return {"root": str(root), "count": len(moves),
-            "rows": _rows(root, moves), "notes": notes}
+            "rows": _rows(root, moves), "notes": notes,
+            "command": _command(payload, root, apply=True)}
 
 
 def apply(payload: dict) -> dict:
@@ -78,7 +103,8 @@ def apply(payload: dict) -> dict:
     journal = files.apply_moves(moves)
     return {"applied": len(moves), "root": str(root),
             "journal": journal.name if journal else "",
-            "rows": _rows(root, moves), "notes": notes}
+            "rows": _rows(root, moves), "notes": notes,
+            "command": form.command("file", "undo")}
 
 
 DUPE_DEST = "_중복"
@@ -303,7 +329,7 @@ BODY = """
     plan.innerHTML = AT.table(["지금 이름", "옮길 곳"], data.rows) +
       (data.notes && data.notes.length
         ? '<p class="note">' + data.notes.map(AT.esc).join(" · ") + "</p>"
-        : "");
+        : "") + AT.command(data.command);
   }
 
   function lock(state) {
