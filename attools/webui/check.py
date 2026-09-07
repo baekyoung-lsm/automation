@@ -56,7 +56,7 @@ class ScreenCheck:
         return not self.messages and not self.trouble
 
 
-def check_page(browser: str, url: str, *, timeout: float = 45.0,
+def check_page(browser: str, url: str, *, timeout: float = 60.0,
                profile: str | None = None) -> tuple[list[str], str]:
     """한 화면을 열고 콘솔 오류를 모은다. (오류 목록, 못 연 이유)
 
