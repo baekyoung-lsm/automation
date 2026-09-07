@@ -1,4 +1,4 @@
-"""의존성 없는 docx 라이터 시험."""
+"""의존성 없는 docx 라이터·리더 시험."""
 
 import shutil
 import tempfile
@@ -97,6 +97,117 @@ class MarkdownToDocxTest(unittest.TestCase):
         body = self.parts()
         self.assertIn("• 목록", body)
         self.assertIn("<w:i/>", body)             # 인용은 기울임
+
+
+
+WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+class DocxReaderTest(unittest.TestCase):
+    """워드가 실제로 내는 꼴(pStyle, numPr, w:br)을 그대로 만들어 읽힌다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, body: str, name="문서.docx") -> Path:
+        path = self.root / name
+        document = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                    f'<w:document xmlns:w="{WORD_NS}"><w:body>{body}</w:body>'
+                    "</w:document>")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("word/document.xml", document)
+        return path
+
+    def para(self, text, style="", numbered=False):
+        props = ""
+        if style:
+            props += f'<w:pStyle w:val="{style}"/>'
+        if numbered:
+            props += "<w:numPr><w:ilvl w:val=\"0\"/></w:numPr>"
+        props = f"<w:pPr>{props}</w:pPr>" if props else ""
+        return f"<w:p>{props}<w:r><w:t>{text}</w:t></w:r></w:p>"
+
+    def test_heading_styles_become_levels(self):
+        body = self.para("큰 제목", "Heading1") + self.para("작은 제목", "Heading3")
+        parts = docx.read_document(self.make(body))
+        self.assertEqual(parts, [("제목1", "큰 제목"), ("제목3", "작은 제목")])
+
+    def test_korean_heading_style_name(self):
+        # 한글 워드는 스타일 이름이 «제목 1» 로 들어온다
+        parts = docx.read_document(self.make(self.para("제목이다", "제목 2")))
+        self.assertEqual(parts, [("제목2", "제목이다")])
+
+    def test_numbered_paragraph_is_a_list(self):
+        parts = docx.read_document(self.make(self.para("첫 항목", numbered=True)))
+        self.assertEqual(parts, [("목록", "첫 항목")])
+
+    def test_line_break_inside_a_paragraph(self):
+        body = ("<w:p><w:r><w:t>위</w:t><w:br/><w:t>아래</w:t></w:r></w:p>")
+        parts = docx.read_document(self.make(body))
+        self.assertEqual(parts, [("문단", "위\n아래")])
+
+    def test_empty_paragraphs_are_dropped(self):
+        body = self.para("있음") + "<w:p/>" + self.para("   ")
+        parts = docx.read_document(self.make(body))
+        self.assertEqual(parts, [("문단", "있음")])
+
+    def test_table_rows(self):
+        cell = '<w:tc><w:p><w:r><w:t>{}</w:t></w:r></w:p></w:tc>'
+        body = ("<w:tbl><w:tr>" + cell.format("이름") + cell.format("부서") +
+                "</w:tr><w:tr>" + cell.format("홍길동") + cell.format("영업") +
+                "</w:tr></w:tbl>")
+        parts = docx.read_document(self.make(body))
+        self.assertEqual(parts, [("표", [["이름", "부서"], ["홍길동", "영업"]])])
+
+    def test_round_trip_through_the_writer(self):
+        path = self.root / "쓴것.docx"
+        docx.write_document(path, [docx.paragraph("한 문단"),
+                                   docx.table([["가", "나"], ["1", "2"]])])
+        parts = docx.read_document(path)
+        self.assertEqual(parts[0], ("문단", "한 문단"))
+        self.assertEqual(parts[1][0], "표")
+
+    def test_not_a_word_file(self):
+        bad = self.root / "가짜.docx"
+        bad.write_text("이건 zip 이 아니다", encoding="utf-8")
+        with self.assertRaises(docx.DocxError):
+            docx.read_document(bad)
+
+    def test_zip_without_document_xml(self):
+        bad = self.root / "빈zip.docx"
+        with zipfile.ZipFile(bad, "w") as z:
+            z.writestr("아무것.txt", "x")
+        with self.assertRaises(docx.DocxError) as ctx:
+            docx.read_document(bad)
+        self.assertIn("워드 문서가 아닙니다", str(ctx.exception))
+
+
+class DocxToMarkdownTest(unittest.TestCase):
+    def test_headings_and_lists(self):
+        out = docx.to_markdown([("제목1", "큰 제목"), ("목록", "가"),
+                                ("목록", "나"), ("문단", "본문")])
+        self.assertEqual(out, "# 큰 제목\n\n- 가\n- 나\n본문\n")
+
+    def test_table_becomes_a_markdown_table(self):
+        out = docx.to_markdown([("표", [["이름", "부서"], ["홍길동", "영업"]])])
+        self.assertIn("| 이름 | 부서 |", out)
+        self.assertIn("| --- | --- |", out)
+
+    def test_ragged_table_is_padded(self):
+        out = docx.to_markdown([("표", [["가", "나"], ["1"]])])
+        self.assertIn("| 1 |  |", out)
+
+    def test_pipe_in_a_cell_is_escaped(self):
+        out = docx.to_markdown([("표", [["가|나"]])])
+        self.assertIn("가\\|나", out)
+
+    def test_read_text_joins_everything(self):
+        # 찾기·세기용이라 표도 한 줄씩 붙인다
+        parts = [("제목1", "제목"), ("표", [["가", "나"]])]
+        self.assertEqual(docx.to_markdown(parts).count("|"), 6)
 
 
 if __name__ == "__main__":

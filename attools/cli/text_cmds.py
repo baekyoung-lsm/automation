@@ -11,13 +11,14 @@ from ..docs import report
 from .common import _p, _cut, _grid
 
 
-def _text_targets(a):
+def _text_targets(a, *, documents: bool = False):
     paths = [Path(p) for p in (a.paths or ["."])]
     missing = [p for p in paths if not p.exists()]
     if missing:
         _p(f"경로가 없습니다: {', '.join(str(m) for m in missing)}")
         return None
-    return list(text.iter_files(paths, glob=a.glob, hidden=a.hidden))
+    return list(text.iter_files(paths, glob=a.glob, hidden=a.hidden,
+                                documents=documents))
 
 
 def _text_report(a, changes, headline: str) -> int:
@@ -51,9 +52,32 @@ def _text_report(a, changes, headline: str) -> int:
     return 0
 
 
+def _docx_hint(a, targets, found=None) -> None:
+    """워드 문서를 봤는지 안 봤는지 분명히 말한다.
+
+    안 보고 조용히 넘기면 «찾았는데 없다» 가 되고, 보고 말 안 하면
+    at text replace 로 고칠 수 있는 줄 알게 된다. 둘 다 알려 준다.
+    """
+    if not a.docx:
+        left = [p for p in (_text_targets(a, documents=True) or [])
+                if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
+        if left:
+            _p(f"\n워드 문서 {len(left)}개는 보지 않았습니다. "
+               "--docx 를 붙이면 글자를 꺼내 함께 찾습니다.")
+        return
+    words = [p for p in targets if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
+    if not words:
+        return
+    hit_words = [f for f in (found or [])
+                 if f.path.suffix.lower() in text.DOCUMENT_SUFFIXES]
+    if hit_words:
+        _p("\n워드 문서의 줄 번호는 문단 번호입니다. "
+           "워드 문서는 at text replace 로 고치지 못합니다.")
+
+
 def cmd_text_find(a) -> int:
     """찾기만 한다. 고치지 않으므로 --apply 가 없다."""
-    targets = _text_targets(a)
+    targets = _text_targets(a, documents=a.docx)
     if targets is None:
         return 1
 
@@ -65,9 +89,10 @@ def cmd_text_find(a) -> int:
         return 1
 
     found = text.find_in_files(targets, pattern, context=a.context,
-                               per_file=a.per_file)
+                               per_file=a.per_file, documents=a.docx)
     if not found:
         _p(f"'{a.find}' 를 찾지 못했습니다. (파일 {len(targets)}개를 봤습니다)")
+        _docx_hint(a, targets)
         return 1
 
     total = sum(f.count for f in found)
@@ -101,6 +126,7 @@ def cmd_text_find(a) -> int:
     if len(found) > a.limit:
         _p(f"... 파일 {len(found) - a.limit}개 더 (--limit 로 조절)")
     _p(f"파일 {len(found)}개, {total}곳.")
+    _docx_hint(a, targets, found=found)
     return 0
 
 
@@ -589,6 +615,8 @@ def add_commands(sub) -> None:
     fp.add_argument("-e", "--regex", action="store_true", help="정규식으로")
     fp.add_argument("-i", "--ignore-case", action="store_true")
     fp.add_argument("-w", "--word", action="store_true", help="단어 단위로만")
+    fp.add_argument("--docx", action="store_true",
+                    help="워드 문서에서도 글자를 꺼내 찾는다 (줄 번호는 문단 번호)")
     fp.add_argument("-C", "--context", type=int, default=0, metavar="줄",
                     help="앞뒤 문맥 줄 수")
     fp.add_argument("--per-file", type=int, default=0, metavar="개",

@@ -9,7 +9,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import text
+from attools import docx, text
 
 
 class TextTest(unittest.TestCase):
@@ -404,6 +404,41 @@ class PickTest(unittest.TestCase):
         body = "a@b.co\na@b.co\nc@d.co\n"
         self.assertEqual(len(text.pick(body)), 3)
         self.assertEqual(len(text.unique_picked(text.pick(body))), 2)
+
+
+class FindInWordFilesTest(unittest.TestCase):
+    """워드 문서 찾기. 켜야만 보고, 켰으면 그렇다고 말한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        docx.write_document(self.root / "계약서.docx",
+                            [docx.paragraph("을은 홍길동으로 한다.")])
+        (self.root / "메모.txt").write_text("홍길동 메모\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def pattern(self, needle="홍길동"):
+        return text.build_pattern(needle, regex=False, ignore_case=False,
+                                  whole_word=False)
+
+    def test_word_files_are_left_out_by_default(self):
+        found = text.find_in_files(
+            list(text.iter_files([self.root])), self.pattern())
+        self.assertEqual([f.path.name for f in found], ["메모.txt"])
+
+    def test_documents_flag_reads_the_word_file(self):
+        targets = list(text.iter_files([self.root], documents=True))
+        self.assertEqual(len(targets), 2)
+        found = text.find_in_files(targets, self.pattern(), documents=True)
+        self.assertEqual(sorted(f.path.name for f in found),
+                         ["계약서.docx", "메모.txt"])
+
+    def test_broken_word_file_is_skipped_not_raised(self):
+        (self.root / "깨진.docx").write_text("zip 이 아니다", encoding="utf-8")
+        targets = list(text.iter_files([self.root], documents=True))
+        found = text.find_in_files(targets, self.pattern(), documents=True)
+        self.assertNotIn("깨진.docx", [f.path.name for f in found])
 
 
 if __name__ == "__main__":

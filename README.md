@@ -261,6 +261,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 거기 import 는 대개 다시 내보내기라 파일 안에서 안 쓰이는 것이 정상이다. 동적으로 부르는
 이름은 볼 수 없으니 지우기 전에 확인하고, 남겨야 하면 그 줄에 `attools:ignore` 를 적는다.
 
+`at doc from-docx` 는 받은 워드 문서에서 **문단·제목·표만** 꺼낸다. 그림·머리글·바닥글·
+각주·메모는 옮기지 않는다 — 옮긴 척하면 «넘겼는데 내용이 빠졌다» 를 나중에 알게 된다.
+`at text find --docx` 도 같은 방법으로 워드 문서 안을 찾는다. 줄 번호는 문단 번호이고,
+**워드 문서는 `at text replace` 로 고치지 못한다** (찾기 전용이라 기본은 꺼져 있다).
+
 `at dev loc` 은 주석 규칙을 **아는 확장자만** 주석을 가른다. 모르는 확장자는 줄 수만 세고
 주석 칸에 `?` 를 적는다 — 아무 규칙이나 갖다 대면 숫자가 조용히 틀린다. 블록 주석은 그 줄이
 여는 기호로 시작할 때만 주석으로 센다. 코드 뒤에 붙은 `/* ... */` 까지 주석으로 세면 코드
@@ -308,7 +313,7 @@ CI 에 넣을 수 있다.
 | --- | --- |
 | `at text pick <경로…>` | 이메일·전화·사업자번호·금액·날짜·주소를 뽑아 표로 (정규식 없이) |
 | `at text kbd <글>` | 한/영 자판을 잘못 눌러 깨진 글 되살리기 (`dkssud` → `안녕`, 그 반대도) |
-| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만 |
+| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만, `--docx` 워드 문서 안까지 |
 | `at text replace <찾을것> <바꿀것> [경로]` | 여러 파일에서 찾아 바꾸기. `-e` 정규식, `-i` 대소문자 무시, `-w` 단어 단위 |
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
@@ -324,6 +329,7 @@ CI 에 넣을 수 있다.
 ```bash
 at text kbd dkssudgktpdy                                     # -> 안녕하세요
 at text find old.example.com src/ -C 1                        # 어디 있는지만 (고치지 않음)
+at text find 홍길동 계약서/ --docx      # 워드 문서 안까지 (찾기만 한다)
 at text replace old.example.com api.example.com src/          # 미리보기 (차이까지)
 at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply
@@ -439,6 +445,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc slides <파일>` | 마크다운을 넘겨 보는 슬라이드로 (`---` 로 장을 나눈다) |
 | `at doc index [경로]` | 문서 목록 만들기 - 제목과 첫 문단을 모아 `<!-- index -->` 사이에 |
 | `at doc from-html <파일>` | HTML 을 마크다운으로 (사내 위키·웹 문서 옮기기) |
+| `at doc from-docx <파일>` | 워드 문서를 마크다운으로 (받은 문서 열어 고치기) |
 | `at doc docx <파일>` | 마크다운을 워드 문서로 (보고서 제출용) |
 
 ```bash
@@ -453,6 +460,7 @@ at doc table docs/ --apply
 at doc html 회의록.md --toc                # 브라우저로 열어 인쇄 → PDF
 at doc index docs/ -o docs/README.md --apply   # 목록 갱신
 at dev http wiki.example.com/page -o page.html && at doc from-html page.html -o page.md
+at doc from-docx 받은보고서.docx -o 보고서.md
 at doc docx 보고서.md -o 보고서.docx       # 제출용 워드 문서
 at doc slides 발표.md -o 발표.html         # 화살표로 넘기는 슬라이드
 at doc slides 문서.md --by 제목            # ## 마다 한 장

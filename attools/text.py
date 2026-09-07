@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from . import docx
 from .files import IGNORE_DIRS
 
 def backup_dir() -> Path:
@@ -18,6 +19,9 @@ def backup_dir() -> Path:
     return Path.home() / ".attools" / "text"
 ENCODINGS = ("utf-8", "cp949", "euc-kr", "utf-16")
 BOM_UTF8 = b"\xef\xbb\xbf"
+# 글자를 꺼낼 수 있는 문서. 찾기에서만 쓴다 - 고치지는 못한다.
+DOCUMENT_SUFFIXES = {".docx"}
+
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz", ".xz",
     ".7z", ".rar", ".exe", ".dll", ".so", ".dylib", ".pyc", ".class", ".jar",
@@ -66,14 +70,17 @@ def read_text_any(path: Path) -> tuple[str, str]:
 
 
 def iter_files(paths: list[Path], *, glob: list[str] | None = None,
-               hidden: bool = False, max_size: int = 5_000_000):
+               hidden: bool = False, max_size: int = 5_000_000,
+               documents: bool = False):
+    """훑을 파일. documents 를 켜면 워드 문서도 낸다 (찾기 전용이다)."""
     patterns = glob or ["*"]
     seen: set[Path] = set()
 
     def ok(p: Path) -> bool:
         if p in seen or not p.is_file() or p.is_symlink():
             return False
-        if p.suffix.lower() in BINARY_SUFFIXES:
+        suffix = p.suffix.lower()
+        if suffix in BINARY_SUFFIXES and not (documents and suffix in DOCUMENT_SUFFIXES):
             return False
         try:
             return p.stat().st_size <= max_size
@@ -208,17 +215,24 @@ class FileHits:
 
 
 def find_in_files(files, pattern: re.Pattern[str], *, context: int = 0,
-                  per_file: int = 0) -> list[FileHits]:
+                  per_file: int = 0, documents: bool = False) -> list[FileHits]:
     """바꾸지 않고 찾기만 한다. 파일마다 걸린 줄을 모아 돌려준다.
 
     바꾸기와 같은 pattern 을 쓴다. 찾을 때와 바꿀 때 걸리는 것이 다르면
     미리보기를 믿을 수 없게 된다.
+
+    documents 를 켜면 워드 문서에서 글자를 꺼내 함께 본다. 기본은 끔이다 -
+    워드 문서는 at text replace 로 고치지 못하므로, 찾기에서만 걸리면
+    «찾았는데 안 바뀐다» 가 된다. 켤지 말지는 부르는 쪽이 정한다.
     """
     out: list[FileHits] = []
     for path in files:
         try:
-            body, _encoding = read_text_any(path)
-        except (TextError, OSError):
+            if documents and Path(path).suffix.lower() in DOCUMENT_SUFFIXES:
+                body = docx.read_text(Path(path))     # 줄 번호는 문단 번호가 된다
+            else:
+                body, _encoding = read_text_any(path)
+        except (TextError, docx.DocxError, OSError):
             continue
 
         lines = body.splitlines()

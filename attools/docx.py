@@ -1,11 +1,17 @@
-"""의존성 없는 docx 라이터. 워드 문서는 xml 몇 장을 담은 zip 이다.
+"""의존성 없는 docx 리더·라이터. 워드 문서는 xml 몇 장을 담은 zip 이다.
 
-스타일 파일(styles.xml)을 참조하지 않고 문단마다 서식을 직접 적어 넣는다.
-뷰어마다 스타일 해석이 달라 열리지 않는 곳이 생기는 것을 피하려는 것이다.
+쓸 때는 스타일 파일(styles.xml)을 참조하지 않고 문단마다 서식을 직접 적어
+넣는다. 뷰어마다 스타일 해석이 달라 열리지 않는 곳이 생기는 것을 피하려는
+것이다.
+
+읽을 때는 문단·제목·표만 가져온다. 그림·머리글·바닥글·각주·메모는 가져오지
+않는다 - 가져온 척하면 «옮겼는데 내용이 빠졌다» 를 나중에 알게 된다.
 """
 
 from __future__ import annotations
 
+import re
+import xml.etree.ElementTree as ET
 import zipfile
 from html import escape
 from pathlib import Path
@@ -93,3 +99,123 @@ def write_document(path: Path, parts: list[str]) -> Path:
         z.writestr("_rels/.rels", ROOT_RELS)
         z.writestr("word/document.xml", document)
     return path
+
+
+# ------------------------------------------------------------------- 읽기
+
+W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+HEADING = re.compile(r"(?:heading|제목)\s*([1-6])", re.IGNORECASE)
+
+
+class DocxError(Exception):
+    pass
+
+
+def _run_text(node: ET.Element) -> str:
+    """한 문단 안의 글자. 줄바꿈과 탭도 살린다."""
+    out = []
+    for el in node.iter():
+        if el.tag == f"{W}t":
+            out.append(el.text or "")
+        elif el.tag in (f"{W}br", f"{W}cr"):
+            out.append("\n")
+        elif el.tag == f"{W}tab":
+            out.append("\t")
+    return "".join(out)
+
+
+def _style_of(paragraph: ET.Element) -> str:
+    style = paragraph.find(f"{W}pPr/{W}pStyle")
+    return (style.get(f"{W}val") or "") if style is not None else ""
+
+
+def _is_list(paragraph: ET.Element) -> bool:
+    return paragraph.find(f"{W}pPr/{W}numPr") is not None
+
+
+def _table_rows(table: ET.Element) -> list[list[str]]:
+    rows = []
+    for tr in table.findall(f"{W}tr"):
+        cells = []
+        for tc in tr.findall(f"{W}tc"):
+            parts = [_run_text(p).strip() for p in tc.findall(f"{W}p")]
+            cells.append(" ".join(x for x in parts if x))
+        rows.append(cells)
+    return rows
+
+
+def read_document(path: Path) -> list[tuple[str, object]]:
+    """문서를 ('제목1'|'문단'|'목록'|'표', 내용) 조각으로 읽는다.
+
+    내용은 표만 list[list[str]] 이고 나머지는 글자다.
+    """
+    path = Path(path)
+    try:
+        with zipfile.ZipFile(path) as z:
+            if "word/document.xml" not in z.namelist():
+                raise DocxError("워드 문서가 아닙니다 (word/document.xml 이 없습니다). "
+                                "구버전 .doc 은 읽지 못합니다.")
+            with z.open("word/document.xml") as stream:
+                tree = ET.parse(stream)
+    except zipfile.BadZipFile:
+        raise DocxError("워드 문서가 아닙니다 (zip 이 아닙니다). "
+                        "구버전 .doc 은 읽지 못합니다.") from None
+    except OSError as exc:
+        raise DocxError(str(exc)) from None
+
+    body = tree.getroot().find(f"{W}body")
+    if body is None:
+        return []
+
+    parts: list[tuple[str, object]] = []
+    for node in body:
+        if node.tag == f"{W}p":
+            text = _run_text(node).strip()
+            if not text:
+                continue
+            level = HEADING.search(_style_of(node))
+            if level:
+                parts.append((f"제목{level.group(1)}", text))
+            elif _is_list(node):
+                parts.append(("목록", text))
+            else:
+                parts.append(("문단", text))
+        elif node.tag == f"{W}tbl":
+            rows = _table_rows(node)
+            if rows:
+                parts.append(("표", rows))
+    return parts
+
+
+def to_markdown(parts: list[tuple[str, object]]) -> str:
+    """읽은 조각을 마크다운으로. 표는 마크다운 표로 옮긴다."""
+    lines: list[str] = []
+    for kind, body in parts:
+        if kind.startswith("제목"):
+            lines += ["#" * int(kind[-1]) + " " + str(body), ""]
+        elif kind == "목록":
+            lines.append("- " + str(body))
+        elif kind == "표":
+            rows = [[str(c).replace("|", "\\|").replace("\n", " ") for c in row]
+                    for row in body]      # type: ignore[union-attr]
+            width = max(len(r) for r in rows)
+            rows = [r + [""] * (width - len(r)) for r in rows]
+            lines.append("| " + " | ".join(rows[0]) + " |")
+            lines.append("|" + "|".join([" --- "] * width) + "|")
+            for row in rows[1:]:
+                lines.append("| " + " | ".join(row) + " |")
+            lines.append("")
+        else:
+            lines += [str(body).replace("\n", "  \n"), ""]
+    return "\n".join(lines).strip() + "\n"
+
+
+def read_text(path: Path) -> str:
+    """문서의 글자만. 찾기·세기용이다."""
+    out = []
+    for kind, body in read_document(path):
+        if kind == "표":
+            out += [" ".join(str(c) for c in row) for row in body]  # type: ignore[union-attr]
+        else:
+            out.append(str(body))
+    return "\n".join(out)

@@ -478,6 +478,10 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("doc", "docx", md, "-o", 워드)
         with zipfile.ZipFile(워드) as z:
             self.assertIn("word/document.xml", z.namelist())
+        되돌린 = self.run_cli("doc", "from-docx", 워드)
+        self.assertIn("하나", 되돌린)
+        되돌린 = self.run_cli("doc", "from-docx", 워드)
+        self.assertIn("하나", 되돌린)
 
         웹문서 = Path(self.path("웹문서.html"))
         웹문서.write_text("<h1>안내</h1><p>웹에서 <b>복사</b>한 글.</p>",
