@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, hangul, sheet, text
 from ..code import devkit, jsonkit
-from ..docs import report
+from ..docs import mdkit, report
 from ..write import names
 from .common import _pad, _p, _cut, _grid, _width
 
@@ -426,6 +426,75 @@ def cmd_sheet_from_docx(a) -> int:
         picked = [tables[a.number - 1]]
     else:
         picked = tables
+
+    if not a.out:
+        first = picked[0]
+        _p(f"\n{first.sheet}")
+        _grid(first.headers,
+              [[sheet.to_text(v) for v in r] for r in first.rows[:a.rows]],
+              limit=a.width)
+        if len(first.rows) > a.rows:
+            _p(f"  ... {len(first.rows) - a.rows:,}행 더")
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요. "
+           "(표를 하나만 내려면 --table 번호)")
+        return 0
+
+    out = Path(a.out)
+    if len(picked) == 1:
+        _p(f"\n저장: {sheet.save(picked[0], out)}")
+    elif out.suffix.lower() in sheet.XLSX_SUFFIXES:
+        saved = sheet.save_sheets({t.sheet: t for t in picked}, out)
+        _p(f"\n저장: {saved}  (시트 {len(picked)}개)")
+    else:
+        _p("\n표가 여럿입니다. xlsx 로 저장하면 시트로 나눠 담습니다. "
+           "csv 로 내려면 --table 로 하나를 고르세요.")
+        return 1
+    return 0
+
+
+def cmd_sheet_from_md(a) -> int:
+    """마크다운 문서 안의 표를 엑셀·csv 로. 문서에 붙은 표로 계산할 때."""
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        body = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    blocks = mdkit.find_tables(body)
+    if not blocks:
+        _p("표가 없습니다. (머리글 + --- 구분줄이 있어야 표로 봅니다)")
+        return 1
+
+    tables = []
+    for order, block in enumerate(blocks, 1):
+        grid = [list(block.header)] + [list(r) for r in block.rows]
+        try:
+            table = sheet.table_from_grid(
+                [[sheet.parse_value(c) for c in row] for row in grid],
+                header_row=0, source=str(path), sheet_name=f"표{order}",
+                label=str(path))
+        except sheet.SheetError as e:
+            _p(f"{order}번 표를 읽지 못했습니다: {e}")
+            return 1
+        tables.append((block, table))
+
+    _p(f"{path.name}  표 {len(tables)}개")
+    _grid(["번호", "줄", "행", "열", "머리글"],
+          [[str(i), f"{b.start}-{b.end}", f"{len(t.rows):,}", str(t.width),
+            _cut(", ".join(t.headers), 34)]
+           for i, (b, t) in enumerate(tables, 1)], limit=40)
+
+    if a.number is not None:
+        if not 1 <= a.number <= len(tables):
+            _p(f"\n{a.number}번 표가 없습니다. 1 부터 {len(tables)} 까지입니다.")
+            return 1
+        picked = [tables[a.number - 1][1]]
+    else:
+        picked = [t for _b, t in tables]
 
     if not a.out:
         first = picked[0]
@@ -1548,6 +1617,16 @@ def add_commands(sub) -> None:
     mk.add_argument("--strict", action="store_true",
                     help="꼴을 모르는 값이 하나라도 있으면 1 로 끝낸다")
     mk.set_defaults(func=cmd_sheet_mask)
+
+    fmd = sh.add_parser("from-md", help="마크다운 문서 안의 표를 엑셀·csv 로")
+    fmd.add_argument("file", metavar="파일")
+    fmd.add_argument("--table", type=int, dest="number", metavar="번호",
+                     help="그 표 하나만 (없으면 전부)")
+    fmd.add_argument("-o", "--out", metavar="파일",
+                     help="xlsx 면 표마다 시트로 나눠 담는다")
+    fmd.add_argument("--rows", type=int, default=10, metavar="개")
+    fmd.add_argument("--width", type=int, default=20, metavar="칸")
+    fmd.set_defaults(func=cmd_sheet_from_md)
 
     fdx = sh.add_parser("from-docx", help="워드 문서 안의 표를 엑셀·csv 로")
     fdx.add_argument("file", metavar="파일")

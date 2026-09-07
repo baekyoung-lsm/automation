@@ -249,6 +249,13 @@ class SmokeTest(unittest.TestCase):
         csv = self.path("명단.csv")
         self.run_cli("sheet", "convert", csv, "-o", self.path("명단.md"))
         self.assertIn("E1", self.run_cli("sheet", "find", "E1", self.path()))
+        표문서 = Path(self.path("표문서.md"))
+        표문서.write_text("# 보고\n\n| 이름 | 금액 |\n| --- | ---: |\n"
+                        "| 홍길동 | 1,200 |\n", encoding="utf-8")
+        표뽑기 = self.run_cli("sheet", "from-md", str(표문서),
+                            "-o", self.path("표.csv"))
+        self.assertIn("이름", 표뽑기)
+        self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
         모음 = self.run_cli("sheet", "collect", self.path(), "--cell", "A1=머리",
                            "--glob", "명단.csv")
         self.assertIn("명단.csv", 모음)

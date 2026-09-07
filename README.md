@@ -282,6 +282,8 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
 재야 하기 때문이다.
 
+`at sheet from-md` 는 마크다운 표에 같은 일을 한다(머리글과 `---` 구분줄이 있는 것만 표로 본다).
+
 `at sheet from-docx` 는 워드 표를 그대로 표로 옮긴다. 첫 줄이 비어 있거나 이름이 겹치면
 머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
 어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
@@ -695,6 +697,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
 | `at sheet from-docx <파일>` | 워드 문서 안의 표를 엑셀·csv 로 (손으로 다시 치지 않게) |
+| `at sheet from-md <파일>` | 마크다운 문서 안의 표를 엑셀·csv 로 |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
 ```bash
@@ -725,6 +728,7 @@ at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet convert 명단.csv -o 명단.docx     # 보고서에 붙일 워드 표로
 at sheet from-docx 받은보고서.docx -o 표들.xlsx   # 표마다 시트 하나로
 at sheet from-docx 받은보고서.docx --table 2 -o 두번째표.csv
+at sheet from-md 회의록.md -o 표들.xlsx        # 문서에 붙은 표로 계산
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx
 at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet where 명단.csv --empty 연락처         # 빈 칸만 (채워 넣을 것 찾기)
