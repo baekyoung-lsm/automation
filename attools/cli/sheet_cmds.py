@@ -397,6 +397,54 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_collect(a) -> int:
+    """같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합)."""
+    targets: list[Path] = []
+    for name in a.paths:
+        path = Path(name)
+        if path.is_dir():
+            targets += [q for q in sorted(path.rglob(a.glob or "*"))
+                        if q.is_file() and q.suffix.lower() in
+                        (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)]
+        else:
+            targets.append(path)
+    if not targets:
+        _p("셀 파일을 찾지 못했습니다. 폴더 안에 xlsx·csv 가 있는지 보세요.")
+        return 1
+
+    try:
+        specs = [sheet.parse_cell(spec) for spec in a.cell]
+        table, skipped = sheet.collect_cells(targets, specs, sheet=a.sheet)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"파일 {len(table.rows):,}개에서 칸 {len(specs)}개를 뽑았습니다.")
+    _grid(table.headers,
+          [[sheet.to_text(v) if sheet.to_text(v).strip() else "(빈 칸)" for v in r]
+           for r in table.rows[:a.rows]], limit=a.width)
+    if len(table.rows) > a.rows:
+        _p(f"  ... {len(table.rows) - a.rows:,}개 더")
+
+    empty = [r[0] for r in table.rows if all(v is None or v == "" for v in r[1:])]
+    if empty:
+        _p(f"\n뽑은 칸이 모두 빈 파일 {len(empty):,}개 - 양식이 다르거나 시트가 다릅니다")
+        for name in empty[:a.limit]:
+            _p(f"  {_cut(name, 50)}")
+        _p("  --sheet 로 시트 이름을 맞춰 보세요.")
+
+    if skipped:
+        _p(f"\n못 읽은 것 {len(skipped):,}개")
+        for name, why in skipped[:a.limit]:
+            _p(f"  {_cut(Path(name).name, 30)}  {why}")
+
+    if a.out:
+        _p(f"\n저장: {sheet.save(table, Path(a.out))}")
+    else:
+        _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
+    return 0
+
+
 def cmd_sheet_merge(a) -> int:
     tables = []
     for name in a.files:
@@ -1358,6 +1406,18 @@ def add_commands(sub) -> None:
     mk.add_argument("--strict", action="store_true",
                     help="꼴을 모르는 값이 하나라도 있으면 1 로 끝낸다")
     mk.set_defaults(func=cmd_sheet_mask)
+
+    cl2 = sh.add_parser("collect", help="같은 양식 파일들에서 같은 칸만 뽑기 (취합)")
+    cl2.add_argument("paths", nargs="+", metavar="경로", help="폴더 또는 파일들")
+    cl2.add_argument("--cell", action="append", required=True, metavar="칸=이름",
+                     help="예: --cell B3=담당자 --cell C7=금액")
+    cl2.add_argument("--sheet", metavar="이름", help="xlsx 시트 이름 (모든 파일에 같게)")
+    cl2.add_argument("--glob", metavar="무늬", help="폴더 안에서 고를 무늬. 예: '*.xlsx'")
+    cl2.add_argument("-o", "--out", metavar="파일")
+    cl2.add_argument("--rows", type=int, default=15, metavar="개")
+    cl2.add_argument("--width", type=int, default=20, metavar="칸")
+    cl2.add_argument("--limit", type=int, default=10, metavar="개")
+    cl2.set_defaults(func=cmd_sheet_collect)
 
     mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
     mg.add_argument("files", nargs="+")

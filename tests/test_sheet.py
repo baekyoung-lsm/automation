@@ -1352,5 +1352,106 @@ class FindRowsTest(unittest.TestCase):
         self.assertEqual(len(kept.rows), 1)
 
 
+class ReadCellsTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def form(self, name="양식.xlsx", who="홍길동", amount=1250000):
+        path = self.root / name
+        xlsx.write_sheets(path, {"요약": [["제목", "3월 보고"], [],
+                                          ["담당자", who, "부서", "영업"],
+                                          [], [], [], ["금액", amount]]},
+                          header=False)
+        return path
+
+    def test_reads_by_excel_address(self):
+        found = xlsx.read_cells(self.form(), ["B3", "D3", "B7"])
+        self.assertEqual(found["B3"], "홍길동")
+        self.assertEqual(found["D3"], "영업")
+        self.assertEqual(found["B7"], 1250000)
+
+    def test_missing_cell_is_none_not_an_error(self):
+        self.assertIsNone(xlsx.read_cells(self.form(), ["Z99"])["Z99"])
+
+    def test_bad_address(self):
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.split_ref("3B")
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.split_ref("B")
+
+    def test_split_ref(self):
+        self.assertEqual(xlsx.split_ref("A1"), (1, 0))
+        self.assertEqual(xlsx.split_ref("AB12"), (12, 27))
+        self.assertEqual(xlsx.split_ref("$B$3"), (3, 1))
+
+
+class CollectCellsTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def form(self, name, who, amount):
+        path = self.root / name
+        xlsx.write_sheets(path, {"요약": [["제목", "3월 보고"], [],
+                                          ["담당자", who], [], [], [],
+                                          ["금액", amount]]}, header=False)
+        return path
+
+    def specs(self):
+        return [sheet.parse_cell("B3=담당자"), sheet.parse_cell("B7=금액")]
+
+    def test_one_row_per_file(self):
+        paths = [self.form("영업.xlsx", "홍길동", 100),
+                 self.form("개발.xlsx", "김철수", 200)]
+        table, skipped = sheet.collect_cells(paths, self.specs())
+        self.assertEqual(table.headers, ["파일", "담당자", "금액"])
+        self.assertEqual(table.rows[0], ["영업.xlsx", "홍길동", 100])
+        self.assertEqual(skipped, [])
+
+    def test_csv_uses_the_same_addresses(self):
+        path = self.root / "인사.csv"
+        path.write_text("제목,3월 보고\n\n담당자,이영희\n\n\n\n금액,300\n",
+                        encoding="utf-8")
+        table, _ = sheet.collect_cells([path], self.specs())
+        self.assertEqual(table.rows[0], ["인사.csv", "이영희", 300])
+
+    def test_file_with_a_different_form_stays_in_the_table(self):
+        # 빠뜨린 파일이 조용히 사라지면 무엇이 안 왔는지 알 수 없다
+        odd = self.root / "다른양식.csv"
+        odd.write_text("아무것도 없음\n", encoding="utf-8")
+        table, skipped = sheet.collect_cells([odd], self.specs())
+        self.assertEqual(len(table.rows), 1)
+        self.assertEqual(table.rows[0][1:], [None, None])
+        self.assertEqual(skipped, [])
+
+    def test_unreadable_file_is_reported_not_dropped_silently(self):
+        bad = self.root / "메모.pdf"
+        bad.write_text("x", encoding="utf-8")
+        table, skipped = sheet.collect_cells([bad], self.specs())
+        self.assertEqual(table.rows, [])
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("지원하지 않는", skipped[0][1])
+
+    def test_folder_is_reported(self):
+        _table, skipped = sheet.collect_cells([self.root], self.specs())
+        self.assertEqual(skipped[0][1], "폴더입니다")
+
+    def test_parse_cell(self):
+        self.assertEqual(sheet.parse_cell("b3=담당자"),
+                         sheet.CellSpec("B3", "담당자"))
+        self.assertEqual(sheet.parse_cell("C7").name, "C7")
+        with self.assertRaises(sheet.SheetError):
+            sheet.parse_cell("담당자")
+
+    def test_no_specs_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.collect_cells([], [])
+
+
 if __name__ == "__main__":
     unittest.main()

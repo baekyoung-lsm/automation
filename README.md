@@ -609,6 +609,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet mask <파일> --name <열>` | 개인정보를 가린 사본 (이름·전화·이메일·주민번호·계좌·주소) |
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
+| `at sheet collect <폴더> --cell <칸=이름>` | 같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합) |
 | `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
@@ -646,6 +647,8 @@ at sheet mask 명단.xlsx --name 이름 --phone 연락처 --rrn 주민번호 -o 
 at sheet mask 거래처.csv --address 주소 --account 계좌번호 --strict
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
+at sheet collect 부서제출/ --cell B3=담당자 --cell C7=금액 -o 취합.xlsx
+at sheet collect 제출/ --cell B3=담당자 --sheet 요약 --glob '*.xlsx'
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --columns   # 서식이 바뀌었는지만
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
@@ -685,6 +688,11 @@ at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이�
 # 틀 안에서: {이름:님/님} 대신 {이름:은/는}, {도시:으로/로} 처럼 받침에 맞는 조사
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
 ```
+
+`collect` 는 «취합» 을 대신한다. 부서마다 같은 서식에 채워 보낸 파일에서 `B3`, `C7` 처럼
+**엑셀에서 보이는 칸 주소**로 값을 집어 한 표로 만든다. 칸이 비어 있어도 그 파일을 표에서
+빼지 않는다 — 빠진 파일이 조용히 사라지면 무엇이 안 왔는지 알 수 없다. 뽑은 칸이 전부 빈
+파일은 따로 알려 주므로 양식이 다른 파일을 그때 찾을 수 있다. csv 도 같은 주소로 읽는다.
 
 `mask` 는 다른 명령과 반대로 움직인다. **꼴을 모르는 값은 그대로 두지 않고 통째로
 가린다.** 가림은 밖으로 내보낼 파일을 만드는 일이라, 잘못 가리는 것보다 못 가리고

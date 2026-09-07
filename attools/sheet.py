@@ -1540,6 +1540,78 @@ FORMAT_CHECKS = {
 }
 
 
+# ------------------------------------------------------------- 양식 취합
+
+@dataclass
+class CellSpec:
+    ref: str                 # B3 처럼 엑셀에서 보이는 칸 주소
+    name: str                # 표에 넣을 열 이름
+
+
+def parse_cell(spec: str) -> CellSpec:
+    """'B3=담당자' 또는 'B3' 를 읽는다."""
+    ref, _sep, name = spec.partition("=")
+    ref = ref.strip().upper()
+    try:
+        xlsx.split_ref(ref)
+    except xlsx.XlsxError as exc:
+        raise SheetError(str(exc)) from None
+    return CellSpec(ref, name.strip() or ref)
+
+
+def _csv_cells(path: Path, refs: list[str]) -> dict[str, object]:
+    """csv 를 칸 주소로 읽는다. 엑셀에서 열었을 때와 같은 자리여야 한다."""
+    encoding = sniff_encoding(path)
+    text = path.read_text(encoding=encoding)
+    delimiter = "\t" if path.suffix.lower() == ".tsv" or text.count("\t") > text.count(",") else ","
+    grid = [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)]
+    found: dict[str, object] = {}
+    for ref in refs:
+        line, column = xlsx.split_ref(ref)
+        row = grid[line - 1] if line - 1 < len(grid) else []
+        cell = row[column] if column < len(row) else None
+        found[ref] = parse_value(cell) if isinstance(cell, str) else cell
+    return found
+
+
+def collect_cells(paths: list[Path], specs: list[CellSpec], *,
+                  sheet: str | None = None) -> tuple[Table, list[tuple[str, str]]]:
+    """양식이 같은 파일 여러 개에서 같은 칸만 뽑아 한 표로. (표, 못 읽은 것)
+
+    부서마다 같은 서식으로 채워 보낸 파일을 손으로 옮겨 적는 일을 대신한다.
+    없는 칸은 빈 칸으로 두고 파일은 표에 남긴다 - 빠뜨린 파일이 조용히
+    사라지면 무엇이 안 왔는지 알 수 없다.
+    """
+    if not specs:
+        raise SheetError("뽑을 칸을 하나 이상 주세요. 예: --cell B3=담당자")
+
+    rows: list[list] = []
+    skipped: list[tuple[str, str]] = []
+    refs = [s.ref for s in specs]
+
+    for path in paths:
+        path = Path(path)
+        if path.is_dir():
+            skipped.append((str(path), "폴더입니다"))
+            continue
+        suffix = path.suffix.lower()
+        try:
+            if suffix in XLSX_SUFFIXES:
+                found = xlsx.read_cells(path, refs, sheet)
+            elif suffix in CSV_SUFFIXES or not suffix:
+                found = _csv_cells(path, refs)
+            else:
+                skipped.append((str(path), f"지원하지 않는 형식입니다: {suffix}"))
+                continue
+        except (xlsx.XlsxError, SheetError, OSError, UnicodeDecodeError) as exc:
+            skipped.append((str(path), str(exc)))
+            continue
+        rows.append([path.name] + [found.get(s.ref) for s in specs])
+
+    headers = ["파일"] + [s.name for s in specs]
+    return Table(headers, rows), skipped
+
+
 # ------------------------------------------------------------------ 가림
 
 HIDDEN = "****"          # 꼴을 알아보지 못한 값을 통째로 가릴 때

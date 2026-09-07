@@ -165,6 +165,57 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
         return [r + [None] * (width - len(r)) for r in rows]
 
 
+def split_ref(ref: str) -> tuple[int, int]:
+    """'B3' -> (3, 1). 행은 엑셀에서 보이는 번호(1부터), 열은 0부터."""
+    text = ref.strip().replace("$", "").upper()
+    letters = "".join(c for c in text if c.isalpha())
+    digits = "".join(c for c in text if c.isdigit())
+    if not letters or not digits or letters + digits != text:
+        raise XlsxError(f"칸 주소가 아닙니다: {ref} (예: B3)")
+    return int(digits), col_to_index(letters)
+
+
+def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[str, object]:
+    """지정한 칸만 읽는다. 없는 칸은 None 이다.
+
+    read_sheet 는 행을 나온 차례대로 쌓으므로, 가운데 행이 통째로 빠진 파일에서는
+    «몇 행» 이 어긋난다. 양식 파일에서 B3 을 집어 오려면 행 번호 자체를 봐야 한다.
+    """
+    wanted: dict[tuple[int, int], list[str]] = {}
+    for ref in refs:
+        wanted.setdefault(split_ref(ref), []).append(ref.strip().upper())
+    found: dict[str, object] = {name: None for names in wanted.values() for name in names}
+    if not wanted:
+        return found
+    rows_wanted = {row for row, _col in wanted}
+
+    with zipfile.ZipFile(path) as z:
+        strings = _shared_strings(z)
+        date_flags = _date_style_flags(z)
+        part = _sheet_part(z, sheet)
+        line = 0
+        with z.open(part) as stream:
+            for _, el in ET.iterparse(stream, events=("end",)):
+                if el.tag != f"{{{NS['m']}}}row":
+                    continue
+                mark = el.get("r")
+                line = int(mark) if mark and mark.isdigit() else line + 1
+                if line not in rows_wanted:
+                    el.clear()
+                    continue
+                column = -1
+                for c in el.findall("m:c", NS):
+                    ref = c.get("r")
+                    column = col_to_index(ref) if ref else column + 1
+                    names = wanted.get((line, column))
+                    if names:
+                        value = _cell_value(c, strings, date_flags)
+                        for name in names:
+                            found[name] = value
+                el.clear()
+    return found
+
+
 def _cell_value(c: ET.Element, strings: list[str], date_flags: list[bool]):
     kind = c.get("t", "n")
     if kind == "inlineStr":
