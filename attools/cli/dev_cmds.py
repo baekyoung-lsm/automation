@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, hangul, life, sheet, text
 from ..code import (dbkit, deps, devkit, fakedata, jsonkit, loc, logkit,
-                    openapi, pyscan)
+                    openapi, project, pyscan)
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
@@ -561,6 +561,40 @@ def cmd_dev_http(a) -> int:
     if len(lines) > a.limit:
         _p(f"... {len(lines) - a.limit}줄 더 (--limit 로 늘리거나 -o 로 저장하세요)")
     return 0 if result.ok else 1
+
+
+def cmd_dev_doctor(a) -> int:
+    """새로 받은 저장소를 훑는다. 무엇으로 만들어졌고 뭐부터 하면 되나."""
+    root = Path(a.path)
+    if not root.is_dir():
+        _p(f"폴더가 아닙니다: {root}")
+        return 1
+
+    report = project.inspect(root)
+    _p(f"{root.resolve()}")
+
+    marks = {True: "", False: "빠짐", None: "?"}
+    rows = [[f.kind, f.name, _cut(f.detail, 46), marks[f.ok]]
+            for f in report.findings]
+    _grid(["갈래", "무엇", "찾은 것", ""], rows, limit=50)
+
+    missing = [f for f in report.findings if f.ok is False]
+    unknown = [f for f in report.findings if f.ok is None]
+    if report.steps:
+        _p("\n해 볼 만한 것")
+        for step in report.steps:
+            _p(f"  {step}")
+    if missing:
+        _p("\n빠진 것")
+        for f in missing:
+            _p(f"  {f.name}: {f.detail}")
+    if unknown:
+        _p("\n확인 못 한 것 (여기서는 알 수 없습니다)")
+        for f in unknown:
+            _p(f"  {f.name}: {f.detail}")
+
+    _p("\n찾은 것만 적었습니다. 이 저장소의 실제 절차는 README 가 우선입니다.")
+    return 1 if missing and a.strict else 0
 
 
 def cmd_dev_imports(a) -> int:
@@ -1245,6 +1279,12 @@ def add_commands(sub) -> None:
     ht.add_argument("-o", "--out", metavar="파일", help="본문을 파일로 저장")
     ht.add_argument("--limit", type=int, default=40, metavar="줄")
     ht.set_defaults(func=cmd_dev_http)
+
+    dr = dp.add_parser("doctor", help="새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나")
+    dr.add_argument("path", nargs="?", default=".", metavar="폴더")
+    dr.add_argument("--strict", action="store_true",
+                    help="빠진 것이 있으면 1 로 끝낸다")
+    dr.set_defaults(func=cmd_dev_doctor)
 
     im = dp.add_parser("imports", help="모듈 import 관계 - 누가 누구를 부르나, 고리는 없나")
     im.add_argument("path", nargs="?", default=".", metavar="폴더")
