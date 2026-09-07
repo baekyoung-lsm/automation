@@ -273,6 +273,64 @@ IGNORE_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "
                ".next", ".mypy_cache", ".pytest_cache", ".idea", "target"}
 
 
+@dataclass
+class FileRow:
+    path: Path
+    relative: str          # 뿌리에서 본 경로
+    folder: str            # 상위 폴더 (뿌리면 빈 문자열)
+    name: str
+    suffix: str
+    size: int
+    modified: datetime
+
+
+LIST_SORTS = {"name": "이름", "size": "크기", "date": "수정일",
+              "ext": "확장자"}
+
+
+def list_files(root: Path, *, recursive: bool = True, include_hidden: bool = False,
+               glob: list[str] | None = None, sort: str = "name") -> list[FileRow]:
+    """폴더 안 파일을 표로 만들 수 있게 모은다.
+
+    «제출 자료 목록»을 손으로 옮겨 적는 일이 잦다. 이름·크기·수정일을 그대로
+    뽑아 두면 엑셀에 붙여 쓸 수 있다.
+    """
+    if sort not in LIST_SORTS:
+        raise ValueError(f"알 수 없는 정렬: {sort} ({', '.join(LIST_SORTS)})")
+
+    root = root.resolve()
+    patterns = glob or ["*"]
+    seen: set[Path] = set()
+    out: list[FileRow] = []
+
+    for pattern in patterns:
+        walker = root.rglob(pattern) if recursive else root.glob(pattern)
+        for path in walker:
+            if path in seen or not path.is_file() or path.is_symlink():
+                continue
+            parts = path.relative_to(root).parts
+            if not include_hidden and any(p.startswith(".") for p in parts):
+                continue
+            seen.add(path)
+            stat = path.stat()
+            out.append(FileRow(
+                path=path,
+                relative=str(path.relative_to(root)),
+                folder=str(Path(*parts[:-1])) if len(parts) > 1 else "",
+                name=path.name,
+                suffix=path.suffix.lower().lstrip("."),
+                size=stat.st_size,
+                modified=datetime.fromtimestamp(stat.st_mtime),
+            ))
+
+    keys = {"name": lambda r: (r.folder, r.name.lower()),
+            "size": lambda r: -r.size,
+            "date": lambda r: -r.modified.timestamp(),
+            "ext": lambda r: (r.suffix, r.name.lower())}
+    out.sort(key=keys[sort])
+    return out
+
+
 def snapshot_mtimes(root: Path, patterns: list[str]) -> dict[str, float]:
     """감시 대상 파일의 수정 시각 표."""
     out: dict[str, float] = {}

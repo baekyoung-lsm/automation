@@ -764,5 +764,55 @@ class CollectDupesTest(unittest.TestCase):
         self.assertNotIn(str(dest / "사본3.txt"), [m.src for m in moves])
 
 
+class ListFilesTest(unittest.TestCase):
+    """파일 목록 뽑기. 엑셀에 붙일 자료 목록을 손으로 안 적게."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "안쪽").mkdir()
+        (self.root / "가.txt").write_text("작다", encoding="utf-8")
+        (self.root / "나.pdf").write_text("조금 더 크다" * 10, encoding="utf-8")
+        (self.root / "안쪽" / "다.txt").write_text("셋", encoding="utf-8")
+        (self.root / ".숨김").write_text("x", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_walks_into_folders_and_skips_hidden(self):
+        rows = files.list_files(self.root)
+        self.assertEqual(sorted(r.name for r in rows), ["가.txt", "나.pdf", "다.txt"])
+        inner = [r for r in rows if r.name == "다.txt"][0]
+        self.assertEqual(inner.folder, "안쪽")
+        self.assertEqual(inner.relative, str(Path("안쪽") / "다.txt"))
+
+    def test_hidden_on_request(self):
+        rows = files.list_files(self.root, include_hidden=True)
+        self.assertIn(".숨김", [r.name for r in rows])
+
+    def test_flat_stays_on_top(self):
+        rows = files.list_files(self.root, recursive=False)
+        self.assertNotIn("다.txt", [r.name for r in rows])
+
+    def test_glob_filters(self):
+        rows = files.list_files(self.root, glob=["*.txt"])   # 하위까지 본다
+        self.assertEqual(sorted(r.name for r in rows), ["가.txt", "다.txt"])
+        top = files.list_files(self.root, glob=["*.txt"], recursive=False)
+        self.assertEqual([r.name for r in top], ["가.txt"])
+
+    def test_sorts(self):
+        by_size = files.list_files(self.root, sort="size")
+        self.assertEqual(by_size[0].name, "나.pdf")     # 큰 것부터
+        by_ext = files.list_files(self.root, sort="ext")
+        self.assertEqual(by_ext[0].suffix, "pdf")
+
+    def test_unknown_sort(self):
+        with self.assertRaises(ValueError):
+            files.list_files(self.root, sort="아무거나")
+
+    def test_suffix_has_no_dot(self):
+        rows = files.list_files(self.root, glob=["*.pdf"])
+        self.assertEqual(rows[0].suffix, "pdf")
+
+
 if __name__ == "__main__":
     unittest.main()

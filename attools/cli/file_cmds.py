@@ -49,6 +49,48 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def cmd_file_list(a) -> int:
+    """폴더 안 파일 목록을 표로. 제출 자료 목록을 손으로 적지 않게."""
+    from .. import sheet
+
+    root = Path(a.dir)
+    if not root.is_dir():
+        _p(f"디렉터리가 아닙니다: {root}")
+        return 1
+
+    try:
+        rows = files.list_files(root, recursive=not a.flat, include_hidden=a.hidden,
+                                glob=a.glob, sort=a.sort)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+    if not rows:
+        _p("파일이 없습니다.")
+        return 0
+
+    headers = ["이름", "폴더", "확장자", "크기(바이트)", "크기", "수정일", "수정시각"]
+    table = sheet.Table(headers, [
+        [r.name, r.folder, r.suffix, r.size, files.human_size(r.size),
+         r.modified.strftime("%Y-%m-%d"), r.modified.strftime("%H:%M")]
+        for r in rows], source=str(root))
+
+    total = sum(r.size for r in rows)
+    if a.out:
+        out = sheet.save(table, Path(a.out))
+        _p(f"저장: {out}  (파일 {len(rows):,}개, 모두 {files.human_size(total)})")
+        return 0
+
+    _grid(["이름", "폴더", "크기", "수정일"],
+          [[_pad(r.name, 0), r.folder, files.human_size(r.size),
+            r.modified.strftime("%Y-%m-%d %H:%M")] for r in rows[:a.limit]],
+          limit=40)
+    if len(rows) > a.limit:
+        _p(f"... {len(rows) - a.limit:,}개 더 (--limit 로 조절)")
+    _p(f"\n파일 {len(rows):,}개, 모두 {files.human_size(total)}")
+    _p("-o 목록.xlsx 로 저장하면 엑셀에서 그대로 씁니다.")
+    return 0
+
+
 def cmd_file_photos(a) -> int:
     """사진을 찍은 날짜별로 묶는다. 수정 시각이 아니라 EXIF 촬영 시각을 쓴다."""
     root = Path(a.dir)
@@ -765,6 +807,18 @@ def add_commands(sub) -> None:
     o.add_argument("--fixname", action="store_true", help="옮기면서 파일명도 정리")
     o.add_argument("-v", "--verbose", action="store_true")
     o.set_defaults(func=cmd_file_organize)
+
+    ls = fp.add_parser("list", help="파일 목록을 표로 (엑셀에 붙일 자료 목록)")
+    ls.add_argument("dir")
+    ls.add_argument("-o", "--out", help="저장 경로 (.csv, .xlsx, .md)")
+    ls.add_argument("-g", "--glob", action="append", metavar="패턴",
+                    help="예: -g '*.pdf' (여러 번)")
+    ls.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
+    ls.add_argument("--hidden", action="store_true", help="숨김 파일도")
+    ls.add_argument("--sort", default="name", choices=list(files.LIST_SORTS),
+                    help="정렬 기준 (기본 name)")
+    ls.add_argument("--limit", type=int, default=40, metavar="개")
+    ls.set_defaults(func=cmd_file_list)
 
     ph = fp.add_parser("photos", help="사진을 촬영 날짜별로 (EXIF)")
     ph.add_argument("dir")
