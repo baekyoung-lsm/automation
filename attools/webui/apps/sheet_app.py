@@ -380,6 +380,47 @@ def sum_save(payload: dict) -> dict:
             "command": _sum_command(payload, out)}
 
 
+MAX_HITS = 200
+
+
+def search(payload: dict) -> dict:
+    """여러 파일에서 값 찾기. 폴더를 주면 그 안의 csv·xlsx 를 다 본다."""
+    needle = form.raw_text(payload, "needle")
+    if not needle.strip():
+        raise UiError("찾을 값을 적어 주세요.")
+
+    where = form.text(payload, "folder") or form.text(payload, "path")
+    if not where:
+        raise UiError("찾아볼 폴더나 파일 경로를 적어 주세요.")
+    root = Path(where).expanduser()
+    if not root.exists():
+        raise UiError(f"그런 경로가 없습니다: {root}")
+
+    if root.is_dir():
+        targets = [q for q in sorted(root.rglob("*"))
+                   if q.is_file()
+                   and q.suffix.lower() in (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)
+                   and not q.name.startswith("~$")]
+    else:
+        targets = [root]
+    if not targets:
+        raise UiError("찾아볼 파일이 없습니다. (csv, tsv, xlsx)")
+
+    found, skipped = sheet.find_in_files(
+        targets, needle, column=form.text(payload, "scolumn") or None,
+        exact=form.flag(payload, "exact"),
+        ignore_case=not form.flag(payload, "case"))
+
+    rows = [[Path(h.path).name, h.sheet or "-", str(h.row), h.column,
+             h.value[:40], h.context[:20]] for h in found[:MAX_HITS]]
+    return {"rows": rows, "count": len(found), "files": len(targets),
+            "shown": min(len(found), MAX_HITS),
+            "skipped": [[Path(name).name, why[:60]] for name, why in skipped[:20]],
+            "command": form.command("sheet", "find", needle, root),
+            "note": "행 번호는 머리글을 1행으로 세어 엑셀에서 보이는 번호와 "
+                    "같습니다. xlsx 는 시트를 모두 봅니다."}
+
+
 def _cleaned(payload: dict):
     table = _open(payload)
     return table, sheet.clean(
@@ -511,6 +552,27 @@ BODY = """
   </div>
   <div id="pairmsg"></div>
   <div id="pair"></div>
+</section>
+
+<section class="card">
+  <h2>여러 파일에서 찾기</h2>
+  <p class="note">«이 사번이 어느 파일에 있나»를 폴더째 훑어 찾습니다.
+     xlsx 는 시트를 모두 봅니다. <b>읽기만 합니다.</b></p>
+  <div class="row">
+    <div><label for="needle">찾을 값</label>
+      <input type="text" id="needle" placeholder="E1024" spellcheck="false" data-forget></div>
+    <div style="flex:2 1 18rem"><label for="folder">폴더 (비우면 위의 파일만)</label>
+      <input type="text" id="folder" placeholder="~/문서/2026" spellcheck="false" data-browse="dir"></div>
+    <div><label for="scolumn">이 열만 (선택)</label>
+      <input type="text" id="scolumn" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="exact"> 정확히 같은 값만</label>
+    <label><input type="checkbox" id="case"> 대소문자 가리기</label>
+  </div>
+  <div class="actions"><button class="primary" id="btn-search">찾기</button></div>
+  <div id="searchmsg"></div>
+  <div id="searchout"></div>
 </section>
 
 <section class="card">
@@ -821,6 +883,28 @@ BODY = """
     } catch (e) { AT.message($("summsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-search").addEventListener("click", async function () {
+    try {
+      const b = values();
+      b.needle = $("needle").value; b.folder = $("folder").value;
+      b.scolumn = $("scolumn").value; b.exact = $("exact").checked;
+      b.case = $("case").checked;
+      const d = await AT.call("/api/sheet/search", b);
+      $("searchout").innerHTML = (d.count
+          ? AT.table(["파일", "시트", "행", "열", "값", "그 행의 첫 열"], d.rows,
+                     [null, null, "num", null, null, null])
+          : '<div class="empty">찾지 못했습니다.</div>') +
+        (d.count > d.shown ? '<p class="note">' + d.count + "건 가운데 " +
+          d.shown + "건만 보입니다.</p>" : "") +
+        (d.skipped.length
+          ? "<h2>못 읽은 것</h2>" + AT.table(["파일", "까닭"], d.skipped) : "") +
+        '<p class="note">' + AT.esc(d.note) + "</p>" + AT.command(d.command);
+      AT.message($("searchmsg"), d.count
+        ? "파일 " + d.files + "개에서 <b>" + d.count + "건</b>"
+        : "파일 " + d.files + "개를 봤지만 찾지 못했습니다.", d.count ? "ok" : "");
+    } catch (e) { AT.message($("searchmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-open").addEventListener("click", async function () {
     try {
       const data = await AT.call("/api/sheet/peek", values());
@@ -897,6 +981,7 @@ def make() -> App:
         subtitle="열어 보기 → 점검 → 정리",
         body=lambda: BODY,
         actions={"peek": peek, "sheets": sheets, "check": check,
+                 "search": search,
                  "compare": compare, "pick_preview": pick_preview,
                  "pick_save": pick_save, "sum_preview": sum_preview,
                  "sum_save": sum_save,

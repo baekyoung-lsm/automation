@@ -53,6 +53,28 @@ def wrap(payload: dict) -> dict:
             "note": "한글은 두 칸으로 셉니다. 코드 블록과 표는 건드리지 않습니다."}
 
 
+def pick(payload: dict) -> dict:
+    """붙여넣은 글에서 이메일·전화·금액 같은 것을 뽑는다."""
+    body = _body(payload)
+    kinds = [k.strip() for k in form.text(payload, "kinds").split(",") if k.strip()]
+    try:
+        found = textkit.pick(body, kinds or None)
+    except textkit.TextError as exc:
+        raise UiError(str(exc)) from None
+    if form.flag(payload, "unique"):
+        found = textkit.unique_picked(found)
+
+    counts: dict[str, int] = {}
+    for item in found:
+        counts[item.kind] = counts.get(item.kind, 0) + 1
+    return {"rows": [[p.kind, p.value, str(p.line)] for p in found[:MAX_ROWS]],
+            "count": len(found),
+            "summary": [[kind, str(n)] for kind, n in counts.items()],
+            "kinds": list(textkit.PICK_RULES),
+            "note": "좁게 잡습니다. 사업자번호는 하이픈이 있는 꼴만 봅니다 - "
+                    "숫자 열 자리는 계좌·주문번호일 수도 있습니다."}
+
+
 def table(payload: dict) -> dict:
     """엑셀에서 복사한 표(탭 구분)를 마크다운 표로."""
     import csv
@@ -101,6 +123,8 @@ BODY = """
       </select></div>
     <div style="flex:0 1 8rem"><label for="width">접을 폭</label>
       <input type="text" id="width" value="80" spellcheck="false"></div>
+    <div><label for="kinds">뽑을 종류 (쉼표, 비우면 전부)</label>
+      <input type="text" id="kinds" placeholder="이메일, 휴대폰" spellcheck="false"></div>
   </div>
   <div class="actions">
     <button class="primary" id="btn-kbd">자판 되살리기</button>
@@ -108,6 +132,7 @@ BODY = """
     <button id="btn-wrap">줄 접기</button>
     <button id="btn-normalize">자모 합치기 (NFC)</button>
     <button id="btn-table">붙여넣은 표를 마크다운으로</button>
+    <button id="btn-pick">연락처·금액 뽑기</button>
   </div>
   <div id="msg"></div>
 </section>
@@ -126,7 +151,8 @@ BODY = """
   function note(text) { return '<p class="note">' + AT.esc(text) + "</p>"; }
 
   function values() {
-    return { text: $("text").value, to: $("to").value, width: $("width").value };
+    return { text: $("text").value, to: $("to").value, width: $("width").value,
+             kinds: $("kinds").value, unique: true };
   }
 
   async function run(path, draw) {
@@ -163,6 +189,18 @@ BODY = """
     });
   });
 
+  $("btn-pick").addEventListener("click", function () {
+    run("/api/letters/pick", function (d) {
+      out.innerHTML = (d.count
+          ? AT.table(["종류", "값", "줄"], d.rows, [null, null, "num"]) +
+            AT.table(["종류", "개수"], d.summary, [null, "num"])
+          : '<div class="empty">뽑을 것이 없습니다. 찾는 종류: ' +
+            AT.esc(d.kinds.join(", ")) + "</div>") + note(d.note);
+      AT.message($("msg"), d.count ? "<b>" + d.count + "건</b>을 뽑았습니다."
+                                   : "뽑을 것이 없습니다.", d.count ? "ok" : "");
+    });
+  });
+
   $("btn-table").addEventListener("click", function () {
     run("/api/letters/table", function (d) {
       out.innerHTML = code(d.text) + note(d.note);
@@ -187,11 +225,11 @@ def make() -> App:
     return App(
         key="letters",
         name="글자 손질",
-        summary="붙여넣은 글의 자판 실수·표기 오류·줄 접기·표를 마크다운으로",
+        summary="자판 실수·표기 오류·줄 접기·표를 마크다운으로·연락처 뽑기",
         subtitle="파일이 아니라 붙여넣은 글을 그 자리에서",
         body=lambda: BODY,
         actions={"kbd": kbd, "typo": typo, "wrap": wrap,
-                 "normalize": normalize, "table": table},
+                 "normalize": normalize, "table": table, "pick": pick},
         aliases=("글자", "자판"),
         section="글",
     )

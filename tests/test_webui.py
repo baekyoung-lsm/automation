@@ -269,6 +269,27 @@ class WebUiTest(UiCase):
                   {"path": str(left), "other": str(right)})
         self.assertEqual(sorted(p.name for p in left.iterdir()), before)
 
+    def test_listing(self):
+        (self.work / "안쪽").mkdir()
+        (self.work / "가.txt").write_text("내용", encoding="utf-8")
+        (self.work / "안쪽" / "나.pdf").write_text("내용", encoding="utf-8")
+        _, data = self.post("/api/files/listing", {"path": str(self.work)})
+        self.assertEqual(data["count"], 2)
+        self.assertIn("at file list", data["command"])
+
+    def test_listing_save_next_to_folder(self):
+        (self.work / "가.txt").write_text("내용", encoding="utf-8")
+        _, data = self.post("/api/files/listing_save",
+                            {"path": str(self.work), "format": ".csv"})
+        saved = Path(data["saved"])
+        self.assertTrue(saved.exists())
+        self.assertEqual(saved.parent, self.work.parent)   # 폴더 안을 더럽히지 않는다
+
+    def test_listing_empty_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/listing", {"path": str(self.work)})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_apply_with_nothing_to_move(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/apply", {"path": str(self.work)})
@@ -453,6 +474,25 @@ class SheetAppTest(UiCase):
                              "wval": "개"})
         self.assertTrue(Path(data["saved"]).exists())
         self.assertEqual(path.read_text(encoding="utf-8"), before)
+
+    def test_search_across_files(self):
+        self.csv("명단.csv", "사번,이름\nE1,홍길동\nE2,김철수\n")
+        self.csv("평가.csv", "사번,평가\nE2,A\n")
+        _, data = self.post("/api/sheet/search",
+                            {"folder": str(self.work), "needle": "E2"})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["rows"][0][2], "3")      # 머리글이 1행
+
+    def test_search_needs_a_value(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/search", {"folder": str(self.work)})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_search_missing_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/search",
+                      {"folder": str(self.work / "없음"), "needle": "x"})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_sum_by_group(self):
         path = self.staff()
@@ -999,6 +1039,23 @@ class DevAppTest(UiCase):
             encoding="utf-8")
         return path
 
+    def test_regex_with_groups(self):
+        _, data = self.post("/api/dev/regex",
+                            {"pattern": r"(\d{4})-(\d{2})-(\d{2})",
+                             "text": "2026-03-15", "replace": r"\3/\2/\1"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["replaced"], "15/03/2026")
+
+    def test_regex_bad_pattern(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/regex", {"pattern": "(", "text": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_regex_needs_text(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/regex", {"pattern": "x"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_log_groups_repeated_errors(self):
         """숫자만 다른 에러는 한 무리로 묶어야 몇 번 났는지 보인다."""
         _, data = self.post("/api/dev/log", {"path": str(self.log())})
@@ -1460,6 +1517,19 @@ class LettersAppTest(UiCase):
     def test_table_needs_two_lines(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/letters/table", {"text": "머리글만"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_pick(self):
+        _, data = self.post("/api/letters/pick",
+                            {"text": "hong@a.co 010-1234-5678 1,000원"})
+        self.assertEqual(data["count"], 3)
+        self.assertEqual({row[0] for row in data["rows"]},
+                         {"이메일", "휴대폰", "금액"})
+
+    def test_pick_unknown_kind(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/letters/pick",
+                      {"text": "아무거나", "kinds": "주민번호"})
         self.assertEqual(ctx.exception.code, 400)
 
     def test_normalize(self):

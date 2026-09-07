@@ -194,6 +194,58 @@ def compare(payload: dict) -> dict:
                     "빠르지만 내용이 바뀐 것을 놓칠 수 있습니다."}
 
 
+LIST_ROWS = 200
+
+
+def listing(payload: dict) -> dict:
+    """폴더 안 파일 목록. 엑셀에 붙일 자료 목록을 손으로 안 적게."""
+    root = form.folder(payload)
+    globs = [g.strip() for g in form.text(payload, "glob").split(",") if g.strip()]
+    try:
+        rows = files.list_files(
+            root, recursive=not form.flag(payload, "flat"),
+            include_hidden=form.flag(payload, "hidden"), glob=globs or None,
+            sort=form.choice(payload, "sort", files.LIST_SORTS, "name"))
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+    if not rows:
+        raise UiError("파일이 없습니다.")
+
+    return {
+        "rows": [[r.name, r.folder, r.suffix, files.human_size(r.size),
+                  r.modified.strftime("%Y-%m-%d %H:%M")]
+                 for r in rows[:LIST_ROWS]],
+        "count": len(rows), "shown": min(len(rows), LIST_ROWS),
+        "total": files.human_size(sum(r.size for r in rows)),
+        "command": form.command("file", "list", root, "-o", "목록.xlsx"),
+    }
+
+
+def listing_save(payload: dict) -> dict:
+    """목록을 파일로 낸다. 원본 폴더는 건드리지 않는다."""
+    from ... import sheet
+
+    root = form.folder(payload)
+    globs = [g.strip() for g in form.text(payload, "glob").split(",") if g.strip()]
+    rows = files.list_files(
+        root, recursive=not form.flag(payload, "flat"),
+        include_hidden=form.flag(payload, "hidden"), glob=globs or None,
+        sort=form.choice(payload, "sort", files.LIST_SORTS, "name"))
+    if not rows:
+        raise UiError("파일이 없습니다.")
+
+    suffix = form.choice(payload, "format", {".xlsx", ".csv", ".md"}, ".xlsx")
+    table = sheet.Table(
+        ["이름", "폴더", "확장자", "크기(바이트)", "크기", "수정일", "수정시각"],
+        [[r.name, r.folder, r.suffix, r.size, files.human_size(r.size),
+          r.modified.strftime("%Y-%m-%d"), r.modified.strftime("%H:%M")]
+         for r in rows])
+    out = files.unique_path(root.parent / f"{root.name} 목록{suffix}")
+    sheet.save(table, out)
+    return {"saved": str(out), "count": len(rows),
+            "command": form.command("file", "list", root, "-o", out)}
+
+
 def journals(payload: dict) -> dict:
     base = files.journal_dir()
     if not base.exists():
@@ -253,6 +305,31 @@ BODY = """
 <section class="card">
   <h2>계획</h2>
   <div id="plan"><div class="empty">폴더를 넣고 미리보기를 눌러 주세요.</div></div>
+</section>
+
+<section class="card">
+  <h2>파일 목록 만들기</h2>
+  <p class="note">이름·폴더·크기·수정일을 표로 뽑습니다. 저장하면 폴더 옆에
+     «&lt;폴더이름&gt; 목록» 파일이 생깁니다. <b>읽기만 합니다.</b></p>
+  <div class="row">
+    <div><label for="glob">파일 이름 조건 (쉼표로 여러 개)</label>
+      <input type="text" id="glob" placeholder="*.pdf, *.xlsx" spellcheck="false"></div>
+    <div style="flex:0 1 10rem"><label for="sort">정렬</label>
+      <select id="sort"><option value="name">이름</option><option value="size">크기</option><option value="date">수정일</option><option value="ext">확장자</option></select></div>
+    <div style="flex:0 1 8rem"><label for="format">저장 형식</label>
+      <select id="format"><option value=".xlsx">xlsx</option>
+        <option value=".csv">csv</option>
+        <option value=".md">마크다운</option></select></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="flat"> 하위 폴더는 빼고</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-list">목록 보기</button>
+    <button id="btn-list-save">파일로 저장</button>
+  </div>
+  <div id="listmsg"></div>
+  <div id="listout"></div>
 </section>
 
 <section class="card">
@@ -444,6 +521,39 @@ BODY = """
     } catch (e) { AT.message($("cmpmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function listValues() {
+    return {
+      path: $("path").value, glob: $("glob").value, sort: $("sort").value,
+      flat: $("flat").checked, hidden: $("hidden").checked,
+      format: $("format").value,
+    };
+  }
+
+  function drawList(d) {
+    $("listout").innerHTML = (d.rows
+      ? AT.table(["이름", "폴더", "확장자", "크기", "수정"], d.rows) : "") +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "개 가운데 " +
+        d.shown + "개만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  $("btn-list").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/listing", listValues());
+      drawList(d);
+      AT.message($("listmsg"), "파일 <b>" + d.count + "개</b>, 모두 " +
+                 AT.esc(d.total), "ok");
+    } catch (e) { AT.message($("listmsg"), AT.esc(e.message), "bad"); }
+  });
+
+  $("btn-list-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/listing_save", listValues());
+      drawList(d);
+      AT.message($("listmsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                 d.count + "개)", "ok");
+    } catch (e) { AT.message($("listmsg"), AT.esc(e.message), "bad"); }
+  });
+
   async function loadJournals() {
     try {
       const data = await AT.call("/api/files/journals", {});
@@ -486,6 +596,7 @@ def make() -> App:
         subtitle="미리보기 → 옮기기 → 되돌리기",
         body=lambda: BODY,
         actions={"preview": preview, "apply": apply, "dupes": dupes,
+                 "listing": listing, "listing_save": listing_save,
                  "compare": compare,
                  "collect_preview": collect_preview,
                  "collect_apply": collect_apply,

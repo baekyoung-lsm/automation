@@ -96,6 +96,40 @@ def secret(payload: dict) -> dict:
     return {"values": values}
 
 
+def regex(payload: dict) -> dict:
+    """정규식을 실제 글에 걸어 본다. 파일은 건드리지 않는다."""
+    pattern = form.raw_text(payload, "pattern")
+    if not pattern:
+        raise UiError("정규식을 적어 주세요.")
+    body = form.raw_text(payload, "text")
+    if not body:
+        raise UiError("걸어 볼 글을 붙여 넣어 주세요.")
+    flags = form.raw_text(payload, "flags")
+
+    try:
+        hits = devkit.try_regex(pattern, body, flags=flags)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    rows = [[str(h.line), f"{h.start}~{h.end}", h.text[:50],
+             ", ".join(f"{name}={value}" for name, value in h.groups)[:60]]
+            for h in hits[:TOP * 4]]
+
+    made, count = "", 0
+    replacement = payload.get("replace")
+    if isinstance(replacement, str) and replacement != "":
+        try:
+            made, count = devkit.replace_regex(pattern, body, replacement,
+                                               flags=flags)
+        except ValueError as exc:
+            raise UiError(str(exc)) from None
+
+    return {"rows": rows, "count": len(hits), "replaced": made,
+            "changed": count,
+            "note": "안 걸린 그룹은 «(없음)» 입니다. 파일을 실제로 고치는 것은 "
+                    "백업이 남는 일괄 바꾸기 화면에서 하세요."}
+
+
 def log(payload: dict) -> dict:
     """로그 파일을 훑는다. 레벨 집계, 되풀이되는 에러, 경로별 응답 시간."""
     path = form.existing_file(payload, max_bytes=MAX_LOG_BYTES)
@@ -243,6 +277,7 @@ BODY = """
   <button data-tab="mask" aria-selected="false">가리기</button>
   <button data-tab="encode" aria-selected="false">인코딩</button>
   <button data-tab="secret" aria-selected="false">키 생성</button>
+  <button data-tab="regex" aria-selected="false">정규식</button>
   <button data-tab="log" aria-selected="false">로그</button>
   <button data-tab="db" aria-selected="false">sqlite</button>
   <button data-tab="env" aria-selected="false">.env 대조</button>
@@ -318,6 +353,23 @@ BODY = """
     <label><input type="checkbox" id="s-readable"> 헷갈리는 글자 빼기 (0O1lI)</label>
   </div>
   <div id="secret-out"></div>
+</section>
+
+<section class="card" data-panel="regex" hidden>
+  <h2>정규식 걸어 보기</h2>
+  <div class="row">
+    <div style="flex:2 1 16rem"><label for="x-pattern">정규식</label>
+      <input type="text" id="x-pattern" placeholder="(\\d{4})-(\\d{2})-(\\d{2})" spellcheck="false" data-forget></div>
+    <div style="flex:0 1 8rem"><label for="x-flags">옵션</label>
+      <input type="text" id="x-flags" placeholder="ims" spellcheck="false" data-forget></div>
+    <div><label for="x-replace">바꿀 것 (선택)</label>
+      <input type="text" id="x-replace" placeholder="\\3/\\2/\\1" spellcheck="false" data-forget></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-regex">걸어 보기</button></div>
+  </div>
+  <textarea id="x-text" spellcheck="false" style="margin-top:.8rem"
+            placeholder="여기에 글을 붙여 넣으세요"></textarea>
+  <p class="note">옵션: i 대소문자 무시, m 여러 줄, s 점이 줄바꿈도, x 공백 허용</p>
+  <div id="regex-out"></div>
 </section>
 
 <section class="card" data-panel="log" hidden>
@@ -453,6 +505,21 @@ BODY = """
     });
   });
 
+  $("btn-regex").addEventListener("click", function () {
+    run("regex-out", "/api/dev/regex", {
+      pattern: $("x-pattern").value, text: $("x-text").value,
+      flags: $("x-flags").value, replace: $("x-replace").value,
+    }, function (d) {
+      $("regex-out").innerHTML = big(d.count ? d.count + "곳이 걸립니다"
+                                             : "걸린 곳이 없습니다") +
+        (d.count ? AT.table(["줄", "자리", "걸린 글", "그룹"], d.rows,
+                            ["num", null, null, null]) : "") +
+        (d.changed ? '<p class="file">바꾸면 (' + d.changed + "곳)</p>" +
+          code(d.replaced) : "") +
+        '<p class="note">' + AT.esc(d.note) + "</p>";
+    });
+  });
+
   $("btn-log").addEventListener("click", function () {
     run("log-out", "/api/dev/log", { path: $("l-path").value }, function (d) {
       $("log-out").innerHTML = big(d.entries + "줄을 읽었습니다") +
@@ -537,12 +604,13 @@ def make() -> App:
     return App(
         key="dev",
         name="개발 잡일",
-        summary="JWT·시각·cron·가리기·인코딩·키·.env·로그·sqlite·의존성",
+        summary="정규식·JWT·시각·cron·가리기·인코딩·키·.env·로그·sqlite·의존성",
         subtitle="읽고 계산할 뿐, 고치지 않습니다",
         body=lambda: BODY,
         actions={"jwt": jwt, "when": when, "cron": cron, "mask": mask,
                  "encode": encode, "secret": secret, "env": env,
-                 "log": log, "db": db, "depends": depends, "locks": locks},
+                 "log": log, "db": db, "depends": depends, "locks": locks,
+                 "regex": regex},
         aliases=("개발", "dev잡일"),
         section="개발",
     )
