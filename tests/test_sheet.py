@@ -1679,5 +1679,63 @@ class DatePartsTest(unittest.TestCase):
         self.assertEqual(len(set(new.headers)), len(new.headers))
 
 
+class ReplaceValuesTest(unittest.TestCase):
+    def table(self):
+        from datetime import date
+
+        return sheet.Table(["부서", "이름", "금액", "날짜"],
+                           [["영업1팀", "홍길동", 1000, date(2026, 3, 2)],
+                            ["영업2팀", "김철수", 2000, None],
+                            ["개발팀", "영업1팀 지원", 3000, None]])
+
+    def test_partial_match_by_default(self):
+        new, rep = sheet.replace_values(self.table(), "영업1팀", "세일즈1팀")
+        self.assertEqual(new.rows[0][0], "세일즈1팀")
+        self.assertEqual(new.rows[2][1], "세일즈1팀 지원")
+        self.assertEqual((rep.changed, rep.rows), (2, 2))
+        self.assertEqual(rep.columns, ["부서", "이름"])
+
+    def test_exact_only_matches_the_whole_cell(self):
+        new, rep = sheet.replace_values(self.table(), "영업1팀", "세일즈1팀",
+                                        exact=True)
+        self.assertEqual(new.rows[2][1], "영업1팀 지원")   # 그대로
+        self.assertEqual(rep.changed, 1)
+
+    def test_column_scope(self):
+        _new, rep = sheet.replace_values(self.table(), "영업1팀", "세일즈1팀",
+                                         columns=["부서"])
+        self.assertEqual(rep.columns, ["부서"])
+
+    def test_numbers_are_left_alone_and_counted(self):
+        # 글자로 바꿔 넣으면 그 열이 통째로 글자가 되어 합계가 어긋난다
+        new, rep = sheet.replace_values(self.table(), "1000", "X")
+        self.assertEqual(new.rows[0][2], 1000)
+        self.assertEqual((rep.changed, rep.skipped_typed), (0, 1))
+
+    def test_ignore_case(self):
+        t = sheet.Table(["값"], [["Hello"], ["HELLO"]])
+        new, rep = sheet.replace_values(t, "hello", "안녕", ignore_case=True)
+        self.assertEqual([r[0] for r in new.rows], ["안녕", "안녕"])
+        self.assertEqual(rep.changed, 2)
+
+    def test_blank_cells_are_skipped(self):
+        t = sheet.Table(["값"], [[None], [""]])
+        _new, rep = sheet.replace_values(t, "가", "나")
+        self.assertEqual(rep.changed, 0)
+
+    def test_original_table_is_untouched(self):
+        t = self.table()
+        sheet.replace_values(t, "영업1팀", "세일즈1팀")
+        self.assertEqual(t.rows[0][0], "영업1팀")
+
+    def test_empty_needle_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.replace_values(self.table(), "", "가")
+
+    def test_unknown_column(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.replace_values(self.table(), "가", "나", columns=["없는열"])
+
+
 if __name__ == "__main__":
     unittest.main()

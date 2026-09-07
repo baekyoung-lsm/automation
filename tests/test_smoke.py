@@ -270,6 +270,8 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("sheet", "unbook", self.path("통합.xlsx"),
                      "-o", self.path("나눈것"), "--apply")
         self.assertTrue(list(Path(self.path("나눈것")).glob("*.xlsx")))
+        바꿈 = self.run_cli("sheet", "replace", csv, "개발", "R&D", "-c", "부서")
+        self.assertIn("R&D", 바꿈)
         날짜 = self.run_cli("sheet", "dates", csv, "-c", "입사일", "--add", "요일")
         self.assertIn("입사일 요일", 날짜)
         sql = self.run_cli("sheet", "to-sql", csv, "-t", "직원", "--create")

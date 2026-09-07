@@ -288,6 +288,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 것끼리만** 견주므로 첫 글자가 다른 오타는 찾지 못한다. 만 행을 전부 견주면 오천만 번을
 재야 하기 때문이다.
 
+`replace` 는 엑셀의 «모두 바꾸기» 를 파일째 한다. **숫자·날짜 칸은 건드리지 않는다** — 글자로
+바꿔 넣으면 그 열이 통째로 글자가 되어 합계와 정렬이 어긋난다. 대신 그런 칸이 몇 개 걸렸는지
+알려 준다. 기본은 부분 일치라 «영업1팀 지원» 도 걸리고, `--exact` 면 칸 전체가 같을 때만
+바꾼다. 원본은 건드리지 않고 `-o` 로 새 파일을 낸다.
+
 `dates` 는 피벗을 돌리기 전에 늘 손으로 만드는 열을 대신 만든다(연도·월·일·요일·연월·분기·주차).
 **날짜로 못 읽은 칸은 비워 두고 몇 행이었는지 알려 준다** — 오늘 날짜 같은 걸 채워 넣으면 그
 행이 엉뚱한 달에 잡힌다. 주차는 ISO 기준이라 연말·연초의 주가 해를 넘길 수 있어 `2026-W53`
@@ -704,6 +709,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet expand <파일> --col <열>` | 한 열을 구분자로 갈라 여러 열로 (엑셀 '텍스트 나누기') |
 | `at sheet combine <파일> --cols <열,열>` | 여러 열을 한 열로 합친다 (expand 의 반대) |
 | `at sheet rename <파일> --map <옛=새>` | 열 이름 바꾸기. 합치기 전에 이름을 맞춘다 |
+| `at sheet replace <파일> <찾을값> <바꿀값>` | 표 안의 값 찾아 바꾸기 (엑셀의 «모두 바꾸기») |
 | `at sheet cut <파일> -c <열>` | 열 고르기·순서 바꾸기 (`--drop` 이면 빼기) |
 | `at sheet where <파일> --eq <열=값>` | 조건에 맞는 행만. `--gte`, `--lt`, `--has` 등 |
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
@@ -749,6 +755,7 @@ at sheet transpose 요약.csv
 at sheet expand 거래처.xlsx --col 주소 --sep ' ' --names 시,구,동 -o 정리본.xlsx
 at sheet combine 거래처.xlsx --cols 시,구,동 --into 주소 -o 합본.xlsx
 at sheet rename 거래처A.xlsx --map '수량=개수' --map '금액=총액' -o 맞춘본.xlsx
+at sheet replace 명단.xlsx 영업1팀 세일즈1팀 -c 부서 --exact -o 새명단.xlsx
 at sheet rename 거래처B.xlsx --map-file 매핑.json -o 맞춘본2.xlsx
 at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet convert 명단.csv -o 명단.docx     # 보고서에 붙일 워드 표로

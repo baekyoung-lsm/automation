@@ -1541,6 +1541,75 @@ FORMAT_CHECKS = {
 }
 
 
+# ------------------------------------------------------------ 값 바꾸기
+
+@dataclass
+class ReplaceReport:
+    changed: int = 0                 # 바꾼 칸 수
+    rows: int = 0                    # 바뀐 행 수
+    columns: list[str] = field(default_factory=list)
+    skipped_typed: int = 0           # 숫자·날짜라서 건드리지 않은 칸
+
+
+def replace_values(table: Table, find: str, to: str, *,
+                   columns: list[str] | None = None, exact: bool = False,
+                   ignore_case: bool = False) -> tuple[Table, ReplaceReport]:
+    """표 안의 값을 찾아 바꾼다. 엑셀의 «모두 바꾸기» 를 파일째 하는 것.
+
+    숫자·날짜 칸은 건드리지 않는다. 글자로 바꿔 넣으면 그 열이 통째로 글자가
+    되어 합계와 정렬이 어긋난다. 몇 칸을 건드리지 않았는지는 알려 준다.
+    """
+    if not find:
+        raise SheetError("찾을 값을 주세요.")
+    wanted = ([table.index_of(c) for c in columns] if columns
+              else list(range(len(table.headers))))
+    needle = find.lower() if ignore_case else find
+    report = ReplaceReport()
+    touched: set[str] = set()
+
+    rows = []
+    for row in table.rows:
+        row = list(row) + [None] * (len(table.headers) - len(row))
+        hit_in_row = False
+        for i in wanted:
+            cell = row[i]
+            if _is_blank(cell):
+                continue
+            if isinstance(cell, (int, float, datetime, date)) and not isinstance(cell, str):
+                text = to_text(cell)
+                if (needle in (text.lower() if ignore_case else text)
+                        or (exact and text == find)):
+                    report.skipped_typed += 1
+                continue
+            text = to_text(cell)
+            body = text.lower() if ignore_case else text
+            if exact:
+                if body != needle:
+                    continue
+                new_text = to
+            else:
+                if needle not in body:
+                    continue
+                if ignore_case:
+                    new_text = re.sub(re.escape(find), to.replace("\\", "\\\\"),
+                                      text, flags=re.IGNORECASE)
+                else:
+                    new_text = text.replace(find, to)
+            if new_text == text:
+                continue
+            row[i] = new_text
+            report.changed += 1
+            touched.add(table.headers[i])
+            hit_in_row = True
+        rows.append(row)
+        if hit_in_row:
+            report.rows += 1
+
+    report.columns = [h for h in table.headers if h in touched]
+    return Table(list(table.headers), rows, source=table.source,
+                 sheet=table.sheet), report
+
+
 # ------------------------------------------------------------- 날짜 쪼개기
 
 WEEKDAYS_KO = ("월", "화", "수", "목", "금", "토", "일")

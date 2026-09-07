@@ -397,6 +397,36 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def cmd_sheet_replace(a) -> int:
+    """표 안의 값을 찾아 바꾼다. 원본은 그대로 두고 새 파일로 낸다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, rep = sheet.replace_values(
+            t, a.find, a.to, columns=a.column or None, exact=a.exact,
+            ignore_case=a.ignore_case)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    where = ", ".join(a.column) if a.column else "모든 열"
+    if not rep.changed:
+        _p(f"'{a.find}' 를 찾지 못했습니다. ({where})")
+        if rep.skipped_typed:
+            _p(f"  숫자·날짜 칸 {rep.skipped_typed:,}개에는 있었지만 "
+               "건드리지 않았습니다.")
+        return 1
+
+    _p(f"{where}  {rep.changed:,}칸 ({rep.rows:,}행)에서 "
+       f"'{a.find}' -> '{a.to}'")
+    _p(f"  바뀐 열: {', '.join(rep.columns)}")
+    if rep.skipped_typed:
+        _p(f"  숫자·날짜 칸 {rep.skipped_typed:,}개는 건드리지 않았습니다 "
+           "(글자로 바뀌면 합계가 어긋납니다)")
+    return _sheet_result(a, result, "바꾼 뒤")
+
+
 def cmd_sheet_dates(a) -> int:
     """날짜 열에서 요일·월·분기 열을 만든다. 피벗 돌리기 전에 하는 일."""
     t = _load(a)
@@ -1825,6 +1855,18 @@ def add_commands(sub) -> None:
     sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
     sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
     sp2.set_defaults(func=cmd_sheet_sample)
+
+    rp3 = sheet_out(common(sh.add_parser(
+        "replace", help="표 안의 값 찾아 바꾸기 (엑셀의 모두 바꾸기)")))
+    rp3.add_argument("file")
+    rp3.add_argument("find", metavar="찾을값")
+    rp3.add_argument("to", metavar="바꿀값")
+    rp3.add_argument("-c", "--column", action="append", metavar="열",
+                     help="이 열만 (없으면 모든 열)")
+    rp3.add_argument("--exact", action="store_true",
+                     help="칸 전체가 같을 때만 바꾼다")
+    rp3.add_argument("-i", "--ignore-case", action="store_true")
+    rp3.set_defaults(func=cmd_sheet_replace)
 
     dt = sheet_out(common(sh.add_parser(
         "dates", help="날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비)")))
