@@ -143,7 +143,7 @@ BODY = """
   <div class="row">
     <div style="flex:3 1 22rem">
       <label for="path">폴더 또는 파일</label>
-      <input type="text" id="path" placeholder="예: ~/문서/원고" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/문서/원고" data-browse="any" spellcheck="false">
     </div>
     <div>
       <label for="glob">파일 이름 조건 (쉼표로 여러 개)</label>

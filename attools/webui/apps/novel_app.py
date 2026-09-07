@@ -159,7 +159,7 @@ BODY = """
   <div class="row">
     <div style="flex:3 1 22rem">
       <label for="path">원고 폴더 또는 파일 (txt, md)</label>
-      <input type="text" id="path" placeholder="예: ~/글/장편" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/글/장편" data-browse="any" spellcheck="false">
     </div>
     <div style="flex:0 1 9rem">
       <label for="long_limit">긴 문장 기준(자)</label>

@@ -198,7 +198,7 @@ BODY = """
   <div class="row">
     <div style="flex:2 1 22rem">
       <label for="path">폴더 경로</label>
-      <input type="text" id="path" placeholder="예: ~/다운로드" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/다운로드" data-browse="dir" spellcheck="false">
     </div>
     <div>
       <label for="mode">정리 방식</label>
@@ -258,7 +258,7 @@ BODY = """
      <b>읽기만 합니다.</b> 위쪽 «폴더 경로»가 왼쪽입니다.</p>
   <div class="row">
     <div style="flex:3 1 20rem"><label for="other">견줄 폴더 (오른쪽)</label>
-      <input type="text" id="other" placeholder="예: /Volumes/백업/사진" spellcheck="false"></div>
+      <input type="text" id="other" placeholder="예: /Volumes/백업/사진" data-browse="dir" spellcheck="false"></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-compare">견주기</button></div>
   </div>
   <div class="checks">

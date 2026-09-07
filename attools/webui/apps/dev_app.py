@@ -265,7 +265,7 @@ BODY = """
   <h2>로그 훑기</h2>
   <div class="row">
     <div><label for="l-path">로그 파일</label>
-      <input type="text" id="l-path" placeholder="예: /var/log/app.log" spellcheck="false"></div>
+      <input type="text" id="l-path" placeholder="예: /var/log/app.log" data-browse="any" spellcheck="false"></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-log">훑기</button></div>
   </div>
   <div id="log-out"></div>
@@ -276,7 +276,7 @@ BODY = """
   <p class="note">읽기 전용으로 엽니다. 이 화면에서는 고칠 수 없습니다.</p>
   <div class="row">
     <div><label for="d-path">db 파일</label>
-      <input type="text" id="d-path" placeholder="예: ~/app.sqlite3" spellcheck="false"></div>
+      <input type="text" id="d-path" placeholder="예: ~/app.sqlite3" data-browse="any" spellcheck="false"></div>
     <div><label for="d-table">표 (비우면 목록)</label>
       <select id="d-table"><option value="">표 목록</option></select></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-db">보기</button></div>
@@ -293,9 +293,9 @@ BODY = """
   <h2>.env 대조</h2>
   <div class="row">
     <div><label for="v-example">예시 파일</label>
-      <input type="text" id="v-example" placeholder=".env.example" spellcheck="false"></div>
+      <input type="text" id="v-example" placeholder=".env.example" data-browse="any" spellcheck="false"></div>
     <div><label for="v-actual">실제 파일</label>
-      <input type="text" id="v-actual" placeholder=".env" spellcheck="false"></div>
+      <input type="text" id="v-actual" placeholder=".env" data-browse="any" spellcheck="false"></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-env">대조</button></div>
   </div>
   <div id="env-out"></div>

@@ -148,7 +148,7 @@ BODY = """
   <div class="row">
     <div style="flex:3 1 22rem">
       <label for="path">마크다운 파일</label>
-      <input type="text" id="path" placeholder="예: ~/문서/README.md" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/문서/README.md" data-browse=".md,.markdown,.txt" spellcheck="false">
     </div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-check">점검</button></div>
     <div style="flex:0 0 auto"><button id="btn-terms">용어 흔들림</button></div>

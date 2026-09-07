@@ -121,7 +121,7 @@ BODY = """
   <h2>JSON 을 넣어 주세요</h2>
   <div class="row">
     <div><label for="body_path">파일 경로 (또는 아래에 붙여넣기)</label>
-      <input type="text" id="body_path" placeholder="예: ~/내려받기/응답.json" spellcheck="false"></div>
+      <input type="text" id="body_path" placeholder="예: ~/내려받기/응답.json" data-browse=".json,.jsonl,.txt" spellcheck="false"></div>
   </div>
   <textarea id="body" spellcheck="false" placeholder='{"items": [{"id": 1}]}'
             style="margin-top:.8rem"></textarea>
@@ -178,7 +178,7 @@ BODY = """
   <p class="note">위에 넣은 것이 «먼저 것»입니다. 아래에 «나중 것»을 넣어 주세요.</p>
   <div class="row">
     <div><label for="after_path">나중 것 파일 경로</label>
-      <input type="text" id="after_path" spellcheck="false"></div>
+      <input type="text" id="after_path" data-browse=".json,.jsonl,.txt" spellcheck="false"></div>
     <div><label for="key">객체 배열을 짝지을 열쇠 (예: id)</label>
       <input type="text" id="key" spellcheck="false"></div>
   </div>

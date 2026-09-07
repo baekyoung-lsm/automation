@@ -1343,6 +1343,39 @@ class RecentTest(UiCase):
         _, data = self.post("/api/-/recent", {"app": "files"})
         self.assertEqual(data["fields"], {})
 
+    def test_browse_lists_folders_and_files(self):
+        (self.work / "안쪽").mkdir()
+        (self.work / "가.txt").write_text("x", encoding="utf-8")
+        (self.work / ".숨김").write_text("x", encoding="utf-8")
+        _, data = self.post("/api/-/browse", {"path": str(self.work)})
+        self.assertEqual(data["dirs"], ["안쪽"])
+        self.assertEqual(data["files"], ["가.txt"])       # 숨김은 빼고
+        self.assertEqual(data["here"], str(self.work))
+        self.assertTrue(data["parent"])
+
+    def test_browse_shows_hidden_when_asked(self):
+        (self.work / ".숨김").write_text("x", encoding="utf-8")
+        _, data = self.post("/api/-/browse",
+                            {"path": str(self.work), "hidden": True})
+        self.assertIn(".숨김", data["files"])
+
+    def test_browse_from_a_file_shows_its_folder(self):
+        path = self.work / "가.txt"
+        path.write_text("x", encoding="utf-8")
+        _, data = self.post("/api/-/browse", {"path": str(path)})
+        self.assertEqual(data["here"], str(self.work))
+
+    def test_browse_missing_folder(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/-/browse", {"path": str(self.work / "없음")})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_browse_needs_no_screen(self):
+        """폴더 훑기는 어느 화면에서 부르든 같다."""
+        status, data = self.post("/api/-/browse", {"path": str(self.work)})
+        self.assertEqual(status, 200)
+        self.assertIn("here", data)
+
     def test_page_defines_at_before_body_scripts(self):
         """본문 스크립트가 불러오자마자 AT 를 쓰는 화면이 있다."""
         _status, body = self.get("/files?t=" + self.run.token)

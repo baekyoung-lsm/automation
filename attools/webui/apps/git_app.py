@@ -117,7 +117,7 @@ BODY = """
   <div class="row">
     <div style="flex:3 1 22rem">
       <label for="path">폴더 (안쪽 어디든 됩니다)</label>
-      <input type="text" id="path" placeholder="예: ~/코드/내프로젝트" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/코드/내프로젝트" data-browse="dir" spellcheck="false">
     </div>
   </div>
   <nav class="tabs" id="tabs" style="margin-top:1.1rem">

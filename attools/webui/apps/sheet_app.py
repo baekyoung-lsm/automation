@@ -259,7 +259,7 @@ BODY = """
   <div class="row">
     <div style="flex:3 1 22rem">
       <label for="path">파일 경로 (xlsx, csv, tsv)</label>
-      <input type="text" id="path" placeholder="예: ~/문서/명단.xlsx" spellcheck="false">
+      <input type="text" id="path" placeholder="예: ~/문서/명단.xlsx" data-browse=".xlsx,.xlsm,.csv,.tsv" spellcheck="false">
     </div>
     <div>
       <label for="sheet">시트</label>
@@ -309,7 +309,7 @@ BODY = """
      <b>원본은 둘 다 그대로 둡니다.</b></p>
   <div class="row">
     <div style="flex:3 1 20rem"><label for="other">상대 파일</label>
-      <input type="text" id="other" placeholder="예: ~/문서/지난달.xlsx" spellcheck="false"></div>
+      <input type="text" id="other" placeholder="예: ~/문서/지난달.xlsx" data-browse=".xlsx,.xlsm,.csv,.tsv" spellcheck="false"></div>
     <div><label for="other_sheet">상대 시트</label>
       <input type="text" id="other_sheet" placeholder="첫 시트" spellcheck="false"></div>
     <div><label for="dkey">열쇠 열 (비교할 때)</label>

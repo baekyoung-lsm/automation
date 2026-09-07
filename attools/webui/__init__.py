@@ -215,8 +215,53 @@ def make_handler(apps: list[App], token: str, *, only: App | None = None):
     return Handler
 
 
+BROWSE_LIMIT = 300
+
+
+def _browse(payload: dict) -> tuple[int, dict]:
+    """폴더 안을 보여 준다. 긴 경로를 손으로 치지 않게 하려는 것뿐이다."""
+    from pathlib import Path
+
+    raw = payload.get("path")
+    raw = raw.strip() if isinstance(raw, str) else ""
+    here = Path(raw).expanduser() if raw else Path.home()
+    if here.is_file():
+        here = here.parent
+    if not here.is_dir():
+        return 400, {"error": f"그런 폴더가 없습니다: {here}"}
+
+    here = here.resolve()
+    try:
+        entries = sorted(here.iterdir(), key=lambda p: p.name.lower())
+    except OSError as exc:
+        return 400, {"error": f"폴더를 읽지 못했습니다: {exc}"}
+
+    show_hidden = bool(payload.get("hidden"))
+    dirs, files = [], []
+    for entry in entries:
+        if not show_hidden and entry.name.startswith("."):
+            continue
+        try:
+            if entry.is_dir():
+                dirs.append(entry.name)
+            elif entry.is_file():
+                files.append(entry.name)
+        except OSError:
+            continue
+        if len(dirs) + len(files) > BROWSE_LIMIT:
+            break
+
+    return 200, {"here": str(here),
+                 "parent": "" if here.parent == here else str(here.parent),
+                 "dirs": dirs[:BROWSE_LIMIT], "files": files[:BROWSE_LIMIT],
+                 "more": len(entries) > BROWSE_LIMIT}
+
+
 def _common(action: str, payload: dict, by_key: dict) -> tuple[int, dict]:
     """어느 화면에나 있는 동작. 최근에 넣은 값을 기억하고 돌려준다."""
+    if action == "browse":                 # 어느 화면에서 부르든 같다
+        return _browse(payload)
+
     app = payload.get("app")
     if not isinstance(app, str) or app not in by_key:
         return 400, {"error": "어느 화면인지 알 수 없습니다."}

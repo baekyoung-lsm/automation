@@ -75,6 +75,16 @@ pre.diff .add { color:var(--green); }
 pre.diff .del { color:var(--red); }
 pre.diff .at { color:var(--dim); }
 button.spec { padding:.25rem .6rem; font-size:.85rem; margin:.15rem 0; }
+.browse { border:1px solid var(--line); border-radius:8px; margin-top:.4rem;
+  max-height:15rem; overflow:auto; background:var(--card); }
+.browse .head { padding:.4rem .7rem; border-bottom:1px solid var(--line);
+  color:var(--dim); font-size:.8rem; position:sticky; top:0;
+  background:var(--card); word-break:break-all; }
+.browse button.row { display:block; width:100%; text-align:left; border:0;
+  border-radius:0; padding:.35rem .7rem; font-size:.9rem; background:none; }
+.browse button.row:hover { background:var(--mark); }
+.browse button.row.pick { color:var(--blue); }
+.browse .empty { padding:.6rem .7rem; }
 .file { font-weight:600; font-size:.9rem; margin:.9rem 0 .2rem; }
 .msg { padding:.7rem .9rem; border-radius:8px; margin-top:1rem; font-size:.9rem;
   border:1px solid var(--line); background:var(--mark); }
@@ -177,8 +187,79 @@ window.AT = (function () {
     });
   }
 
+  // 긴 경로를 손으로 치지 않게, 칸 옆에서 폴더를 훑어 고른다.
+  function browse() {
+    document.querySelectorAll("input[data-browse]").forEach(function (el) {
+      const wants = el.dataset.browse;            // dir 또는 파일 확장자 목록
+      const holder = document.createElement("div");
+      const open = document.createElement("button");
+      open.type = "button";
+      open.textContent = "찾아보기";
+      open.style.marginTop = ".35rem";
+      const panel = document.createElement("div");
+      panel.className = "browse";
+      panel.hidden = true;
+      holder.appendChild(open);
+      holder.appendChild(panel);
+      el.parentNode.appendChild(holder);
+
+      function row(label, value, pick) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = pick ? "row pick" : "row";
+        b.textContent = label;
+        b.addEventListener("click", function () {
+          if (pick) {
+            el.value = value;
+            el.dispatchEvent(new Event("change"));
+            panel.hidden = true;
+            return;
+          }
+          show(value);
+        });
+        return b;
+      }
+
+      function wanted(name) {
+        if (wants === "dir") return false;
+        if (wants === "any") return true;
+        return wants.split(",").some(function (ext) {
+          return name.toLowerCase().endsWith(ext.trim());
+        });
+      }
+
+      async function show(path) {
+        try {
+          const d = await call("/api/-/browse", { path: path });
+          panel.innerHTML = "";
+          const head = document.createElement("div");
+          head.className = "head";
+          head.textContent = d.here;
+          panel.appendChild(head);
+          panel.appendChild(row("이 폴더를 고른다", d.here, true));
+          if (d.parent) panel.appendChild(row(".. 위로", d.parent, false));
+          d.dirs.forEach(function (name) {
+            panel.appendChild(row(name + "/", d.here + "/" + name, false));
+          });
+          d.files.filter(wanted).forEach(function (name) {
+            panel.appendChild(row(name, d.here + "/" + name, true));
+          });
+          panel.hidden = false;
+        } catch (e) {
+          panel.innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
+          panel.hidden = false;
+        }
+      }
+
+      open.addEventListener("click", function () {
+        if (!panel.hidden) { panel.hidden = true; return; }
+        show(el.value);
+      });
+    });
+  }
+
   return { call: call, table: table, esc: esc, message: message,
-           token: token, remember: remember };
+           token: token, remember: remember, browse: browse };
 })();
 """
 
@@ -210,7 +291,7 @@ def page(title: str, subtitle: str, body: str, *, home: bool = True,
 {body}
 </main>
 <footer>내 컴퓨터에서만 도는 화면입니다. 창을 닫고 터미널에서 Ctrl+C 를 누르면 끝납니다.</footer>
-<script>AT.remember({escape(scope)!r});</script>
+<script>AT.remember({escape(scope)!r}); AT.browse();</script>
 </body>
 </html>
 """
