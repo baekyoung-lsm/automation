@@ -1578,7 +1578,9 @@ class BrowserCheckTest(unittest.TestCase):
                 os.environ.pop(check.BROWSER_ENV, None)
             else:
                 os.environ[check.BROWSER_ENV] = previous
-        self.assertEqual(code, 1)
+        # 못 연 것(2)과 자바스크립트 오류(1)를 부르는 쪽이 구분할 수 있어야
+        # CI 가 «환경이 안 돼서 못 봄»을 실패로 세지 않는다.
+        self.assertEqual(code, 2)
         self.assertIn("찾지 못했습니다", out.getvalue())
 
 

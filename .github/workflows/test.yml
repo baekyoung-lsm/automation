@@ -44,10 +44,9 @@ jobs:
       # 러너에 브라우저가 없으면 조용히 건너뛴다 - 없는 것을 실패로 세지 않는다.
       - name: 브라우저로 화면 점검
         run: |
-          if command -v google-chrome > /dev/null \
-             || command -v chromium > /dev/null \
-             || command -v chromium-browser > /dev/null; then
-            python at ui --check
+          python at ui --check; code=$?
+          if [ "$code" = "2" ]; then
+            echo "이 러너에서는 화면을 열어 보지 못했습니다. 건너뜁니다."
           else
-            echo "브라우저가 없어 건너뜁니다."
+            exit "$code"
           fi

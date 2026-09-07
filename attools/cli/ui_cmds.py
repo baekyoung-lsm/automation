@@ -20,7 +20,7 @@ def _check(apps, port: int) -> int:
     if browser is None:
         _p("크로미움 계열 브라우저를 찾지 못했습니다.")
         _p(f"  {uicheck.BROWSER_ENV} 에 실행 파일 경로를 넣어 주면 씁니다.")
-        return 1
+        return 2
 
     run = webui.start(port=port, apps=apps)
     thread = threading.Thread(target=run.server.serve_forever,
@@ -77,8 +77,12 @@ def _check(apps, port: int) -> int:
     if missed:
         _p(f"화면 {len(missed)}개는 열어 보지 못했습니다. "
            "(브라우저가 느리거나 실행되지 않았습니다)")
-    if broken or missed:
+    if broken:
         return 1
+    if missed:
+        # 열어 보지 못한 것은 코드 문제가 아니라 환경 문제다. 부르는 쪽이
+        # 구분할 수 있게 다른 값으로 끝낸다.
+        return 2
     _p(f"화면 {len(results)}개 모두 깨끗합니다.")
     return 0
 
@@ -135,5 +139,6 @@ def add_commands(sub) -> None:
     up.add_argument("--no-open", action="store_true", help="브라우저를 열지 않는다")
     up.add_argument("--list", action="store_true", help="어떤 화면이 있는지 본다")
     up.add_argument("--check", action="store_true",
-                    help="브라우저로 모든 화면을 열어 자바스크립트 오류를 본다")
+                    help="브라우저로 모든 화면을 열어 자바스크립트 오류를 본다 "
+                         "(오류 1, 열어 보지 못함 2)")
     up.set_defaults(func=cmd_ui)
