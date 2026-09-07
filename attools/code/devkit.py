@@ -595,6 +595,38 @@ class HttpResult:
                  else value) for name, value in self.headers]
 
 
+def encode_url(url: str) -> str:
+    """한글이 든 주소를 그대로 보낼 수 있는 꼴로 바꾼다.
+
+    urllib 는 아스키가 아닌 글자를 만나면 예외를 던진다. 사람이 쓰는 주소에는
+    한글이 그대로 들어 있는 일이 흔하므로 여기서 한 번 다듬는다.
+    """
+    import urllib.parse
+
+    parts = urllib.parse.urlsplit(url)
+    try:
+        host = parts.hostname.encode("idna").decode("ascii") if parts.hostname else ""
+    except (UnicodeError, AttributeError):
+        host = parts.hostname or ""
+
+    netloc = host
+    if parts.port:
+        netloc = f"{netloc}:{parts.port}"
+    if parts.username:
+        credentials = parts.username
+        if parts.password:
+            credentials += f":{parts.password}"
+        netloc = f"{credentials}@{netloc}"
+
+    return urllib.parse.urlunsplit((
+        parts.scheme,
+        netloc,
+        urllib.parse.quote(parts.path, safe="/%:@!$&'()*+,;=~"),
+        urllib.parse.quote(parts.query, safe="=&%:/?+,;@!$'()*~"),
+        urllib.parse.quote(parts.fragment, safe="/%:@!$&'()*+,;=~"),
+    ))
+
+
 def fetch(url: str, *, method: str = "GET", headers: dict | None = None,
           body: bytes | None = None, timeout: float = 10.0) -> HttpResult:
     """한 번 부르고 결과를 그대로 돌려준다. 실패 응답(4xx·5xx)도 결과다.
@@ -606,8 +638,8 @@ def fetch(url: str, *, method: str = "GET", headers: dict | None = None,
     import urllib.error
     import urllib.request
 
-    request = urllib.request.Request(url, data=body, method=method.upper(),
-                                     headers=headers or {})
+    request = urllib.request.Request(encode_url(url), data=body,
+                                     method=method.upper(), headers=headers or {})
     started = _time.perf_counter()
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

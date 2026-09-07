@@ -496,5 +496,31 @@ class LockDiffTest(unittest.TestCase):
         self.assertEqual(change.kind, "바뀜")
 
 
+class EncodeUrlTest(unittest.TestCase):
+    """한글이 든 주소. urllib 는 아스키가 아니면 예외를 던진다."""
+
+    def test_korean_path(self):
+        self.assertEqual(devkit.encode_url("https://example.com/없는쪽"),
+                         "https://example.com/%EC%97%86%EB%8A%94%EC%AA%BD")
+
+    def test_korean_host_becomes_punycode(self):
+        self.assertTrue(
+            devkit.encode_url("https://한글.kr/").startswith("https://xn--"))
+
+    def test_query_and_fragment(self):
+        made = devkit.encode_url("https://a.b/길?q=값#조각")
+        self.assertIn("q=%EA%B0%92", made)
+        self.assertIn("#%EC%A1%B0%EA%B0%81", made)
+
+    def test_plain_urls_are_untouched(self):
+        for url in ("http://a.b:8080/x", "https://user:pw@a.b/c",
+                    "https://a.b/c?d=1&e=2"):
+            self.assertEqual(devkit.encode_url(url), url)
+
+    def test_already_encoded_stays(self):
+        url = "https://a.b/%EA%B0%92"
+        self.assertEqual(devkit.encode_url(url), url)
+
+
 if __name__ == "__main__":
     unittest.main()

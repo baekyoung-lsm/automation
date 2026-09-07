@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, sheet, text
 from ..docs import fromhtml, mdkit
-from .common import _p, _grid, MD_SUFFIXES
+from .common import _cut, _p, _grid, MD_SUFFIXES
 
 
 def _md_files(paths) -> list[Path]:
@@ -75,11 +75,74 @@ def cmd_doc_links(a) -> int:
             _p(f"  {i.line}행  [{i.kind}] {i.detail}")
         _p("")
 
+    if a.external:
+        total += _check_external(targets, a)
+    elif total:
+        _p(f"모두 {total}건. 외부 URL 은 확인하지 않았습니다. "
+           "(--external 을 주면 실제로 두드려 봅니다)")
+        return 1
+
     if not total:
         _p(f"파일 {len(targets)}개, 깨진 링크 없습니다.")
         return 0
-    _p(f"모두 {total}건. 외부 URL 은 확인하지 않았습니다.")
+    _p(f"모두 {total}건.")
     return 1
+
+
+def _check_external(targets, a) -> int:
+    """문서가 가리키는 바깥 주소를 실제로 두드려 본다.
+
+    깨진 바깥 링크는 문서에서 제일 흔한 거짓말인데, 파일만 봐서는 알 수 없다.
+    다만 네트워크가 막힌 곳에서도 도구가 돌아야 하므로, 못 두드린 것은
+    «깨졌다»가 아니라 «확인 못 함»으로 따로 센다.
+    """
+    from collections import OrderedDict
+    from concurrent.futures import ThreadPoolExecutor
+
+    from ..code import devkit
+
+    found: "OrderedDict[str, list[str]]" = OrderedDict()
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        for link in mdkit.links(body):
+            target = link.target.strip()
+            if not target.startswith(("http://", "https://")):
+                continue
+            found.setdefault(target, []).append(f"{path}:{link.line}")
+
+    if not found:
+        _p("바깥 주소가 없습니다.")
+        return 0
+
+    def look(url: str):
+        try:
+            # 어떤 곳은 HEAD 를 막아 두어서 GET 으로 본다. 본문은 안 읽는다.
+            return devkit.fetch(url, timeout=a.timeout), ""
+        except Exception as exc:                      # 그물·인증서·주소 오류
+            return None, f"{type(exc).__name__}: {exc}"
+
+    bad, unsure = [], []
+    with ThreadPoolExecutor(max_workers=a.jobs) as pool:
+        for url, (result, trouble) in zip(found, pool.map(look, found)):
+            where = ", ".join(found[url][:2])
+            if trouble:
+                unsure.append((url, trouble, where))
+            elif not result.ok:
+                bad.append((url, f"{result.status} {result.reason}", where))
+
+    if bad:
+        _p(f"\n죽은 바깥 주소 {len(bad)}건")
+        for url, why, where in bad[:a.limit]:
+            _p(f"  [{why}] {_cut(url, 60)}")
+            _p(f"      {where}")
+    if unsure:
+        _p(f"\n확인하지 못한 주소 {len(unsure)}건 (그물이 막혔을 수 있습니다)")
+        for url, why, where in unsure[:a.limit]:
+            _p(f"  {_cut(url, 60)}")
+            _p(f"      {_cut(why, 70)}")
+    if not bad and not unsure:
+        _p(f"바깥 주소 {len(found)}개, 모두 살아 있습니다.")
+    return len(bad)
 
 
 def cmd_doc_tables(a) -> int:
@@ -598,6 +661,11 @@ def add_commands(sub) -> None:
     dl = dc.add_parser("links", help="깨진 상대 링크·앵커 찾기")
     dl.add_argument("paths", nargs="+", metavar="경로")
     dl.add_argument("--limit", type=int, default=20)
+    dl.add_argument("--external", action="store_true",
+                    help="바깥 주소(http)도 실제로 두드려 본다")
+    dl.add_argument("--timeout", type=float, default=10.0, metavar="초")
+    dl.add_argument("--jobs", type=int, default=8, metavar="개",
+                    help="한 번에 두드릴 개수")
     dl.set_defaults(func=cmd_doc_links)
 
     dh = dc.add_parser("check", help="제목 단계 건너뜀·중복 점검")
