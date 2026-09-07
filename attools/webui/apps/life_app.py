@@ -199,6 +199,92 @@ def tax(payload: dict) -> dict:
             "note": "원 미만은 버립니다."}
 
 
+def saving(payload: dict) -> dict:
+    """적금·예금 만기 계산. 단리 기준이라는 것을 그 자리에 적는다."""
+    kind = form.choice(payload, "kind", {"적금", "예금"}, "적금")
+    amount = _amount(payload, "amount")
+    months = int(form.number(payload, "months", 12, low=1, high=600))
+    rate = form.number(payload, "rate", 3.5, low=0.0, high=100.0)
+    try:
+        plan = life.saving_plan(
+            monthly=amount if kind == "적금" else 0,
+            deposit=amount if kind == "예금" else 0,
+            months=months, annual_rate=rate)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    return {"headline": f"만기에 {life.format_won(plan.total)}",
+            "rows": [["넣는 방식", plan.kind],
+                     ["원금 합계", life.format_won(plan.principal)],
+                     ["세전 이자", life.format_won(plan.interest)],
+                     [f"이자소득세 ({plan.tax_rate}%)", life.format_won(plan.tax)],
+                     ["세후 이자", life.format_won(plan.net_interest)],
+                     ["만기 수령액", life.format_won(plan.total)],
+                     ["원금 대비 연 수익률", f"{plan.effective:.2f}%"]],
+            "note": "은행이 표시하는 단리 기준입니다. 복리 상품은 계산이 "
+                    "다릅니다. 우대금리·중도해지는 넣지 않았습니다."}
+
+
+def rent(payload: dict) -> dict:
+    """전월세 전환. 전환율 상한은 지역·시기마다 달라 여기서 정하지 않는다."""
+    rate = form.number(payload, "rate", 5.5, low=0.1, high=100.0)
+    monthly = form.text(payload, "monthly")
+    try:
+        if monthly:
+            plan = life.to_deposit(_amount(payload, "monthly"),
+                                   _amount(payload, "deposit") if form.text(payload, "deposit") else 0,
+                                   rate)
+            headline = f"보증금 {life.format_won(plan.deposit)}"
+        else:
+            plan = life.to_monthly(
+                _amount(payload, "deposit"),
+                _amount(payload, "keep") if form.text(payload, "keep") else 0,
+                rate)
+            headline = f"월세 {life.format_won(plan.monthly)}"
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    return {"headline": headline,
+            "rows": [["보증금", life.format_won(plan.deposit)],
+                     ["월세", life.format_won(plan.monthly)],
+                     ["옮긴 금액", life.format_won(plan.moved)],
+                     ["연 전환율", f"{plan.rate}%"],
+                     ["월세 1년치", life.format_won(plan.yearly)]],
+            "note": "전환율은 넣은 값을 그대로 씁니다. 법정 상한은 지역과 "
+                    "시기에 따라 달라 여기서 정하지 않습니다."}
+
+
+def worktime(payload: dict) -> dict:
+    """근무 시간 계산. 09:00-18:30 처럼 구간을 줄마다 적는다."""
+    spans, bad = [], []
+    for line in form.raw_text(payload, "spans").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            spans.append(life.parse_span(line))
+        except life.TimeError:
+            bad.append(line)
+    if bad:
+        raise UiError(f"시간 구간을 읽지 못했습니다: {', '.join(bad[:3])} "
+                      "('09:00-18:30' 꼴로 적어 주세요)")
+    if not spans:
+        raise UiError("근무 구간을 한 줄에 하나씩 적어 주세요. 예: 09:00-18:30")
+
+    rest = int(form.number(payload, "rest", 0, low=0, high=1440))
+    minutes = life.work_minutes(spans, rest=rest)
+    rate = form.number(payload, "rate", 0, low=0, high=1_000_000)
+    rows = [["구간", ", ".join(f"{life.format_minutes(s.minutes)}" for s in spans)],
+            ["휴게", life.format_minutes(rest)],
+            ["일한 시간", life.format_minutes(minutes)],
+            ["시각으로", life.format_minutes(minutes, clock=True)]]
+    if rate:
+        rows.append(["임금", life.format_won(minutes / 60 * rate)])
+    return {"headline": life.format_minutes(minutes), "rows": rows,
+            "note": "연장·야간 가산은 넣지 않았습니다. 실제 임금은 사업장 "
+                    "규모와 근로 형태에 따라 달라집니다."}
+
+
 def won(payload: dict) -> dict:
     amount = _amount(payload, "amount")
     return {"plain": life.format_won(amount),
@@ -214,6 +300,9 @@ BODY = """
   <button data-tab="workday" aria-selected="false">영업일</button>
   <button data-tab="unit" aria-selected="false">단위</button>
   <button data-tab="tax" aria-selected="false">부가세·원천징수</button>
+  <button data-tab="saving" aria-selected="false">적금·예금</button>
+  <button data-tab="rent" aria-selected="false">전월세</button>
+  <button data-tab="worktime" aria-selected="false">근무 시간</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
 </nav>
 
@@ -308,6 +397,54 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-tax">계산</button></div>
   </div>
   <div id="tax-out"></div>
+</section>
+
+<section class="card" data-panel="saving" hidden>
+  <h2>만기에 얼마를 받나</h2>
+  <div class="row">
+    <div><label for="v-kind">방식</label>
+      <select id="v-kind"><option>적금</option><option>예금</option></select></div>
+    <div><label for="v-amount">금액 (적금은 매달, 예금은 한 번에)</label>
+      <input type="text" id="v-amount" placeholder="50만" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="v-months">개월</label>
+      <input type="text" id="v-months" value="12" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="v-rate">연 금리(%)</label>
+      <input type="text" id="v-rate" value="3.5" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-saving">계산</button></div>
+  </div>
+  <div id="saving-out"></div>
+</section>
+
+<section class="card" data-panel="rent" hidden>
+  <h2>전세 ↔ 월세</h2>
+  <div class="row">
+    <div><label for="r-deposit">전세보증금 (또는 기준 보증금)</label>
+      <input type="text" id="r-deposit" placeholder="3억" spellcheck="false"></div>
+    <div><label for="r-keep">남길 보증금</label>
+      <input type="text" id="r-keep" placeholder="1억" spellcheck="false"></div>
+    <div><label for="r-monthly">월세 (적으면 보증금으로 되돌림)</label>
+      <input type="text" id="r-monthly" placeholder="비워 두세요" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="r-rate">전환율(%)</label>
+      <input type="text" id="r-rate" value="5.5" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-rent">계산</button></div>
+  </div>
+  <div id="rent-out"></div>
+</section>
+
+<section class="card" data-panel="worktime" hidden>
+  <h2>몇 시간 일했나</h2>
+  <div>
+    <label for="t-spans">한 줄에 하나씩 «09:00-18:30»</label>
+    <textarea id="t-spans" spellcheck="false" placeholder="09:00-18:30&#10;20:00-22:00"></textarea>
+  </div>
+  <div class="row" style="margin-top:.8rem">
+    <div style="flex:0 1 8rem"><label for="t-rest">휴게(분)</label>
+      <input type="text" id="t-rest" value="60" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="t-rate">시급 (선택)</label>
+      <input type="text" id="t-rate" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-worktime">계산</button></div>
+  </div>
+  <div id="worktime-out"></div>
 </section>
 
 <section class="card" data-panel="won" hidden>
@@ -421,6 +558,33 @@ BODY = """
     });
   });
 
+  function table2(where, d) {
+    $(where).innerHTML = big(AT.esc(d.headline)) +
+      AT.table(["항목", "값"], d.rows, [null, "num"]) +
+      '<p class="note">' + AT.esc(d.note) + "</p>";
+  }
+
+  $("btn-saving").addEventListener("click", function () {
+    run("saving-out", "/api/life/saving", {
+      kind: $("v-kind").value, amount: $("v-amount").value,
+      months: $("v-months").value, rate: $("v-rate").value,
+    }, function (d) { table2("saving-out", d); });
+  });
+
+  $("btn-rent").addEventListener("click", function () {
+    run("rent-out", "/api/life/rent", {
+      deposit: $("r-deposit").value, keep: $("r-keep").value,
+      monthly: $("r-monthly").value, rate: $("r-rate").value,
+    }, function (d) { table2("rent-out", d); });
+  });
+
+  $("btn-worktime").addEventListener("click", function () {
+    run("worktime-out", "/api/life/worktime", {
+      spans: $("t-spans").value, rest: $("t-rest").value,
+      rate: $("t-rate").value,
+    }, function (d) { table2("worktime-out", d); });
+  });
+
   $("btn-won").addEventListener("click", function () {
     run("won-out", "/api/life/won", { amount: $("w-amount").value },
         function (d) {
@@ -438,12 +602,13 @@ def make() -> App:
     return App(
         key="life",
         name="일상 계산",
-        summary="D-day, 더치페이, 대출, 영업일, 단위, 세금, 금액 한글 표기",
+        summary="D-day·더치페이·대출·영업일·적금·전월세·근무시간·단위·세금",
         subtitle="숫자만 다룹니다 · 파일은 건드리지 않습니다",
         body=lambda: BODY,
         actions={"dday": dday, "split": split, "loan": loan, "unit": unit,
                  "tax": tax, "won": won, "workday": workday,
-                 "holidays": holidays},
+                 "holidays": holidays, "saving": saving, "rent": rent,
+                 "worktime": worktime},
         aliases=("일상", "계산", "계산기"),
         section="그 밖",
     )

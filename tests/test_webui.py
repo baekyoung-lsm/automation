@@ -704,6 +704,47 @@ class LifeAppTest(UiCase):
         self.assertIn("신정", names)
         self.assertTrue(any("대체공휴일" in n for n in names))
 
+    def test_saving(self):
+        _, data = self.post("/api/life/saving",
+                            {"kind": "적금", "amount": "50만",
+                             "months": "12", "rate": "3.5"})
+        pairs = dict(data["rows"])
+        self.assertEqual(pairs["원금 합계"], "6,000,000원 (600만)")
+        self.assertIn("단리", data["note"])
+
+    def test_saving_rejects_zero_months(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/saving", {"amount": "50만", "months": "0"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_rent_both_ways(self):
+        _, to_monthly = self.post("/api/life/rent",
+                                  {"deposit": "3억", "keep": "1억",
+                                   "rate": "5.5"})
+        self.assertIn("월세", to_monthly["headline"])
+        _, to_deposit = self.post("/api/life/rent",
+                                  {"monthly": "100만", "deposit": "1억",
+                                   "rate": "5.5"})
+        self.assertIn("보증금", to_deposit["headline"])
+
+    def test_rent_refuses_bad_numbers(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/rent", {"deposit": "1억", "keep": "3억"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_worktime(self):
+        _, data = self.post("/api/life/worktime",
+                            {"spans": "09:00-18:30\n20:00-22:00",
+                             "rest": "60", "rate": "12000"})
+        self.assertEqual(data["headline"], "10시간 30분")
+        pairs = dict(data["rows"])
+        self.assertEqual(pairs["임금"], "126,000원")
+
+    def test_worktime_bad_span(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/worktime", {"spans": "엉터리"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_won(self):
         _, data = self.post("/api/life/won", {"amount": "1250000"})
         self.assertEqual(data["korean"], "백이십오만")
