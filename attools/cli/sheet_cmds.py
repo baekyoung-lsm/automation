@@ -161,6 +161,49 @@ def cmd_sheet_clean(a) -> int:
     return 0
 
 
+def cmd_sheet_find(a) -> int:
+    """여러 파일에서 값 찾기. 어느 파일 어느 시트 몇 행인지 알려 준다."""
+    targets: list[Path] = []
+    for name in a.files:
+        path = Path(name)
+        if path.is_dir():
+            targets += [q for q in sorted(path.rglob("*"))
+                        if q.is_file()
+                        and q.suffix.lower() in (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)
+                        and not q.name.startswith("~$")]   # 엑셀이 만드는 임시 파일
+        elif path.is_file():
+            targets.append(path)
+        else:
+            _p(f"경로가 없습니다: {path}")
+            return 1
+    if not targets:
+        _p("찾아볼 파일이 없습니다. (csv, tsv, xlsx)")
+        return 1
+
+    found, skipped = sheet.find_in_files(
+        targets, a.needle, column=a.column, exact=a.exact,
+        ignore_case=not a.case, header_row=a.header_row - 1)
+
+    if found:
+        _grid(["파일", "시트", "행", "열", "값", "그 행의 첫 열"],
+              [[Path(h.path).name, h.sheet or "-", str(h.row), h.column,
+                _cut(h.value, 30), _cut(h.context, 20)]
+               for h in found[:a.limit]], limit=30)
+        if len(found) > a.limit:
+            _p(f"... {len(found) - a.limit}건 더 (--limit 로 조절)")
+        _p(f"\n파일 {len({h.path for h in found})}개에서 {len(found)}건.")
+    else:
+        _p(f"'{a.needle}' 을(를) 찾지 못했습니다. (파일 {len(targets)}개를 봤습니다)")
+
+    if skipped:
+        _p(f"\n못 읽은 것 {len(skipped)}개")
+        for name, why in skipped[:5]:
+            _p(f"  {Path(name).name}: {_cut(why, 60)}")
+        if len(skipped) > 5:
+            _p(f"  ... {len(skipped) - 5}개 더")
+    return 0 if found else 1
+
+
 def cmd_sheet_book(a) -> int:
     """여러 파일을 한 엑셀의 여러 시트로 묶는다."""
     tables: dict = {}
@@ -1135,6 +1178,15 @@ def add_commands(sub) -> None:
     cl.add_argument("-o", "--out", help="저장 경로 (.csv 또는 .xlsx)")
     cl.add_argument("--dedupe", action="store_true", help="완전히 같은 행 제거")
     cl.set_defaults(func=cmd_sheet_clean)
+
+    fd = common(sh.add_parser("find", help="여러 파일에서 값 찾기 (어느 파일 몇 행)"))
+    fd.add_argument("needle", metavar="찾을값")
+    fd.add_argument("files", nargs="+", metavar="파일|폴더")
+    fd.add_argument("-c", "--column", metavar="열", help="이 열만 본다")
+    fd.add_argument("--exact", action="store_true", help="정확히 같은 값만")
+    fd.add_argument("--case", action="store_true", help="대소문자를 가린다")
+    fd.add_argument("--limit", type=int, default=30, metavar="개")
+    fd.set_defaults(func=cmd_sheet_find)
 
     bk = common(sh.add_parser("book", help="여러 파일을 한 엑셀의 여러 시트로"))
     bk.add_argument("files", nargs="+")

@@ -1114,5 +1114,59 @@ class SheetNameTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+class FindInFilesTest(unittest.TestCase):
+    """여러 파일에서 값 찾기. «이 사번이 어느 파일에 있나»."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "명단.csv").write_text(
+            "사번,이름,부서\nE1,홍길동,영업\nE2,김철수,개발\n", encoding="utf-8")
+        (self.root / "평가.csv").write_text("사번,평가\nE2,A\n", encoding="utf-8")
+        xlsx.write_sheets(self.root / "급여.xlsx",
+                          {"1월": [["사번", "금액"], ["E2", 1000]],
+                           "2월": [["사번", "금액"], ["E1", 2000]]})
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def files(self):
+        return sorted(self.root.iterdir())
+
+    def test_finds_across_files_and_sheets(self):
+        found, skipped = sheet.find_in_files(self.files(), "E2")
+        self.assertEqual(skipped, [])
+        self.assertEqual({Path(h.path).name for h in found},
+                         {"명단.csv", "평가.csv", "급여.xlsx"})
+        self.assertIn("1월", {h.sheet for h in found})
+
+    def test_row_number_counts_the_header(self):
+        found, _ = sheet.find_in_files(self.files(), "김철수")
+        self.assertEqual(found[0].row, 3)      # 머리글 1행, 홍길동 2행
+
+    def test_column_narrows_the_search(self):
+        found, skipped = sheet.find_in_files(self.files(), "홍길동", column="이름")
+        self.assertEqual([h.column for h in found], ["이름"])
+        # 그 열이 없는 파일은 «못 읽음»으로 알린다. 조용히 빼면 다 봤다고 여긴다.
+        self.assertTrue(any("이름" in why for _name, why in skipped))
+
+    def test_partial_by_default_exact_on_request(self):
+        loose, _ = sheet.find_in_files(self.files(), "홍길")
+        self.assertEqual(len(loose), 1)
+        strict, _ = sheet.find_in_files(self.files(), "홍길", exact=True)
+        self.assertEqual(strict, [])
+
+    def test_case_can_be_ignored_or_not(self):
+        found, _ = sheet.find_in_files(self.files(), "e2")
+        self.assertTrue(found)
+        strict, _ = sheet.find_in_files(self.files(), "e2", ignore_case=False)
+        self.assertEqual(strict, [])
+
+    def test_unreadable_files_are_reported(self):
+        (self.root / "메모.pdf").write_text("x", encoding="utf-8")
+        _found, skipped = sheet.find_in_files(self.files(), "E2")
+        self.assertEqual(len(skipped), 1)
+        self.assertIn("메모.pdf", skipped[0][0])
+
+
 if __name__ == "__main__":
     unittest.main()

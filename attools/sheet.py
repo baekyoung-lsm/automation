@@ -354,6 +354,77 @@ def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:
     return path
 
 
+# --------------------------------------------------------------- 값 찾기
+
+@dataclass
+class Hit:
+    path: str
+    sheet: str
+    row: int              # 머리글을 1행으로 세는 실제 줄 번호
+    column: str
+    value: str
+    context: str = ""     # 같은 행의 첫 열 값 (누구의 행인지 알아보게)
+
+
+def find_in_table(table: Table, needle: str, *, column: str | None = None,
+                  exact: bool = False, ignore_case: bool = True) -> list[Hit]:
+    """표 안에서 값을 찾는다. 열을 주면 그 열만 본다."""
+    wanted = needle if not ignore_case else needle.lower()
+    indexes = ([table.index_of(column)] if column
+               else list(range(len(table.headers))))
+
+    out: list[Hit] = []
+    for number, row in enumerate(table.rows, 2):     # 머리글이 1행
+        first = to_text(row[0]) if row else ""
+        for i in indexes:
+            cell = to_text(row[i]) if i < len(row) else ""
+            body = cell.lower() if ignore_case else cell
+            if (body == wanted) if exact else (wanted in body):
+                out.append(Hit(table.source, table.sheet, number,
+                               table.headers[i], cell, first))
+    return out
+
+
+def find_in_files(paths, needle: str, *, column: str | None = None,
+                  exact: bool = False, ignore_case: bool = True,
+                  header_row: int = 0) -> tuple[list[Hit], list[tuple[str, str]]]:
+    """여러 파일에서 값을 찾는다. (찾은 것, 못 읽은 파일과 그 까닭)
+
+    «이 사번이 어느 파일에 있나»는 사무 일에서 늘 나오는데, 파일마다 열어
+    보는 것 말고는 방법이 없었다. xlsx 는 시트를 모두 본다.
+    """
+    found: list[Hit] = []
+    skipped: list[tuple[str, str]] = []
+
+    for path in paths:
+        path = Path(path)
+        suffix = path.suffix.lower()
+        if suffix in XLSX_SUFFIXES:
+            try:
+                names = xlsx.sheet_names(path) or [None]
+            except (OSError, xlsx.XlsxError) as exc:
+                skipped.append((str(path), str(exc)))
+                continue
+        elif suffix in CSV_SUFFIXES:
+            names = [None]
+        else:
+            skipped.append((str(path), f"읽을 수 없는 형식: {suffix or '확장자 없음'}"))
+            continue
+
+        for name in names:
+            try:
+                table = load(path, sheet=name, header_row=header_row)
+            except (SheetError, OSError, xlsx.XlsxError) as exc:
+                skipped.append((f"{path}" + (f"[{name}]" if name else ""), str(exc)))
+                continue
+            try:
+                found.extend(find_in_table(table, needle, column=column,
+                                           exact=exact, ignore_case=ignore_case))
+            except SheetError as exc:      # 그 파일에 그 열이 없을 수 있다
+                skipped.append((f"{path}" + (f"[{name}]" if name else ""), str(exc)))
+    return found, skipped
+
+
 # ---------------------------------------------------------------------- 훑기
 
 @dataclass

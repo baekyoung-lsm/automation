@@ -317,6 +317,7 @@ def _column_widths(rows: list[list], *, limit: int = 60) -> list[int]:
 def write_sheets(path: Path, sheets: dict[str, list[list]], *,
                  header: bool = True, freeze: bool = True) -> Path:
     """{시트이름: 행들} 을 xlsx 로 저장한다."""
+    path = Path(path)          # 글자로 준 경로도 받는다
     if not sheets:
         raise XlsxError("저장할 시트가 없습니다.")
 
