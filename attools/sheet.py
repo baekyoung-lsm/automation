@@ -354,6 +354,81 @@ def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:
     return path
 
 
+# ------------------------------------------------------- 빈 칸 채우기·합계
+
+def fill_down(table: Table, columns: list[str] | None = None) -> tuple[Table, int]:
+    """빈 칸을 바로 위 값으로 채운다. (새 표, 채운 칸 수)
+
+    엑셀에서 병합된 셀을 풀면 첫 칸만 남고 아래가 빈다. 그대로 두면 정렬·
+    피벗·필터가 전부 어긋난다. 실무 파일에서 제일 자주 손보는 자리다.
+    """
+    indexes = ([table.index_of(c) for c in columns] if columns
+               else list(range(len(table.headers))))
+    last: dict[int, object] = {}
+    rows, filled = [], 0
+
+    for row in table.rows:
+        row = list(row) + [None] * (len(table.headers) - len(row))
+        for i in indexes:
+            if _is_blank(row[i]):
+                if i in last:
+                    row[i] = last[i]
+                    filled += 1
+            else:
+                last[i] = row[i]
+        rows.append(row)
+
+    return Table(list(table.headers), rows, source=table.source,
+                 sheet=table.sheet), filled
+
+
+TOTAL_KINDS = {"sum": "합계", "avg": "평균", "count": "개수"}
+
+
+def total_row(table: Table, columns: list[str] | None = None, *,
+              kind: str = "sum", label: str = "") -> tuple[list, list[str]]:
+    """합계 줄을 만든다. (한 줄, 셈한 열 이름들)
+
+    숫자가 아닌 열은 세지 않고 빈 칸으로 둔다. 0 을 넣으면 «합이 0» 으로
+    읽혀 실제로 0 인 열과 구분이 안 된다.
+    """
+    if kind not in TOTAL_KINDS:
+        raise SheetError(f"알 수 없는 셈: {kind} ({', '.join(TOTAL_KINDS)})")
+
+    wanted = ([table.index_of(c) for c in columns] if columns
+              else list(range(len(table.headers))))
+    line: list = [None] * len(table.headers)
+    counted: list[str] = []
+
+    for i in wanted:
+        numbers = [row[i] for row in table.rows
+                   if i < len(row) and isinstance(row[i], (int, float))
+                   and not isinstance(row[i], bool)]
+        if not numbers and kind != "count":
+            continue
+        if kind == "sum":
+            line[i] = sum(numbers)
+        elif kind == "avg":
+            line[i] = round(sum(numbers) / len(numbers), 2)
+        else:
+            line[i] = len([row for row in table.rows
+                           if i < len(row) and not _is_blank(row[i])])
+        counted.append(table.headers[i])
+
+    # 첫 칸이 비어 있으면 «합계» 라고 적어 무슨 줄인지 알아보게 한다
+    if line and line[0] is None:
+        line[0] = label or TOTAL_KINDS[kind]
+    return line, counted
+
+
+def with_total(table: Table, columns: list[str] | None = None, *,
+               kind: str = "sum", label: str = "") -> tuple[Table, list[str]]:
+    """합계 줄을 붙인 새 표."""
+    line, counted = total_row(table, columns, kind=kind, label=label)
+    return Table(list(table.headers), [*table.rows, line],
+                 source=table.source, sheet=table.sheet), counted
+
+
 # --------------------------------------------------------------- 값 찾기
 
 @dataclass

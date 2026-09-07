@@ -266,6 +266,8 @@ class SmokeTest(unittest.TestCase):
         섞어 = self.run_cli("sheet", "sort", csv, "--by", "부서", "--by", "연봉:내림")
         self.assertIn("부서 오름, 연봉 내림", 섞어)
         self.run_cli("sheet", "sample", csv, "-n", "2", "--seed", "1")
+        self.assertIn("빈 칸", self.run_cli("sheet", "filldown", csv, "-c", "부서"))
+        self.assertIn("합계", self.run_cli("sheet", "total", csv, "-c", "연봉"))
         self.run_cli("sheet", "pivot", csv, "--rows", "부서", "--values", "연봉")
         긴표 = self.path("긴표.csv")
         self.assertIn("항목", self.run_cli("sheet", "melt", csv, "--keep", "사번",

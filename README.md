@@ -610,6 +610,8 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet where <파일> --eq <열=값>` | 조건에 맞는 행만. `--gte`, `--lt`, `--has` 등 |
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
+| `at sheet filldown <파일> -c <열>` | 빈 칸을 바로 위 값으로 채운다 (병합 셀을 푼 표 되살리기) |
+| `at sheet total <파일>` | 맨 아래에 합계 줄을 붙인다 (`--kind avg|count`) |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
 | `at sheet from-json <파일>` | JSON 배열을 표로 (API 응답 → 엑셀) |
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
@@ -646,6 +648,9 @@ at sheet where 직원.xlsx --eq 부서=개발 --gte 연봉=6000만 -o 대상.csv
 at sheet where 명단.csv --empty 연락처         # 빈 칸만 (채워 넣을 것 찾기)
 at sheet sort 매출.xlsx --by 금액 --desc -o 정렬본.xlsx
 at sheet sort 직원.xlsx --by 부서 --by 연봉:내림      # 열마다 방향을 다르게
+at sheet filldown 병합풀린표.xlsx -c 부서 -c 지역 -o 정리본.xlsx
+at sheet total 매출.xlsx -c 금액 -o 합계본.xlsx
+at sheet total 근태.csv -c 근무시간 --kind avg --label 평균근무
 at sheet split 전체.xlsx --by 부서 -o 부서별/ --apply
 at sheet split 전체.xlsx --by 부서 --sheets 부서별.xlsx --apply   # 한 파일 여러 탭
 at sheet split 큰파일.csv --rows 5000 --apply     # 메일 첨부 크기로 쪼갤 때

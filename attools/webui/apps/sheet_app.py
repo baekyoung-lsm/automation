@@ -380,6 +380,77 @@ def sum_save(payload: dict) -> dict:
             "command": _sum_command(payload, out)}
 
 
+def _tidied(payload: dict):
+    """빈 칸 채우기 + 합계 줄. 엑셀에서 병합을 풀면 늘 이 둘을 같이 한다."""
+    table = _open(payload)
+    fills = [c.strip() for c in form.text(payload, "fcols").split(",") if c.strip()]
+    totals = [c.strip() for c in form.text(payload, "tcols").split(",") if c.strip()]
+    want_total = form.flag(payload, "wanttotal")
+    for name in fills + totals:
+        if name not in table.headers:
+            raise UiError(f"'{name}' 열이 없습니다.")
+    if not fills and not want_total:
+        raise UiError("빈 칸을 채울 열을 적거나 «합계 줄 붙이기»를 켜 주세요.")
+
+    steps: list[str] = []
+    if fills:
+        table, filled = sheet.fill_down(table, fills)
+        steps.append(f"{', '.join(fills)}: 빈 칸 {filled:,}개 채움")
+    if want_total:
+        kind = form.choice(payload, "tkind", sheet.TOTAL_KINDS, "sum")
+        table, counted = sheet.with_total(table, totals or None, kind=kind,
+                                          label=form.text(payload, "tlabel"))
+        if not counted:
+            raise UiError("셈할 숫자 열이 없습니다. 열을 적어 주거나 «정리»를 "
+                          "먼저 돌려 숫자로 읽히게 하세요.")
+        steps.append(f"{sheet.TOTAL_KINDS[kind]} 줄: {', '.join(counted)}")
+    return table, steps
+
+
+def _tidy_commands(payload: dict, out=None) -> list[str]:
+    fills = [c.strip() for c in form.text(payload, "fcols").split(",") if c.strip()]
+    totals = [c.strip() for c in form.text(payload, "tcols").split(",") if c.strip()]
+    lines: list[str] = []
+    if fills:
+        args: list[object] = ["sheet", "filldown", *_source_args(payload)]
+        for name in fills:
+            args += ["-c", name]
+        lines.append(form.command(*args, *(["-o", out] if out else [])))
+    if form.flag(payload, "wanttotal"):
+        args = ["sheet", "total", *_source_args(payload)]
+        for name in totals:
+            args += ["-c", name]
+        kind = form.choice(payload, "tkind", sheet.TOTAL_KINDS, "sum")
+        if kind != "sum":
+            args += ["--kind", kind]
+        if form.text(payload, "tlabel"):
+            args += ["--label", form.text(payload, "tlabel")]
+        lines.append(form.command(*args, *(["-o", out] if out else [])))
+    return lines
+
+
+def tidy_preview(payload: dict) -> dict:
+    table, steps = _tidied(payload)
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "steps": steps, "command": _tidy_commands(payload)}
+
+
+def tidy_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(정돈)» 파일을 만든다."""
+    table, steps = _tidied(payload)
+    source = Path(_open(payload).source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    out = files.unique_path(source.with_name(f"{source.stem} (정돈){suffix}"))
+    sheet.save(table, out)
+    return {"saved": str(out), "count": len(table.rows), "steps": steps,
+            "headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "shown": min(len(table.rows), PEEK_ROWS),
+            "command": _tidy_commands(payload, out)}
+
+
 MAX_HITS = 200
 
 
@@ -624,6 +695,34 @@ BODY = """
   </div>
   <div id="pickmsg"></div>
   <div id="pickout"></div>
+</section>
+
+<section class="card">
+  <h2>빈 칸 채우기 · 합계 줄</h2>
+  <p class="note">병합된 셀을 풀면 첫 칸만 남고 아래가 빕니다. 그대로 두면
+     정렬·피벗·필터가 어긋납니다. 빈 칸을 <b>바로 위 값</b>으로 채우고,
+     맨 아래에 합계 줄을 붙입니다. 저장하면 옆에 «(정돈)» 파일이 생깁니다.</p>
+  <div class="row">
+    <div><label for="fcols">빈 칸을 채울 열 (쉼표로)</label>
+      <input type="text" id="fcols" placeholder="부서, 지역" spellcheck="false"></div>
+    <div><label for="tcols">셈할 열 (쉼표로, 비우면 숫자 열 전부)</label>
+      <input type="text" id="tcols" placeholder="금액, 수량" spellcheck="false"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div style="flex:0 1 10rem"><label for="tkind">무엇을</label>
+      <select id="tkind"><option value="sum">합계</option><option value="avg">평균</option><option value="count">개수</option></select></div>
+    <div><label for="tlabel">첫 칸에 넣을 이름</label>
+      <input type="text" id="tlabel" placeholder="합계" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="wanttotal" checked> 맨 아래에 합계 줄 붙이기</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-tidy">이렇게 해 보기</button>
+    <button id="btn-tidy-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="tidymsg"></div>
+  <div id="tidyout"></div>
 </section>
 
 <section class="card">
@@ -883,6 +982,45 @@ BODY = """
     } catch (e) { AT.message($("summsg"), AT.esc(e.message), "bad"); }
   });
 
+  function tidyValues() {
+    const b = values();
+    b.fcols = $("fcols").value; b.tcols = $("tcols").value;
+    b.tkind = $("tkind").value; b.tlabel = $("tlabel").value;
+    b.wanttotal = $("wanttotal").checked;
+    return b;
+  }
+
+  function drawTidy(d) {
+    $("tidyout").innerHTML =
+      (d.steps.length ? '<p class="note">' + d.steps.map(AT.esc).join(" → ") +
+        "</p>" : "") +
+      AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  $("btn-tidy").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/tidy_preview", tidyValues());
+      drawTidy(d);
+      AT.message($("tidymsg"), "이대로 저장할 수 있습니다.", "ok");
+      $("btn-tidy-save").disabled = false;
+    } catch (e) {
+      AT.message($("tidymsg"), AT.esc(e.message), "bad");
+      $("btn-tidy-save").disabled = true;
+    }
+  });
+
+  $("btn-tidy-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/tidy_save", tidyValues());
+      drawTidy(d);
+      AT.message($("tidymsg"), "저장했습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                 d.count + "행)", "ok");
+      $("btn-tidy-save").disabled = true;
+    } catch (e) { AT.message($("tidymsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-search").addEventListener("click", async function () {
     try {
       const b = values();
@@ -985,6 +1123,7 @@ def make() -> App:
                  "compare": compare, "pick_preview": pick_preview,
                  "pick_save": pick_save, "sum_preview": sum_preview,
                  "sum_save": sum_save,
+                 "tidy_preview": tidy_preview, "tidy_save": tidy_save,
                  "merge": merge,
                  "clean_preview": clean_preview, "clean_save": clean_save,
                  "format_preview": format_preview, "format_save": format_save},

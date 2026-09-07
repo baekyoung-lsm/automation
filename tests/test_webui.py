@@ -370,6 +370,41 @@ class SheetAppTest(UiCase):
             self.post("/api/sheet/check", {"path": str(path), "key": "없는열"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def merged(self):
+        return self.csv("병합.csv",
+                        "부서,이름,금액\n영업,홍길동,100\n,김철수,200\n"
+                        "개발,이영희,300\n")
+
+    def test_tidy_fills_and_totals(self):
+        _, data = self.post("/api/sheet/tidy_preview",
+                            {"path": str(self.merged()), "fcols": "부서",
+                             "wanttotal": True, "tcols": "금액"})
+        self.assertEqual([r[0] for r in data["rows"]],
+                         ["영업", "영업", "개발", "합계"])
+        self.assertEqual(data["rows"][-1][2], "600")
+        self.assertEqual(len(data["steps"]), 2)
+
+    def test_tidy_needs_something_to_do(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/tidy_preview",
+                      {"path": str(self.merged()), "wanttotal": False})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_tidy_unknown_column(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/tidy_preview",
+                      {"path": str(self.merged()), "fcols": "없는열"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_tidy_save_leaves_the_original(self):
+        path = self.merged()
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/tidy_save",
+                            {"path": str(path), "fcols": "부서",
+                             "wanttotal": True, "tkind": "avg"})
+        self.assertIn("(정돈)", data["saved"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
     def months(self):
         last = self.csv("지난달.csv",
                         "사번,이름,연봉\nE1,홍길동,5000\nE2,김철수,4700\n")
@@ -1802,6 +1837,17 @@ class CommandHintTest(UiCase):
                             {"path": str(path), "grows": "부서",
                              "agg": "sum", "gvalues": "연봉"})
         self.accepts(data["command"])
+
+    def test_sheet_tidy_commands(self):
+        path = self.work / "병합.csv"
+        path.write_text("부서,금액\n영업,100\n,200\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/tidy_preview",
+                            {"path": str(path), "fcols": "부서",
+                             "wanttotal": True, "tcols": "금액",
+                             "tkind": "avg", "tlabel": "평균값"})
+        self.assertEqual(len(data["command"]), 2)
+        for line in data["command"]:
+            self.accepts(line)
 
     def test_sheet_commands(self):
         path = self.work / "명단.csv"

@@ -643,6 +643,39 @@ def cmd_sheet_sort(a) -> int:
     return _sheet_result(a, result, f"{shown} 정렬")
 
 
+def cmd_sheet_filldown(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, filled = sheet.fill_down(t, a.col or None)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    where = ", ".join(a.col) if a.col else "모든 열"
+    if not filled:
+        _p("채울 빈 칸이 없습니다. 이미 값이 다 들어 있습니다.")
+    return _sheet_result(a, result, f"{where}  빈 칸 {filled:,}개 채움")
+
+
+def cmd_sheet_total(a) -> int:
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        result, counted = sheet.with_total(t, a.col or None, kind=a.kind,
+                                           label=a.label or "")
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    if not counted:
+        _p("셈할 숫자 열이 없습니다. -c 로 열을 지정하거나 at sheet clean 으로 "
+           "숫자를 먼저 정리하세요.")
+        return 1
+    return _sheet_result(a, result,
+                         f"{sheet.TOTAL_KINDS[a.kind]} 줄 추가 ({', '.join(counted)})")
+
+
 def cmd_sheet_sample(a) -> int:
     t = _load(a)
     if t is None:
@@ -1327,6 +1360,21 @@ def add_commands(sub) -> None:
     sp2.add_argument("--head", action="store_true", help="무작위 대신 앞에서")
     sp2.add_argument("--seed", type=int, help="같은 표본을 다시 뽑을 때")
     sp2.set_defaults(func=cmd_sheet_sample)
+
+    fdn = sheet_out(common(sh.add_parser("filldown", help="빈 칸을 바로 위 값으로 채우기 (병합 셀 푼 표)")))
+    fdn.add_argument("file")
+    fdn.add_argument("-c", "--col", action="append", metavar="열",
+                     help="이 열만 채운다 (없으면 모든 열)")
+    fdn.set_defaults(func=cmd_sheet_filldown)
+
+    tt = sheet_out(common(sh.add_parser("total", help="맨 아래에 합계 줄 붙이기")))
+    tt.add_argument("file")
+    tt.add_argument("-c", "--col", action="append", metavar="열",
+                    help="이 열만 센다 (없으면 숫자 열 전부)")
+    tt.add_argument("--kind", choices=sorted(sheet.TOTAL_KINDS), default="sum",
+                    help="sum 합계 · avg 평균 · count 개수 (기본 sum)")
+    tt.add_argument("--label", metavar="글자", help="첫 칸에 넣을 이름 (기본 합계)")
+    tt.set_defaults(func=cmd_sheet_total)
 
     sl = common(sh.add_parser("split", help="여러 파일로 나누기"))
     sl.add_argument("file")

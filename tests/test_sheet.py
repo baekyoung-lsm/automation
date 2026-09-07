@@ -1168,5 +1168,76 @@ class FindInFilesTest(unittest.TestCase):
         self.assertIn("메모.pdf", skipped[0][0])
 
 
+class FillDownTest(unittest.TestCase):
+    def table(self):
+        return sheet.Table(["부서", "이름", "연봉"],
+                           [["영업", "홍길동", 5200],
+                            [None, "김철수", 4700],
+                            ["", "이영희", None],
+                            ["개발", "박민수", 6100]])
+
+    def test_fills_only_named_columns(self):
+        filled, count = sheet.fill_down(self.table(), ["부서"])
+        self.assertEqual([r[0] for r in filled.rows],
+                         ["영업", "영업", "영업", "개발"])
+        self.assertEqual(count, 2)
+        self.assertIsNone(filled.rows[2][2])      # 연봉은 건드리지 않는다
+
+    def test_fills_every_column_by_default(self):
+        filled, count = sheet.fill_down(self.table())
+        self.assertEqual(filled.rows[2][2], 4700)
+        self.assertEqual(count, 3)
+
+    def test_leading_blank_stays_blank(self):
+        t = sheet.Table(["부서", "이름"], [[None, "홍길동"], ["영업", "김철수"]])
+        filled, count = sheet.fill_down(t, ["부서"])
+        self.assertIsNone(filled.rows[0][0])      # 위에 채울 값이 없다
+        self.assertEqual(count, 0)
+
+    def test_unknown_column_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.fill_down(self.table(), ["없는열"])
+
+
+class TotalRowTest(unittest.TestCase):
+    def table(self):
+        return sheet.Table(["부서", "이름", "연봉"],
+                           [["영업", "홍길동", 5200],
+                            ["영업", "김철수", 4700],
+                            ["개발", "이영희", None],
+                            ["개발", "박민수", 6100]])
+
+    def test_sum_skips_text_columns(self):
+        line, counted = sheet.total_row(self.table())
+        self.assertEqual(counted, ["연봉"])
+        self.assertEqual(line[2], 16000)
+        self.assertIsNone(line[1])                # 이름 칸에 0 을 넣지 않는다
+        self.assertEqual(line[0], "합계")
+
+    def test_average_rounds_to_two_places(self):
+        line, _ = sheet.total_row(self.table(), ["연봉"], kind="avg")
+        self.assertEqual(line[2], 5333.33)
+
+    def test_count_counts_filled_cells(self):
+        line, counted = sheet.total_row(self.table(), ["연봉"], kind="count")
+        self.assertEqual(counted, ["연봉"])
+        self.assertEqual(line[2], 3)              # 빈 칸 하나는 빼고 센다
+
+    def test_label_replaces_the_first_cell(self):
+        line, _ = sheet.total_row(self.table(), ["연봉"], label="총계")
+        self.assertEqual(line[0], "총계")
+
+    def test_unknown_kind_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.total_row(self.table(), kind="median")
+
+    def test_with_total_appends_one_row(self):
+        t = self.table()
+        result, _ = sheet.with_total(t, ["연봉"])
+        self.assertEqual(len(result.rows), len(t.rows) + 1)
+        self.assertEqual(result.headers, t.headers)
+        self.assertEqual(len(t.rows), 4)          # 원본은 그대로다
+
+
 if __name__ == "__main__":
     unittest.main()
