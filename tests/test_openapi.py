@@ -161,5 +161,103 @@ class ApiDiffTest(unittest.TestCase):
         self.assertEqual(openapi.diff_specs(spec, spec), [])
 
 
+EXAMPLE_SPEC = {
+    "openapi": "3.0.0",
+    "info": {"title": "주문 API", "version": "1.0"},
+    "components": {"schemas": {
+        "고객": {"type": "object", "properties": {
+            "이름": {"type": "string"},
+            "메일": {"type": "string", "format": "email"}}},
+        "주문": {"type": "object", "properties": {
+            "id": {"type": "integer", "example": 1024},
+            "고객": {"$ref": "#/components/schemas/고객"},
+            "금액": {"type": "number"},
+            "상태": {"type": "string", "enum": ["대기", "완료"]},
+            "만든때": {"type": "string", "format": "date-time"},
+            "품목": {"type": "array", "items": {"type": "string"}}}}}},
+    "paths": {
+        "/orders": {
+            "get": {"summary": "목록", "responses": {"200": {"content": {
+                "application/json": {"schema": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/주문"}}}}}}},
+            "post": {"requestBody": {"content": {"application/json": {
+                "schema": {"$ref": "#/components/schemas/주문"}}}},
+                "responses": {"201": {"content": {"application/json": {
+                    "schema": {"$ref": "#/components/schemas/주문"}}}}}}},
+        "/orders/{id}": {"get": {
+            "parameters": [{"name": "id", "in": "path", "required": True,
+                            "schema": {"type": "integer"}}],
+            "responses": {"200": {}, "404": {}}}},
+    },
+}
+
+
+class ExampleTest(unittest.TestCase):
+    def setUp(self):
+        self.spec = openapi.load(EXAMPLE_SPEC)
+        self.by_path = {f"{e.method} {e.path}": e for e in self.spec.endpoints}
+
+    def test_nested_refs_are_followed(self):
+        made = openapi.example(
+            self.by_path["POST /orders"].body_schema)
+        self.assertEqual(made["고객"],
+                         {"이름": "문자열", "메일": "hong@example.com"})
+
+    def test_written_example_wins(self):
+        made = openapi.example(self.by_path["POST /orders"].body_schema)
+        self.assertEqual(made["id"], 1024)          # 문서에 적힌 값
+
+    def test_enum_takes_the_first(self):
+        made = openapi.example(self.by_path["POST /orders"].body_schema)
+        self.assertEqual(made["상태"], "대기")
+
+    def test_format_gets_a_shaped_value(self):
+        made = openapi.example(self.by_path["POST /orders"].body_schema)
+        self.assertEqual(made["만든때"], "2026-03-04T14:30:00+09:00")
+
+    def test_array_gets_one_item(self):
+        made = openapi.example(self.by_path["POST /orders"].body_schema)
+        self.assertEqual(made["품목"], ["문자열"])
+
+    def test_response_schema_is_kept(self):
+        endpoint = self.by_path["GET /orders"]
+        made = openapi.example(endpoint.response_schemas["200"])
+        self.assertIsInstance(made, list)
+        self.assertEqual(made[0]["id"], 1024)
+
+    def test_success_code(self):
+        self.assertEqual(openapi.success_code(self.by_path["POST /orders"]),
+                         "201")
+        # 본문 스키마가 없어도 응답 코드에서 고른다
+        self.assertEqual(openapi.success_code(self.by_path["GET /orders/{id}"]),
+                         "200")
+
+    def test_example_path_fills_in_params(self):
+        self.assertEqual(
+            openapi.example_path(self.by_path["GET /orders/{id}"]),
+            "/orders/1")
+
+    def test_recursive_schema_stops(self):
+        # 스스로를 가리키는 스키마도 있다. 끊지 않으면 영영 돈다
+        spec = openapi.load({
+            "openapi": "3.0.0", "paths": {"/n": {"get": {"responses": {
+                "200": {"content": {"application/json": {"schema": {
+                    "$ref": "#/components/schemas/노드"}}}}}}}},
+            "components": {"schemas": {"노드": {"type": "object", "properties": {
+                "다음": {"$ref": "#/components/schemas/노드"}}}}}})
+        made = openapi.example(spec.endpoints[0].response_schemas["200"])
+        self.assertIsInstance(made, dict)
+
+    def test_swagger2_response_schema(self):
+        spec = openapi.load({
+            "swagger": "2.0", "paths": {"/a": {"get": {"responses": {
+                "200": {"description": "ok",
+                        "schema": {"type": "object",
+                                   "properties": {"n": {"type": "integer"}}}}}}}}})
+        made = openapi.example(spec.endpoints[0].response_schemas["200"])
+        self.assertEqual(made, {"n": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

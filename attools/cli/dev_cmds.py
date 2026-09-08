@@ -355,6 +355,45 @@ def cmd_dev_api(a) -> int:
         return 1
 
     _p(f"\n엔드포인트 {len(items)}개 / 전체 {len(spec.endpoints)}개")
+
+    if a.example:
+        import json as _json
+
+        made: dict = {}
+        for e in items[:a.limit]:
+            code = openapi.success_code(e)
+            entry: dict = {"summary": e.summary}
+            if e.body_schema:
+                entry["요청"] = openapi.example(e.body_schema)
+            schema = e.response_schemas.get(code)
+            if schema is not None:
+                entry["응답"] = openapi.example(schema)
+            entry["상태"] = code or "적혀 있지 않음"
+            made[f"{e.method} {openapi.example_path(e)}"] = entry
+
+        if a.out:
+            out = Path(a.out)
+            if not _may_write(a, out):
+                return 1
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(_json.dumps(made, ensure_ascii=False, indent=2)
+                           + "\n", encoding="utf-8")
+            _p(f"저장: {out}  (엔드포인트 {len(made)}개)")
+        else:
+            for where, entry in list(made.items())[:a.limit]:
+                _p(f"\n{where}  ->  {entry['상태']}")
+                if "요청" in entry:
+                    _p("  요청  " + _cut(_json.dumps(entry["요청"],
+                                                     ensure_ascii=False), 90))
+                if "응답" in entry:
+                    _p("  응답  " + _cut(_json.dumps(entry["응답"],
+                                                     ensure_ascii=False), 90))
+                else:
+                    _p("  응답  본문 스키마가 적혀 있지 않습니다")
+        _p("\n문서에 example·default·enum 이 있으면 그 값을 쓰고, 없으면 형식만 "
+           "맞춘 값을 채웁니다 - 진짜 자료가 아닙니다.")
+        return 0
+
     if a.detail:
         for e in items[:a.limit]:
             _p(f"\n{e.method} {e.path}" + ("  [폐기 예정]" if e.deprecated else ""))
@@ -1468,6 +1507,12 @@ def add_commands(sub) -> None:
     ap_.add_argument("--find", metavar="말", help="경로나 요약에 이 말이 든 것만")
     ap_.add_argument("--method", metavar="GET", help="이 메서드만")
     ap_.add_argument("--detail", action="store_true", help="인자와 본문까지 자세히")
+    ap_.add_argument("--example", action="store_true",
+                     help="엔드포인트마다 요청·응답 예시 JSON 을 만든다")
+    ap_.add_argument("-o", "--out", metavar="파일",
+                     help="--example 결과를 JSON 으로 저장")
+    ap_.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
     ap_.add_argument("--holes", action="store_true",
                      help="요약이나 오류 응답이 빠진 것만")
     ap_.add_argument("--limit", type=int, default=30)

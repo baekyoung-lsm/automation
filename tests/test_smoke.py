@@ -567,6 +567,19 @@ class SmokeTest(unittest.TestCase):
         }, ensure_ascii=False), encoding="utf-8")
         self.assertIn("/orders", self.run_cli("dev", "api", spec))
 
+        예시스펙 = self.path("openapi-example.json")
+        Path(예시스펙).write_text(json.dumps({
+            "openapi": "3.0.0", "info": {"title": "주문", "version": "1.0"},
+            "paths": {"/orders": {"get": {"responses": {"200": {"content": {
+                "application/json": {"schema": {"type": "object", "properties": {
+                    "금액": {"type": "integer"}}}}}}}}}},
+        }, ensure_ascii=False), encoding="utf-8")
+        예시 = self.run_cli("dev", "api", 예시스펙, "--example")
+        self.assertIn('"금액": 1', 예시)
+        예시파일 = self.path("예시.json")
+        self.run_cli("dev", "api", 예시스펙, "--example", "-o", 예시파일)
+        self.assertIn("금액", Path(예시파일).read_text(encoding="utf-8"))
+
         옛스펙 = self.path("openapi-old.json")
         Path(옛스펙).write_text(json.dumps({
             "openapi": "3.0.0", "info": {"title": "주문 API", "version": "0.9"},

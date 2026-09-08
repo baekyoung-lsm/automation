@@ -222,7 +222,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev timeline <파일…>` | 여러 로그를 시각 순으로 한 줄기로 (어느 서비스가 먼저 터졌나) |
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
-| `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기 |
+| `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기. `--example` 로 요청·응답 예시 JSON |
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
@@ -291,6 +291,8 @@ at dev api openapi.json                                # 엔드포인트 한눈�
 at dev api openapi.json --find orders --detail         # 인자와 본문까지
 at dev api openapi.json --holes                        # 요약·오류 응답이 빠진 것
 at dev api 새문서.json --diff 예전문서.json            # 깨질 변화가 있으면 exit 1
+at dev api openapi.json --example                     # 요청·응답 예시
+at dev api openapi.json --example -o 예시.json        # 목 서버·시험 자료로
 at dev db app.sqlite                                   # 표·뷰 목록과 행 수
 at dev db app.sqlite --table users                     # 열 구성과 앞 몇 행
 at dev db app.sqlite -q 'select 부서, count(*) from 사원 group by 부서' -o 집계.xlsx
@@ -467,6 +469,12 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+`at dev api --example` 은 엔드포인트마다 **요청·응답 예시 JSON** 을 만든다. 프런트를 먼저
+붙일 때나 시험 자료를 만들 때 쓴다. 문서에 `example`·`default`·`enum` 이 적혀 있으면 그 값을
+쓰고, 없을 때만 형식에 맞는 값(날짜·메일·UUID 꼴)을 채운다 - **진짜 자료가 아니라는 것**을
+출력 끝에 적어 둔다. `$ref` 는 문서 안의 것을 안쪽까지 따라가되, 스스로를 가리키는 스키마는
+깊이에서 끊는다.
 
 `at dev timeline` 은 서비스 여러 개의 로그를 **시각 순으로 섞어** 한 줄기로 보여 준다.
 «웹이 먼저 500 을 받았나, 앱이 먼저 터졌나» 를 보는 자리다. 시각이 없는 줄은 같은 파일에서

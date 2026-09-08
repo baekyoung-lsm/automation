@@ -30,6 +30,8 @@ class Endpoint:
     body_required: bool = False
     responses: list[str] = field(default_factory=list)
     deprecated: bool = False
+    body_schema: dict | None = None                  # 요청 본문 스키마 (참조를 편 것)
+    response_schemas: dict = field(default_factory=dict)   # 상태코드 -> 스키마
 
     @property
     def required_params(self) -> list[Param]:
@@ -73,6 +75,18 @@ def _resolve(data: dict, node):
             target = target[part]
         node = target
         seen += 1
+    return node
+
+
+def _deep(data: dict, node, depth: int = 0):
+    """참조를 안쪽까지 편다. 스스로를 가리키는 스키마가 있어 깊이를 끊는다."""
+    if depth > 6:
+        return {}
+    node = _resolve(data, node)
+    if isinstance(node, dict):
+        return {k: _deep(data, v, depth + 1) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_deep(data, v, depth + 1) for v in node]
     return node
 
 
@@ -136,9 +150,25 @@ def load(data) -> Spec:
                     props = schema.get("properties") if isinstance(schema, dict) else None
                     if isinstance(props, dict):
                         endpoint.body_fields = list(props)
+                        endpoint.body_schema = _deep(data, schema)
                         break
 
             endpoint.responses = [str(code) for code in (body.get("responses") or {})]
+            for code, response in (body.get("responses") or {}).items():
+                response = _resolve(data, response)
+                if not isinstance(response, dict):
+                    continue
+                for media, holder in (response.get("content") or {}).items():
+                    if "json" not in str(media):
+                        continue
+                    schema = (holder or {}).get("schema")
+                    if schema:
+                        endpoint.response_schemas[str(code)] = _deep(data, schema)
+                    break
+                else:                              # swagger 2 는 여기에 적는다
+                    if response.get("schema"):
+                        endpoint.response_schemas[str(code)] = _deep(
+                            data, response["schema"])
             spec.endpoints.append(endpoint)
 
     spec.endpoints.sort(key=lambda e: (e.path, METHODS.index(e.method.lower())))
@@ -223,4 +253,96 @@ def diff_specs(before: Spec, after: Spec) -> list[ApiChange]:
         if new_body - old_body:
             out.append(ApiChange("새 본문 필드", where,
                                  ", ".join(sorted(new_body - old_body))))
+    return out
+
+
+# ------------------------------------------------------------- 예시 만들기
+
+EXAMPLE_FORMATS = {
+    "date-time": "2026-03-04T14:30:00+09:00",
+    "date": "2026-03-04",
+    "time": "14:30:00",
+    "email": "hong@example.com",
+    "uuid": "3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+    "uri": "https://example.com/a",
+    "url": "https://example.com/a",
+    "hostname": "example.com",
+    "ipv4": "192.0.2.1",
+    "password": "비밀번호",
+    "binary": "(파일)",
+    "byte": "YmFzZTY0",
+}
+EXAMPLE_FIELDS = 40           # 한 객체에서 만들 필드 수 한도
+
+
+def example(schema, *, depth: int = 0):
+    """스키마 하나에서 예시 값을 만든다.
+
+    문서에 적힌 example·default·enum 이 있으면 그걸 그대로 쓰고, 없을 때만
+    형식에 맞는 값을 채운다. 지어낸 값이라는 것은 부르는 쪽이 밝혀야 한다.
+    """
+    if not isinstance(schema, dict) or depth > 6:
+        return None
+    for key in ("example", "default"):
+        if key in schema:
+            return schema[key]
+    if isinstance(schema.get("examples"), list) and schema["examples"]:
+        return schema["examples"][0]
+    if isinstance(schema.get("enum"), list) and schema["enum"]:
+        return schema["enum"][0]
+
+    for key in ("allOf", "oneOf", "anyOf"):
+        parts = schema.get(key)
+        if isinstance(parts, list) and parts:
+            if key == "allOf":
+                merged: dict = {}
+                for part in parts:
+                    value = example(part, depth=depth + 1)
+                    if isinstance(value, dict):
+                        merged.update(value)
+                return merged or None
+            return example(parts[0], depth=depth + 1)
+
+    kind = schema.get("type")
+    if kind == "array":
+        item = example(schema.get("items") or {}, depth=depth + 1)
+        return [item] if item is not None else []
+    if kind == "object" or "properties" in schema:
+        out: dict = {}
+        for name, sub in list((schema.get("properties") or {}).items())[:EXAMPLE_FIELDS]:
+            out[name] = example(sub, depth=depth + 1)
+        return out
+    if kind == "integer":
+        return int(schema.get("minimum", 1) or 1)
+    if kind == "number":
+        return float(schema.get("minimum", 1.5) or 1.5)
+    if kind == "boolean":
+        return True
+    if kind == "null":
+        return None
+    if kind == "string" or kind is None:
+        found = EXAMPLE_FORMATS.get(str(schema.get("format", "")))
+        if found:
+            return found
+        return "문자열"
+    return None
+
+
+def success_code(endpoint: Endpoint) -> str:
+    """예시로 쓸 성공 응답 코드. 없으면 빈 문자열."""
+    codes = [c for c in endpoint.response_schemas if c.startswith("2")]
+    if codes:
+        return sorted(codes)[0]
+    plain = [c for c in endpoint.responses if c.startswith("2")]
+    return sorted(plain)[0] if plain else ""
+
+
+def example_path(endpoint: Endpoint) -> str:
+    """{id} 같은 자리를 예시 값으로 채운 경로."""
+    out = endpoint.path
+    for param in endpoint.params:
+        if param.place != "path":
+            continue
+        value = "1" if param.type in ("integer", "number") else "예시"
+        out = out.replace("{" + param.name + "}", value)
     return out
