@@ -3199,6 +3199,14 @@ def normalize_name(value: object) -> str:
     return text
 
 
+def _only_numbers_differ(a: str, b: str) -> bool:
+    """숫자만 빼면 같은가. 창고1 과 창고2, E001 과 E002 는 오타가 아니다."""
+    if a == b:
+        return False
+    stripped_a, stripped_b = re.sub(r"\d+", "", a), re.sub(r"\d+", "", b)
+    return stripped_a == stripped_b and (a != stripped_a or b != stripped_b)
+
+
 def _one_char_apart(a: str, b: str) -> bool:
     """글자 하나만 다른가. 짧은 이름을 위해 따로 본다.
 
@@ -3250,8 +3258,15 @@ def find_similar(table: Table, column: str, *, threshold: float = 0.85,
     # 값끼리 견주고 몇 행에 있는지를 함께 돌려준다.
     seen: dict[str, tuple[int, int]] = {}      # 원래 값 -> (첫 줄, 몇 행)
     for line, row in enumerate(table.rows, 2):
-        raw = to_text(row[index]) if index < len(row) else ""
+        cell = row[index] if index < len(row) else None
+        raw = to_text(cell)
         if not raw.strip():
+            continue
+        # 날짜와 숫자는 «표기 흔들림» 의 대상이 아니다. 2026-02-02 와 2026-08-20
+        # 은 닮아 보이지만 다른 날일 뿐이라, 그대로 두면 날짜 열이 잡음이 된다
+        if isinstance(cell, (date, datetime, int, float)) and not isinstance(cell, bool):
+            continue
+        if parse_date(raw) is not None or parse_number(raw) is not None:
             continue
         first, count = seen.get(raw, (line, 0))
         seen[raw] = (first, count + 1)
@@ -3269,6 +3284,8 @@ def find_similar(table: Table, column: str, *, threshold: float = 0.85,
     for bucket in buckets.values():
         for i, (line_a, raw_a, key_a, count_a) in enumerate(bucket):
             for line_b, raw_b, key_b, count_b in bucket[i + 1:]:
+                if _only_numbers_differ(key_a, key_b):
+                    continue                   # 다른 번호이지 오타가 아니다
                 if key_a == key_b:
                     score, reason = 1.0, "표기만 다름"
                 else:

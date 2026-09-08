@@ -1657,6 +1657,38 @@ class SerialCodeTest(unittest.TestCase):
         self.assertEqual(pairs, [])
 
 
+class SimilarNoiseTest(unittest.TestCase):
+    """이름이 아닌 값(날짜·숫자·번호 붙은 이름)으로 잡음이 나면 안 된다."""
+
+    def column(self, values, name="값"):
+        return sheet.Table(headers=[name], rows=[[v] for v in values])
+
+    def test_dates_are_not_compared(self):
+        pairs, _cut = sheet.find_similar(
+            self.column(["2026-02-02", "2026-08-20", "2026-02-26"]), "값")
+        self.assertEqual(pairs, [])
+
+    def test_numbers_are_not_compared(self):
+        pairs, _cut = sheet.find_similar(
+            self.column(["1,200", "1,300", 1400]), "값")
+        self.assertEqual(pairs, [])
+
+    def test_serial_names_are_not_typos(self):
+        pairs, _cut = sheet.find_similar(
+            self.column(["창고1", "창고2", "사람10", "사람100"]), "값")
+        self.assertEqual(pairs, [])
+
+    def test_real_typo_still_found(self):
+        pairs, _cut = sheet.find_similar(
+            self.column(["다라테크", "다라테그"]), "값")
+        self.assertEqual(len(pairs), 1)
+
+    def test_company_forms_still_found(self):
+        pairs, _cut = sheet.find_similar(
+            self.column(["(주)가나상사", "주식회사 가나상사"]), "값")
+        self.assertEqual([p.reason for p in pairs], ["표기만 다름"])
+
+
 class SimilarCountTest(unittest.TestCase):
     """같은 값이 여러 행에 있어도 짝은 하나여야 한다."""
 
