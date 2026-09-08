@@ -109,6 +109,18 @@ def normalize(payload: dict) -> dict:
                     "찾기와 정렬이 어긋납니다. NFC 로 되돌립니다."}
 
 
+def count(payload: dict) -> dict:
+    """붙여 넣은 글의 글자 수. 공백 포함과 제외를 함께 낸다."""
+    body = _body(payload)
+    found = textkit.count_body(body)
+    return {"chars": found.chars, "no_space": found.chars_no_space,
+            "words": found.words, "lines": found.lines,
+            "paragraphs": found.paragraphs, "bytes": found.bytes,
+            "sheets": found.sheets,
+            "note": "원고지는 200자를 한 장으로 셈한 것입니다. "
+                    "«공백 포함/제외» 는 내는 곳마다 기준이 달라 둘 다 냅니다."}
+
+
 BODY = """
 <section class="card">
   <h2>손볼 글</h2>
@@ -133,6 +145,7 @@ BODY = """
     <button id="btn-normalize">자모 합치기 (NFC)</button>
     <button id="btn-table">붙여넣은 표를 마크다운으로</button>
     <button id="btn-pick">연락처·금액 뽑기</button>
+    <button id="btn-count">글자 수 세기</button>
   </div>
   <div id="msg"></div>
 </section>
@@ -159,6 +172,19 @@ BODY = """
     try { draw(await AT.call(path, values())); }
     catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   }
+
+  $("btn-count").addEventListener("click", function () {
+    run("/api/letters/count", function (d) {
+      out.innerHTML = AT.table(
+        ["글자(공백 포함)", "글자(공백 제외)", "낱말", "줄", "문단",
+         "원고지(200자)", "바이트"],
+        [[d.chars, d.no_space, d.words, d.lines, d.paragraphs, d.sheets,
+          d.bytes]],
+        ["num", "num", "num", "num", "num", "num", "num"]) + note(d.note);
+      AT.message($("msg"), "공백 포함 <b>" + d.chars + "자</b> · 공백 제외 " +
+                 d.no_space + "자", "ok");
+    });
+  });
 
   $("btn-kbd").addEventListener("click", function () {
     run("/api/letters/kbd", function (d) {
@@ -225,11 +251,12 @@ def make() -> App:
     return App(
         key="letters",
         name="글자 손질",
-        summary="자판 실수·표기 오류·줄 접기·표를 마크다운으로·연락처 뽑기",
+        summary="자판 실수·표기 오류·줄 접기·표를 마크다운으로·연락처 뽑기·글자 수",
         subtitle="파일이 아니라 붙여넣은 글을 그 자리에서",
         body=lambda: BODY,
         actions={"kbd": kbd, "typo": typo, "wrap": wrap,
-                 "normalize": normalize, "table": table, "pick": pick},
+                 "normalize": normalize, "table": table, "pick": pick,
+                 "count": count},
         aliases=("글자", "자판"),
         section="글",
     )

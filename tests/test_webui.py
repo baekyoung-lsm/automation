@@ -2163,6 +2163,17 @@ class DocMergeAndGitHistoryTest(UiCase):
 class LettersAppTest(UiCase):
     """글자 손질 화면. 파일이 아니라 붙여넣은 글만 다룬다."""
 
+    def test_count_gives_both_measures(self):
+        _, data = self.post("/api/letters/count", {"text": "가 나\n\n다"})
+        self.assertEqual(data["chars"], 6)
+        self.assertEqual(data["no_space"], 3)
+        self.assertEqual(data["paragraphs"], 2)
+
+    def test_count_needs_text(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/letters/count", {"text": "   "})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_kbd_to_hangul(self):
         _, data = self.post("/api/letters/kbd", {"text": "dkssudgktpdy"})
         self.assertEqual(data["text"], "안녕하세요")

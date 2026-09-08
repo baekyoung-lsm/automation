@@ -740,7 +740,12 @@ def count_text(path: Path) -> TextCount:
         count.error = str(exc)
         return count
 
-    count.kind = kind
+    return count_body(body, kind=kind, path=path)
+
+
+def count_body(body: str, *, kind: str = "", path: Path | None = None) -> TextCount:
+    """이미 읽은 글의 글자 수. 화면에 붙여 넣은 글도 같은 방법으로 센다."""
+    count = TextCount(path=path or Path(""), kind=kind)
     count.chars = len(body)
     count.chars_no_space = len(re.sub(r"\s", "", body))
     count.words = len(body.split())
