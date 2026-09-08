@@ -460,6 +460,62 @@ def cmd_dev_lock(a) -> int:
     return 0
 
 
+def cmd_dev_pyver(a) -> int:
+    """이 코드가 어느 파이썬부터 도는지. 낮은 판을 지원해야 할 때 본다."""
+    roots = [Path(p) for p in a.paths]
+    for root in roots:
+        if not root.exists():
+            _p(f"없는 경로입니다: {root}")
+            return 1
+    try:
+        target = pyscan.parse_version(a.target) if a.target else None
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    report = pyscan.compat_scan(roots)
+    if not report.files:
+        _p("파이썬 파일을 찾지 못했습니다.")
+        return 1
+
+    need = report.needed
+    if need:
+        _p(f"파일 {report.files:,}개  ·  확실한 것만 보면 "
+           f"파이썬 {need[0]}.{need[1]} 부터 돕니다")
+    else:
+        _p(f"파일 {report.files:,}개  ·  여기서 보는 문법·표준 라이브러리로는 "
+           "걸리는 자리가 없습니다")
+
+    if report.failed:
+        _p(f"\n문법을 읽지 못한 파일 {len(report.failed)}개 (세지 않았습니다)")
+        for path, why in report.failed[:5]:
+            _p(f"  {path}  {_cut(why, 50)}")
+
+    shown = report.over(target) if target else [h for h in report.hits
+                                                if not h.guarded]
+    if a.all:
+        shown = report.hits
+
+    if shown:
+        headline = (f"목표 {a.target} 보다 높은 자리 {len(shown)}곳"
+                    if target and not a.all else f"걸리는 자리 {len(shown)}곳")
+        _p(f"\n{headline}")
+        _grid(["자리", "판", "무엇", "종류"],
+              [[f"{h.path}:{h.line}", h.label, _cut(h.what, 30),
+                h.kind + ("(감쌈)" if h.guarded else "" if h.sure else "(짐작)")]
+               for h in shown[:a.limit]], limit=44)
+        if len(shown) > a.limit:
+            _p(f"  ... {len(shown) - a.limit}곳 더")
+    elif target:
+        _p(f"\n파이썬 {a.target} 에서 막히는 자리가 없습니다.")
+
+    _p("\n문법은 ast 로 확실히 보지만, «.removeprefix(» 같은 이름은 무엇의 "
+       "메서드인지 알 수 없어 짐작입니다.")
+    _p("try/except ImportError 로 감싼 자리는 «감쌈» 으로 빼고 셉니다. "
+       "(--all 로 전부 보기)")
+    return 1 if target and report.over(target) else 0
+
+
 def cmd_dev_unused(a) -> int:
     roots = [Path(p) for p in a.dirs]
     for root in roots:
@@ -1353,6 +1409,16 @@ def add_commands(sub) -> None:
     lk.add_argument("--major", action="store_true", help="맨 앞 숫자가 바뀐 것만")
     lk.add_argument("--limit", type=int, default=40)
     lk.set_defaults(func=cmd_dev_lock)
+
+    pv = dp.add_parser("pyver",
+                       help="이 코드가 어느 파이썬부터 도는지 (낮은 판 지원 확인)")
+    pv.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    pv.add_argument("--target", metavar="판",
+                    help="여기서 돌아야 한다 (예: 3.10). 넘는 자리가 있으면 1 로 끝난다")
+    pv.add_argument("--all", action="store_true",
+                    help="감싼 자리·짐작까지 전부")
+    pv.add_argument("--limit", type=int, default=30, metavar="개")
+    pv.set_defaults(func=cmd_dev_pyver)
 
     un = dp.add_parser("unused", help="안 쓰는 import 찾기 (파이썬)")
     un.add_argument("dirs", nargs="*", default=["."], metavar="경로")

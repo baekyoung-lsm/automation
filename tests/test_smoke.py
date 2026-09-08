@@ -487,6 +487,11 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("파이썬", 줄수)
         관계 = self.run_cli("dev", "imports", str(소스))
         self.assertIn("고리", 관계)
+        (소스 / "새것.py").write_text("import tomllib\n\nprint(tomllib)\n",
+                                     encoding="utf-8")
+        판 = self.run_cli("dev", "pyver", str(소스), "--target", "3.10", expect=1)
+        self.assertIn("3.11", 판)
+        self.assertIn("import tomllib", 판)
         인증서 = self.run_cli("dev", "cert", "127.0.0.1", "--port", "9",
                             "--timeout", "1", expect=1)
         self.assertIn("연결하지 못했습니다", 인증서)

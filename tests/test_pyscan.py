@@ -264,5 +264,90 @@ class ImportGraphTest(unittest.TestCase):
         self.assertEqual(len(cycles), 2)
 
 
+class CompatTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name: str, body: str) -> Path:
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def hits(self, body: str):
+        return pyscan.compat_hits(self.write("a.py", body))
+
+    def test_match_needs_3_10(self):
+        got = self.hits("def f(x):\n    match x:\n        case 1:\n"
+                        "            return 2\n")
+        self.assertEqual([(h.version, h.kind) for h in got],
+                         [((3, 10), "문법")])
+
+    def test_new_stdlib_module(self):
+        got = self.hits("import tomllib\n")
+        self.assertEqual(got[0].version, (3, 11))
+        self.assertTrue(got[0].sure)
+
+    def test_new_typing_name(self):
+        got = self.hits("from typing import Self\n")
+        self.assertEqual(got[0].version, (3, 11))
+
+    def test_guarded_import_is_not_blocking(self):
+        # 없으면 없는 대로 도는 코드다. 이걸 막힌 자리로 세면 진짜가 묻힌다
+        got = self.hits("try:\n    import tomllib\nexcept ImportError:\n"
+                        "    tomllib = None\n")
+        self.assertTrue(got[0].guarded)
+        report = pyscan.CompatReport(files=1, hits=got)
+        self.assertIsNone(report.needed)
+        self.assertEqual(report.over((3, 10)), [])
+
+    def test_pipe_annotation_needs_3_10(self):
+        got = self.hits("def f(x: int | None) -> str | None:\n    return None\n")
+        self.assertTrue(got)
+        self.assertEqual(got[0].version, (3, 10))
+
+    def test_future_import_makes_annotations_free(self):
+        got = self.hits("from __future__ import annotations\n\n"
+                        "def f(x: int | None) -> None:\n    return None\n")
+        self.assertEqual(got, [])
+
+    def test_pipe_outside_annotation_is_not_flagged(self):
+        self.assertEqual(self.hits("a = 1 | 2\n"), [])
+
+    def test_method_name_is_a_guess(self):
+        got = self.hits("def f(s):\n    return s.removeprefix('가')\n")
+        self.assertEqual(got[0].version, (3, 9))
+        self.assertFalse(got[0].sure)      # 무엇의 메서드인지 알 수 없다
+
+    def test_module_attribute_is_sure(self):
+        got = self.hits("import itertools\n\nx = itertools.pairwise([1, 2])\n")
+        self.assertTrue(got[0].sure)
+        self.assertEqual(got[0].version, (3, 10))
+
+    def test_same_name_on_another_module_is_skipped(self):
+        self.assertEqual(self.hits("import os\n\nx = os.walk('.')\n"), [])
+
+    def test_report_needed_ignores_guesses(self):
+        report = pyscan.CompatReport(files=1, hits=[
+            pyscan.CompatHit(Path("a.py"), 1, (3, 12), ".batched", "이름", False),
+            pyscan.CompatHit(Path("a.py"), 2, (3, 10), "match 문", "문법", True)])
+        self.assertEqual(report.needed, (3, 10))
+
+    def test_scan_counts_files_and_keeps_broken_ones_aside(self):
+        self.write("좋음.py", "import tomllib\n")
+        self.write("깨짐.py", "def f(\n")
+        report = pyscan.compat_scan([self.root])
+        self.assertEqual(report.files, 2)
+        self.assertEqual(len(report.failed), 1)
+        self.assertEqual(report.needed, (3, 11))
+
+    def test_parse_version(self):
+        self.assertEqual(pyscan.parse_version("3.10"), (3, 10))
+        with self.assertRaises(ValueError):
+            pyscan.parse_version("3")
+
+
 if __name__ == "__main__":
     unittest.main()

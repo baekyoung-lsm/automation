@@ -189,6 +189,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev outline [경로]` | 파이썬 소스 구조 - 파일별 클래스·함수·긴 함수·설명 없는 것 |
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
+| `at dev pyver [경로…]` | 이 코드가 어느 파이썬부터 도는지. `--target 3.10` 을 넘으면 exit 1 |
 | `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나 |
 | `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
@@ -237,6 +238,8 @@ at dev loc .                       # 이 저장소가 얼마나 큰가
 at dev loc src --glob '*.ts' --top 20
 at dev imports attools                  # 많이 불리는 모듈·고아·고리
 at dev imports attools --module sheet    # 이 모듈의 앞뒤만
+at dev pyver attools --target 3.10       # 3.10 에서 안 도는 자리가 있나
+at dev pyver attools --all               # 감싼 자리·짐작까지 전부
 at dev doctor                          # 방금 클론한 저장소, 뭐부터 하지
 at dev cert example.com                # 며칠 남았나
 at dev cert api.example.com:8443 --warn 14
@@ -394,6 +397,14 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+`at dev pyver` 는 낮은 파이썬을 지원해야 할 때 «어디가 걸리나» 를 본다. `match` 문,
+`except*`, 주석의 `X | Y` 같은 문법은 `ast` 로 확실히 보고, 새로 들어온 표준 라이브러리
+(`tomllib`, `typing.Self`, `itertools.batched`…)는 import 문에서 본다. 반면 `.removeprefix(`
+같은 **메서드 이름은 무엇의 메서드인지 알 수 없어 «짐작» 으로 따로 표시한다** - 확실한 것과
+섞으면 목록 전체를 안 믿게 된다. `try/except ImportError` 로 감싼 자리는 없으면 없는 대로
+도는 코드이므로 «감쌈» 으로 빼고 센다. `--target` 을 넘는 자리가 있으면 1 로 끝나므로 CI 에
+걸어 둘 수 있다.
 
 `at dev imports` 는 지우기 전에·나누기 전에 본다. «이 모듈을 부르는 곳» 과 «이 모듈이
 부르는 것» 을 같은 판정으로 뒤집어 만들므로 양쪽 그림이 어긋나지 않는다. 서로 물고 있는
