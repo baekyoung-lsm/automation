@@ -670,6 +670,12 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("unittest discover -s tests", 훑음)
         self.assertIn("CI 가 돌리는 명령", 훑음)
 
+        주소 = self.run_cli("dev", "url",
+                          "https://api.example.com/v1/주문?q=%ED%99%8D&token=abc",
+                          "--mask")
+        self.assertIn("token=***", 주소)
+        self.assertIn("홍", 주소)
+
         아이콘 = Path(self.path("아이콘.png"))
         아이콘.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
         박기 = self.run_cli("dev", "enc", "--file", str(아이콘), "--data-uri")

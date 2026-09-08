@@ -1148,6 +1148,52 @@ def cmd_dev_gen(a) -> int:
     return 0
 
 
+def cmd_dev_url(a) -> int:
+    """주소를 뜯어 본다. 긴 쿼리에서 무엇이 들어 있는지 눈으로 보는 자리."""
+    raw = sys.stdin.read().strip() if a.url == "-" else a.url
+    try:
+        part = devkit.split_url(raw)
+        pairs = devkit.change_params(part, sets=a.set, drops=a.drop, sort=a.sort)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(devkit.build_url(part, params=pairs, mask=a.mask))
+    if part.guessed_scheme:
+        _p("  (scheme 이 없어 https 로 봤습니다)")
+    if part.note:
+        _p(f"  {part.note}")
+
+    rows = [["scheme", part.scheme], ["호스트", part.host]]
+    if part.port:
+        rows.append(["포트", str(part.port)])
+    rows.append(["경로", part.path or "/"])
+    if part.fragment:
+        rows.append(["조각(#)", part.fragment])
+    _grid(["자리", "값"], rows, limit=70)
+
+    if not pairs:
+        _p("\n쿼리 파라미터가 없습니다.")
+        return 0
+
+    seen: dict[str, int] = {}
+    for name, _value in pairs:
+        seen[name] = seen.get(name, 0) + 1
+    table = []
+    for name, value in pairs:
+        shown = "***" if (a.mask and devkit._looks_secret(name) and value) else value
+        note = "같은 이름이 여러 번" if seen[name] > 1 else ""
+        if not value:
+            note = (note + " · 빈 값").strip(" ·")
+        table.append([name, _cut(shown, a.width), note])
+    _p(f"\n파라미터 {len(pairs)}개")
+    _grid(["이름", "값", ""], table, limit=a.width)
+    _p("\n값은 %XX 를 푼 것입니다. 다시 붙일 때는 위의 주소를 그대로 쓰세요.")
+    if not a.mask and any(devkit._looks_secret(name) for name, _v in pairs):
+        _p("비밀로 보이는 파라미터가 있습니다. 남에게 보낼 때는 --mask 를 쓰세요.")
+    return 0
+
+
 def cmd_dev_enc(a) -> int:
     if a.file:
         path = Path(a.file)
@@ -1568,6 +1614,20 @@ def add_commands(sub) -> None:
     g.add_argument("-n", "--count", type=int, default=1)
     g.add_argument("--readable", action="store_true", help="0/O/l/1 처럼 헷갈리는 문자 제외")
     g.set_defaults(func=cmd_dev_gen)
+
+    ul = dp.add_parser("url", help="주소 뜯어 보기 - 쿼리 파라미터·비밀값 가리기")
+    ul.add_argument("url", nargs="?", default="-", metavar="주소")
+    ul.add_argument("--mask", action="store_true",
+                    help="토큰·비밀번호 같은 값을 가린 주소로 보여 준다")
+    ul.add_argument("--set", action="append", metavar="이름=값",
+                    help="파라미터를 넣거나 바꾼다")
+    ul.add_argument("--drop", action="append", metavar="이름",
+                    help="파라미터를 뺀다")
+    ul.add_argument("--sort", action="store_true", help="파라미터를 이름 순으로")
+    ul.add_argument("--width", type=int, default=60, metavar="칸")
+    ul.epilog = ("예: at dev url 'https://example.com/a?b=1&token=xyz' --mask\n"
+                 "    at dev url 'https://example.com/a?page=2' --set page=1 --sort")
+    ul.set_defaults(func=cmd_dev_url)
 
     en = dp.add_parser("enc", help="base64/hex/URL 인코딩·디코딩 한 번에")
     en.add_argument("value", nargs="?", default="-")

@@ -666,6 +666,98 @@ def replace_regex(pattern: str, body: str, replacement: str, *,
         raise ValueError(f"바꿀 내용이 잘못됐습니다: {exc}") from None
 
 
+# 주소 안에서 가리는 것이 나은 이름들. 지우지는 않고 값만 가린다.
+URL_SECRETS = ("token", "access_token", "refresh_token", "key", "api_key",
+               "apikey", "secret", "password", "passwd", "pw", "code",
+               "signature", "sig", "auth", "session", "sessionid")
+
+
+@dataclass
+class UrlPart:
+    """주소를 뜯어 놓은 것."""
+
+    scheme: str = ""
+    host: str = ""
+    port: int | None = None
+    path: str = ""
+    fragment: str = ""
+    params: list = field(default_factory=list)   # [(이름, 값)] 적힌 차례대로
+    guessed_scheme: bool = False                 # scheme 을 우리가 붙였나
+    note: str = ""
+
+
+def _looks_secret(name: str) -> bool:
+    low = name.lower().replace("-", "_")
+    return any(low == one or low.endswith("_" + one) for one in URL_SECRETS)
+
+
+def split_url(url: str) -> UrlPart:
+    """주소를 뜯는다. 쿼리 값은 사람이 읽게 %XX 를 풀어 돌려준다.
+
+    붙여 넣은 주소에는 따옴표나 «curl » 이 붙어 오는 일이 흔해서 먼저 뗀다.
+    """
+    import urllib.parse
+
+    text = url.strip()
+    if text.lower().startswith("curl "):
+        text = text[5:].strip()
+    text = text.strip("'\"")
+    if not text:
+        raise ValueError("주소가 비어 있습니다.")
+
+    guessed = False
+    if "://" not in text:
+        text = "https://" + text.lstrip("/")
+        guessed = True
+
+    parts = urllib.parse.urlsplit(text)
+    try:
+        port = parts.port
+    except ValueError:                       # 포트 자리에 숫자가 아닌 것
+        port = None
+    out = UrlPart(scheme=parts.scheme, host=parts.hostname or "", port=port,
+                  path=parts.path, fragment=parts.fragment,
+                  guessed_scheme=guessed)
+    out.params = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    if parts.query and not out.params:
+        out.note = "쿼리가 이름=값 꼴이 아니라 그대로 두었습니다"
+    return out
+
+
+def build_url(part: UrlPart, *, params: list | None = None,
+              mask: bool = False) -> str:
+    """뜯어 놓은 것을 다시 주소로. mask 면 비밀로 보이는 값만 가린다."""
+    import urllib.parse
+
+    pairs = part.params if params is None else params
+    if mask:
+        pairs = [(name, "***" if _looks_secret(name) and value else value)
+                 for name, value in pairs]
+    netloc = part.host
+    if part.port:
+        netloc = f"{netloc}:{part.port}"
+    query = urllib.parse.urlencode(pairs, doseq=False, safe="*")
+    return urllib.parse.urlunsplit((part.scheme, netloc, part.path, query,
+                                    part.fragment))
+
+
+def change_params(part: UrlPart, *, sets: list | None = None,
+                  drops: list | None = None, sort: bool = False) -> list:
+    """쿼리를 고친다. (이름, 값) 목록을 돌려준다 - 원본은 건드리지 않는다."""
+    pairs = list(part.params)
+    for name in drops or []:
+        pairs = [(k, v) for k, v in pairs if k != name]
+    for one in sets or []:
+        name, _, value = one.partition("=")
+        name = name.strip()
+        if not name:
+            raise ValueError(f"이름=값 꼴로 주세요: {one}")
+        pairs = [(k, v) for k, v in pairs if k != name] + [(name, value)]
+    if sort:
+        pairs = sorted(pairs, key=lambda item: item[0])
+    return pairs
+
+
 def encode_url(url: str) -> str:
     """한글이 든 주소를 그대로 보낼 수 있는 꼴로 바꾼다.
 

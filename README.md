@@ -286,6 +286,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev re <정규식> <글>` | 정규식을 걸어 보고 매치·그룹·치환 결과를 미리 본다 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
 | `at dev gen [종류]` | 비밀번호·토큰·hex·UUID·PIN 을 CSPRNG 로 만든다 |
+| `at dev url <주소>` | 주소를 뜯어 본다 - 쿼리 파라미터 표, `%XX` 푼 값, `--mask` 로 토큰 가린 주소 |
 | `at dev enc <값>` | base64/base64url/hex/URL 인코딩과 해시를 한 번에, 디코딩도 자동 시도. `--file` 이면 파일을 base64·data URI 로 |
 
 ```bash
@@ -303,6 +304,8 @@ pbpaste | at dev jwt -
 at dev wait localhost:5432 -t 60 && ./migrate.sh
 at dev cron "30 2 * * 6"
 at dev gen password -l 20 --readable
+at dev url 'https://example.com/a?b=1&token=xyz' --mask   # 남에게 보낼 때
+at dev url 'https://example.com/a?page=2' --set page=1 --sort
 at dev enc "SGVsbG8gd29ybGQ="
 at dev enc --file 아이콘.png --data-uri      # CSS·HTML 에 그대로 박을 꼴로
 at dev enc --file 로고.png -o 로고.b64
@@ -605,6 +608,12 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 같은 식이다). CI 설정(`.github/workflows/*.yml` 등)에 적힌 `run:` 명령은 그대로 뽑아
 보여 준다 — **CI 와 같은 것을 돌려 보는 것이 가장 확실하다**. `for`·`done` 같은 셸 얼개는
 명령이 아니므로 뺀다.
+
+`at dev url` 은 긴 주소를 뜯어 표로 보여 준다. 쿼리 값의 `%XX` 를 풀어 주므로 한글 검색어가
+그대로 읽히고, 같은 이름이 여러 번 들어간 파라미터도 짚어 준다. `--mask` 는 `token`,
+`password`, `code` 처럼 **비밀로 보이는 값만** 가린 주소를 만든다 — 버그 신고나 채팅에 주소를
+붙일 때 쓴다. `--set`·`--drop`·`--sort` 로 고친 주소를 만들 수도 있는데, 원본은 그대로 두고
+새 주소를 찍어 줄 뿐이다. 붙여 넣은 `curl '…'` 이나 따옴표는 알아서 뗀다.
 
 `at dev health` 는 주소 여러 개를 **한 번에** 두드려 상태·응답 시간·크기를 표로 낸다. 배포
 뒤 «어디가 죽었나» 를 보는 자리다. 못 부른 주소는 빈 칸으로 두지 않고 까닭을 적는다 - 빈

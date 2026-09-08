@@ -879,3 +879,54 @@ class CheckUrlsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SplitUrlTest(unittest.TestCase):
+    def test_parts_and_decoded_query(self):
+        part = devkit.split_url(
+            "https://api.example.com:8443/v1/주문?q=%ED%99%8D&page=2#frag")
+        self.assertEqual((part.scheme, part.host, part.port), ("https", "api.example.com", 8443))
+        self.assertEqual(part.path, "/v1/주문")
+        self.assertEqual(part.fragment, "frag")
+        self.assertEqual(part.params, [("q", "홍"), ("page", "2")])
+
+    def test_pasted_curl_and_quotes(self):
+        part = devkit.split_url("curl 'https://a.b/c?x=1'")
+        self.assertEqual((part.host, part.params), ("a.b", [("x", "1")]))
+
+    def test_missing_scheme_is_guessed_and_said(self):
+        part = devkit.split_url("example.com/a?b=1")
+        self.assertTrue(part.guessed_scheme)
+        self.assertEqual(part.scheme, "https")
+
+    def test_blank_value_is_kept(self):
+        self.assertEqual(devkit.split_url("https://a.b/c?q=").params, [("q", "")])
+
+    def test_empty_url(self):
+        with self.assertRaises(ValueError):
+            devkit.split_url("   ")
+
+    def test_mask_only_hides_secrets(self):
+        part = devkit.split_url("https://a.b/c?page=2&token=abc&name=홍길동")
+        masked = devkit.build_url(part, mask=True)
+        self.assertIn("token=***", masked)
+        self.assertIn("page=2", masked)
+        self.assertNotIn("abc", masked)
+
+    def test_change_params(self):
+        part = devkit.split_url("https://a.b/c?x=1&y=2&x=3")
+        self.assertEqual(devkit.change_params(part, drops=["x"]), [("y", "2")])
+        self.assertEqual(devkit.change_params(part, sets=["y=9"]),
+                         [("x", "1"), ("x", "3"), ("y", "9")])
+        self.assertEqual(devkit.change_params(part, sort=True),
+                         [("x", "1"), ("x", "3"), ("y", "2")])
+
+    def test_set_needs_a_name(self):
+        part = devkit.split_url("https://a.b/c")
+        with self.assertRaises(ValueError):
+            devkit.change_params(part, sets=["=1"])
+
+    def test_round_trip_keeps_hangul(self):
+        part = devkit.split_url("https://a.b/한글?q=한글")
+        self.assertEqual(devkit.split_url(devkit.build_url(part)).params,
+                         [("q", "한글")])
+
