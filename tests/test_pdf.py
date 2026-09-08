@@ -421,6 +421,13 @@ class PdfPagesTest(unittest.TestCase):
         path.write_bytes(broken)
         self.assertEqual(len(pdf.open_pdf(path).pages()), 2)
 
+    def test_lying_xref_count_does_not_hang(self):
+        path = simple_pdf(self.root / "거짓표.pdf", pages=1)
+        path.write_bytes(path.read_bytes().replace(b"xref\n0 7",
+                                                   b"xref\n0 999999999"))
+        # 남은 길이보다 많이 적힌 표를 곧이곧대로 읽으면 멈추지 않는다
+        self.assertEqual(len(pdf.open_pdf(path).pages()), 1)
+
     def test_encrypted_is_refused(self):
         path = simple_pdf(self.root / "잠긴.pdf", pages=1)
         raw = path.read_bytes().replace(b"/Root", b"/Encrypt 99 0 R/Root")

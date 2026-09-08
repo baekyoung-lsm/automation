@@ -942,8 +942,13 @@ def _classic_xref(doc: Document, reader: _Reader) -> dict:
         count_word = reader.word()
         if not _INT_RE.fullmatch(count_word):
             return {}
-        for i in range(int(count_word)):
+        count = int(count_word)
+        # 한 줄이 20 바이트다. 남은 길이보다 많이 적혀 있으면 그만큼만 읽는다
+        count = min(count, (len(doc.raw) - reader.pos) // 18 + 1)
+        for i in range(count):
             place, _gen, kind = reader.word(), reader.word(), reader.word()
+            if not place:                      # 파일이 먼저 끝났다
+                break
             num = start + i
             if num in doc.entries:
                 continue                # 새 표가 이미 정한 것은 덮지 않는다
