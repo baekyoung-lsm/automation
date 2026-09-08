@@ -207,6 +207,46 @@ class WebUiTest(UiCase):
             self.post("/api/files/scrub_preview", {"docroot": ""})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_pdf_from_images(self):
+        import struct
+        import zlib
+
+        def chunk(kind, body):
+            return (struct.pack(">I", len(body)) + kind + body
+                    + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+        rows = b"".join(b"\x00" + bytes([10, 20, 30]) * 4 for _ in range(3))
+        png = (b"\x89PNG\r\n\x1a\n"
+               + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 3, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+        folder = self.work / "스캔"
+        folder.mkdir()
+        (folder / "1.png").write_bytes(png)
+        (folder / "2.png").write_bytes(png)
+        (folder / "메모.txt").write_text("이건 그림이 아니다", encoding="utf-8")
+
+        _, data = self.post("/api/files/pdf_preview", {"pdfroot": str(folder)})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(list(folder.parent.glob("*.pdf")), [])
+
+        _, made = self.post("/api/files/pdf_make",
+                            {"pdfroot": str(folder), "pdftitle": "제출용"})
+        saved = Path(made["saved"])
+        self.assertTrue(saved.is_file())
+        from attools import pdf as pdfkit
+
+        info = pdfkit.read_info(saved)
+        self.assertEqual(info.pages, 2)
+        self.assertEqual(info.title, "제출용")
+        self.assertTrue((folder / "1.png").is_file())      # 원본은 그대로
+
+    def test_pdf_needs_images(self):
+        empty = self.work / "빈폴더"
+        empty.mkdir()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/pdf_make", {"pdfroot": str(empty)})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_pack_rejects_a_bad_size(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/pack_preview",
@@ -2358,6 +2398,11 @@ class CommandHintTest(UiCase):
         _, done = self.post("/api/files/scrub_apply",
                             {"docroot": str(self.work)})
         self.accepts(done["command"])
+
+        _, shot = self.post("/api/files/pdf_preview",
+                            {"pdfroot": str(self.work), "pdfpage": "letter",
+                             "pdfmargin": True})
+        self.accepts(shot["command"])
 
     def test_text_commands(self):
         (self.work / "가.md").write_text("리안\n", encoding="utf-8")

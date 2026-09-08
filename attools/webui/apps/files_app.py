@@ -322,6 +322,64 @@ def scrub_apply(payload: dict) -> dict:
     return out
 
 
+def _pdf_images(payload: dict):
+    from ... import pdf
+
+    root = form.folder(payload, "pdfroot")
+    targets = sorted(p for p in root.iterdir()
+                     if p.is_file() and p.suffix.lower() in pdf.IMAGE_SUFFIXES)
+    pages, skipped = [], []
+    for path in targets:
+        try:
+            pages.append(pdf.read_image(path))
+        except pdf.PdfError as exc:
+            skipped.append([path.name, str(exc)])
+    return root, pages, skipped
+
+
+def _pdf_command(payload: dict, root, out=None) -> str:
+    args: list[object] = ["file", "pdf", root]
+    page = form.text(payload, "pdfpage") or "a4"
+    if page != "a4":
+        args += ["--page", page]
+    if form.flag(payload, "pdfmargin"):
+        args += ["--margin", 10]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def pdf_preview(payload: dict) -> dict:
+    root, pages, skipped = _pdf_images(payload)
+    return {"rows": [[p.path.name, f"{p.width}x{p.height}",
+                      "jpg (그대로)" if p.filter == "DCTDecode" else "png"]
+                     for p in pages],
+            "count": len(pages), "skipped": skipped,
+            "command": _pdf_command(payload, root)}
+
+
+def pdf_make(payload: dict) -> dict:
+    """폴더 옆에 «폴더이름.pdf» 를 만든다. 원본 이미지는 그대로 둔다."""
+    from ... import pdf
+
+    root, pages, skipped = _pdf_images(payload)
+    if not pages:
+        raise UiError("넣을 수 있는 이미지가 없습니다. (jpg·png 만 넣습니다)")
+    page = form.choice(payload, "pdfpage", pdf.PAGE_SIZES, "a4")
+    out = files.unique_path(root.with_suffix(".pdf"))
+    try:
+        made = pdf.images_to_pdf(pages, out, page=page,
+                                 margin_mm=10.0 if form.flag(payload, "pdfmargin")
+                                 else 0.0,
+                                 title=form.text(payload, "pdftitle"))
+    except pdf.PdfError as exc:
+        raise UiError(str(exc)) from None
+    return {"rows": [[p.path.name, f"{p.width}x{p.height}",
+                      "jpg (그대로)" if p.filter == "DCTDecode" else "png"]
+                     for p in pages],
+            "count": len(pages), "skipped": skipped, "saved": str(made),
+            "size": files.human_size(made.stat().st_size),
+            "command": _pdf_command(payload, root, made)}
+
+
 def _pack_plan(payload: dict):
     root = form.folder(payload, "packroot")
     try:
@@ -544,6 +602,32 @@ BODY = """
   </div>
   <div id="docsmsg"></div>
   <div id="docsout"></div>
+</section>
+
+<section class="card">
+  <h2>이미지를 PDF 로 묶기</h2>
+  <p class="note">폴더 안의 사진·스캔 이미지를 <b>이름 순으로</b> 한 장에 하나씩 담은
+     PDF 로 묶습니다. jpg 는 다시 누르지 않고 그대로 넣어 화질이 그대로입니다.
+     비율은 지키고 쪽 가운데에 놓습니다. 넣을 수 없는 파일(프로그레시브 jpg,
+     인터레이스 png)은 <b>조용히 빼지 않고</b> 까닭과 함께 알려 줍니다.
+     <b>원본은 그대로 두고</b> 폴더 옆에 새 PDF 를 만듭니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="pdfroot">이미지가 있는 폴더</label>
+      <input type="text" id="pdfroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 1 8rem"><label for="pdfpage">쪽 크기</label>
+      <select id="pdfpage"><option value="a4">A4</option><option value="a5">A5</option><option value="b5">B5</option><option value="letter">Letter</option><option value="legal">Legal</option></select></div>
+    <div style="flex:1 1 10rem"><label for="pdftitle">제목 (속성에 넣습니다)</label>
+      <input type="text" id="pdftitle" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="pdfmargin"> 여백 10mm</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-pdf">무엇이 들어가나</button>
+    <button id="btn-pdf-save" disabled>PDF 만들기</button>
+  </div>
+  <div id="pdfmsg"></div>
+  <div id="pdfout"></div>
 </section>
 
 <section class="card">
@@ -784,6 +868,40 @@ BODY = """
     } catch (e) { AT.message($("docsmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function pdfValues() {
+    return { pdfroot: $("pdfroot").value, pdfpage: $("pdfpage").value,
+             pdftitle: $("pdftitle").value,
+             pdfmargin: $("pdfmargin").checked };
+  }
+
+  function drawPdf(d) {
+    $("pdfout").innerHTML =
+      AT.table(["파일", "크기(px)", "넣는 방법"], d.rows) +
+      (d.skipped.length
+        ? "<h2>넣지 못한 파일</h2>" + AT.table(["파일", "까닭"], d.skipped)
+        : "") + AT.command(d.command);
+  }
+
+  async function runPdf(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/pdf_make"
+                                   : "/api/files/pdf_preview", pdfValues());
+      drawPdf(d);
+      AT.remember("files", "pdfroot", $("pdfroot").value);
+      AT.message($("pdfmsg"), "이미지 <b>" + d.count + "장</b>" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                   AT.esc(d.size) + ")"
+                 : " · 아직 만들지 않았습니다."), "ok");
+      $("btn-pdf-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("pdfmsg"), AT.esc(e.message), "bad");
+      $("btn-pdf-save").disabled = true;
+    }
+  }
+
+  $("btn-pdf").addEventListener("click", function () { runPdf(false); });
+  $("btn-pdf-save").addEventListener("click", function () { runPdf(true); });
+
   function packValues() {
     return { packroot: $("packroot").value, packmax: $("packmax").value,
              packglob: $("packglob").value, packhidden: $("packhidden").checked };
@@ -918,6 +1036,7 @@ def make() -> App:
                  "pack_preview": pack_preview, "pack_apply": pack_apply,
                  "audit": audit,
                  "documents": documents,
+                 "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,
                  "compare": compare,
