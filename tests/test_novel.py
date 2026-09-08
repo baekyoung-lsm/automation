@@ -734,5 +734,51 @@ class DocxTest(unittest.TestCase):
         self.assertIn(manuscript.DOCX_FONT, body)
 
 
+class RenameTest(unittest.TestCase):
+    """인물 이름 바꾸기. 조사를 안 맞추면 원고를 손으로 다시 고치게 된다."""
+
+    TEXT = ('리안은 성문 앞에 섰다. 리안이 말했다.\n'
+            '"리안아, 가자." 카일이 리안에게 말했다.\n'
+            "리안느는 다른 사람이다. 리안으로 정했다.\n")
+
+    def test_particles_follow_the_new_name(self):
+        got, count = names.apply_rename(self.TEXT, "리안", "세하")
+        self.assertIn("세하는 성문", got)      # 받침 없는 이름이라 '는'
+        self.assertIn("세하가 말했다", got)
+        self.assertIn("세하야, 가자", got)
+        self.assertEqual(count, 5)
+
+    def test_riul_name_takes_ro(self):
+        # 받침이 ㄹ 이면 '으로' 가 아니라 '로' 다
+        got, _count = names.apply_rename("리안으로 갔다", "리안", "카일")
+        self.assertEqual(got, "카일로 갔다")
+
+    def test_batchim_name_takes_eun(self):
+        got, _count = names.apply_rename("리안은 갔다", "리안", "서준")
+        self.assertEqual(got, "서준은 갔다")
+
+    def test_other_word_is_left_alone(self):
+        got, _count = names.apply_rename(self.TEXT, "리안", "세하")
+        self.assertIn("리안느는 다른 사람", got)
+
+    def test_plain_particles_are_kept(self):
+        got, _count = names.apply_rename("리안에게 주었다", "리안", "서준")
+        self.assertEqual(got, "서준에게 주었다")
+
+    def test_plan_shows_before_and_after(self):
+        found = names.plan_rename(self.TEXT, "리안", "세하")
+        self.assertEqual([(r.before, r.after) for r in found][:3],
+                         [("리안은", "세하는"), ("리안이", "세하가"),
+                          ("리안아", "세하야")])
+        self.assertEqual(found[0].line, 1)
+
+    def test_same_name_changes_nothing(self):
+        self.assertEqual(names.plan_rename("리안은 갔다", "리안", "리안"), [])
+
+    def test_empty_names_are_refused(self):
+        with self.assertRaises(ValueError):
+            names.plan_rename("글", "", "세하")
+
+
 if __name__ == "__main__":
     unittest.main()

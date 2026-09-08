@@ -529,6 +529,59 @@ def cmd_novel_tidy(a) -> int:
     return 0
 
 
+def cmd_novel_rename(a) -> int:
+    """인물 이름을 바꾸면서 뒤에 붙은 조사도 새 이름에 맞춘다."""
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    spots = 0
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"{path}: 건너뜀 ({e})")
+            continue
+        try:
+            found = names.plan_rename(body, a.old, a.new)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        if not found:
+            continue
+
+        spots += len(found)
+        _p(f"{path}  {len(found)}곳")
+        for spot in found[:a.limit]:
+            _p(f"  {spot.line}행  {spot.before} -> {spot.after}")
+            _p(f"        {_cut(spot.excerpt, 70)}")
+        if len(found) > a.limit:
+            _p(f"  ... {len(found) - a.limit}곳 더")
+        _p("")
+
+        새글, _count = names.apply_rename(body, a.old, a.new)
+        if 새글 != body:
+            changes.append(text.Change(path, body, 새글, encoding))
+
+    if not changes:
+        _p(f"파일 {len(targets)}개에서 «{a.old}» 를 찾지 못했습니다.")
+        return 0
+
+    _p(f"파일 {len(changes)}개, 모두 {spots:,}곳")
+    _p("이름 뒤 조사(은/는, 이/가, 을/를, 으로/로, 아/야)를 새 이름에 맞췄습니다.")
+    _p(f"«{a.old}느» 처럼 뒤에 다른 글자가 붙은 말은 건드리지 않았습니다.")
+    if not a.apply:
+        _p("\n미리보기입니다. 실제로 고치려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = text.apply_changes(changes)
+    _p(f"\n파일 {len(changes)}개를 고쳤습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_novel_quote(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -1024,6 +1077,16 @@ def add_commands(sub) -> None:
     ct.add_argument("--gone", type=int, default=3, metavar="화",
                     help="이만큼 안 나오면 따로 알린다 (기본 3)")
     ct.set_defaults(func=cmd_novel_cast)
+
+    rn = np_.add_parser("rename",
+                        help="인물 이름 바꾸기 - 뒤에 붙은 조사까지 맞춘다")
+    rn.add_argument("old", metavar="옛이름")
+    rn.add_argument("new", metavar="새이름")
+    rn.add_argument("paths", nargs="+")
+    rn.add_argument("--limit", type=int, default=10, metavar="곳",
+                    help="파일마다 보여줄 자리 수")
+    rn.add_argument("--apply", action="store_true")
+    rn.set_defaults(func=cmd_novel_rename)
 
     td = np_.add_parser("tidy", help="원고 파일 정리 - 문단 사이 빈 줄, 들여쓰기, 장면 구분선")
     td.add_argument("paths", nargs="+")

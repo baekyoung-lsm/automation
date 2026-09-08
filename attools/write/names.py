@@ -405,3 +405,110 @@ def cast_by_chapter(chapters: list[tuple[str, str]],
     rows = [CastRow(name, [count_mentions(text, name) for _, text in chapters])
             for name in people]
     return sorted(rows, key=lambda r: (-r.total, r.name))
+
+
+# --------------------------------------------------- 이름 바꾸기 (조사까지)
+
+# 이름 뒤에 붙는 조사 가운데 받침에 따라 꼴이 갈리는 것들. 긴 것부터 본다.
+RENAME_PAIRS = [("이라고", "라고"), ("이라는", "라는"), ("이라", "라"),
+                ("이었", "였"), ("이랑", "랑"), ("으로", "로"),
+                ("이나", "나"), ("이며", "며"), ("이여", "여"),
+                ("은", "는"), ("이", "가"), ("을", "를"), ("과", "와"),
+                ("아", "야")]
+# 받침과 무관한 조사. 이름만 바꾸고 그대로 둔다.
+PLAIN_PARTICLES = ["에게서", "한테서", "에게는", "한테는", "에게", "한테", "께서",
+                   "에서", "부터", "까지", "조차", "마저", "처럼", "보다",
+                   "밖에", "대로", "만큼", "도", "만", "의", "에", "께"]
+
+
+@dataclass
+class Rename:
+    line: int
+    before: str          # 리안은
+    after: str           # 세하는
+    excerpt: str
+
+
+def _particle_after(text: str, at: int) -> str:
+    """이름 바로 뒤에 붙은 조사. 없으면 빈 문자열."""
+    rest = text[at:at + 4]
+    for with_batchim, without in RENAME_PAIRS:
+        for form in (with_batchim, without):
+            if rest.startswith(form):
+                return form
+    for plain in PLAIN_PARTICLES:
+        if rest.startswith(plain):
+            return plain
+    return ""
+
+
+def _fixed_particle(particle: str, new: str) -> str:
+    """새 이름의 받침에 맞는 조사. 받침과 무관한 조사는 그대로."""
+    for with_batchim, without in RENAME_PAIRS:
+        if particle not in (with_batchim, without):
+            continue
+        if with_batchim.startswith("으") and not has_batchim(new):
+            return without
+        if with_batchim.startswith("으"):
+            from ..hangul import is_riul_batchim
+
+            return without if is_riul_batchim(new) else with_batchim
+        return with_batchim if has_batchim(new) else without
+    return particle
+
+
+def plan_rename(text: str, old: str, new: str) -> list[Rename]:
+    """이름을 바꾸면서 뒤에 붙은 조사도 새 이름에 맞춘다. (바꿀 자리들)
+
+    «리안은» 을 «세하는» 으로 바꾸는 일이다. 이름만 바꾸면 «세하은» 이 되어
+    원고 전체를 손으로 고치게 된다. 이름 뒤가 조사도 아니고 띄어쓰기도
+    아니면(«리안느») 다른 낱말로 보고 건드리지 않는다.
+    """
+    if not old or not new:
+        raise ValueError("옛 이름과 새 이름을 모두 주세요.")
+
+    out: list[Rename] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        start = 0
+        while (at := line.find(old, start)) != -1:
+            end = at + len(old)
+            particle = _particle_after(line, end)
+            tail = line[end + len(particle):end + len(particle) + 1]
+            start = end
+            if not particle and tail and "가" <= tail <= "힣":
+                continue          # 리안느 - 다른 낱말이다
+            if particle and not tail.strip():
+                pass              # 조사 뒤가 공백·문장 끝이면 확실하다
+            before = old + particle
+            after = new + _fixed_particle(particle, new)
+            if before == after:
+                continue
+            out.append(Rename(number, before, after, line.strip()))
+    return out
+
+
+def apply_rename(text: str, old: str, new: str) -> tuple[str, int]:
+    """이름과 조사를 바꾼 글과 바꾼 횟수."""
+    lines = text.splitlines(keepends=True)
+    count = 0
+    for index, line in enumerate(lines):
+        out: list[str] = []
+        at = 0
+        while at < len(line):
+            found = line.find(old, at)
+            if found == -1:
+                out.append(line[at:])
+                break
+            end = found + len(old)
+            particle = _particle_after(line, end)
+            tail = line[end + len(particle):end + len(particle) + 1]
+            out.append(line[at:found])
+            if not particle and tail and "가" <= tail <= "힣":
+                out.append(old)   # 다른 낱말이라 그대로 둔다
+                at = end
+                continue
+            out.append(new + _fixed_particle(particle, new))
+            count += 1
+            at = end + len(particle)
+        lines[index] = "".join(out)
+    return "".join(lines), count

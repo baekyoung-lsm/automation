@@ -886,6 +886,20 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
+
+        # 이름 바꾸기는 원고를 고치므로 다른 시험이 쓰는 원고는 건드리지 않는다
+        바꿀원고 = Path(self.path("이름바꿀원고"))
+        바꿀원고.mkdir(exist_ok=True)
+        (바꿀원고 / "01화.txt").write_text(
+            "리안은 성문 앞에 섰다. 리안이 말했다.\n리안느는 다른 사람이다.\n",
+            encoding="utf-8")
+        이름바꿈 = self.run_cli("novel", "rename", "리안", "세하", str(바꿀원고))
+        self.assertIn("리안은 -> 세하는", 이름바꿈)
+        self.assertIn("미리보기", 이름바꿈)
+        self.run_cli("novel", "rename", "리안", "세하", str(바꿀원고), "--apply")
+        고친원고 = (바꿀원고 / "01화.txt").read_text(encoding="utf-8")
+        self.assertIn("세하는", 고친원고)
+        self.assertIn("리안느는", 고친원고)      # 다른 낱말은 그대로
         메모원고 = Path(self.path("원고")) / "메모화.md"
         메모원고.write_text("# 9화\n\n첫 문단. [[보강]]\n", encoding="utf-8")
         self.assertIn("보강", self.run_cli("novel", "notes", str(메모원고), expect=1))
