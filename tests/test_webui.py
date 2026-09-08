@@ -2920,6 +2920,23 @@ class RegistryTest(unittest.TestCase):
                     bad.append(f"{app.key}: {found.group(1)} (그런 동작이 없음)")
         self.assertEqual(bad, [], f"없는 동작을 부릅니다: {bad}")
 
+    def test_every_used_element_id_exists(self):
+        """자바스크립트가 찾는 id 가 화면에 있어야 한다.
+
+        핸들러 안에서만 쓰는 id 는 단추를 눌러야 null 이 되어 터진다. 열어
+        보는 점검으로는 안 잡히므로 여기서 글자로 맞춰 본다.
+        """
+        import re
+
+        bad = []
+        for app in webui.load_apps():
+            body = app.body()
+            ids = set(re.findall(r'id="([A-Za-z0-9_-]+)"', body))
+            used = set(re.findall(r'\$\("([A-Za-z0-9_-]+)"\)', body))
+            for name in sorted(used - ids):
+                bad.append(f"{app.key}: {name}")
+        self.assertEqual(bad, [], f"화면에 없는 id 를 찾습니다: {bad}")
+
     def test_keys_are_ascii_and_unique(self):
         """주소에 그대로 들어가므로 아스키여야 한다."""
         apps = webui.load_apps()
