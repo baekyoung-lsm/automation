@@ -323,6 +323,26 @@ class HouseRulesTest(unittest.TestCase):
                     bad.append(f"{path.name}:{number} {found.group(0)!r}")
         self.assertEqual(bad, [], f"이모지가 들어갔습니다: {bad[:5]}")
 
+    def test_writing_commands_have_a_safety_net(self):
+        """파일을 내는 명령은 «미리보기(--apply)» 나 «덮어쓰기 막기(--overwrite)»
+        둘 중 하나는 있어야 한다. 말없이 덮어쓰면 되돌릴 방법이 없다.
+        """
+        import argparse
+
+        from attools import cli
+
+        bad = []
+        for path, _help, parser in cli.walk_commands(cli.build_parser()):
+            if any(isinstance(a, argparse._SubParsersAction)
+                   for a in parser._actions):
+                continue
+            options = {o for a in parser._actions for o in a.option_strings}
+            if not ({"-o", "--out"} & options):
+                continue
+            if not ({"--overwrite", "--apply"} & options):
+                bad.append("at " + " ".join(path))
+        self.assertEqual(bad, [], f"안전장치가 없는 명령: {bad}")
+
     def test_logic_modules_do_not_print(self):
         """출력은 cli 에서만 한다. 로직이 찍기 시작하면 시험이 지저분해진다."""
         import ast
