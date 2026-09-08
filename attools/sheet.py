@@ -1866,6 +1866,9 @@ FORMAT_CHECKS = {
 MISSING_SHARE = 0.2          # 이보다 많이 비면 알린다
 PRIVATE_SHARE = 0.5          # 값의 절반 이상이 맞으면 그 열로 본다
 AUDIT_UNIQUE_CAP = 2000      # 이보다 다양한 열에서는 표기 흔들림을 보지 않는다
+# 엑셀은 = + - @ 로 시작하는 «글자» 를 수식으로 읽는다. 남이 보낸 표를 그대로
+# 열면 그 칸이 실행되므로(CSV 주입) 고치지는 않고 어디인지 알려 준다.
+FORMULA_START = ("=", "+", "-", "@", "\t=", "\r=")
 
 
 @dataclass
@@ -1890,6 +1893,11 @@ def _private_patterns():
             ("휴대폰", MOBILE_RE), ("전화", PHONE_RE))
 
 
+def _cut_text(text: str, limit: int = 24) -> str:
+    """알림 문구에 넣을 만큼만 자른다."""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def audit(table: Table) -> AuditReport:
     """받은 표를 한 번에 훑는다. 고치지 않고 «볼 만한 곳» 만 모은다.
 
@@ -1898,7 +1906,8 @@ def audit(table: Table) -> AuditReport:
     """
     report = AuditReport(len(table.rows), table.width)
     report.looked = ["빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
-                     "숫자 열의 드문 값", "개인정보로 보이는 열", "표기 흔들림"]
+                     "숫자 열의 드문 값", "개인정보로 보이는 열", "표기 흔들림",
+                     "엑셀이 수식으로 읽을 칸"]
     if not table.rows:
         report.skipped.append("행이 없어 아무것도 보지 못했습니다.")
         return report
@@ -1952,6 +1961,16 @@ def audit(table: Table) -> AuditReport:
                     f"{josa(label, '으로/로')} 보이는 값 {hits:,}개 "
                     "(밖으로 낼 때 at sheet mask)"))
                 break
+
+        # 글자만 본다. 숫자 -5 는 수로 들어가므로 수식이 되지 않는다
+        risky = [v for v in values
+                 if isinstance(v, str) and v.startswith(FORMULA_START)]
+        if risky:
+            report.notes.append(AuditNote(
+                "수식으로 읽힘", name,
+                f"= + - @ 로 시작하는 글자 {len(risky):,}개 "
+                f"(예: {_cut_text(str(risky[0]))}) · 엑셀에서 열면 수식으로 "
+                "실행될 수 있습니다"))
 
         # 값이 다 달라도 표기 흔들림은 본다. 거래처 목록이 딱 그런 모양이다.
         unique = len(set(texts))

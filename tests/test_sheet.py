@@ -2037,6 +2037,23 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(rep.notes, [])
         self.assertTrue(rep.skipped)
 
+    def test_formula_looking_cells_are_reported(self):
+        # 남이 보낸 표를 엑셀로 열면 = 로 시작하는 칸이 수식으로 실행된다
+        table = sheet.Table(["이름", "메모"],
+                            [["홍길동", '=cmd|" /C calc"!A0'],
+                             ["김철수", "보통 메모"],
+                             ["이영희", "+1234-보임"]])
+        report = sheet.audit(table)
+        self.assertIn("수식으로 읽힘", self.kinds(report))
+        note = [n for n in report.notes if n.kind == "수식으로 읽힘"][0]
+        self.assertEqual(note.column, "메모")
+        self.assertIn("2개", note.detail)
+
+    def test_numbers_are_not_formula_warnings(self):
+        # 숫자로 읽힌 -5 는 글자가 아니라 수라 위험하지 않다
+        table = sheet.Table(["값"], [[-5], [3], ["보통"]])
+        self.assertNotIn("수식으로 읽힘", self.kinds(sheet.audit(table)))
+
     def test_missing_heavy_column(self):
         t = sheet.Table(["가"], [[None], [None], ["값"], ["값2"]])
         self.assertIn("빈 칸", self.kinds(sheet.audit(t)))
