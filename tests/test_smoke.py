@@ -207,6 +207,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("쪽 수",
                       self.run_cli("file", "docs", 묶음))
 
+        뽑음 = self.path("뒷장.pdf")
+        self.assertIn("고른 쪽 1개",
+                      self.run_cli("file", "pdfcut", 묶음, "--pages", "2",
+                                   "-o", 뽑음))
+        self.assertIn("전체 1쪽", self.run_cli("file", "pdfcut", 뽑음))
+        합본 = self.path("합본.pdf")
+        self.assertIn("3쪽",
+                      self.run_cli("file", "pdfjoin", 묶음, 뽑음, "-o", 합본))
+
         백업 = Path(self.path("백업"))
         옮김 = self.run_cli("file", "sync", self.path("문서"), str(백업))
         self.assertIn("미리보기", 옮김)

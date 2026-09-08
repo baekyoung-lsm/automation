@@ -300,3 +300,220 @@ class MakePdfTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def simple_pdf(path: Path, *, pages: int = 3, text: str = "쪽") -> Path:
+    """옛날 방식(고전 xref)으로 만든 작은 PDF. 쪽마다 다른 내용이 들어간다."""
+    objects: list[bytes] = []
+
+    def add(body: bytes) -> int:
+        objects.append(body)
+        return len(objects)
+
+    kids, contents = [], []
+    for i in range(1, pages + 1):
+        stream = f"BT /F1 24 Tf 20 100 Td ({text}{i}) Tj ET".encode("utf-8")
+        contents.append(add(b"<</Length " + str(len(stream)).encode() + b">>\n"
+                            b"stream\n" + stream + b"\nendstream"))
+    font = add(b"<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>")
+    tree = len(objects) + pages + 1                 # 쪽 다음에 올 Pages 번호
+    for i in range(pages):
+        kids.append(add(
+            f"<</Type/Page/Parent {tree} 0 R/Contents {contents[i]} 0 R"
+            f"/Resources<</Font<</F1 {font} 0 R>>>>>>".encode()))
+    add(("<</Type/Pages/Count %d/Kids[%s]/MediaBox[0 0 200 200]>>"
+         % (pages, " ".join(f"{k} 0 R" for k in kids))).encode())
+    root = add(b"<</Type/Catalog/Pages " + str(tree).encode() + b" 0 R>>")
+
+    out = [b"%PDF-1.4\n"]
+    places = [0]
+    at = len(out[0])
+    for i, body in enumerate(objects, 1):
+        blob = f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+        out.append(blob)
+        places.append(at)
+        at += len(blob)
+    out.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    out.append(b"0000000000 65535 f \n")
+    for i in range(1, len(objects) + 1):
+        out.append(f"{places[i]:010d} 00000 n \n".encode())
+    out.append(f"trailer\n<</Size {len(objects) + 1}/Root {root} 0 R>>\n"
+               f"startxref\n{at}\n%%EOF\n".encode())
+    path.write_bytes(b"".join(out))
+    return path
+
+
+def modern_pdf(path: Path) -> Path:
+    """요즘 방식으로 만든 PDF - 객체를 묶어 누르고(ObjStm) 표도 스트림이다."""
+    stream = b"BT /F1 24 Tf 20 100 Td (modern) Tj ET"
+    plain = (b"4 0 obj\n<</Length " + str(len(stream)).encode() + b">>\n"
+             b"stream\n" + stream + b"\nendstream\nendobj\n")
+
+    inner = [
+        (1, b"<</Type/Catalog/Pages 2 0 R>>"),
+        (2, b"<</Type/Pages/Count 1/Kids[3 0 R]/MediaBox[0 0 200 200]"
+            b"/Resources<</Font<</F1<</Type/Font/Subtype/Type1"
+            b"/BaseFont/Helvetica>>>>>>>>"),
+        (3, b"<</Type/Page/Parent 2 0 R/Contents 4 0 R>>"),
+    ]
+    head, body = b"", b""
+    for number, blob in inner:
+        head += f"{number} {len(body)} ".encode()
+        body += blob + b" "
+    packed = zlib.compress(head + body)
+    objstm = (b"5 0 obj\n<</Type/ObjStm/N 3/First " + str(len(head)).encode() +
+              b"/Length " + str(len(packed)).encode() +
+              b"/Filter/FlateDecode>>\nstream\n" + packed + b"\nendstream\nendobj\n")
+
+    start = len(b"%PDF-1.5\n")
+    rows = {4: start, 5: start + len(plain)}
+    xref_at = start + len(plain) + len(objstm)
+    rows[6] = xref_at
+
+    table = bytearray()
+    table += bytes([0]) + (0).to_bytes(4, "big") + (65535).to_bytes(2, "big")
+    for number in (1, 2, 3):
+        table += bytes([2]) + (5).to_bytes(4, "big") + (number - 1).to_bytes(2, "big")
+    for number in (4, 5, 6):
+        table += bytes([1]) + rows[number].to_bytes(4, "big") + (0).to_bytes(2, "big")
+    squeezed = zlib.compress(bytes(table))
+    xref = (b"6 0 obj\n<</Type/XRef/Size 7/W[1 4 2]/Root 1 0 R"
+            b"/Filter/FlateDecode/Length " + str(len(squeezed)).encode() +
+            b">>\nstream\n" + squeezed + b"\nendstream\nendobj\n")
+
+    path.write_bytes(b"%PDF-1.5\n" + plain + objstm + xref +
+                     f"startxref\n{xref_at}\n%%EOF\n".encode())
+    return path
+
+
+class PdfPagesTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_reads_pages_and_inherits_size(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "셋.pdf", pages=3))
+        pages = doc.pages()
+        self.assertEqual([p.number for p in pages], [1, 2, 3])
+        # MediaBox 는 Pages 에만 있다. 물려받지 못하면 쪽 크기를 잃는다
+        self.assertEqual(doc.get(pages[0].data["MediaBox"]), [0, 0, 200, 200])
+
+    def test_reads_packed_objects_and_xref_stream(self):
+        doc = pdf.open_pdf(modern_pdf(self.root / "요즘.pdf"))
+        self.assertEqual(len(doc.pages()), 1)
+        page = doc.pages()[0]
+        self.assertEqual(doc.get(page.data["MediaBox"]), [0, 0, 200, 200])
+
+    def test_broken_xref_still_opens(self):
+        path = simple_pdf(self.root / "망가진.pdf", pages=2)
+        raw = path.read_bytes()
+        # 표에 적힌 자리를 엉뚱하게 바꾼다 (고쳐 저장하다 깨진 파일 흉내)
+        broken = re.sub(rb"(?m)^0000000(\d\d\d) 00000 n",
+                        rb"0000009\1 00000 n", raw)
+        path.write_bytes(broken)
+        self.assertEqual(len(pdf.open_pdf(path).pages()), 2)
+
+    def test_encrypted_is_refused(self):
+        path = simple_pdf(self.root / "잠긴.pdf", pages=1)
+        raw = path.read_bytes().replace(b"/Root", b"/Encrypt 99 0 R/Root")
+        path.write_bytes(raw)
+        with self.assertRaises(pdf.PdfError) as ctx:
+            pdf.open_pdf(path)
+        self.assertIn("암호", str(ctx.exception))
+
+    def test_not_a_pdf(self):
+        path = self.root / "그냥.txt"
+        path.write_text("안녕", encoding="utf-8")
+        with self.assertRaises(pdf.PdfError):
+            pdf.open_pdf(path)
+
+
+class PageNumbersTest(unittest.TestCase):
+    def test_ranges(self):
+        self.assertEqual(pdf.page_numbers("1-3,7", 10), [1, 2, 3, 7])
+        self.assertEqual(pdf.page_numbers("8-", 10), [8, 9, 10])
+        self.assertEqual(pdf.page_numbers("-3", 10), [1, 2, 3])
+        self.assertEqual(pdf.page_numbers("2", 10), [2])
+
+    def test_out_of_range_is_refused(self):
+        with self.assertRaises(pdf.PdfError) as ctx:
+            pdf.page_numbers("9-12", 10)
+        self.assertIn("10쪽", str(ctx.exception))
+
+    def test_garbage_is_refused(self):
+        with self.assertRaises(pdf.PdfError):
+            pdf.page_numbers("둘째쪽", 10)
+
+
+class JoinPdfTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def contents(self, doc, page):
+        blob = doc.get(page.data.get("Contents"))
+        parts = blob if isinstance(blob, list) else [blob]
+        out = b""
+        for one in parts:
+            one = doc.get(one)
+            if isinstance(one, pdf.Stream):
+                out += pdf.stream_data(one, doc)
+        return out
+
+    def test_cut_keeps_the_right_pages(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "다섯.pdf", pages=5))
+        out = self.root / "뽑은.pdf"
+        result = pdf.join_pdfs([(doc, [2, 4])], out)
+        self.assertEqual((result.pages, result.missing), (2, 0))
+
+        made = pdf.open_pdf(out)
+        self.assertEqual(len(made.pages()), 2)
+        self.assertIn(b"(\xec\xaa\xbd2)", self.contents(made, made.pages()[0]))
+        self.assertIn(b"(\xec\xaa\xbd4)", self.contents(made, made.pages()[1]))
+
+    def test_join_keeps_order_and_font(self):
+        one = pdf.open_pdf(simple_pdf(self.root / "가.pdf", pages=2, text="가"))
+        two = pdf.open_pdf(simple_pdf(self.root / "나.pdf", pages=1, text="나"))
+        out = self.root / "합본.pdf"
+        result = pdf.join_pdfs([(two, [1]), (one, [1, 2])], out)
+        self.assertEqual(result.pages, 3)
+
+        made = pdf.open_pdf(out)
+        bodies = [self.contents(made, p) for p in made.pages()]
+        self.assertIn("나1".encode("utf-8"), bodies[0])
+        self.assertIn("가1".encode("utf-8"), bodies[1])
+        self.assertIn("가2".encode("utf-8"), bodies[2])
+        # 글꼴까지 따라와야 한다. 안 따라오면 열리기는 하고 글자만 사라진다
+        resources = made.get(made.pages()[0].data.get("Resources"))
+        self.assertIn("F1", made.get(resources.get("Font")))
+
+    def test_stream_bytes_are_copied_as_they_were(self):
+        doc = pdf.open_pdf(modern_pdf(self.root / "요즘.pdf"))
+        out = self.root / "옮긴.pdf"
+        pdf.join_pdfs([(doc, [1])], out)
+        made = pdf.open_pdf(out)
+        self.assertEqual(self.contents(doc, doc.pages()[0]),
+                         self.contents(made, made.pages()[0]))
+
+    def test_missing_object_is_counted_not_hidden(self):
+        path = simple_pdf(self.root / "빠진.pdf", pages=1)
+        raw = re.sub(rb"/F1 \d 0 R", b"/F1 9 0 R", path.read_bytes())
+        path.write_bytes(raw)
+        doc = pdf.open_pdf(path)
+        result = pdf.join_pdfs([(doc, [1])], self.root / "빠진사본.pdf")
+        self.assertEqual(result.missing, 1)
+
+    def test_other_pages_are_not_dragged_along(self):
+        # 쪽끼리 서로 가리키는 파일이라도 고르지 않은 쪽은 따라오면 안 된다
+        path = simple_pdf(self.root / "링크.pdf", pages=3)
+        raw = path.read_bytes().replace(
+            b"/Type/Page/Parent", b"/Ex 7 0 R/Type/Page/Parent", 1)
+        path.write_bytes(raw)
+        doc = pdf.open_pdf(path)
+        out = self.root / "하나만.pdf"
+        pdf.join_pdfs([(doc, [1])], out)
+        self.assertEqual(len(pdf.open_pdf(out).pages()), 1)

@@ -11,6 +11,7 @@ import re
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 # ---------------------------------------------------------------- 속성 읽기
 
@@ -454,3 +455,754 @@ def images_to_pdf(images: list[PageImage], out: Path, *, page: str = "a4",
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(bytes(body))
     return out
+
+
+# ------------------------------------------------------------ 쪽 뽑기·합치기
+#
+# 여기서부터는 PDF 를 «객체» 단위로 읽는다. 쪽 하나를 뽑으려면 그 쪽이 걸고 있는
+# 글꼴·그림·색 정보까지 함께 옮겨야 하는데, 그 그물은 정규식으로 못 따라간다.
+# 스트림(눌린 자료)은 풀지 않고 그대로 옮긴다 - 풀었다 다시 누르면 그림이
+# 조용히 상한다.
+
+_WS_BYTES = b"\x00\t\n\x0c\r "
+_DELIM_BYTES = b"()<>[]{}/%"
+_INT_RE = re.compile(rb"[+-]?\d+")
+_REAL_RE = re.compile(rb"[+-]*(?:\d+\.\d*|\.\d+|\d+)")
+_ESCAPES = {0x6E: 0x0A, 0x72: 0x0D, 0x74: 0x09, 0x62: 0x08, 0x66: 0x0C,
+            0x28: 0x28, 0x29: 0x29, 0x5C: 0x5C}
+_OBJ_RE = re.compile(rb"(?:^|[\s\x00])(\d+)\s+(\d+)\s+obj\b")
+_INHERITED = ("Resources", "MediaBox", "CropBox", "Rotate")
+_NAME_KEEP = re.compile(rb"[\x21-\x7e]")
+_NAME_ESCAPE = set(b"()<>[]{}/%#")
+
+
+class Name(str):
+    """PDF 의 /이름. 글자열과 구분해야 다시 쓸 때 «/» 를 붙일 수 있다."""
+
+    __slots__ = ()
+
+
+class Ref(NamedTuple):
+    """«12 0 R» - 다른 객체를 가리키는 번호."""
+
+    num: int
+    gen: int = 0
+
+
+@dataclass
+class Stream:
+    """사전 + 눌린 자료. raw 는 파일에 있던 그대로다."""
+
+    data: dict
+    raw: bytes
+
+
+class _Reader:
+    """PDF 값 하나를 읽는다. 사전·배열·이름·글자열·번호·참조."""
+
+    def __init__(self, raw: bytes, pos: int = 0, resolve=None):
+        self.raw = raw
+        self.pos = pos
+        self.resolve = resolve or (lambda v: v)
+
+    def skip(self) -> None:
+        raw, end = self.raw, len(self.raw)
+        while self.pos < end:
+            ch = raw[self.pos]
+            if ch in _WS_BYTES:
+                self.pos += 1
+            elif ch == 0x25:                      # % 주석은 줄 끝까지
+                line = raw.find(b"\n", self.pos)
+                self.pos = end if line < 0 else line + 1
+            else:
+                return
+
+    def word(self) -> bytes:
+        self.skip()
+        raw, end = self.raw, len(self.raw)
+        start = self.pos
+        while (self.pos < end and raw[self.pos] not in _WS_BYTES
+               and raw[self.pos] not in _DELIM_BYTES):
+            self.pos += 1
+        if self.pos == start:                     # 구분자는 한 글자로
+            self.pos += 1
+        return raw[start:self.pos]
+
+    def value(self):
+        self.skip()
+        raw = self.raw
+        if self.pos >= len(raw):
+            raise PdfError("파일이 갑자기 끝났습니다")
+        ch = raw[self.pos]
+        if ch == 0x2F:                            # /이름
+            return self._name()
+        if ch == 0x28:                            # (글자열)
+            return self._literal()
+        if ch == 0x3C:                            # <<사전>> 또는 <16진수>
+            return self._dict() if raw[self.pos + 1:self.pos + 2] == b"<" \
+                else self._hex()
+        if ch == 0x5B:                            # [배열]
+            return self._array()
+        word = self.word()
+        if word == b"true":
+            return True
+        if word == b"false":
+            return False
+        if word == b"null":
+            return None
+        if _INT_RE.fullmatch(word):
+            return self._maybe_ref(int(word))
+        if _REAL_RE.fullmatch(word):
+            return float(word.replace(b"--", b"-"))
+        raise PdfError(f"읽지 못한 값입니다: {word[:20]!r}")
+
+    def _maybe_ref(self, number: int):
+        """«12 0 R» 인지 그냥 숫자 12 인지는 뒤를 봐야 안다."""
+        save = self.pos
+        gen = self.word()
+        if _INT_RE.fullmatch(gen) and self.word() == b"R":
+            return Ref(number, int(gen))
+        self.pos = save
+        return number
+
+    def _name(self) -> Name:
+        self.pos += 1
+        raw, end = self.raw, len(self.raw)
+        out = bytearray()
+        while self.pos < end:
+            ch = raw[self.pos]
+            if ch in _WS_BYTES or ch in _DELIM_BYTES:
+                break
+            if ch == 0x23 and self.pos + 2 < end:          # #20 = 빈칸
+                try:
+                    out.append(int(raw[self.pos + 1:self.pos + 3], 16))
+                    self.pos += 3
+                    continue
+                except ValueError:
+                    pass
+            out.append(ch)
+            self.pos += 1
+        return Name(out.decode("latin-1"))
+
+    def _literal(self) -> bytes:
+        raw, end = self.raw, len(self.raw)
+        self.pos += 1
+        depth, out = 1, bytearray()
+        while self.pos < end:
+            ch = raw[self.pos]
+            if ch == 0x5C:                                  # 역슬래시
+                nxt = raw[self.pos + 1] if self.pos + 1 < end else 0
+                if nxt in _ESCAPES:
+                    out.append(_ESCAPES[nxt])
+                    self.pos += 2
+                elif 0x30 <= nxt <= 0x37:                   # 8진수 세 자리까지
+                    digits = ""
+                    self.pos += 1
+                    while len(digits) < 3 and self.pos < end and 0x30 <= raw[self.pos] <= 0x37:
+                        digits += chr(raw[self.pos])
+                        self.pos += 1
+                    out.append(int(digits, 8) & 0xFF)
+                elif nxt in (0x0A, 0x0D):                   # 줄 이어 쓰기
+                    self.pos += 2
+                    if nxt == 0x0D and raw[self.pos:self.pos + 1] == b"\n":
+                        self.pos += 1
+                else:
+                    out.append(nxt)
+                    self.pos += 2
+                continue
+            if ch == 0x28:
+                depth += 1
+            elif ch == 0x29:
+                depth -= 1
+                if depth == 0:
+                    self.pos += 1
+                    return bytes(out)
+            out.append(ch)
+            self.pos += 1
+        raise PdfError("글자열이 닫히지 않았습니다")
+
+    def _hex(self) -> bytes:
+        end = self.raw.find(b">", self.pos)
+        if end < 0:
+            raise PdfError("16진수 글자열이 닫히지 않았습니다")
+        digits = re.sub(rb"[^0-9A-Fa-f]", b"", self.raw[self.pos + 1:end])
+        self.pos = end + 1
+        if len(digits) % 2:
+            digits += b"0"
+        return bytes.fromhex(digits.decode("ascii"))
+
+    def _array(self) -> list:
+        self.pos += 1
+        out = []
+        while True:
+            self.skip()
+            if self.pos >= len(self.raw):
+                raise PdfError("배열이 닫히지 않았습니다")
+            if self.raw[self.pos] == 0x5D:
+                self.pos += 1
+                return out
+            out.append(self.value())
+
+    def _dict(self) -> dict:
+        self.pos += 2
+        out: dict = {}
+        while True:
+            self.skip()
+            if self.pos >= len(self.raw):
+                raise PdfError("사전이 닫히지 않았습니다")
+            if self.raw[self.pos:self.pos + 2] == b">>":
+                self.pos += 2
+                return out
+            key = self.value()
+            if not isinstance(key, Name):
+                raise PdfError(f"사전의 열쇠가 이름이 아닙니다: {key!r}")
+            out[str(key)] = self.value()
+
+    def object_at(self, offset: int, expect: int | None = None):
+        """«12 0 obj ... endobj» 하나를 읽는다."""
+        self.pos = offset
+        number = self.word()
+        self.word()
+        if self.word() != b"obj" or not _INT_RE.fullmatch(number):
+            raise PdfError(f"{offset} 자리에 객체가 없습니다")
+        if expect is not None and int(number) != expect:
+            raise PdfError(f"{offset} 자리는 {number.decode()}번 객체입니다 "
+                           f"({expect}번을 찾고 있었습니다)")
+        value = self.value()
+        self.skip()
+        if not isinstance(value, dict) or self.raw[self.pos:self.pos + 6] != b"stream":
+            return value
+
+        start = self.pos + 6
+        if self.raw[start:start + 2] == b"\r\n":
+            start += 2
+        elif self.raw[start:start + 1] in (b"\n", b"\r"):
+            start += 1
+
+        data = None
+        length = self.resolve(value.get("Length"))
+        if isinstance(length, int) and 0 <= length <= len(self.raw) - start:
+            data = self.raw[start:start + length]
+            if b"endstream" not in self.raw[start + length:start + length + 20]:
+                data = None                # /Length 가 틀렸다. 끝을 직접 찾는다
+        if data is None:
+            stop = self.raw.find(b"endstream", start)
+            if stop < 0:
+                raise PdfError("스트림이 닫히지 않았습니다")
+            data = self.raw[start:stop]
+            if data.endswith(b"\r\n"):
+                data = data[:-2]
+            elif data[-1:] in (b"\n", b"\r"):
+                data = data[:-1]
+        return Stream(value, data)
+
+
+def stream_data(stream: Stream, doc: "Document | None" = None) -> bytes:
+    """스트림을 푼다. 모르는 방식이면 짐작하지 않고 그만둔다."""
+    get = doc.get if doc else (lambda v: v)
+    filters = get(stream.data.get("Filter")) or []
+    if isinstance(filters, (Name, str)):
+        filters = [filters]
+    parms = get(stream.data.get("DecodeParms"))
+    if parms is None:
+        parms = get(stream.data.get("DP"))
+    if not isinstance(parms, list):
+        parms = [parms]
+
+    data = stream.raw
+    for i, one in enumerate(filters):
+        kind = str(get(one))
+        if kind in ("FlateDecode", "Fl"):
+            data = _inflate(data)
+        elif kind in ("ASCII85Decode", "A85"):
+            import base64
+            body = re.sub(rb"\s", b"", data)
+            if body.startswith(b"<~"):
+                body = body[2:]
+            data = base64.a85decode(body.split(b"~>")[0], adobe=False)
+        elif kind in ("ASCIIHexDecode", "AHx"):
+            body = re.sub(rb"[^0-9A-Fa-f]", b"", data.split(b">")[0])
+            data = bytes.fromhex((body + b"0" if len(body) % 2 else body).decode("ascii"))
+        else:
+            raise PdfError(f"이 방식으로 눌린 자료는 풀지 못합니다: {kind}")
+        parm = get(parms[i]) if i < len(parms) else None
+        if isinstance(parm, dict):
+            data = _undo_predictor(data, parm, get)
+    return data
+
+
+def _inflate(data: bytes) -> bytes:
+    """끝이 잘린 것도 읽을 수 있는 데까지 편다."""
+    for wbits in (15, -15):
+        try:
+            return zlib.decompressobj(wbits).decompress(data)
+        except zlib.error:
+            continue
+    raise PdfError("눌린 자료를 풀지 못했습니다")
+
+
+def _undo_predictor(data: bytes, parm: dict, get) -> bytes:
+    predictor = int(get(parm.get("Predictor")) or 1)
+    if predictor < 10:
+        return data
+    columns = int(get(parm.get("Columns")) or 1)
+    colors = int(get(parm.get("Colors")) or 1)
+    bits = int(get(parm.get("BitsPerComponent")) or 8)
+    stride = (columns * colors * bits + 7) // 8
+    step = max(1, colors * bits // 8)
+    return bytes(_unfilter(data, columns, len(data) // (stride + 1), stride, step))
+
+
+@dataclass
+class PdfPage:
+    number: int              # 몇 번째 쪽인가 (1부터)
+    obj: int | None          # 파일 안의 객체 번호
+    data: dict               # 물려받은 것(글꼴·크기)까지 채운 쪽 사전
+
+
+class Document:
+    """열어 둔 PDF 하나. 객체는 부를 때 읽는다."""
+
+    def __init__(self, path: Path, raw: bytes):
+        self.path = Path(path)
+        self.raw = raw
+        self.offsets: dict[int, int] = {}
+        self.packed: dict[int, tuple[int, int]] = {}   # 번호 -> (담은 스트림, 차례)
+        self.entries: set[int] = set()
+        self.trailer: dict = {}
+        self._cache: dict[int, object] = {}
+        self._objstm: dict[int, dict] = {}
+        self._scan: dict[int, int] | None = None
+        self._pages: list[PdfPage] | None = None
+
+    # ---- 객체 읽기
+
+    def get(self, value, depth: int = 0):
+        """참조면 따라간다. 고리에 빠지지 않게 깊이를 막는다."""
+        while isinstance(value, Ref) and depth < 32:
+            value = self.object(value.num)
+            depth += 1
+        return value
+
+    def object(self, num: int):
+        if num in self._cache:
+            return self._cache[num]
+        self._cache[num] = None                   # 스스로를 다시 부르는 고리 끊기
+        value = self._read(num, self.offsets.get(num))
+        if value is None and num in self.packed:
+            value = self._from_packed(num)
+        if value is None:
+            value = self._read(num, self._scanned().get(num))
+        self._cache[num] = value
+        return value
+
+    def _read(self, num: int, offset: int | None):
+        if offset is None or not 0 <= offset < len(self.raw):
+            return None
+        try:
+            return _Reader(self.raw, resolve=self.get).object_at(offset, num)
+        except (PdfError, ValueError):
+            return None
+
+    def _scanned(self) -> dict[int, int]:
+        """교차 참조표가 틀린 파일도 있다. 그때는 파일을 훑어 자리를 찾는다."""
+        if self._scan is None:
+            self._scan = {int(m.group(1)): m.start(1)
+                          for m in _OBJ_RE.finditer(self.raw)}
+        return self._scan
+
+    def _from_packed(self, num: int):
+        holder, _index = self.packed[num]
+        table = self._objstm.get(holder)
+        if table is None:
+            table = {}
+            stream = self.get(Ref(holder))
+            if isinstance(stream, Stream):
+                try:
+                    body = stream_data(stream, self)
+                    count = int(self.get(stream.data.get("N")) or 0)
+                    first = int(self.get(stream.data.get("First")) or 0)
+                    head = _Reader(body[:first])
+                    pairs = [(int(head.value()), int(head.value()))
+                             for _ in range(count)]
+                    for number, offset in pairs:
+                        table[number] = _Reader(body, first + offset,
+                                                resolve=self.get).value()
+                except (PdfError, ValueError, IndexError):
+                    table = {}
+            self._objstm[holder] = table
+        return table.get(num)
+
+    # ---- 쪽 차례
+
+    def pages(self) -> list[PdfPage]:
+        if self._pages is not None:
+            return self._pages
+        root = self.get(self.trailer.get("Root"))
+        node = self.get(root.get("Pages")) if isinstance(root, dict) else None
+        found: list[PdfPage] = []
+        if isinstance(node, dict):
+            self._collect(node, {}, found, set(), 0)
+        if not found:
+            raise PdfError(f"쪽 차례를 읽지 못했습니다: {self.path.name} "
+                           "(망가졌거나 이 프로그램이 모르는 짜임입니다)")
+        self._pages = found
+        return found
+
+    def _collect(self, node: dict, inherited: dict, out: list,
+                 seen: set, depth: int, obj: int | None = None) -> None:
+        inherited = dict(inherited)
+        for key in _INHERITED:
+            if key in node:
+                inherited[key] = node[key]
+        kids = self.get(node.get("Kids"))
+        if isinstance(kids, list) and str(node.get("Type", "")) != "Page":
+            if depth > 64:
+                raise PdfError("쪽 나무가 너무 깊습니다")
+            for kid in kids:
+                number = kid.num if isinstance(kid, Ref) else None
+                if number is not None:
+                    if number in seen:
+                        continue              # 같은 곳을 두 번 도는 파일도 있다
+                    seen.add(number)
+                child = self.get(kid)
+                if isinstance(child, dict):
+                    self._collect(child, inherited, out, seen, depth + 1, number)
+            return
+        page = dict(node)
+        for key, value in inherited.items():
+            page.setdefault(key, value)
+        out.append(PdfPage(number=len(out) + 1, obj=obj, data=page))
+
+
+def open_pdf(path) -> Document:
+    """PDF 를 연다. 암호가 걸렸거나 PDF 가 아니면 까닭을 말하고 그만둔다."""
+    path = Path(path)
+    raw = path.read_bytes()
+    if not raw.startswith(b"%PDF-"):
+        raise PdfError(f"PDF 가 아닙니다: {path.name}")
+
+    doc = Document(path, raw)
+    start = raw.rfind(b"startxref")
+    if start >= 0:
+        reader = _Reader(raw, start + len(b"startxref"))
+        try:
+            offset = reader.value()
+        except PdfError:
+            offset = None
+        if isinstance(offset, int):
+            _load_xref(doc, offset, set())
+
+    if "Root" not in doc.trailer:
+        _find_trailer(doc)
+    if "Encrypt" in doc.trailer:          # 값을 못 읽어도 잠긴 건 잠긴 것이다
+        raise PdfError(f"암호가 걸려 있습니다: {path.name} "
+                       "(암호를 풀어 저장한 사본으로 다시 해 보세요)")
+    if "Root" not in doc.trailer:
+        raise PdfError(f"목차(Root)를 찾지 못했습니다: {path.name}")
+    return doc
+
+
+def _load_xref(doc: Document, offset: int | None, seen: set) -> None:
+    """교차 참조표를 따라간다. 고쳐 저장한 파일은 표가 여러 겹이다."""
+    depth = 0
+    while (isinstance(offset, int) and offset not in seen
+           and 0 <= offset < len(doc.raw) and depth < 64):
+        seen.add(offset)
+        depth += 1
+        reader = _Reader(doc.raw, offset, resolve=doc.get)
+        reader.skip()
+        try:
+            if doc.raw[reader.pos:reader.pos + 4] == b"xref":
+                trailer = _classic_xref(doc, reader)
+            else:
+                trailer = _xref_stream(doc, reader)
+        except (PdfError, ValueError):
+            return
+        for key, value in trailer.items():
+            doc.trailer.setdefault(key, value)
+        hybrid = trailer.get("XRefStm")            # 두 가지를 다 넣은 파일
+        if isinstance(hybrid, int):
+            _load_xref(doc, hybrid, seen)
+        offset = trailer.get("Prev")
+
+
+def _classic_xref(doc: Document, reader: _Reader) -> dict:
+    reader.word()                                   # xref
+    while True:
+        save = reader.pos
+        word = reader.word()
+        if word == b"trailer":
+            value = reader.value()
+            return value if isinstance(value, dict) else {}
+        if not _INT_RE.fullmatch(word):
+            reader.pos = save
+            return {}
+        start = int(word)
+        count_word = reader.word()
+        if not _INT_RE.fullmatch(count_word):
+            return {}
+        for i in range(int(count_word)):
+            place, _gen, kind = reader.word(), reader.word(), reader.word()
+            num = start + i
+            if num in doc.entries:
+                continue                # 새 표가 이미 정한 것은 덮지 않는다
+            doc.entries.add(num)
+            if kind == b"n" and _INT_RE.fullmatch(place):
+                doc.offsets[num] = int(place)
+
+
+def _xref_stream(doc: Document, reader: _Reader) -> dict:
+    obj = reader.object_at(reader.pos)
+    if not isinstance(obj, Stream):
+        raise PdfError("교차 참조표를 찾지 못했습니다")
+    data = stream_data(obj, doc)
+    widths = [int(doc.get(w)) for w in (doc.get(obj.data.get("W")) or [])]
+    if len(widths) < 3:
+        raise PdfError("교차 참조 스트림의 /W 를 읽지 못했습니다")
+    size = int(doc.get(obj.data.get("Size")) or 0)
+    index = doc.get(obj.data.get("Index")) or [0, size]
+    row = sum(widths)
+    at = 0
+    for i in range(0, len(index) - 1, 2):
+        start, count = int(doc.get(index[i])), int(doc.get(index[i + 1]))
+        for step in range(count):
+            chunk = data[at:at + row]
+            at += row
+            if len(chunk) < row:
+                break
+            fields, place = [], 0
+            for size_of in widths:
+                fields.append(int.from_bytes(chunk[place:place + size_of], "big")
+                              if size_of else None)
+                place += size_of
+            kind = fields[0] if widths[0] else 1
+            num = start + step
+            if num in doc.entries:
+                continue
+            doc.entries.add(num)
+            if kind == 1:
+                doc.offsets[num] = fields[1]
+            elif kind == 2:
+                doc.packed[num] = (fields[1], fields[2] or 0)
+    return obj.data
+
+
+def _find_trailer(doc: Document) -> None:
+    """교차 참조표가 망가졌을 때. 파일에 있는 trailer 와 /Type /Catalog 를 찾는다."""
+    for match in re.finditer(rb"trailer", doc.raw):
+        try:
+            value = _Reader(doc.raw, match.end(), resolve=doc.get).value()
+        except PdfError:
+            continue
+        if isinstance(value, dict) and "Root" in value:
+            doc.trailer.setdefault("Root", value["Root"])
+    if "Root" in doc.trailer:
+        return
+    for num in sorted(doc._scanned()):
+        value = doc.object(num)
+        data = value.data if isinstance(value, Stream) else value
+        if isinstance(data, dict) and str(data.get("Type", "")) == "Catalog":
+            doc.trailer["Root"] = Ref(num)
+            return
+
+
+# ---- 다시 쓰기
+
+def _name_bytes(name: str) -> bytes:
+    out = bytearray(b"/")
+    for ch in name.encode("latin-1", "replace"):
+        if ch in _NAME_ESCAPE or not _NAME_KEEP.match(bytes([ch])):
+            out += f"#{ch:02X}".encode("ascii")
+        else:
+            out.append(ch)
+    return bytes(out)
+
+
+def _serialize(value) -> bytes:
+    """읽어 둔 값을 다시 PDF 글로. 글자열은 언제나 16진수로 쓴다(따옴표 사고 방지)."""
+    if isinstance(value, Stream):
+        data = dict(value.data)
+        data["Length"] = len(value.raw)
+        return (_serialize(data) + b"\nstream\n" + value.raw + b"\nendstream")
+    if isinstance(value, Name):
+        return _name_bytes(str(value))
+    if isinstance(value, Ref):
+        return f"{value.num} 0 R".encode("ascii")
+    if value is True:
+        return b"true"
+    if value is False:
+        return b"false"
+    if value is None:
+        return b"null"
+    if isinstance(value, int):
+        return str(value).encode("ascii")
+    if isinstance(value, float):
+        return (f"{value:.6f}".rstrip("0").rstrip(".") or "0").encode("ascii")
+    if isinstance(value, (bytes, bytearray)):
+        return b"<" + bytes(value).hex().encode("ascii") + b">"
+    if isinstance(value, str):
+        return b"<" + value.encode("utf-16-be").hex().encode("ascii") + b">"
+    if isinstance(value, list):
+        return b"[" + b" ".join(_serialize(v) for v in value) + b"]"
+    if isinstance(value, dict):
+        parts = [_name_bytes(k) + b" " + _serialize(v) for k, v in value.items()]
+        return b"<<" + b"".join(parts) + b">>"
+    raise PdfError(f"쓸 수 없는 값입니다: {type(value).__name__}")
+
+
+class _Copier:
+    """고른 쪽이 걸고 있는 객체를 새 파일로 옮겨 담는다."""
+
+    def __init__(self):
+        self.slots: list = []                       # 새 번호(1부터) 순서대로
+        self.map: dict[tuple[int, int], int] = {}
+        self.queue: list = []
+        self.missing: list[int] = []                # 가리키는데 없던 객체
+
+    def reserve(self, key) -> int:
+        if key not in self.map:
+            self.slots.append(None)
+            self.map[key] = len(self.slots)
+        return self.map[key]
+
+    def ref(self, doc: Document, num: int) -> Ref:
+        key = (id(doc), num)
+        if key in self.map:
+            return Ref(self.map[key])
+        new = self.reserve(key)
+        self.queue.append((doc, num, new))
+        return Ref(new)
+
+    def convert(self, doc: Document, value, depth: int = 0):
+        if depth > 64:
+            return None
+        if isinstance(value, Ref):
+            return self.ref(doc, value.num)
+        if isinstance(value, Stream):
+            data = {k: self.convert(doc, v, depth + 1)
+                    for k, v in value.data.items() if k != "Length"}
+            data["Length"] = len(value.raw)
+            return Stream(data, value.raw)
+        if isinstance(value, dict):
+            return {k: self.convert(doc, v, depth + 1) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self.convert(doc, v, depth + 1) for v in value]
+        return value
+
+    def drain(self, keep: set) -> None:
+        while self.queue:
+            doc, num, new = self.queue.pop()
+            value = doc.object(num)
+            data = value.data if isinstance(value, Stream) else value
+            if (isinstance(data, dict) and str(data.get("Type", "")) == "Page"
+                    and (id(doc), num) not in keep):
+                self.slots[new - 1] = None   # 안 고른 쪽을 가리키는 자리는 비운다
+                continue
+            if value is None:
+                self.missing.append(num)     # 없는 것을 있는 척하지 않는다
+            self.slots[new - 1] = self.convert(doc, value)
+
+
+def page_numbers(spec: str, total: int) -> list[int]:
+    """«1-3,7» «5-» «-3» 을 쪽 번호 목록으로. 차례와 겹침은 적은 대로 둔다."""
+    out: list[int] = []
+    for piece in str(spec).replace(" ", "").split(","):
+        if not piece:
+            continue
+        if "-" in piece[1:] or piece.startswith("-"):
+            first, _, last = piece.partition("-") if not piece.startswith("-") \
+                else ("1", "-", piece[1:])
+            start = int(first) if first.isdigit() else 1
+            stop = int(last) if last.isdigit() else total
+        elif piece.isdigit():
+            start = stop = int(piece)
+        else:
+            raise PdfError(f"쪽 지정을 읽지 못했습니다: {piece}")
+        if start < 1 or stop > total or start > stop:
+            raise PdfError(f"{start}-{stop} 은 없는 쪽입니다 (이 문서는 {total}쪽)")
+        out.extend(range(start, stop + 1))
+    if not out:
+        raise PdfError("고른 쪽이 없습니다")
+    return out
+
+
+@dataclass
+class JoinResult:
+    pages: int               # 새 파일의 쪽 수
+    objects: int             # 옮긴 객체 수
+    missing: int             # 원본이 가리키는데 없던 객체 수 (0 이어야 한다)
+
+
+def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
+              *, title: str = "") -> JoinResult:
+    """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로."""
+    out = Path(out)
+    copier = _Copier()
+    chosen = []
+    for doc, numbers in picks:
+        pages = doc.pages()
+        for number in numbers:
+            page = pages[number - 1]
+            key = (id(doc), page.obj) if page.obj is not None \
+                else (id(doc), -(len(chosen) + 1))
+            chosen.append((doc, page, copier.reserve(key), key))
+    if not chosen:
+        raise PdfError("고른 쪽이 없습니다")
+
+    keep = {key for _doc, _page, _new, key in chosen}
+    tree = copier.reserve(("root", "pages"))
+    catalog = copier.reserve(("root", "catalog"))
+    info = copier.reserve(("root", "info"))
+
+    for doc, page, new, _key in chosen:
+        data = {k: v for k, v in page.data.items() if k != "Parent"}
+        copied = copier.convert(doc, data)
+        copied["Type"] = Name("Page")
+        copied["Parent"] = Ref(tree)
+        copier.slots[new - 1] = copied
+    copier.drain(keep)
+
+    copier.slots[tree - 1] = {
+        "Type": Name("Pages"),
+        "Kids": [Ref(new) for _doc, _page, new, _key in chosen],
+        "Count": len(chosen),
+    }
+    copier.slots[catalog - 1] = {"Type": Name("Catalog"), "Pages": Ref(tree)}
+    made = {"Producer": "attools"}
+    if title:
+        made["Title"] = title
+    copier.slots[info - 1] = made
+
+    _write_objects(copier.slots, out, root=catalog, info=info)
+
+    check = open_pdf(out)          # 쓴 것을 다시 열어 본다
+    if len(check.pages()) != len(chosen):
+        out.unlink(missing_ok=True)
+        raise PdfError("만든 PDF 를 다시 읽어 보니 쪽 수가 맞지 않아 지웠습니다")
+    return JoinResult(pages=len(chosen), objects=len(copier.slots),
+                      missing=len(copier.missing))
+
+
+def _write_objects(slots: list, out: Path, *, root: int, info: int) -> None:
+    head = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n"
+    chunks = [head]
+    places = [0] * (len(slots) + 1)
+    at = len(head)
+    for i, value in enumerate(slots, 1):
+        places[i] = at
+        blob = f"{i} 0 obj\n".encode("ascii") + _serialize(value) + b"\nendobj\n"
+        chunks.append(blob)
+        at += len(blob)
+
+    table = [f"xref\n0 {len(slots) + 1}\n".encode("ascii"),
+             b"0000000000 65535 f \n"]
+    for i in range(1, len(slots) + 1):
+        table.append(f"{places[i]:010d} 00000 n \n".encode("ascii"))
+    chunks.extend(table)
+    trailer = (f"trailer\n<</Size {len(slots) + 1}/Root {root} 0 R"
+               f"/Info {info} 0 R>>\nstartxref\n{at}\n%%EOF\n").encode("ascii")
+    chunks.append(trailer)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"".join(chunks))

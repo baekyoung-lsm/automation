@@ -186,6 +186,144 @@ def cmd_file_pdf(a) -> int:
     return 0
 
 
+def _page_ranges(numbers: list[int]) -> str:
+    """[1,2,3,7] -> «1-3, 7». 고른 쪽을 눈으로 확인하기 좋게."""
+    if not numbers:
+        return "없음"
+    parts, start, last = [], numbers[0], numbers[0]
+    for number in numbers[1:] + [None]:
+        if number == last + 1:
+            last = number
+            continue
+        parts.append(f"{start}-{last}" if last > start else f"{start}")
+        if number is None:
+            break
+        start = last = number
+    return ", ".join(parts)
+
+
+def cmd_file_pdfcut(a) -> int:
+    """PDF 에서 필요한 쪽만 뽑는다. 원본은 건드리지 않는다."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    try:
+        wanted = pdf.page_numbers(a.pages, total) if a.pages \
+            else list(range(1, total + 1))
+        if a.drop:
+            drop = set(pdf.page_numbers(a.drop, total))
+            wanted = [n for n in wanted if n not in drop]
+    except pdf.PdfError as e:
+        _p(str(e))
+        return 1
+    if not wanted:
+        _p("남는 쪽이 없습니다. 뺀 쪽을 다시 보세요.")
+        return 1
+
+    _p(f"{path.name}  전체 {total}쪽")
+    if a.each:
+        where = Path(a.out) if a.out else path.parent
+        _p(f"한 쪽씩 {len(wanted)}개 파일로: {where}/{path.stem}-1.pdf ...")
+        if not a.apply:
+            _p("\n미리보기입니다. 실제로 만들려면 --apply 를 붙이세요.")
+            return 0
+        made = []
+        for number in wanted:
+            out = where / f"{path.stem}-{number}.pdf"
+            if not _may_write(a, out):
+                return 1
+            try:
+                pdf.join_pdfs([(doc, [number])], out)
+            except (pdf.PdfError, OSError) as e:
+                _p(f"{out.name}: {e}")
+                return 1
+            made.append(out)
+        _p(f"\n{len(made):,}개 만들었습니다. 원본은 그대로 있습니다.")
+        return 0
+
+    _p(f"고른 쪽 {len(wanted)}개: {_page_ranges(wanted)}")
+    if not a.out:
+        _p("\n미리보기입니다. 파일로 만들려면 -o 뽑은.pdf 를 주세요.")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    try:
+        result = pdf.join_pdfs([(doc, wanted)], out, title=a.title or "")
+    except (pdf.PdfError, OSError) as e:
+        _p(str(e))
+        return 1
+    _p(f"\n저장: {out}  ({result.pages:,}쪽, "
+       f"{files.human_size(out.stat().st_size)})")
+    if result.missing:
+        _p(f"원본이 가리키는데 없던 객체가 {result.missing}개 있었습니다. "
+           "그 자리는 비워 두었습니다 - 원본이 조금 망가져 있습니다.")
+    _p("글자와 그림은 눌린 그대로 옮겨 화질이 그대로입니다. "
+       "쪽에 딸린 책갈피·양식은 따라가지 않습니다.")
+    return 0
+
+
+def cmd_file_pdfjoin(a) -> int:
+    """여러 PDF 를 준 차례대로 이어 붙인다."""
+    from .. import pdf
+
+    picks = []
+    rows = []
+    for raw in a.files:
+        path = Path(raw)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        try:
+            doc = pdf.open_pdf(path)
+            count = len(doc.pages())
+        except pdf.PdfError as e:
+            _p(str(e))            # 까닭에 이미 파일 이름이 들어 있다
+            return 1
+        except (OSError, ValueError) as e:
+            _p(f"{path.name}: {e}")
+            return 1
+        picks.append((doc, list(range(1, count + 1))))
+        rows.append([str(len(rows) + 1), _pad(path.name, 0), f"{count:,}"])
+
+    _grid(["차례", "파일", "쪽"], rows, limit=40)
+    total = sum(len(numbers) for _doc, numbers in picks)
+    _p(f"\n모두 {total:,}쪽")
+    if len(picks) < 2:
+        _p("합칠 파일이 하나뿐입니다. 두 개 이상 주세요.")
+        return 1
+    if not a.out:
+        _p("파일로 만들려면 -o 합본.pdf 를 주세요. (준 차례대로 붙입니다)")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    try:
+        result = pdf.join_pdfs(picks, out, title=a.title or "")
+    except (pdf.PdfError, OSError) as e:
+        _p(str(e))
+        return 1
+    _p(f"저장: {out}  ({result.pages:,}쪽, "
+       f"{files.human_size(out.stat().st_size)})")
+    if result.missing:
+        _p(f"원본이 가리키는데 없던 객체가 {result.missing}개 있었습니다. "
+           "그 자리는 비워 두었습니다.")
+    _p("원본은 그대로 둡니다. 책갈피·양식·서명은 따라가지 않습니다.")
+    return 0
+
+
 def cmd_file_exif(a) -> int:
     """사진에 남은 촬영 정보(위치·기기·날짜)를 보고, 지운 사본을 만든다."""
     root = Path(a.dir)
@@ -1319,6 +1457,33 @@ def add_commands(sub) -> None:
     pdfp.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
     pdfp.add_argument("--limit", type=int, default=30, metavar="개")
     pdfp.set_defaults(func=cmd_file_pdf)
+
+    cut = fp.add_parser("pdfcut", help="PDF 에서 필요한 쪽만 뽑기 (나누기)")
+    cut.add_argument("file", metavar="파일.pdf")
+    cut.add_argument("--pages", metavar="쪽", help="예: 1-3,7 또는 5- 또는 -3")
+    cut.add_argument("--drop", metavar="쪽", help="뺄 쪽. 예: 2,5-6")
+    cut.add_argument("--each", action="store_true",
+                     help="한 쪽씩 따로 파일로 나눈다")
+    cut.add_argument("--apply", action="store_true",
+                     help="--each 일 때 실제로 만든다")
+    cut.add_argument("-o", "--out", metavar="파일.pdf",
+                     help="--each 이면 넣을 폴더")
+    cut.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    cut.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
+    cut.epilog = ("예: at file pdfcut 계약서.pdf --pages 1-3 -o 앞부분.pdf\n"
+                  "    at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf\n"
+                  "    at file pdfcut 모음.pdf --each --apply")
+    cut.set_defaults(func=cmd_file_pdfcut)
+
+    jn = fp.add_parser("pdfjoin", help="여러 PDF 를 준 차례대로 합치기")
+    jn.add_argument("files", nargs="+", metavar="파일.pdf")
+    jn.add_argument("-o", "--out", metavar="파일.pdf")
+    jn.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    jn.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
+    jn.epilog = "예: at file pdfjoin 앞.pdf 뒤.pdf -o 합본.pdf"
+    jn.set_defaults(func=cmd_file_pdfjoin)
 
     exf = fp.add_parser("exif",
                         help="사진에 남은 촬영 정보 보기·지우기 (위치·기기)")
