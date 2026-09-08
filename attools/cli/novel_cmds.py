@@ -197,10 +197,13 @@ def cmd_novel_outline(a) -> int:
         return 1
 
     scenes: list[manuscript.Scene] = []
+    dropped = 0
     for path in targets:
         body = manuscript.strip_headings(manuscript.read_text(path)) \
             if a.no_headings else manuscript.read_text(path)
         found = manuscript.split_scenes(body, min_chars=a.min)
+        # 짧아서 뺀 덩어리를 세어 둔다. 조용히 빼면 장면이 사라진 줄 모른다
+        dropped += len(manuscript.split_scenes(body, min_chars=1)) - len(found)
         for scene in found:
             scene.number = len(scenes) + 1
             scene.title = scene.title or (path.stem if len(targets) > 1 else "")
@@ -220,7 +223,10 @@ def cmd_novel_outline(a) -> int:
        f"  ·  원고지 {total / manuscript.WONGOJI_CHARS:,.0f}매")
     longest, shortest = max(scenes, key=lambda s: s.chars), min(scenes, key=lambda s: s.chars)
     _p(f"가장 긴 장면 {longest.number}번 {longest.chars:,}자  ·  "
-       f"가장 짧은 장면 {shortest.number}번 {shortest.chars:,}자\n")
+       f"가장 짧은 장면 {shortest.number}번 {shortest.chars:,}자")
+    if dropped:
+        _p(f"{a.min}자보다 짧아 세지 않은 덩어리 {dropped}개 (--min 으로 조절)")
+    _p("")
 
     header = ["번호", "제목", "행", "분량", "대사", "인물", "첫 문장"]
     body_rows = [[str(s.number), s.title or "-", str(s.line), f"{s.chars:,}",

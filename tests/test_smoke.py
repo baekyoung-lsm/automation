@@ -980,6 +980,14 @@ class SmokeTest(unittest.TestCase):
                                            expect=1))
         self.assertIn("시간", self.run_cli("novel", "timeline", 원고, "--min", "20"))
         self.assertIn("대사", self.run_cli("novel", "dialogue", 원고, "--min", "2"))
+        # 짧아서 뺀 덩어리는 조용히 사라지지 않고 몇 개인지 말해야 한다
+        장면원고 = Path(self.path("장면원고"))
+        장면원고.mkdir(exist_ok=True)
+        (장면원고 / "01화.txt").write_text(
+            "가나다라마바사아자차카타파하" * 10 + "\n\n＊\n\n짧은 장면.\n",
+            encoding="utf-8")
+        장면 = self.run_cli("novel", "outline", str(장면원고), "--min", "100")
+        self.assertIn("짧아 세지 않은 덩어리 1개", 장면)
         self.assertIn("어휘", self.run_cli("novel", "wordlist", 원고, "--min", "2"))
         self.run_cli("novel", "style", 원고)
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
