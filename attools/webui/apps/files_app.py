@@ -263,6 +263,65 @@ def audit(payload: dict) -> dict:
             "command": form.command(*args)}
 
 
+def _scrub_targets(payload: dict):
+    raw = form.text(payload, "docroot")
+    if not raw:
+        raise UiError("폴더 또는 파일 경로를 적어 주세요.")
+    root = Path(raw).expanduser()
+    if not root.exists():
+        raise UiError(f"없는 경로입니다: {root}")
+    if root.is_file():
+        return root, [root]
+    return root, [m.path for m in files.scan_documents(root)]
+
+
+def _scrub_command(payload: dict, root, *, apply: bool = False) -> str:
+    args: list[object] = ["file", "scrub", root]
+    return form.command(*args, *(["--apply"] if apply else []))
+
+
+def documents(payload: dict) -> dict:
+    """문서 속성만 읽어 «누가 만든 문서인가» 를 본다. 내용은 열지 않는다."""
+    root, targets = _scrub_targets(payload)
+    metas = [files.document_meta(p) for p in targets]
+    rows = [[m.path.name, m.kind, m.title, m.author, m.last_by,
+             m.modified[:10], "" if m.pages is None else f"{m.pages:,}",
+             m.error] for m in metas]
+    left = [[m.path.name, ", ".join(m.personal)] for m in metas if m.personal]
+    return {"rows": rows, "left": left, "count": len(metas),
+            "command": form.command("file", "docs", root)}
+
+
+def scrub_preview(payload: dict) -> dict:
+    root, targets = _scrub_targets(payload)
+    plans = [files.plan_scrub(p) for p in targets]
+    dirty = [p for p in plans if p.ok]
+    return {"rows": [[plan.path.name, label, value]
+                     for plan in dirty for label, value in plan.removed],
+            "count": len(dirty), "looked": len(plans),
+            "others": sorted({part for plan in dirty for part in plan.others}),
+            "broken": [[p.path.name, p.error] for p in plans if p.error],
+            "command": _scrub_command(payload, root)}
+
+
+def scrub_apply(payload: dict) -> dict:
+    """이름을 지운 사본을 만든다. 원본은 건드리지 않는다."""
+    root, targets = _scrub_targets(payload)
+    out = scrub_preview(payload)
+    made: list[str] = []
+    for path in targets:
+        plan = files.plan_scrub(path)
+        if not plan.ok:
+            continue
+        target = files.unique_path(
+            path.with_name(f"{path.stem} (이름지움){path.suffix}"))
+        files.apply_scrub(path, target)
+        made.append(str(target))
+    out["made"] = made
+    out["command"] = _scrub_command(payload, root, apply=True)
+    return out
+
+
 def _pack_plan(payload: dict):
     root = form.folder(payload, "packroot")
     try:
@@ -471,6 +530,23 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>문서에 남은 이름</h2>
+  <p class="note">워드·엑셀·슬라이드 파일의 <b>속성만</b> 읽습니다(내용은 열지 않습니다).
+     밖으로 보내는 문서에 만든 사람·마지막 저장한 사람·회사 이름이 그대로 남아 있는
+     일이 잦습니다. 지울 때는 <b>«…(이름지움)» 사본</b>을 만들고 원본은 그대로 둡니다.
+     메모·변경 내역·본문에 적힌 이름은 지우지 못합니다 - 그건 내용입니다.</p>
+  <div class="row">
+    <div style="flex:3 1 20rem"><label for="docroot">폴더 또는 파일</label>
+      <input type="text" id="docroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-docs">속성 보기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-scrub">무엇이 지워지나</button></div>
+    <div style="flex:0 0 auto"><button id="btn-scrub-save" disabled>사본 만들기</button></div>
+  </div>
+  <div id="docsmsg"></div>
+  <div id="docsout"></div>
+</section>
+
+<section class="card">
   <h2>메일 첨부로 나눠 담기</h2>
   <p class="note">첨부 한도에 맞춰 여러 zip 으로 나눕니다. <b>압축한 크기가 아니라
      원본 크기로 묶습니다</b> - jpg 처럼 이미 눌린 파일은 압축해도 안 줄어들어서,
@@ -648,6 +724,66 @@ BODY = """
     } catch (e) { AT.message($("auditmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function docValues() { return { docroot: $("docroot").value }; }
+
+  $("btn-docs").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/documents", docValues());
+      $("docsout").innerHTML =
+        AT.table(["파일", "종류", "제목", "만든 사람", "마지막 저장",
+                  "고친 날짜", "쪽", "못 읽은 까닭"], d.rows,
+                 [null, null, null, null, null, null, "num", null]) +
+        (d.left.length
+          ? "<h2>남아 있는 이름</h2>" +
+            AT.table(["파일", "이름"], d.left)
+          : '<p class="note">속성에 남은 사람·회사 이름이 없습니다.</p>') +
+        AT.command(d.command);
+      AT.remember("files", "docroot", $("docroot").value);
+      AT.message($("docsmsg"), "문서 <b>" + d.count + "개</b>" +
+        (d.left.length ? " · 이름이 남은 문서 " + d.left.length + "개" : ""),
+        "ok");
+      $("btn-scrub-save").disabled = true;
+    } catch (e) { AT.message($("docsmsg"), AT.esc(e.message), "bad"); }
+  });
+
+  function drawScrub(d) {
+    $("docsout").innerHTML =
+      AT.table(["파일", "지울 자리", "값"], d.rows) +
+      (d.broken.length
+        ? "<h2>열지 못한 파일</h2>" + AT.table(["파일", "까닭"], d.broken) : "") +
+      (d.others.length
+        ? '<p class="note">메모·변경 내역이 든 문서가 있습니다. 거기 남은 이름은 ' +
+          "지우지 못합니다: " + d.others.map(AT.esc).join(" · ") + "</p>"
+        : "") +
+      (d.made
+        ? "<h2>만든 사본</h2>" +
+          AT.table(["파일"], d.made.map(function (x) { return [x]; }))
+        : "") + AT.command(d.command);
+  }
+
+  $("btn-scrub").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/scrub_preview", docValues());
+      drawScrub(d);
+      AT.message($("docsmsg"), "문서 " + d.looked + "개 가운데 <b>" + d.count +
+        "개</b>에 이름이 남아 있습니다. 아직 아무것도 만들지 않았습니다.", "ok");
+      $("btn-scrub-save").disabled = d.count === 0;
+    } catch (e) {
+      AT.message($("docsmsg"), AT.esc(e.message), "bad");
+      $("btn-scrub-save").disabled = true;
+    }
+  });
+
+  $("btn-scrub-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/scrub_apply", docValues());
+      drawScrub(d);
+      AT.message($("docsmsg"), "사본 <b>" + d.made.length +
+        "개</b>를 만들었습니다. 원본은 그대로입니다.", "ok");
+      $("btn-scrub-save").disabled = true;
+    } catch (e) { AT.message($("docsmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function packValues() {
     return { packroot: $("packroot").value, packmax: $("packmax").value,
              packglob: $("packglob").value, packhidden: $("packhidden").checked };
@@ -781,6 +917,8 @@ def make() -> App:
         actions={"preview": preview, "apply": apply, "dupes": dupes,
                  "pack_preview": pack_preview, "pack_apply": pack_apply,
                  "audit": audit,
+                 "documents": documents,
+                 "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,
                  "compare": compare,
                  "collect_preview": collect_preview,

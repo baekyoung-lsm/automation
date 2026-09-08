@@ -173,6 +173,40 @@ class WebUiTest(UiCase):
         self.assertEqual(data["saved"], str(self.work.parent))
         self.assertTrue((self.work / "가.bin").exists())    # 원본은 그대로
 
+    def test_documents_and_scrub(self):
+        import zipfile
+
+        path = self.work / "계획서.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("docProps/core.xml",
+                       "<cp:coreProperties xmlns:cp='c' xmlns:dc='d'>"
+                       "<dc:title>계획</dc:title><dc:creator>김철수</dc:creator>"
+                       "</cp:coreProperties>")
+            z.writestr("word/document.xml", "<x/>")
+
+        _, docs = self.post("/api/files/documents", {"docroot": str(self.work)})
+        self.assertEqual(docs["count"], 1)
+        self.assertEqual(docs["left"], [["계획서.docx", "김철수"]])
+
+        _, plan = self.post("/api/files/scrub_preview",
+                            {"docroot": str(self.work)})
+        self.assertEqual(plan["rows"], [["계획서.docx", "만든 사람", "김철수"]])
+        # 미리보기는 아무것도 만들지 않는다
+        self.assertEqual(list(self.work.glob("*이름지움*")), [])
+
+        _, done = self.post("/api/files/scrub_apply",
+                            {"docroot": str(self.work)})
+        self.assertEqual(len(done["made"]), 1)
+        self.assertTrue(path.exists())      # 원본은 그대로
+        _, after = self.post("/api/files/documents",
+                             {"docroot": done["made"][0]})
+        self.assertEqual(after["left"], [])
+
+    def test_scrub_needs_a_path(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/scrub_preview", {"docroot": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_pack_rejects_a_bad_size(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/pack_preview",
@@ -2249,6 +2283,24 @@ class CommandHintTest(UiCase):
                       "hidden": True, "fixname": True}):
             _, data = self.post("/api/files/preview", body)
             self.accepts(data["command"])
+
+    def test_files_scrub_command(self):
+        import zipfile
+
+        path = self.work / "계획서.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("docProps/core.xml",
+                       "<cp:coreProperties xmlns:cp='c' xmlns:dc='d'>"
+                       "<dc:creator>김철수</dc:creator></cp:coreProperties>")
+            z.writestr("word/document.xml", "<x/>")
+        _, docs = self.post("/api/files/documents", {"docroot": str(self.work)})
+        self.accepts(docs["command"])
+        _, plan = self.post("/api/files/scrub_preview",
+                            {"docroot": str(self.work)})
+        self.accepts(plan["command"])
+        _, done = self.post("/api/files/scrub_apply",
+                            {"docroot": str(self.work)})
+        self.accepts(done["command"])
 
     def test_text_commands(self):
         (self.work / "가.md").write_text("리안\n", encoding="utf-8")
