@@ -285,13 +285,27 @@ def duration_ms(line: str) -> float | None:
     return float(value) * UNIT_MS[unit.lower()]
 
 
+# 메서드를 안 적는 로그도 많다 (INFO /api/pay took=12ms). 그때는 경로만 본다.
+# 파일 경로(/var/log/app.log)를 길로 세지 않도록 확장자가 붙은 것은 뺀다.
+BARE_PATH_RE = re.compile(r"(?<![\w.~-])(/[\w{}~.-]+(?:/[\w{}~.-]*)*)")
+FILE_LIKE = re.compile(r"\.[A-Za-z]{1,5}$")
+
+
 def route_of(line: str) -> str:
     """GET /api/users/12 -> GET /api/users/{n}. 못 찾으면 빈 문자열."""
     m = ROUTE_RE.search(line)
-    if not m:
-        return ""
-    path = m.group(2).split("?", 1)[0]
-    return f"{m.group(1).upper()} {PATH_NUM.sub('/{n}', path)}"
+    if m:
+        path = m.group(2).split("?", 1)[0]
+        return f"{m.group(1).upper()} {PATH_NUM.sub('/{n}', path)}"
+
+    for found in BARE_PATH_RE.finditer(line):
+        path = found.group(1).split("?", 1)[0]
+        if len(path) < 2 or FILE_LIKE.search(path):
+            continue
+        if "." in path.split("/")[1]:      # //example.com/... 같은 주소는 뺀다
+            continue
+        return PATH_NUM.sub("/{n}", path)
+    return ""
 
 
 def timings(entries: list["Entry"], *,

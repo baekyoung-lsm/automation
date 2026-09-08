@@ -298,6 +298,22 @@ class LogkitTest(unittest.TestCase):
         groups = logkit.group_messages(logkit.parse(lines))
         self.assertEqual([g.level for g in groups[:2]], ["ERROR", "INFO"])
 
+    def test_route_without_a_method(self):
+        # 메서드를 안 적는 로그도 많다. 그때 «경로 없음» 으로 다 몰리면 쓸모없다
+        self.assertEqual(logkit.route_of("2026-03-02 09:00:01 INFO /api/pay took=12ms"),
+                         "/api/pay")
+        self.assertEqual(logkit.route_of("INFO /api/orders/1024/items took=5ms"),
+                         "/api/orders/{n}/items")
+
+    def test_file_paths_and_urls_are_not_routes(self):
+        self.assertEqual(logkit.route_of("ERROR 파일 없음 /var/log/app.log"), "")
+        self.assertEqual(logkit.route_of("INFO 호출 https://example.com/api/x"), "")
+        self.assertEqual(logkit.route_of("INFO 아무것도 없음"), "")
+
+    def test_method_still_wins(self):
+        self.assertEqual(logkit.route_of("INFO GET /api/users/12 200"),
+                         "GET /api/users/{n}")
+
     def test_group_messages_merges_same_incident(self):
         groups = logkit.group_messages(logkit.parse(self.SAMPLE), levels={"ERROR"})
         self.assertEqual(groups[0].count, 2)
