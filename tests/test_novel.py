@@ -839,3 +839,35 @@ class PunctuationTest(unittest.TestCase):
         body = "첫 줄\n둘째 줄...\n셋째 줄"
         self.assertEqual([s.line for s in manuscript.punctuation_spots(body)], [2])
 
+class JoinedLineTest(unittest.TestCase):
+    """여러 화를 이어 붙였을 때 «몇 행» 이 어느 파일의 몇 행인지."""
+
+    def setUp(self):
+        from attools.cli import novel_cmds
+
+        self.cmds = novel_cmds
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, name, body):
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_line_maps_back_to_its_file(self):
+        one = self.make("01화.txt", "가\n나\n")        # 1,2행 (+빈 줄)
+        two = self.make("02화.txt", "다\n라\n마\n")
+        body, marks = self.cmds._joined([one, two])
+        lines = body.splitlines()
+        self.assertEqual(lines[3], "다")               # 이어 붙이면 4행
+        self.assertEqual(self.cmds._where(marks, 4), "02화.txt 1행")
+        self.assertEqual(self.cmds._where(marks, 6), "02화.txt 3행")
+        self.assertEqual(self.cmds._where(marks, 1), "01화.txt 1행")
+
+    def test_single_file_keeps_plain_numbers(self):
+        one = self.make("01화.txt", "가\n나\n")
+        _body, marks = self.cmds._joined([one])
+        self.assertEqual(self.cmds._where(marks, 2), "2행")
+

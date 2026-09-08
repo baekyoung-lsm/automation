@@ -941,13 +941,39 @@ def cmd_novel_wordlist(a) -> int:
     return 0
 
 
+def _joined(targets) -> tuple[str, list[tuple[int, Path]]]:
+    """여러 화를 이어 붙이고, 어느 줄부터 어느 파일인지 표를 함께 만든다."""
+    bodies: list[str] = []
+    marks: list[tuple[int, Path]] = []
+    line = 1
+    for path in targets:
+        body = manuscript.read_text(path)
+        marks.append((line, path))
+        bodies.append(body)
+        line += body.count("\n") + 1        # 이어 붙일 때 줄바꿈 하나가 더 붙는다
+    return "\n".join(bodies), marks
+
+
+def _where(marks: list[tuple[int, Path]], line: int) -> str:
+    """이어 붙인 행 번호를 «02화.txt 5행» 으로. 파일이 하나면 그냥 행 번호."""
+    if len(marks) < 2:
+        return f"{line}행"
+    start, path = marks[0]
+    for begin, one in marks:
+        if begin > line:
+            break
+        start, path = begin, one
+    return f"{path.name} {line - start + 1}행"
+
+
 def cmd_novel_names(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
 
-    body = manuscript.strip_markup("\n".join(manuscript.read_text(p) for p in targets))
+    raw, marks = _joined(targets)
+    body = manuscript.strip_markup(raw)      # 제목 줄만 비운다 (줄 수는 그대로)
     found = names.extract(body, min_count=a.min, min_variety=a.variety)
     known = [n.text for n in found] + list(a.name or [])
 
@@ -984,11 +1010,12 @@ def cmd_novel_names(a) -> int:
 
     _p(f"이름 뒤 조사 오류 {len(errors)}건")
     for e in errors[:a.limit]:
-        _p(f"  {e.line}행  {e.name}{e.wrong} -> {e.name}{e.right}")
+        _p(f"  {_where(marks, e.line)}  {e.name}{e.wrong} -> {e.name}{e.right}")
         _p(f"        …{e.excerpt}…")
     if len(errors) > a.limit:
         _p(f"  ... {len(errors) - a.limit}건 더")
-    _p("\n행 번호는 파일을 이어 붙인 기준입니다.")
+    if len(targets) < 2:
+        _p("\n행 번호는 그 파일 기준입니다.")
     return 1
 
 
