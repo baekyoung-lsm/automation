@@ -2436,5 +2436,43 @@ class MailDraftTest(unittest.TestCase):
         self.assertIn("제목이 비었습니다", drafts[0].problem)
 
 
+class CellDiffTest(unittest.TestCase):
+    def setUp(self):
+        self.before = sheet.Table(["이름", "금액"], [["가", 100], ["나", 200]])
+
+    def test_no_change(self):
+        got = sheet.diff_cells(self.before, self.before)
+        self.assertTrue(got.empty)
+        self.assertEqual(got.changes, [])
+
+    def test_changed_cell_has_excel_address(self):
+        after = sheet.Table(["이름", "금액"], [["가", 150], ["나", 200]])
+        change = sheet.diff_cells(self.before, after).changes[0]
+        self.assertEqual(change.ref, "B2")     # 머리글이 1행이다
+        self.assertEqual(change.column, "금액")
+        self.assertEqual((change.before, change.after), ("100", "150"))
+
+    def test_added_row_and_column(self):
+        after = sheet.Table(["이름", "금액", "비고"],
+                            [["가", 100], ["나", 200], ["다", 300]])
+        got = sheet.diff_cells(self.before, after)
+        self.assertEqual(got.rows_after, 3)
+        self.assertEqual(got.columns_after, 3)
+        self.assertEqual([c.ref for c in got.changes], ["A4", "B4"])
+
+    def test_limit_marks_that_it_was_cut(self):
+        big = sheet.Table(["가"], [[str(n)] for n in range(50)])
+        other = sheet.Table(["가"], [[str(n + 1)] for n in range(50)])
+        got = sheet.diff_cells(big, other, limit=10)
+        self.assertTrue(got.cut)
+        self.assertEqual(len(got.changes), 10)
+
+    def test_shifted_row_shows_everything_below(self):
+        # 자리로만 견주므로 한 줄 밀리면 아래가 다 달라 보인다. 그래서 안내를 단다
+        after = sheet.Table(["이름", "금액"],
+                            [["새로", 1], ["가", 100], ["나", 200]])
+        self.assertEqual(len(sheet.diff_cells(self.before, after).changes), 6)
+
+
 if __name__ == "__main__":
     unittest.main()

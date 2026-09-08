@@ -1045,8 +1045,30 @@ def cmd_sheet_diff(a) -> int:
            "'사라짐 + 새로 생김' 으로 나옵니다.")
         return 1
 
+    if a.cells:
+        cd = sheet.diff_cells(before, after, limit=max(a.limit, 1000))
+        if cd.empty:
+            _p("같은 자리끼리 견주었습니다. 다른 칸이 없습니다.")
+            return 0
+        if cd.rows_before != cd.rows_after:
+            _p(f"행 수  {cd.rows_before:,} -> {cd.rows_after:,}")
+        if cd.columns_before != cd.columns_after:
+            _p(f"열 수  {cd.columns_before:,} -> {cd.columns_after:,}")
+        if cd.changes:
+            _p(f"\n다른 칸 {len(cd.changes):,}개" + (" (여기까지만 셌습니다)"
+                                                     if cd.cut else ""))
+            _grid(["칸", "열", "이전", "이후"],
+                  [[c.ref, _cut(c.column, 16), _cut(c.before, 22),
+                    _cut(c.after, 22)] for c in cd.changes[:a.limit]])
+            if len(cd.changes) > a.limit:
+                _p(f"  ... {len(cd.changes) - a.limit:,}개 더 (--limit 로 조절)")
+        _p("\n자리로만 견주었습니다. 행이 하나 밀리면 그 아래가 모두 달라 "
+           "보입니다 - 짝지을 키가 있으면 --key 쪽이 낫습니다.")
+        return 1
+
     if not a.key:
-        _p("--key 로 행을 짝지을 열을 주세요. 열 구조만 보려면 --columns 를 쓰세요.")
+        _p("--key 로 행을 짝지을 열을 주세요. 열 구조만 보려면 --columns, "
+           "같은 자리끼리 견주려면 --cells 를 쓰세요.")
         return 1
 
     try:
@@ -2371,6 +2393,8 @@ def add_commands(sub) -> None:
     df.add_argument("--key", metavar="열", help="행을 짝지을 열")
     df.add_argument("--columns", action="store_true",
                     help="행 대신 열 구조만 비교 (키가 없어도 된다)")
+    df.add_argument("--cells", action="store_true",
+                    help="같은 자리끼리 칸 단위로 비교 (키가 없는 서식 문서)")
     df.add_argument("--limit", type=int, default=20)
     df.add_argument("-o", "--out", metavar="파일",
                     help="변경 내역을 표로 저장 (추가·삭제·바뀜)")

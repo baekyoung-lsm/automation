@@ -753,6 +753,65 @@ class Diff:
                     or self.columns_added or self.columns_removed)
 
 
+@dataclass
+class CellChange:
+    ref: str                # 엑셀에서 보이는 칸 주소 (B3)
+    line: int               # 표에서의 줄 번호 (머리글이 1)
+    column: str             # 열 이름 (자리로만 아는 열이면 빈 문자열)
+    before: str
+    after: str
+
+
+@dataclass
+class CellDiff:
+    changes: list = field(default_factory=list)
+    rows_before: int = 0
+    rows_after: int = 0
+    columns_before: int = 0
+    columns_after: int = 0
+    cut: bool = False       # 너무 많아 잘랐나
+
+    @property
+    def empty(self) -> bool:
+        return not (self.changes or self.rows_before != self.rows_after
+                    or self.columns_before != self.columns_after)
+
+
+def diff_cells(before: Table, after: Table, *, limit: int = 1000) -> CellDiff:
+    """두 표를 «같은 자리끼리» 견준다. 키가 없는 서식 문서용.
+
+    행이 하나 밀리면 그 아래가 전부 달라 보인다 - 자리로만 견주기 때문이다.
+    키가 있으면 diff() 쪽이 낫다.
+    """
+    out = CellDiff(rows_before=len(before.rows), rows_after=len(after.rows),
+                   columns_before=before.width, columns_after=after.width)
+
+    width = max(before.width, after.width)
+    height = max(len(before.rows), len(after.rows))
+    headers = after.headers if after.width >= before.width else before.headers
+
+    def cell(table: Table, r: int, c: int) -> str:
+        if r >= len(table.rows):
+            return ""
+        row = table.rows[r]
+        return to_text(row[c]) if c < len(row) else ""
+
+    for r in range(height):
+        for c in range(width):
+            old, new = cell(before, r, c), cell(after, r, c)
+            if old == new:
+                continue
+            if len(out.changes) >= limit:
+                out.cut = True
+                return out
+            out.changes.append(CellChange(
+                ref=f"{xlsx.index_to_col(c)}{r + 2}",   # 머리글이 1행이다
+                line=r + 2,
+                column=headers[c] if c < len(headers) else "",
+                before=old, after=new))
+    return out
+
+
 def diff(before: Table, after: Table, key: str) -> Diff:
     """키 열을 기준으로 두 표를 비교한다."""
     d = Diff()

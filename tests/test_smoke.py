@@ -391,6 +391,8 @@ class SmokeTest(unittest.TestCase):
                                                  "--cols", "이름,부서", "--into", "표시"))
         self.assertIn("열 구조가 같습니다",
                       self.run_cli("sheet", "diff", csv, csv, "--columns"))
+        self.assertIn("다른 칸이 없습니다",
+                      self.run_cli("sheet", "diff", csv, csv, "--cells"))
         내역 = self.path("변경내역.csv")
         self.run_cli("sheet", "diff", csv, self.path("급여.csv"),
                      "--key", "사번", "-o", 내역, expect=1)

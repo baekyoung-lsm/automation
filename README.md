@@ -379,6 +379,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
 어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
 
+`at sheet diff --cells` 는 키가 없는 표를 위한 것이다. 견적서·양식처럼 짝지을 열이 없는
+문서 두 판을 **같은 자리끼리** 견주고 바뀐 칸을 엑셀 주소(`B3`)로 알려 준다. 자리로만
+견주므로 행이 하나 밀리면 그 아래가 모두 달라 보인다 - 그럴 때는 `--key` 쪽이 낫고,
+출력에도 그렇게 적어 둔다.
+
 `at sheet mail` 은 명단과 본문 틀로 **사람마다 메일 초안 파일(.eml)** 을 만든다. 제목에도
 `{이름}` 같은 자리표시자를 쓸 수 있고, 첨부 파일 경로가 든 열을 주면 개인별 명세서를 붙인다.
 **보내지 않는다** - SMTP 도, 비밀번호도 쓰지 않는다. 파일을 메일 앱에서 열면 초안으로 뜨고,
@@ -840,7 +845,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet collect <폴더> --cell <칸=이름>` | 같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합) |
-| `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만. `--other-sheet` 로 한 파일 안의 두 시트. `-o` 로 변경 내역을 표로 |
+| `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만, `--cells` 로 같은 자리끼리 칸 단위. `--other-sheet` 로 한 파일 안의 두 시트. `-o` 로 변경 내역을 표로 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
 | `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
@@ -898,6 +903,7 @@ at sheet collect 부서제출/ --cell B3=담당자 --cell C7=금액 -o 취합.xl
 at sheet collect 제출/ --cell B3=담당자 --sheet 요약 --glob '*.xlsx'
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --columns   # 서식이 바뀌었는지만
+at sheet diff 견적서_v1.xlsx 견적서_v2.xlsx --cells   # 키가 없는 서식 문서
 at sheet diff 월별.xlsx --sheet 8월 --other-sheet 9월 --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번 -o 변경내역.xlsx
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
