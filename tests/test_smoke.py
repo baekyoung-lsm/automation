@@ -400,6 +400,19 @@ class SmokeTest(unittest.TestCase):
         서식 = self.run_cli("sheet", "forms", str(서식폴더), expect=1)
         self.assertIn("열 다름", 서식)
         self.assertIn("비고", 서식)
+        # 시트가 여럿인 엑셀을 고칠 때 나머지 시트가 조용히 사라지면 안 된다
+        여러시트 = self.path("여러시트.xlsx")
+        xlsx.write_sheets(Path(여러시트), {
+            "1월": [["부서", "금액"], ["영업", " 1,000원 "]],
+            "메모": [["비고"], ["그대로 있어야 한다"]]})
+        경고 = self.run_cli("sheet", "clean", 여러시트, "--sheet", "1월",
+                          "-o", self.path("한시트.xlsx"))
+        self.assertIn("--keep-sheets", 경고)
+        self.run_cli("sheet", "clean", 여러시트, "--sheet", "1월",
+                     "-o", self.path("다시트.xlsx"), "--keep-sheets")
+        self.assertEqual(xlsx.sheet_names(Path(self.path("다시트.xlsx"))),
+                         ["1월", "메모"])
+
         전표 = Path(self.path("전표.csv"))
         전표.write_text("전표번호,제출일\n1001,2026-03-05\n1002,2026-03-06\n"
                       "1004,2026-03-09\n", encoding="utf-8")
