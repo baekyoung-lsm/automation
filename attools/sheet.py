@@ -3943,8 +3943,31 @@ def from_records(records: list, *, depth: int = 2) -> tuple[Table, FlattenReport
     return Table(headers, rows), report
 
 
-def find_records(data, path: str = "") -> list:
-    """표로 만들 배열을 찾는다. path 를 주면 그 자리, 없으면 가장 큰 객체 배열."""
+def record_paths(data, *, depth: int = 4) -> list[tuple[str, int]]:
+    """객체들의 배열이 어디에 있는지 모두 찾는다. (경로, 개수) 큰 것부터.
+
+    API 응답은 «data.items» 처럼 한두 겹 안에 들어 있는 일이 많다. 맨 위만
+    보면 «찾지 못했습니다» 가 나와서 사람이 경로를 손으로 찾아야 한다.
+    """
+    found: list[tuple[str, int]] = []
+
+    def walk(value, path: str, level: int) -> None:
+        if level > depth:
+            return
+        if isinstance(value, list):
+            if value and all(isinstance(v, dict) for v in value[:20]):
+                found.append((path, len(value)))
+            return                       # 배열 안까지 더 파고들지는 않는다
+        if isinstance(value, dict):
+            for key, item in value.items():
+                walk(item, f"{path}.{key}" if path else str(key), level + 1)
+
+    walk(data, "", 0)
+    return sorted(found, key=lambda item: (-item[1], item[0]))
+
+
+def find_records_at(data, path: str = "") -> tuple[list, str]:
+    """표로 만들 배열과 그 자리를 찾는다. (배열, 쓴 경로)"""
     if path:
         from .code import jsonkit
 
@@ -3952,22 +3975,29 @@ def find_records(data, path: str = "") -> list:
         if not isinstance(found, list):
             raise SheetError(f"'{path}' 는 배열이 아니라 "
                              f"{jsonkit.type_name(found)} 입니다")
-        return found
+        return found, path
 
     if isinstance(data, list):
-        return data
+        return data, ""
     if not isinstance(data, dict):
         raise SheetError("배열이나 객체여야 합니다.")
 
-    best: list = []
-    best_key = ""
-    for key, value in data.items():
-        if isinstance(value, list) and value and isinstance(value[0], dict):
-            if len(value) > len(best):
-                best, best_key = value, key
-    if not best:
+    candidates = record_paths(data)
+    if not candidates:
         raise SheetError("객체들의 배열을 찾지 못했습니다. --path 로 자리를 알려 주세요.")
-    return best
+    best, count = candidates[0]
+    if len(candidates) > 1 and count == candidates[1][1]:
+        others = ", ".join(f"{name}({n}개)" for name, n in candidates[:4])
+        raise SheetError(f"어느 배열인지 하나로 좁히지 못했습니다: {others}. "
+                         "--path 로 골라 주세요.")
+    from .code import jsonkit
+
+    return jsonkit.get_path(data, best), best
+
+
+def find_records(data, path: str = "") -> list:
+    """표로 만들 배열을 찾는다. path 를 주면 그 자리, 없으면 가장 큰 객체 배열."""
+    return find_records_at(data, path)[0]
 
 
 def unflatten(row: dict[str, object], *, separator: str = ".") -> dict:

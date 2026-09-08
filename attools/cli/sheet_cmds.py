@@ -2360,13 +2360,13 @@ def cmd_sheet_from_json(a) -> int:
         return 1
 
     try:
-        records = sheet.find_records(data, a.path)
+        records, used = sheet.find_records_at(data, a.path)
         table, info = sheet.from_records(records, depth=a.depth)
     except (sheet.SheetError, jsonkit.JsonError) as e:
         _p(str(e))
         return 1
 
-    where = f"'{a.path}'" if a.path else "가장 큰 객체 배열"
+    where = f"'{used}'" if used else "맨 위 배열"
     _p(f"{Path(a.file).name} 의 {where}  ->  {info.rows:,}행 x {info.columns}열")
     if info.skipped:
         _p(f"  객체가 아니라 건너뛴 원소 {info.skipped:,}개")

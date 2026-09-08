@@ -380,6 +380,27 @@ class SheetTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.from_records([1, 2, 3])
 
+    def test_finds_nested_arrays(self):
+        # API 응답은 data.items 처럼 한두 겹 안에 든다. 맨 위만 보면 못 찾는다
+        data = {"ok": True, "data": {"items": [{"id": 1}, {"id": 2}], "total": 2}}
+        rows, used = sheet.find_records_at(data)
+        self.assertEqual(used, "data.items")
+        self.assertEqual(len(rows), 2)
+
+    def test_says_when_it_cannot_choose(self):
+        data = {"a": [{"x": 1}, {"x": 2}], "b": [{"y": 1}, {"y": 2}]}
+        with self.assertRaises(sheet.SheetError) as ctx:
+            sheet.find_records_at(data)
+        self.assertIn("--path", str(ctx.exception))
+
+    def test_bigger_array_wins(self):
+        data = {"a": [{"x": 1}], "b": [{"y": 1}, {"y": 2}]}
+        self.assertEqual(sheet.find_records_at(data)[1], "b")
+
+    def test_record_paths_lists_candidates(self):
+        data = {"a": {"b": [{"x": 1}]}, "c": [{"y": 1}, {"y": 2}]}
+        self.assertEqual(sheet.record_paths(data), [("c", 2), ("a.b", 1)])
+
     def test_find_records_picks_largest_array(self):
         data = {"작음": [{"a": 1}], "큼": [{"a": 1}, {"a": 2}], "숫자": [1, 2, 3]}
         self.assertEqual(len(sheet.find_records(data)), 2)
