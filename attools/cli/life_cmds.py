@@ -433,6 +433,8 @@ def cmd_life_severance(a) -> int:
     for note in got.notes:
         _p(f"  {note}")
     _p("\n근로자퇴직급여 보장법 제8조 기준입니다.")
+    _p("  재직일수는 퇴사일에서 입사일을 뺀 날수입니다. 퇴사일은 «마지막 근무일의 "
+       "다음 날»(퇴직일)로 적어야 하루가 맞습니다.")
     _p("  퇴직소득세는 빼지 않았습니다. 근속연수공제가 얽혀 있어 여기서 못 맞춥니다.")
     _p("  퇴직연금(DC)에 든 회사는 운용 결과에 따라 실제 금액이 달라집니다.")
     return 0
@@ -574,7 +576,9 @@ def add_commands(sub) -> None:
 
     sv = lp.add_parser("severance", help="퇴직금 계산 (평균임금 기준, 세전)")
     sv.add_argument("joined", metavar="입사일")
-    sv.add_argument("left", metavar="퇴사일")
+    sv.add_argument("left", metavar="퇴사일",
+                    help="퇴직일(마지막 근무일의 다음 날). "
+                         "마지막 근무일을 적으면 하루가 모자란다")
     sv.add_argument("--pay", required=True, metavar="금액",
                     help="퇴직 전 3개월에 받은 임금 총액 (예: 1500만)")
     sv.add_argument("--bonus", metavar="금액", help="연간 상여금 (3/12 만 더한다)")
