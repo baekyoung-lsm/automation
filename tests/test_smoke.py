@@ -327,6 +327,15 @@ class SmokeTest(unittest.TestCase):
                      "--start", "시작", "--end", "끝", "-o", 캘린더)
         만든것 = Path(캘린더).read_text(encoding="utf-8")
         self.assertIn("BEGIN:VEVENT", 만든것)
+        연락처 = Path(self.path("거래처.csv"))
+        연락처.write_text("이름,회사,휴대전화\n홍길동,(주)가나,010-1234-5678\n",
+                        encoding="utf-8")
+        vcf = self.path("연락처.vcf")
+        self.run_cli("sheet", "vcard", str(연락처), "--name", "이름",
+                     "--company", "회사", "--mobile", "휴대전화", "-o", vcf)
+        카드 = Path(vcf).read_text(encoding="utf-8")
+        self.assertIn("FN:홍길동", 카드)
+        self.assertIn("TEL;TYPE=CELL:010-1234-5678", 카드)
         self.assertIn("DTSTART;TZID=Asia/Seoul:20260310T140000", 만든것)
         self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,

@@ -694,6 +694,57 @@ def cmd_sheet_ics(a) -> int:
     return 0
 
 
+
+def cmd_sheet_vcard(a) -> int:
+    """거래처·명단 표를 연락처 파일(vcf)로. 폰 주소록에 한 번에 넣게."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        people, skipped = sheet.contacts_from_table(
+            t, name=a.name, company=a.company, title=a.title, mobile=a.mobile,
+            phone=a.phone, fax=a.fax, email=a.email, address=a.address,
+            memo=a.memo)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if not people:
+        _p("연락처로 만들 행이 없습니다.")
+        for line, why in skipped[:10]:
+            _p(f"  {line}행: {why}")
+        return 1
+
+    _grid(["이름", "회사", "직함", "번호", "메일"],
+          [[_cut(p.name, 16), _cut(p.company, 18), _cut(p.title, 10),
+            _cut(" / ".join(n for _k, n in p.phones), 22), _cut(p.email, 22)]
+           for p in people[:a.rows]])
+    if len(people) > a.rows:
+        _p(f"  ... {len(people) - a.rows:,}명 더")
+
+    body = sheet.to_vcard(people)
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body, encoding="utf-8", newline="")
+        _p(f"\n저장: {out}  (연락처 {len(people):,}개)")
+        _p("폰이나 주소록 앱에서 열면 한 번에 들어갑니다.")
+    else:
+        _p(f"\n연락처 {len(people):,}개. 파일로 내려면 -o 연락처.vcf 를 주세요.")
+
+    if skipped:
+        _p(f"\n건너뛴 행 {len(skipped)}개:")
+        for line, why in skipped[:10]:
+            _p(f"  {line}행: {why}")
+        if len(skipped) > 10:
+            _p(f"  ... {len(skipped) - 10}행 더")
+    _p("\n이름은 성과 이름으로 쪼개지 않고 그대로 넣습니다. "
+       "(남궁·제갈 같은 두 자 성을 잘못 자르지 않으려고 그렇습니다)")
+    return 0
+
+
 def cmd_sheet_from_docx(a) -> int:
     """워드 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
     path = Path(a.file)
@@ -2092,6 +2143,24 @@ def add_commands(sub) -> None:
     ts.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
     ts.set_defaults(func=cmd_sheet_to_sql)
+
+    vc = common(sh.add_parser("vcard", help="명단을 연락처 파일(vcf)로"))
+    vc.add_argument("file")
+    vc.add_argument("--name", required=True, metavar="열", help="이름 열")
+    vc.add_argument("--company", metavar="열", help="회사 열")
+    vc.add_argument("--title", metavar="열", help="직함 열")
+    vc.add_argument("--mobile", metavar="열", help="휴대전화 열")
+    vc.add_argument("--phone", metavar="열", help="일반 전화 열")
+    vc.add_argument("--fax", metavar="열", help="팩스 열")
+    vc.add_argument("--email", metavar="열", help="메일 열")
+    vc.add_argument("--address", metavar="열", help="주소 열")
+    vc.add_argument("--memo", metavar="열", help="메모 열")
+    vc.add_argument("-n", "--rows", type=int, default=10, metavar="개",
+                    help="미리 볼 사람 수")
+    vc.add_argument("-o", "--out", metavar="파일.vcf")
+    vc.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    vc.set_defaults(func=cmd_sheet_vcard)
 
     ic = common(sh.add_parser("ics", help="일정표를 캘린더 파일(ics)로"))
     ic.add_argument("file")

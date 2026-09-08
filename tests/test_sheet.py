@@ -2240,5 +2240,59 @@ class AgeTest(unittest.TestCase):
         self.assertEqual(sheet.age_bucket(101), "100세 이상")
 
 
+class VcardTest(unittest.TestCase):
+    def setUp(self):
+        self.table = sheet.Table(
+            ["이름", "회사", "직함", "휴대전화", "전화", "메일", "주소"],
+            [["홍길동", "(주)가나", "팀장", "010-1234-5678", "02-100-2000",
+              "a@b.com", "서울시 중구 세종대로 1, 2층"],
+             ["", "다라", "", "", "", "", ""]])
+
+    def build(self, **kw):
+        kw.setdefault("company", "회사")
+        kw.setdefault("mobile", "휴대전화")
+        return sheet.contacts_from_table(self.table, name="이름", **kw)
+
+    def test_rows_without_a_name_are_skipped(self):
+        people, skipped = self.build()
+        self.assertEqual([p.name for p in people], ["홍길동"])
+        self.assertEqual(skipped, [(3, "이름이 비었습니다")])
+
+    def test_phone_kinds(self):
+        people, _skipped = self.build(phone="전화")
+        self.assertEqual(people[0].phones,
+                         [("CELL", "010-1234-5678"), ("WORK", "02-100-2000")])
+
+    def test_name_is_not_split(self):
+        # 남궁·제갈 같은 두 자 성을 잘못 자르느니 통째로 넣는다
+        out = sheet.to_vcard([sheet.Contact("남궁민수")])
+        self.assertIn("N:남궁민수;;;;", out)
+        self.assertIn("FN:남궁민수", out)
+
+    def test_optional_fields_are_left_out(self):
+        out = sheet.to_vcard([sheet.Contact("가")])
+        self.assertNotIn("ORG:", out)
+        self.assertNotIn("EMAIL", out)
+        self.assertNotIn("ADR", out)
+
+    def test_full_card(self):
+        people, _skipped = self.build(title="직함", email="메일",
+                                      address="주소")
+        out = sheet.to_vcard(people)
+        self.assertIn("ORG:(주)가나", out)
+        self.assertIn("TITLE:팀장", out)
+        self.assertIn("EMAIL;TYPE=INTERNET:a@b.com", out)
+        self.assertIn("ADR;TYPE=WORK:;;서울시 중구 세종대로 1\\, 2층;;;;", out)
+        self.assertTrue(out.endswith("END:VCARD\r\n"))
+
+    def test_empty_list_makes_empty_text(self):
+        self.assertEqual(sheet.to_vcard([]), "")
+
+    def test_long_line_is_folded(self):
+        out = sheet.to_vcard([sheet.Contact("가" * 60)])
+        for line in out.split("\r\n"):
+            self.assertLessEqual(len(line.encode("utf-8")), 75)
+
+
 if __name__ == "__main__":
     unittest.main()

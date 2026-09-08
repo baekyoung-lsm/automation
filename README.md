@@ -379,6 +379,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
 어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
 
+`at sheet vcard` 는 거래처 명단을 폰 주소록이 읽는 `.vcf` 로 낸다. **이름을 성과 이름으로
+쪼개지 않는다** - 남궁·제갈 같은 두 자 성을 잘못 자르느니 전체 이름을 그대로 넣는 편이 낫고,
+주소록은 대개 보이는 이름(FN)을 쓴다. 이름이 빈 행은 건너뛴다(이름 없는 연락처는 주소록에서
+찾을 수 없다).
+
 `at sheet age` 는 명단의 생년월일 열에서 **만 나이**(2023년부터 법으로 통일된 그 나이)와
 연령대(`--group`) 열을 만든다. 칸이 주민등록번호면 일곱째 자리로 세기와 성별까지 읽어
 `--sex` 로 성별 열도 채운다 - 생년월일만 있는 칸은 성별을 알 수 없으므로 비워 두고 몇 개를
@@ -843,6 +848,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
 | `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
 | `at sheet ics <파일>` | 일정표를 캘린더 파일(ics)로 (아웃룩·구글 캘린더로 가져가기) |
+| `at sheet vcard <파일>` | 명단을 연락처 파일(vcf)로 (폰 주소록에 한 번에) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
@@ -912,6 +918,7 @@ at sheet to-sql 명단.xlsx -t users --create -o seed.sql
 at sheet to-sql 명단.xlsx -t users --dialect mysql --batch 500
 at sheet ics 일정표.xlsx --title 일정 --start 시작 --end 끝 -o 일정.ics
 at sheet ics 일정표.xlsx --title 일정 --start 날짜 --place 장소 --alarm 30 -o 일정.ics
+at sheet vcard 거래처.xlsx --name 담당자 --company 상호 --mobile 휴대폰 -o 연락처.vcf
 at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" ...; done
 at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \

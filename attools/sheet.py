@@ -2111,6 +2111,95 @@ def _sql_column_type(values: list, dialect: str) -> str:
 
 
 
+# ------------------------------------------------------------- 연락처(vCard)
+
+VCARD_PHONES = {"mobile": ("휴대전화", "CELL"), "phone": ("전화", "WORK"),
+                "fax": ("팩스", "FAX")}
+
+
+@dataclass
+class Contact:
+    """연락처 하나. 이름은 쪼개지 않고 그대로 담는다."""
+    name: str
+    company: str = ""
+    title: str = ""
+    phones: list = field(default_factory=list)      # [(종류, 번호)]
+    email: str = ""
+    address: str = ""
+    memo: str = ""
+
+
+def to_vcard(contacts: list[Contact]) -> str:
+    """연락처 목록을 vCard 한 장으로. 폰 주소록·아웃룩이 그대로 읽는다.
+
+    이름을 성과 이름으로 쪼개지 않는다 - 남궁·제갈 같은 두 자 성을 잘못
+    자르느니 전체 이름을 그대로 넣는 편이 낫다. 대부분의 주소록은 FN
+    (보이는 이름)을 쓴다.
+    """
+    lines: list[str] = []
+    for person in contacts:
+        name = ics_escape(person.name)     # 이스케이프 규칙이 ics 와 같다
+        lines += ["BEGIN:VCARD", "VERSION:3.0",
+                  f"N:{name};;;;", f"FN:{name}"]
+        if person.company or person.title:
+            if person.company:
+                lines.append("ORG:" + ics_escape(person.company))
+            if person.title:
+                lines.append("TITLE:" + ics_escape(person.title))
+        for kind, number in person.phones:
+            lines.append(f"TEL;TYPE={kind}:" + ics_escape(number))
+        if person.email:
+            lines.append("EMAIL;TYPE=INTERNET:" + ics_escape(person.email))
+        if person.address:
+            lines.append("ADR;TYPE=WORK:;;" + ics_escape(person.address)
+                         + ";;;;")
+        if person.memo:
+            lines.append("NOTE:" + ics_escape(person.memo))
+        lines.append("END:VCARD")
+
+    folded: list[str] = []
+    for line in lines:
+        folded += fold_line(line)
+    return "\r\n".join(folded) + ("\r\n" if folded else "")
+
+
+def contacts_from_table(table: Table, *, name: str, company: str | None = None,
+                        title: str | None = None, mobile: str | None = None,
+                        phone: str | None = None, fax: str | None = None,
+                        email: str | None = None, address: str | None = None,
+                        memo: str | None = None
+                        ) -> tuple[list[Contact], list[tuple[int, str]]]:
+    """거래처·명단 표를 연락처로. (연락처 목록, 건너뛴 행)
+
+    이름이 빈 행은 건너뛴다 - 이름 없는 연락처는 주소록에서 찾을 수 없다.
+    """
+    picks = {"이름": name, "회사": company, "직함": title, "mobile": mobile,
+             "phone": phone, "fax": fax, "메일": email, "주소": address,
+             "메모": memo}
+    index = {key: table.index_of(column)
+             for key, column in picks.items() if column}
+
+    people: list[Contact] = []
+    skipped: list[tuple[int, str]] = []
+    for line, row in enumerate(table.rows, 2):
+        cells = list(row) + [None] * (table.width - len(row))
+
+        def value(key: str) -> str:
+            return to_text(cells[index[key]]).strip() if key in index else ""
+
+        if not value("이름"):
+            skipped.append((line, "이름이 비었습니다"))
+            continue
+        person = Contact(name=value("이름"), company=value("회사"),
+                         title=value("직함"), email=value("메일"),
+                         address=value("주소"), memo=value("메모"))
+        for key, (_label, kind) in VCARD_PHONES.items():
+            if number := value(key):
+                person.phones.append((kind, number))
+        people.append(person)
+    return people, skipped
+
+
 # ------------------------------------------------------------------ 나이·연령대
 
 RRN_BIRTH_RE = re.compile(r"^(\d{2})(\d{2})(\d{2})[-\s]?([0-9])\d{0,6}$")
