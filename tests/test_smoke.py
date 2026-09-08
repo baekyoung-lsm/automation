@@ -395,6 +395,12 @@ class SmokeTest(unittest.TestCase):
         전표 = Path(self.path("전표.csv"))
         전표.write_text("전표번호,제출일\n1001,2026-03-05\n1002,2026-03-06\n"
                       "1004,2026-03-09\n", encoding="utf-8")
+        라벨 = Path(self.path("라벨.html"))
+        만든라벨 = self.run_cli("sheet", "labels", csv, "--line", "{이름} 님",
+                             "-o", str(라벨))
+        self.assertIn("저장", 만든라벨)
+        self.assertIn("class=\"cell\"", 라벨.read_text(encoding="utf-8"))
+
         빠짐 = self.run_cli("sheet", "gaps", str(전표), "-c", "전표번호", expect=1)
         self.assertIn("1003", 빠짐)
         평일 = self.run_cli("sheet", "gaps", str(전표), "-c", "제출일",

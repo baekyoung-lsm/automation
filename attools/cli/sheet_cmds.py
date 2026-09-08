@@ -575,6 +575,56 @@ def cmd_sheet_dates(a) -> int:
 
 
 
+def cmd_sheet_labels(a) -> int:
+    """명단을 주소 라벨 인쇄용 HTML 로. 브라우저에서 인쇄하면 라벨지에 맞는다."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    spec = sheet.LabelSheet(cols=a.cols, rows=a.rows, width=a.width,
+                            height=a.height, left=a.left, top=a.top,
+                            gap_x=a.gap_x, gap_y=a.gap_y, font=a.font)
+    try:
+        html, pages, missing = sheet.labels_html(
+            t, spec, lines=a.line, start=a.start, guide=a.guide,
+            title=a.title or "")
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if missing:
+        _p(f"표에 없는 자리표시자 {len(missing)}개: {', '.join(sorted(missing))}")
+        _p(f"  있는 열: {', '.join(t.headers)}, 번호")
+        _p("  그 자리는 비워 두었습니다.\n")
+
+    used = a.line or ["{" + h + "}" for h in t.headers]
+    _p(f"{len(t.rows):,}장  ·  {pages}쪽  ·  한 쪽 {spec.per_page}칸"
+       f"({spec.cols}x{spec.rows})  ·  칸 {spec.width:g}x{spec.height:g}mm")
+    _p(f"넣는 줄: {' / '.join(used)}")
+
+    texts, _missing = sheet.label_texts(t, a.line)
+    for one in texts[:3]:
+        _p("  [" + " | ".join(one) + "]")
+    if len(texts) > 3:
+        _p(f"  ... {len(texts) - 3:,}장 더")
+
+    if not a.out:
+        _p("\n파일로 만들려면 -o 라벨.html 을 주세요.")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    _p(f"\n저장: {out}")
+    _p("브라우저로 열어 인쇄하세요. 인쇄 설정에서 배율은 100%(«실제 크기»), "
+       "여백은 «없음» 이어야 자리가 맞습니다.")
+    _p("라벨지는 제품마다 칸 크기가 다릅니다. 처음에는 --guide 로 선을 그려 "
+       "빈 종이에 시험 인쇄해 보고, --left·--top 으로 미세하게 맞추세요.")
+    return 0
+
+
 def cmd_sheet_gaps(a) -> int:
     """번호·날짜 열에서 빠진 것을 찾는다. 전표 누락·미제출 확인."""
     t = _load(a)
@@ -2746,6 +2796,37 @@ def add_commands(sub) -> None:
                         f"{k}({v})" for k, v in sheet.DATE_PARTS.items()))
     dt.add_argument("--limit", type=int, default=10, metavar="개")
     dt.set_defaults(func=cmd_sheet_dates)
+
+    lb = common(sh.add_parser(
+        "labels", help="명단을 주소 라벨 인쇄용 HTML 로 (우편물 붙이기)"))
+    lb.add_argument("file")
+    lb.add_argument("-o", "--out", metavar="파일.html")
+    lb.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    lb.add_argument("--line", action="append", metavar="틀",
+                    help="라벨에 넣을 줄. 여러 번: --line '{이름} 님' "
+                         "--line '{주소}' (기본은 모든 열)")
+    lb.add_argument("--cols", type=int, default=3, metavar="칸")
+    lb.add_argument("--rows", type=int, default=7, metavar="줄")
+    lb.add_argument("--width", type=float, default=63.5, metavar="mm")
+    lb.add_argument("--height", type=float, default=38.1, metavar="mm")
+    lb.add_argument("--left", type=float, default=7.2, metavar="mm",
+                    help="종이 왼쪽에서 첫 칸까지")
+    lb.add_argument("--top", type=float, default=15.1, metavar="mm",
+                    help="종이 위에서 첫 칸까지")
+    lb.add_argument("--gap-x", type=float, default=2.5, metavar="mm")
+    lb.add_argument("--gap-y", type=float, default=0.0, metavar="mm")
+    lb.add_argument("--font", type=float, default=10.0, metavar="pt")
+    lb.add_argument("--start", type=int, default=1, metavar="칸",
+                    help="쓰다 남은 라벨지면 몇 번째 칸부터 (기본 1)")
+    lb.add_argument("--guide", action="store_true",
+                    help="칸 선을 그린다 (자리 맞출 때만)")
+    lb.add_argument("--title", metavar="제목")
+    lb.epilog = ("예: at sheet labels 명단.xlsx -o 라벨.html\n"
+                 "    at sheet labels 명단.xlsx --line '{이름} 님' "
+                 "--line '{주소}' --line '[{우편번호}]' -o 라벨.html\n"
+                 "    at sheet labels 명단.xlsx --start 5 --guide -o 라벨.html")
+    lb.set_defaults(func=cmd_sheet_labels)
 
     gp = common(sh.add_parser(
         "gaps", help="번호·날짜 열에서 빠진 것 찾기 (전표 누락·미제출)"))

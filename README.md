@@ -1060,6 +1060,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
 | `at sheet chart <파일> --label <열>` | 표를 그림 파일(SVG) 하나로 (보고서·슬라이드에 붙일 때) |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
+| `at sheet labels <명단>` | 명단을 **주소 라벨** 인쇄용 HTML 로 (브라우저에서 인쇄하면 라벨지에 맞는다) |
 | `at sheet mail <명단> -t <본문틀>` | 사람마다 메일 초안 파일(.eml)을 만든다. **보내지는 않는다** |
 | `at sheet from-docx <파일>` | 워드 문서 안의 표를 엑셀·csv 로 (손으로 다시 치지 않게) |
 | `at sheet from-hwpx <파일>` | 한글 문서(hwpx) 안의 표를 엑셀·csv 로 |
@@ -1148,9 +1149,19 @@ at sheet chart 매출.xlsx --label 부서 --value 금액 --unit 원 -o 부서별
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
 # 틀 안에서: {이름:님/님} 대신 {이름:은/는}, {도시:으로/로} 처럼 받침에 맞는 조사
 at sheet fill 명단.csv -t 틀.txt --single -o 합본.txt      # 한 파일로 이어 붙이기
+at sheet labels 명단.xlsx --line '{이름} 님' --line '{주소}' -o 라벨.html
+at sheet labels 명단.xlsx --start 5 --guide -o 라벨.html   # 쓰다 남은 라벨지·자리 맞추기
 at sheet mail 명단.csv -t 본문.md --subject '{이름}님 3월 정산' --to 메일 -o 메일초안/
 at sheet mail 명단.csv -t 본문.md --subject '{이름}님 명세서' --to 메일 --attach 파일 --apply
 ```
+
+`at sheet labels` 는 명단을 **주소 라벨** 로 뽑는다. PDF 로 직접 그리지 않고 인쇄용 HTML 을
+내는데, 한글 글꼴 때문이다 — 브라우저에 맡기면 쓰던 글꼴이 그대로 나오고 인쇄 미리보기로
+자리를 눈으로 맞출 수 있다. 인쇄할 때 **배율 100%(«실제 크기»), 여백 «없음»** 이어야 자리가
+맞는다. **라벨지 규격은 제품마다 다르다** — 확인하지 못한 제품 번호를 넣어 두지 않고 A4
+3×7(63.5×38.1mm)을 기본으로 두었으니, 처음에는 `--guide` 로 선을 그려 빈 종이에 시험
+인쇄하고 `--left`·`--top` 으로 맞춘 다음 그 숫자를 쓰면 된다. 쓰다 남은 라벨지는 `--start`
+로 몇 번째 칸부터 찍을지 정한다. 칸이 종이를 넘어가면 만들지 않고 얼마나 넘치는지 알려 준다.
 
 `collect` 는 «취합» 을 대신한다. 부서마다 같은 서식에 채워 보낸 파일에서 `B3`, `C7` 처럼
 **엑셀에서 보이는 칸 주소**로 값을 집어 한 표로 만든다. 칸이 비어 있어도 그 파일을 표에서

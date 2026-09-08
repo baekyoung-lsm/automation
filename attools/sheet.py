@@ -1191,6 +1191,124 @@ def fill(table: Table, template: str, *, name_template: str = "",
     return out, missing
 
 
+# ------------------------------------------------------------ 주소 라벨(인쇄)
+
+# 라벨지는 제품마다 칸 크기가 다르다. 확인하지 못한 제품 번호는 넣지 않고,
+# 흔한 A4 3x7 을 기본으로 두고 숫자를 사람이 고치게 한다.
+def _html_escape(text_: str) -> str:
+    from html import escape
+
+    return escape(text_)
+
+
+LABEL_DEFAULT = {"cols": 3, "rows": 7, "width": 63.5, "height": 38.1,
+                 "left": 7.2, "top": 15.1, "gap_x": 2.5, "gap_y": 0.0,
+                 "font": 10.0}
+
+
+@dataclass
+class LabelSheet:
+    cols: int = 3
+    rows: int = 7
+    width: float = 63.5        # 칸 하나의 가로 (mm)
+    height: float = 38.1       # 칸 하나의 세로 (mm)
+    left: float = 7.2          # 종이 왼쪽에서 첫 칸까지 (mm)
+    top: float = 15.1          # 종이 위에서 첫 칸까지 (mm)
+    gap_x: float = 2.5         # 칸 사이 가로 틈 (mm)
+    gap_y: float = 0.0
+    font: float = 10.0         # 글자 크기 (pt)
+    paper_width: float = 210.0
+    paper_height: float = 297.0
+
+    @property
+    def per_page(self) -> int:
+        return self.cols * self.rows
+
+    def check(self) -> None:
+        if self.cols < 1 or self.rows < 1:
+            raise SheetError("칸 수는 1 이상이어야 합니다.")
+        if self.width <= 0 or self.height <= 0:
+            raise SheetError("칸 크기는 0보다 커야 합니다.")
+        wide = self.left + self.cols * self.width + (self.cols - 1) * self.gap_x
+        tall = self.top + self.rows * self.height + (self.rows - 1) * self.gap_y
+        if wide > self.paper_width + 0.5 or tall > self.paper_height + 0.5:
+            raise SheetError(
+                f"칸이 종이를 넘어갑니다 (가로 {wide:.1f}mm, 세로 {tall:.1f}mm "
+                f"· 종이 {self.paper_width:.0f}x{self.paper_height:.0f}mm). "
+                "칸 수나 크기를 줄이세요.")
+
+
+def label_texts(table: Table, lines: list[str] | None = None
+                ) -> tuple[list[list[str]], set[str]]:
+    """행마다 라벨에 넣을 줄들을 만든다. (줄 목록, 표에 없는 자리표시자)"""
+    if not lines:
+        lines = ["{" + h + "}" for h in table.headers]
+    missing: set[str] = set()
+    out: list[list[str]] = []
+    for n, row in enumerate(table.rows, 1):
+        values: dict[str, object] = {
+            h: row[i] if i < len(row) else None
+            for i, h in enumerate(table.headers)}
+        values["번호"] = n
+        made = [render(one, values, missing=missing).strip() for one in lines]
+        out.append([line for line in made if line])
+    return out, missing
+
+
+def labels_html(table: Table, sheet_spec: LabelSheet, *,
+                lines: list[str] | None = None, start: int = 1,
+                guide: bool = False, title: str = "") -> tuple[str, int, set[str]]:
+    """주소 라벨을 인쇄용 HTML 한 장으로. (html, 쪽 수, 없는 자리표시자)
+
+    PDF 로 직접 그리지 않는 것은 한글 글꼴 때문이다. 브라우저에 맡기면
+    쓰던 글꼴이 그대로 나오고, 인쇄 미리보기로 위치를 눈으로 맞출 수 있다.
+    """
+    sheet_spec.check()
+    if start < 1 or start > sheet_spec.per_page:
+        raise SheetError(f"시작 칸은 1 부터 {sheet_spec.per_page} 사이여야 합니다.")
+
+    texts, missing = label_texts(table, lines)
+    if not texts:
+        raise SheetError("표에 행이 없습니다.")
+
+    cells = [None] * (start - 1) + texts          # 쓰다 남은 라벨지의 빈 칸
+    pages = (len(cells) + sheet_spec.per_page - 1) // sheet_spec.per_page
+    body: list[str] = []
+    for page in range(pages):
+        chunk = cells[page * sheet_spec.per_page:(page + 1) * sheet_spec.per_page]
+        body.append('<div class="sheet">')
+        for i, one in enumerate(chunk):
+            if one is None:
+                continue
+            row, col = divmod(i, sheet_spec.cols)
+            x = sheet_spec.left + col * (sheet_spec.width + sheet_spec.gap_x)
+            y = sheet_spec.top + row * (sheet_spec.height + sheet_spec.gap_y)
+            inner = "<br>".join(_html_escape(line) for line in one)
+            body.append(f'<div class="cell" style="left:{x:.2f}mm;top:{y:.2f}mm">'
+                        f"<div>{inner}</div></div>")
+        body.append("</div>")
+
+    style = f"""@page {{ size: {sheet_spec.paper_width:.0f}mm {sheet_spec.paper_height:.0f}mm; margin: 0; }}
+* {{ box-sizing: border-box; }}
+body {{ margin: 0; font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+       font-size: {sheet_spec.font:g}pt; }}
+.sheet {{ position: relative; width: {sheet_spec.paper_width:.0f}mm;
+         height: {sheet_spec.paper_height:.0f}mm; page-break-after: always;
+         overflow: hidden; }}
+.sheet:last-child {{ page-break-after: auto; }}
+.cell {{ position: absolute; width: {sheet_spec.width:.2f}mm;
+        height: {sheet_spec.height:.2f}mm; padding: 2mm; overflow: hidden;
+        display: flex; align-items: center; line-height: 1.35;
+        {"border: 0.1mm dashed #bbb;" if guide else ""} }}
+@media screen {{ body {{ background: #eee; }}
+  .sheet {{ background: #fff; margin: 8px auto; box-shadow: 0 1px 4px #0003; }} }}"""
+
+    head = _html_escape(title or table.source or "주소 라벨")
+    return ("<!doctype html>\n<html lang=\"ko\"><head><meta charset=\"utf-8\">"
+            f"<title>{head}</title><style>\n{style}\n</style></head><body>\n"
+            + "\n".join(body) + "\n</body></html>\n"), pages, missing
+
+
 # -------------------------------------------------------- 개인별 메일 초안(eml)
 
 MAIL_ADDRESS_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")

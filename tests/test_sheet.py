@@ -2803,3 +2803,54 @@ class FindGapsTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.find_gaps(self.table([1, 2]), "전표", every="hour")
 
+class LabelsTest(unittest.TestCase):
+    def table(self, rows=2):
+        return sheet.Table(headers=["이름", "주소"],
+                           rows=[[f"사람{i}", f"주소{i}"] for i in range(1, rows + 1)])
+
+    def test_one_cell_per_row(self):
+        html, pages, missing = sheet.labels_html(self.table(3), sheet.LabelSheet())
+        self.assertEqual((html.count('class="cell"'), pages, missing), (3, 1, set()))
+
+    def test_pages_are_counted(self):
+        spec = sheet.LabelSheet(cols=2, rows=2, width=90, height=50)
+        _html, pages, _m = sheet.labels_html(self.table(9), spec)
+        self.assertEqual(pages, 3)          # 한 쪽 4칸
+
+    def test_start_leaves_used_cells_empty(self):
+        spec = sheet.LabelSheet(cols=2, rows=2, width=90, height=50)
+        html, pages, _m = sheet.labels_html(self.table(1), spec, start=4)
+        self.assertEqual((html.count('class="cell"'), pages), (1, 1))
+        # 마지막 칸이므로 오른쪽 아래에 놓인다
+        self.assertIn("left:99.70mm", html)   # 7.2 + 90 + 2.5
+
+    def test_start_out_of_range(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.labels_html(self.table(), sheet.LabelSheet(), start=99)
+
+    def test_cells_must_fit_the_paper(self):
+        with self.assertRaises(sheet.SheetError) as ctx:
+            sheet.labels_html(self.table(), sheet.LabelSheet(cols=5, width=63.5))
+        self.assertIn("종이를 넘어갑니다", str(ctx.exception))
+
+    def test_html_is_escaped(self):
+        table = sheet.Table(headers=["이름"], rows=[["<script>"]])
+        html, _p, _m = sheet.labels_html(table, sheet.LabelSheet())
+        self.assertNotIn("<script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
+    def test_missing_placeholder_is_reported(self):
+        html, _p, missing = sheet.labels_html(
+            self.table(), sheet.LabelSheet(), lines=["{이름}", "{전화}"])
+        self.assertEqual(missing, {"전화"})
+        self.assertIn("사람1", html)
+
+    def test_default_lines_are_every_column(self):
+        texts, _missing = sheet.label_texts(self.table(1))
+        self.assertEqual(texts, [["사람1", "주소1"]])
+
+    def test_blank_lines_are_dropped(self):
+        table = sheet.Table(headers=["이름", "주소"], rows=[["사람", ""]])
+        texts, _missing = sheet.label_texts(table)
+        self.assertEqual(texts, [["사람"]])       # 빈 줄이 라벨을 밀어내지 않게
+
