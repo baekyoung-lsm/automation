@@ -18,6 +18,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from attools import files, sheet, webui
 
 
+
+def _author_pdf(author: str) -> bytes:
+    """만든 사람이 적힌 작은 PDF. (시험에서만 쓴다)"""
+    objects = [
+        b"<</Length 18>>\nstream\nBT /F1 12 Tf ET\nendstream",
+        b"<</Type/Page/Parent 3 0 R/Contents 1 0 R>>",
+        b"<</Type/Pages/Count 1/Kids[2 0 R]/MediaBox[0 0 200 200]>>",
+        b"<</Type/Catalog/Pages 3 0 R>>",
+        b"<</Author<feff" + author.encode("utf-16-be").hex().encode() + b">>>",
+    ]
+    out = [b"%PDF-1.4\n"]
+    places, at = [0], len(out[0])
+    for i, body in enumerate(objects, 1):
+        blob = f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+        out.append(blob)
+        places.append(at)
+        at += len(blob)
+    out.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    out.append(b"0000000000 65535 f \n")
+    for i in range(1, len(objects) + 1):
+        out.append(f"{places[i]:010d} 00000 n \n".encode())
+    out.append((f"trailer\n<</Size {len(objects) + 1}/Root 4 0 R/Info 5 0 R>>\n"
+                f"startxref\n{at}\n%%EOF\n").encode())
+    return b"".join(out)
+
+
 class UiCase(unittest.TestCase):
     """서버를 띄우고 홈을 임시 폴더로 돌리는 뼈대. 시험은 물려받는 쪽에 둔다.
 
@@ -322,6 +348,24 @@ class WebUiTest(UiCase):
         self.assertEqual(info.pages, 2)
         self.assertEqual(info.title, "제출용")
         self.assertTrue((folder / "1.png").is_file())      # 원본은 그대로
+
+    def test_scrub_removes_pdf_author(self):
+        from attools import pdf as pdfkit
+
+        folder = self.work / "속성pdf"
+        folder.mkdir()
+        source = folder / "이름.pdf"
+        source.write_bytes(_author_pdf("홍길동"))
+
+        _, data = self.post("/api/files/scrub_preview", {"docroot": str(folder)})
+        self.assertEqual(data["rows"], [["이름.pdf", "만든 사람", "홍길동"]])
+        self.assertEqual(list(folder.glob("*이름지움*")), [])
+
+        _, made = self.post("/api/files/scrub_apply", {"docroot": str(folder)})
+        self.assertEqual(len(made["made"]), 1)
+        copy = Path(made["made"][0])
+        self.assertEqual(pdfkit.scrub_names(pdfkit.open_pdf(copy)), [])
+        self.assertNotIn("홍길동".encode("utf-8"), copy.read_bytes())
 
     def test_pdf_cut_pages(self):
         from attools import pdf as pdfkit

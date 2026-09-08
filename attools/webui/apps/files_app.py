@@ -293,7 +293,7 @@ def documents(payload: dict) -> dict:
 
 
 def scrub_preview(payload: dict) -> dict:
-    root, targets = _scrub_targets(payload)
+    root, targets = _scrub_targets(payload, pdf=True)
     plans = [files.plan_scrub(p) for p in targets]
     dirty = [p for p in plans if p.ok]
     return {"rows": [[plan.path.name, label, value]
@@ -306,18 +306,26 @@ def scrub_preview(payload: dict) -> dict:
 
 def scrub_apply(payload: dict) -> dict:
     """이름을 지운 사본을 만든다. 원본은 건드리지 않는다."""
-    root, targets = _scrub_targets(payload)
+    from ... import pdf as pdfkit
+
+    root, targets = _scrub_targets(payload, pdf=True)
     out = scrub_preview(payload)
     made: list[str] = []
+    failed: list[list[str]] = []
     for path in targets:
         plan = files.plan_scrub(path)
         if not plan.ok:
             continue
         target = files.unique_path(
             path.with_name(f"{path.stem} (이름지움){path.suffix}"))
-        files.apply_scrub(path, target)
+        try:
+            files.apply_scrub(path, target)
+        except (OSError, ValueError, pdfkit.PdfError) as exc:
+            failed.append([path.name, str(exc)])   # 못 만든 것은 까닭을 보여 준다
+            continue
         made.append(str(target))
     out["made"] = made
+    out["broken"] = out.get("broken", []) + failed
     out["command"] = _scrub_command(payload, root, apply=True)
     return out
 
@@ -806,10 +814,11 @@ BODY = """
 
 <section class="card">
   <h2>문서에 남은 이름</h2>
-  <p class="note">워드·엑셀·슬라이드 파일의 <b>속성만</b> 읽습니다(내용은 열지 않습니다).
+  <p class="note">워드·엑셀·슬라이드·한글·PDF 의 <b>속성만</b> 읽습니다(내용은 열지 않습니다).
      밖으로 보내는 문서에 만든 사람·마지막 저장한 사람·회사 이름이 그대로 남아 있는
      일이 잦습니다. 지울 때는 <b>«…(이름지움)» 사본</b>을 만들고 원본은 그대로 둡니다.
-     메모·변경 내역·본문에 적힌 이름은 지우지 못합니다 - 그건 내용입니다.</p>
+     메모·변경 내역·본문에 적힌 이름은 지우지 못합니다 - 그건 내용입니다.
+     PDF 는 파일을 다시 써서 지우므로 <b>전자서명은 무효가 됩니다</b>.</p>
   <div class="row">
     <div style="flex:3 1 20rem"><label for="docroot">폴더 또는 파일</label>
       <input type="text" id="docroot" data-browse="dir" spellcheck="false"></div>

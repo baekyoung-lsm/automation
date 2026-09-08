@@ -505,9 +505,27 @@ def _blank_tag(xml: str, tag: str) -> tuple[str, str]:
             + xml[match.end():], match.group(2).strip())
 
 
+def _plan_scrub_pdf(path: Path) -> ScrubPlan:
+    """PDF 는 속성(Info)과 XMP 에 이름이 남는다."""
+    from . import pdf as pdfkit
+
+    plan = ScrubPlan(path=path)
+    try:
+        doc = pdfkit.open_pdf(path)
+        plan.removed = pdfkit.scrub_names(doc)
+        if any("Annots" in page.data for page in doc.pages()):
+            plan.others = ["주석(코멘트)"]
+    except (pdfkit.PdfError, OSError, ValueError) as e:
+        plan.error = str(e)
+    return plan
+
+
 def plan_scrub(path: Path) -> ScrubPlan:
     """이 문서에서 지울 수 있는 이름을 본다. 파일은 건드리지 않는다."""
     import zipfile
+
+    if path.suffix.lower() in PDF_SUFFIXES:
+        return _plan_scrub_pdf(path)
 
     plan = ScrubPlan(path=path)
     try:
@@ -536,8 +554,18 @@ def apply_scrub(path: Path, dest: Path) -> Path:
     제자리에서 고치지 않는 것은 되돌릴 방법이 없기 때문이다. 문서 안의
     메모·변경 내역에 남은 이름은 지우지 못한다 - 그건 내용이라 여기서
     손대면 문서가 달라진다.
+
+    PDF 는 고친 자리만 덧붙이지 않고 파일을 다시 쓴다. 덧붙이면 옛 이름이
+    파일 안에 그대로 남아 꺼내 볼 수 있기 때문이다.
     """
     import zipfile
+
+    if path.suffix.lower() in PDF_SUFFIXES:
+        from . import pdf as pdfkit
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        pdfkit.scrub_pdf(pdfkit.open_pdf(path), dest)
+        return dest
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path) as src:

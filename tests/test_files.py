@@ -90,6 +90,33 @@ def exif_jpeg(*, make="Samsung", model="SM-G991N", orientation=6,
     return out
 
 
+
+def _pdf_with_author(path, author: str):
+    """만든 사람이 적힌 작은 PDF 하나. (시험에서만 쓴다)"""
+    objects = [
+        b"<</Length 20>>\nstream\nBT /F1 12 Tf ET\nendstream",
+        b"<</Type/Page/Parent 3 0 R/Contents 1 0 R>>",
+        b"<</Type/Pages/Count 1/Kids[2 0 R]/MediaBox[0 0 200 200]>>",
+        b"<</Type/Catalog/Pages 3 0 R>>",
+        b"<</Author<feff" + author.encode("utf-16-be").hex().encode() + b">>>",
+    ]
+    out = [b"%PDF-1.4\n"]
+    places, at = [0], len(out[0])
+    for i, body in enumerate(objects, 1):
+        blob = f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+        out.append(blob)
+        places.append(at)
+        at += len(blob)
+    out.append(f"xref\n0 {len(objects) + 1}\n".encode())
+    out.append(b"0000000000 65535 f \n")
+    for i in range(1, len(objects) + 1):
+        out.append(f"{places[i]:010d} 00000 n \n".encode())
+    out.append((f"trailer\n<</Size {len(objects) + 1}/Root 4 0 R/Info 5 0 R>>\n"
+                f"startxref\n{at}\n%%EOF\n").encode())
+    path.write_bytes(b"".join(out))
+    return path
+
+
 class FilesTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -1194,6 +1221,28 @@ class ScrubTest(DocumentMetaTest):
         self.assertEqual([v for _l, v in plan.removed],
                          ["김철수", "박영희", "가나상사"])
         self.assertTrue(plan.ok)
+
+    def test_pdf_names_are_planned_and_removed(self):
+        from attools import pdf
+
+        source = self.root / "이름.pdf"
+        _pdf_with_author(source, "홍길동")
+        plan = files.plan_scrub(source)
+        self.assertEqual(plan.removed, [("만든 사람", "홍길동")])
+        self.assertTrue(plan.ok)
+
+        before = source.read_bytes()
+        out = files.apply_scrub(source, self.root / "사본.pdf")
+        self.assertEqual(source.read_bytes(), before)     # 원본은 그대로
+        self.assertEqual(pdf.scrub_names(pdf.open_pdf(out)), [])
+        self.assertEqual(files.meta_of(out).pages, 1)
+
+    def test_broken_pdf_says_why(self):
+        path = self.root / "망가진.pdf"
+        path.write_bytes("%PDF-1.4\n엉망".encode("utf-8"))
+        plan = files.plan_scrub(path)
+        self.assertFalse(plan.ok)
+        self.assertTrue(plan.error)
 
     def test_plan_does_not_touch_the_file(self):
         path = self.make()

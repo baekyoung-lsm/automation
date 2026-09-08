@@ -216,6 +216,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("3쪽",
                       self.run_cli("file", "pdfjoin", 묶음, 뽑음, "-o", 합본))
 
+        pdf폴더 = Path(self.path("피디에프"))
+        pdf폴더.mkdir(exist_ok=True)
+        self.run_cli("file", "pdf", str(사진), "-o", str(pdf폴더 / "이름.pdf"),
+                     "--title", "제출용")
+        지움 = self.run_cli("file", "scrub", str(pdf폴더))
+        # 우리가 만든 PDF 에는 사람 이름이 안 들어간다
+        self.assertIn("남은 사람·회사 이름이 없습니다", 지움)
+        self.assertFalse(list(pdf폴더.glob("*이름지움*")))
+
         백업 = Path(self.path("백업"))
         옮김 = self.run_cli("file", "sync", self.path("문서"), str(백업))
         self.assertIn("미리보기", 옮김)

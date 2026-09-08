@@ -996,7 +996,8 @@ def _find_trailer(doc: Document) -> None:
         except PdfError:
             continue
         if isinstance(value, dict) and "Root" in value:
-            doc.trailer.setdefault("Root", value["Root"])
+            for key, item in value.items():        # Info·ID 도 함께 챙긴다
+                doc.trailer.setdefault(key, item)
     if "Root" in doc.trailer:
         return
     for num in sorted(doc._scanned()):
@@ -1135,11 +1136,18 @@ class JoinResult:
 
 
 def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
-              *, title: str = "", rotate: int = 0) -> JoinResult:
+              *, title: str = "", rotate: int = 0,
+              catalog_from: Document | None = None,
+              info: dict | None = None,
+              metadata: bytes | None = None) -> JoinResult:
     """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로.
 
     rotate 는 90 의 배수. 원래 돌아가 있던 각도에 더한다 - 스캔한 것이
     이미 눕혀져 있으면 «90 도 더»가 맞지 «90 도로» 는 틀리기 때문이다.
+
+    catalog_from 을 주면 그 문서의 목차(책갈피·양식·쪽 번호 표시·구조 태그)를
+    함께 옮긴다. 쪽을 다 옮길 때만 뜻이 있다 - 안 옮긴 쪽을 가리키는 책갈피는
+    빈 자리가 되기 때문이다.
     """
     if rotate % 90:
         raise PdfError(f"돌릴 각도는 90 의 배수여야 합니다: {rotate}")
@@ -1159,7 +1167,7 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
     keep = {key for _doc, _page, _new, key in chosen}
     tree = copier.reserve(("root", "pages"))
     catalog = copier.reserve(("root", "catalog"))
-    info = copier.reserve(("root", "info"))
+    info_slot = copier.reserve(("root", "info"))
 
     for doc, page, new, _key in chosen:
         data = {k: v for k, v in page.data.items() if k != "Parent"}
@@ -1170,20 +1178,35 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
             was = doc.get(page.data.get("Rotate"))
             copied["Rotate"] = (int(was or 0) + rotate) % 360
         copier.slots[new - 1] = copied
-    copier.drain(keep)
+
+    made_catalog: dict = {"Type": Name("Catalog"), "Pages": Ref(tree)}
+    if catalog_from is not None:
+        root = catalog_from.get(catalog_from.trailer.get("Root"))
+        if isinstance(root, dict):
+            # /Pages 와 /Metadata 는 우리가 다시 만든다. 나머지는 그대로 옮긴다
+            carry = {k: v for k, v in root.items()
+                     if k not in ("Type", "Pages", "Metadata")}
+            made_catalog = {**copier.convert(catalog_from, carry),
+                            "Type": Name("Catalog"), "Pages": Ref(tree)}
+    if metadata is not None:
+        xmp = copier.reserve(("root", "xmp"))
+        copier.slots[xmp - 1] = Stream(
+            {"Type": Name("Metadata"), "Subtype": Name("XML")}, metadata)
+        made_catalog["Metadata"] = Ref(xmp)
+    copier.drain(keep)               # 목차까지 걸어 둔 뒤에 한 번에 옮긴다
 
     copier.slots[tree - 1] = {
         "Type": Name("Pages"),
         "Kids": [Ref(new) for _doc, _page, new, _key in chosen],
         "Count": len(chosen),
     }
-    copier.slots[catalog - 1] = {"Type": Name("Catalog"), "Pages": Ref(tree)}
-    made = {"Producer": "attools"}
+    copier.slots[catalog - 1] = made_catalog
+    made = dict(info) if info is not None else {"Producer": "attools"}
     if title:
         made["Title"] = title
-    copier.slots[info - 1] = made
+    copier.slots[info_slot - 1] = made
 
-    _write_objects(copier.slots, out, root=catalog, info=info)
+    _write_objects(copier.slots, out, root=catalog, info=info_slot)
 
     check = open_pdf(out)          # 쓴 것을 다시 열어 본다
     if len(check.pages()) != len(chosen):
@@ -1215,3 +1238,106 @@ def _write_objects(slots: list, out: Path, *, root: int, info: int) -> None:
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(b"".join(chunks))
+
+
+# ---- 문서에 남은 이름 지우기
+
+PDF_SCRUB_KEYS = {"Author": "만든 사람", "Company": "회사"}
+XMP_TAGS = {"dc:creator": "만든 사람(XMP)", "pdf:Author": "만든 사람(XMP)",
+            "xmp:Author": "만든 사람(XMP)"}
+_XMP_TEXT = re.compile(rb"<[^<>]+>")
+
+
+def _xmp_stream(doc: Document):
+    """목차에 걸린 XMP 메타데이터 스트림. 없으면 None."""
+    root = doc.get(doc.trailer.get("Root"))
+    if not isinstance(root, dict):
+        return None
+    found = doc.get(root.get("Metadata"))
+    return found if isinstance(found, Stream) else None
+
+
+def _xmp_text(doc: Document) -> bytes:
+    stream = _xmp_stream(doc)
+    if stream is None:
+        return b""
+    try:
+        return stream_data(stream, doc)
+    except (PdfError, zlib.error):
+        return b""
+
+
+def _xmp_value(body: bytes, tag: str) -> str:
+    """<dc:creator> 안의 글자만. 안쪽 rdf:Seq·li 태그는 걷어 낸다."""
+    match = re.search(tag.encode("ascii") + rb"[^>]*>(.*?)</" + tag.encode("ascii"),
+                      body, re.S)
+    if not match:
+        return ""
+    return _XMP_TEXT.sub(b" ", match.group(1)).decode("utf-8", "replace").strip()
+
+
+def _blank_xmp(body: bytes) -> bytes:
+    for tag in XMP_TAGS:
+        name = tag.encode("ascii")
+        body = re.sub(name + rb"([^>]*)>.*?</" + name + rb">",
+                      name + rb"\1></" + name + rb">", body, flags=re.S)
+        body = re.sub(rb"\b" + name + rb'="[^"]*"', name + b'=""', body)
+    return body
+
+
+def _string_text(value) -> str:
+    """PDF 글자열을 사람이 읽는 글로. 앞에 BOM 이 있으면 UTF-16 이다."""
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+        if raw[:2] == b"\xfe\xff":
+            return raw[2:].decode("utf-16-be", "replace")
+        if raw[:2] == b"\xff\xfe":
+            return raw[2:].decode("utf-16-le", "replace")
+        return raw.decode("latin-1", "replace")
+    return "" if value is None else str(value)
+
+
+def scrub_names(doc: Document) -> list[tuple[str, str]]:
+    """이 PDF 에서 지울 수 있는 이름. (사람이 읽는 이름, 값)"""
+    found: list[tuple[str, str]] = []
+    info = doc.get(doc.trailer.get("Info"))
+    if isinstance(info, dict):
+        for key, label in PDF_SCRUB_KEYS.items():
+            text = _string_text(doc.get(info.get(key))).strip()
+            if text:
+                found.append((label, text))
+    body = _xmp_text(doc)
+    for tag, label in XMP_TAGS.items():
+        value = _xmp_value(body, tag)
+        if value and (label, value) not in found:
+            found.append((label, value))
+    return found
+
+
+def scrub_pdf(doc: Document, out: Path) -> tuple[JoinResult, list[tuple[str, str]]]:
+    """이름을 지운 새 PDF 를 만든다. 원본은 건드리지 않는다.
+
+    고친 자리만 덧붙이는 방식(증분 갱신)은 쓰지 않는다 - 옛 이름이 파일에
+    그대로 남아 꺼내 볼 수 있기 때문이다. 다시 써야 정말로 지워진다.
+    """
+    names = scrub_names(doc)
+    if not names:
+        raise PdfError("지울 이름이 없습니다")
+
+    info = doc.get(doc.trailer.get("Info"))
+    clean = {}
+    if isinstance(info, dict):
+        clean = {k: doc.get(v) for k, v in info.items()
+                 if k not in PDF_SCRUB_KEYS}
+    body = _xmp_text(doc)
+    xmp = _blank_xmp(body) if body else None
+
+    result = join_pdfs([(doc, [p.number for p in doc.pages()])], out,
+                       catalog_from=doc, info=clean, metadata=xmp)
+
+    left = scrub_names(open_pdf(out))     # 정말 지워졌는지 다시 열어 본다
+    if left:
+        out.unlink(missing_ok=True)
+        raise PdfError("이름이 그대로 남아 있어 만든 파일을 지웠습니다: "
+                       + ", ".join(f"{label} {value}" for label, value in left))
+    return result, names

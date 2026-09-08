@@ -453,6 +453,8 @@ def cmd_file_sync(a) -> int:
 
 def cmd_file_scrub(a) -> int:
     """문서 속성에서 사람·회사 이름을 지운 사본을 만든다. 원본은 그대로."""
+    from .. import pdf
+
     root = Path(a.dir)
     if not root.exists():
         _p(f"없는 경로입니다: {root}")
@@ -462,9 +464,9 @@ def cmd_file_scrub(a) -> int:
         targets = [root]
     else:
         targets = [m.path for m in files.scan_documents(
-            root, recursive=not a.flat, pdf=False)]
+            root, recursive=not a.flat, pdf=True)]
     if not targets:
-        _p("워드·엑셀·슬라이드 파일이 없습니다.")
+        _p("워드·엑셀·슬라이드·한글·PDF 파일이 없습니다.")
         return 0
 
     plans = [files.plan_scrub(p) for p in targets]
@@ -497,7 +499,7 @@ def cmd_file_scrub(a) -> int:
             plan.path.with_name(f"{plan.path.stem} (이름지움){plan.path.suffix}"))
         try:
             made.append(files.apply_scrub(plan.path, target))
-        except OSError as e:
+        except (OSError, ValueError, pdf.PdfError) as e:
             _p(f"만들지 못했습니다: {plan.path.name}  {e}")
     _p(f"\n사본 {len(made):,}개를 만들었습니다. 원본은 그대로입니다.")
     for path in made[:a.limit]:
@@ -511,7 +513,11 @@ def cmd_file_scrub(a) -> int:
            "못합니다 (내용이라 여기서 손대면 문서가 달라집니다):")
         for part in others[:5]:
             _p(f"  {part}")
-    _p("\n문서 속성(docProps)만 지웠습니다. 본문에 적힌 이름은 그대로입니다.")
+    _p("\n문서 속성만 지웠습니다(워드·엑셀·한글은 docProps, PDF 는 Info·XMP). "
+       "본문에 적힌 이름은 그대로입니다.")
+    if any(plan.path.suffix.lower() == ".pdf" for plan in dirty):
+        _p("PDF 는 덧붙이지 않고 파일을 다시 썼습니다 - 덧붙이면 옛 이름이 파일에 "
+           "그대로 남기 때문입니다. 그래서 전자서명은 무효가 됩니다.")
     return 0
 
 

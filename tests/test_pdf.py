@@ -302,7 +302,8 @@ if __name__ == "__main__":
     unittest.main()
 
 
-def simple_pdf(path: Path, *, pages: int = 3, text: str = "쪽") -> Path:
+def simple_pdf(path: Path, *, pages: int = 3, text: str = "쪽",
+               author: str = "") -> Path:
     """옛날 방식(고전 xref)으로 만든 작은 PDF. 쪽마다 다른 내용이 들어간다."""
     objects: list[bytes] = []
 
@@ -324,6 +325,10 @@ def simple_pdf(path: Path, *, pages: int = 3, text: str = "쪽") -> Path:
     add(("<</Type/Pages/Count %d/Kids[%s]/MediaBox[0 0 200 200]>>"
          % (pages, " ".join(f"{k} 0 R" for k in kids))).encode())
     root = add(b"<</Type/Catalog/Pages " + str(tree).encode() + b" 0 R>>")
+    info = 0
+    if author:
+        info = add(b"<</Author<feff" + author.encode("utf-16-be").hex().encode()
+                   + b">/Title(plan)>>")
 
     out = [b"%PDF-1.4\n"]
     places = [0]
@@ -337,8 +342,9 @@ def simple_pdf(path: Path, *, pages: int = 3, text: str = "쪽") -> Path:
     out.append(b"0000000000 65535 f \n")
     for i in range(1, len(objects) + 1):
         out.append(f"{places[i]:010d} 00000 n \n".encode())
-    out.append(f"trailer\n<</Size {len(objects) + 1}/Root {root} 0 R>>\n"
-               f"startxref\n{at}\n%%EOF\n".encode())
+    out.append((f"trailer\n<</Size {len(objects) + 1}/Root {root} 0 R"
+                + (f"/Info {info} 0 R" if info else "")
+                + f">>\nstartxref\n{at}\n%%EOF\n").encode())
     path.write_bytes(b"".join(out))
     return path
 
@@ -533,3 +539,84 @@ class JoinPdfTest(unittest.TestCase):
         out = self.root / "하나만.pdf"
         pdf.join_pdfs([(doc, [1])], out)
         self.assertEqual(len(pdf.open_pdf(out).pages()), 1)
+
+def xmp_pdf(path: Path, author: str = "김철수") -> Path:
+    """XMP 메타데이터에 이름이 든 PDF. 요즘 프로그램은 여기에도 적는다."""
+    simple_pdf(path, pages=1, author=author)
+    raw = path.read_bytes()
+    xmp = ("<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>"
+           "<x:xmpmeta xmlns:x='adobe:ns:meta/'><rdf:RDF "
+           "xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+           "<rdf:Description xmlns:dc='http://purl.org/dc/elements/1.1/'>"
+           f"<dc:creator><rdf:Seq><rdf:li>{author}</rdf:li></rdf:Seq></dc:creator>"
+           f"<dc:title>보고서</dc:title></rdf:Description></rdf:RDF>"
+           "</x:xmpmeta><?xpacket end='w'?>").encode("utf-8")
+    body = (b"\n90 0 obj\n<</Type/Metadata/Subtype/XML/Length "
+            + str(len(xmp)).encode() + b">>\nstream\n" + xmp
+            + b"\nendstream\nendobj\n")
+    # 목차에 /Metadata 를 걸고 객체를 파일 끝에 붙인다 (자리는 훑어서 찾는다)
+    raw = raw.replace(b"/Type/Catalog", b"/Metadata 90 0 R/Type/Catalog")
+    path.write_bytes(raw + body)
+    return path
+
+
+class ScrubPdfTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_finds_the_author(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "이름.pdf", pages=1,
+                                      author="홍길동"))
+        self.assertEqual(pdf.scrub_names(doc), [("만든 사람", "홍길동")])
+
+    def test_nothing_to_remove(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "깨끗.pdf", pages=1))
+        self.assertEqual(pdf.scrub_names(doc), [])
+        with self.assertRaises(pdf.PdfError):
+            pdf.scrub_pdf(doc, self.root / "사본.pdf")
+
+    def test_removed_name_is_really_gone(self):
+        source = simple_pdf(self.root / "이름.pdf", pages=2, author="홍길동")
+        out = self.root / "지운.pdf"
+        result, names = pdf.scrub_pdf(pdf.open_pdf(source), out)
+        self.assertEqual(result.pages, 2)
+        self.assertEqual(names, [("만든 사람", "홍길동")])
+        self.assertEqual(pdf.scrub_names(pdf.open_pdf(out)), [])
+        # 덧붙이는 방식이었다면 옛 이름이 파일에 그대로 남는다
+        blob = out.read_bytes().lower()
+        self.assertNotIn("홍길동".encode("utf-16-be").hex().encode(), blob)
+        self.assertNotIn("홍길동".encode("utf-8"), blob)
+        self.assertTrue(source.is_file())            # 원본은 그대로
+
+    def test_other_fields_stay(self):
+        source = simple_pdf(self.root / "이름.pdf", pages=1, author="홍길동")
+        out = self.root / "지운.pdf"
+        pdf.scrub_pdf(pdf.open_pdf(source), out)
+        self.assertEqual(pdf.read_info(out).title, "plan")
+
+    def test_xmp_name_is_removed_too(self):
+        source = xmp_pdf(self.root / "요즘.pdf", author="김철수")
+        doc = pdf.open_pdf(source)
+        self.assertIn(("만든 사람(XMP)", "김철수"), pdf.scrub_names(doc))
+
+        out = self.root / "지운.pdf"
+        pdf.scrub_pdf(doc, out)
+        self.assertEqual(pdf.scrub_names(pdf.open_pdf(out)), [])
+        self.assertNotIn("김철수".encode("utf-8"), out.read_bytes())
+        # 이름이 아닌 XMP 항목은 남는다
+        self.assertIn("보고서".encode("utf-8"), out.read_bytes())
+
+    def test_catalog_extras_are_carried(self):
+        source = simple_pdf(self.root / "설정.pdf", pages=1, author="홍길동")
+        raw = source.read_bytes().replace(b"/Type/Catalog",
+                                          b"/PageMode/UseOutlines/Type/Catalog")
+        source.write_bytes(raw)
+        out = self.root / "지운.pdf"
+        pdf.scrub_pdf(pdf.open_pdf(source), out)
+        made = pdf.open_pdf(out)
+        root = made.get(made.trailer["Root"])
+        self.assertEqual(str(root.get("PageMode")), "UseOutlines")
+
