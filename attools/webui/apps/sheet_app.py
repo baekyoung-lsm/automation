@@ -87,6 +87,78 @@ def check(payload: dict) -> dict:
     return {"rows": rows, "clean": not rows, "count": len(table.rows)}
 
 
+def _label_spec(payload: dict) -> sheet.LabelSheet:
+    def mm(key: str, default: float, low: float, high: float) -> float:
+        return float(form.number(payload, key, default, low=low, high=high))
+
+    return sheet.LabelSheet(
+        cols=int(form.number(payload, "lbcols", 3, low=1, high=20)),
+        rows=int(form.number(payload, "lbrows", 7, low=1, high=40)),
+        width=mm("lbwidth", 63.5, 5, 210), height=mm("lbheight", 38.1, 5, 297),
+        left=mm("lbleft", 7.2, 0, 200), top=mm("lbtop", 15.1, 0, 290),
+        gap_x=mm("lbgapx", 2.5, 0, 50), gap_y=mm("lbgapy", 0.0, 0, 50),
+        font=mm("lbfont", 10.0, 5, 30))
+
+
+def _label_lines(payload: dict) -> list[str] | None:
+    raw = form.raw_text(payload, "lblines")
+    lines = [one.strip() for one in raw.splitlines() if one.strip()]
+    return lines or None
+
+
+def _label_command(payload: dict, lines, out=None) -> str:
+    args: list[object] = ["sheet", "labels", *_source_args(payload)]
+    for one in lines or []:
+        args += ["--line", one]
+    spec = _label_spec(payload)
+    for key, value, default in (("--cols", spec.cols, 3), ("--rows", spec.rows, 7),
+                                ("--width", spec.width, 63.5),
+                                ("--height", spec.height, 38.1),
+                                ("--left", spec.left, 7.2), ("--top", spec.top, 15.1)):
+        if value != default:
+            args += [key, f"{value:g}"]
+    start = int(form.number(payload, "lbstart", 1, low=1, high=800))
+    if start != 1:
+        args += ["--start", start]
+    if form.flag(payload, "lbguide"):
+        args.append("--guide")
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _label_result(payload: dict, table, made=None) -> dict:
+    lines = _label_lines(payload)
+    spec = _label_spec(payload)
+    start = int(form.number(payload, "lbstart", 1, low=1, high=spec.per_page))
+    try:
+        html, pages, missing = sheet.labels_html(
+            table, spec, lines=lines, start=start,
+            guide=form.flag(payload, "lbguide"))
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    texts, _missing = sheet.label_texts(table, lines)
+    out = {"rows": [[" / ".join(one)] for one in texts[:PEEK_ROWS]],
+           "count": len(texts), "pages": pages, "per_page": spec.per_page,
+           "missing": sorted(missing), "headers": table.headers,
+           "command": _label_command(payload, lines, made)}
+    if made is not None:
+        made.write_text(html, encoding="utf-8")
+        out["saved"] = str(made)
+    return out
+
+
+def labels_preview(payload: dict) -> dict:
+    return _label_result(payload, _open(payload))
+
+
+def labels_save(payload: dict) -> dict:
+    """원본 옆에 «이름 라벨.html» 을 만든다. 원본은 건드리지 않는다."""
+    table = _open(payload)
+    source = form.existing_file(payload, "path")
+    made = files.unique_path(source.with_name(f"{source.stem} 라벨.html"))
+    return _label_result(payload, table, made)
+
+
 def gaps(payload: dict) -> dict:
     """번호·날짜 열에서 빠진 것 찾기. 고치지 않고 어디가 비었는지만."""
     table = _open(payload)
@@ -1388,6 +1460,7 @@ BODY = """
   <button data-tab="여러 파일" aria-selected="false">여러 파일</button>
   <button data-tab="내보내기 전에" aria-selected="false">내보내기 전에</button>
   <button data-tab="캘린더·연락처" aria-selected="false">캘린더·연락처</button>
+  <button data-tab="인쇄" aria-selected="false">인쇄</button>
 </nav>
 
 <section class="card" data-panel="훑어보기">
@@ -1427,6 +1500,46 @@ BODY = """
   </div>
   <div id="outmsg"></div>
   <div id="outout"></div>
+</section>
+
+<section class="card" data-panel="인쇄" hidden>
+  <h2>주소 라벨 만들기</h2>
+  <p class="note">명단을 라벨지에 인쇄할 HTML 로 만듭니다. 만든 파일을 브라우저로
+     열어 인쇄하되 <b>배율 100%%(«실제 크기»), 여백 «없음»</b> 이어야 자리가 맞습니다.
+     <b>라벨지 규격은 제품마다 다릅니다</b> - 처음에는 «칸 선 그리기» 를 켜고 빈 종이에
+     시험 인쇄해 보고, 왼쪽·위 여백으로 맞추세요. 쓰다 남은 라벨지는 시작 칸을
+     정하면 그만큼 비워 둡니다.</p>
+  <div class="row">
+    <div style="flex:2 1 16rem"><label for="lblines">라벨에 넣을 줄 (한 줄에 하나, 비우면 모든 열)</label>
+      <textarea id="lblines" rows="3" spellcheck="false" placeholder="{이름} 님&#10;{주소}&#10;[{우편번호}]"></textarea></div>
+    <div style="flex:0 1 6rem"><label for="lbcols">가로 칸</label>
+      <input type="text" id="lbcols" value="3" spellcheck="false"></div>
+    <div style="flex:0 1 6rem"><label for="lbrows">세로 칸</label>
+      <input type="text" id="lbrows" value="7" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="lbwidth">칸 가로(mm)</label>
+      <input type="text" id="lbwidth" value="63.5" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="lbheight">칸 세로(mm)</label>
+      <input type="text" id="lbheight" value="38.1" spellcheck="false"></div>
+  </div>
+  <div class="row">
+    <div style="flex:0 1 7rem"><label for="lbleft">왼쪽 여백(mm)</label>
+      <input type="text" id="lbleft" value="7.2" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="lbtop">위 여백(mm)</label>
+      <input type="text" id="lbtop" value="15.1" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="lbfont">글자 크기(pt)</label>
+      <input type="text" id="lbfont" value="10" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="lbstart">시작 칸</label>
+      <input type="text" id="lbstart" value="1" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="lbguide"> 칸 선 그리기 (자리 맞출 때만)</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-labels">무엇이 찍히나</button>
+    <button id="btn-labels-save" disabled>HTML 만들기</button>
+  </div>
+  <div id="lbmsg"></div>
+  <div id="lbout"></div>
 </section>
 
 <section class="card" data-panel="훑어보기">
@@ -2228,6 +2341,39 @@ BODY = """
     } catch (e) { AT.message($("outmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function labelValues() {
+    const b = values();
+    ["lblines", "lbcols", "lbrows", "lbwidth", "lbheight", "lbleft", "lbtop",
+     "lbfont", "lbstart"].forEach(function (id) { b[id] = $(id).value; });
+    b.lbguide = $("lbguide").checked;
+    return b;
+  }
+
+  async function runLabels(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/labels_save"
+                                   : "/api/sheet/labels_preview", labelValues());
+      $("lbout").innerHTML =
+        (d.missing.length
+          ? '<p class="note">표에 없는 자리표시자: ' +
+            d.missing.map(AT.esc).join(", ") + " · 있는 열: " +
+            d.headers.map(AT.esc).join(", ") + "</p>"
+          : "") +
+        AT.table(["라벨에 찍히는 것"], d.rows) + AT.command(d.command);
+      AT.message($("lbmsg"), "<b>" + d.count + "장</b> · " + d.pages +
+        "쪽 (한 쪽 " + d.per_page + "칸)" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 아직 만들지 않았습니다."), "ok");
+      $("btn-labels-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("lbmsg"), AT.esc(e.message), "bad");
+      $("btn-labels-save").disabled = true;
+    }
+  }
+
+  $("btn-labels").addEventListener("click", function () { runLabels(false); });
+  $("btn-labels-save").addEventListener("click", function () { runLabels(true); });
+
   $("btn-gaps").addEventListener("click", async function () {
     try {
       const b = values();
@@ -2830,6 +2976,8 @@ def make() -> App:
                  "vcard_preview": vcard_preview, "vcard_save": vcard_save,
                  "similar": similar, "outliers": outliers,
                  "gaps": gaps,
+                 "labels_preview": labels_preview,
+                 "labels_save": labels_save,
                  "audit": audit, "chart": chart, "dday": dday,
                  "replace_preview": replace_preview,
                  "replace_save": replace_save,

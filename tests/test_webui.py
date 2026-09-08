@@ -1021,6 +1021,31 @@ class SheetAppTest(UiCase):
         self.assertIn("말할 수 없습니다", data["note"])
         self.assertEqual(data["rows"], [])
 
+    def test_labels_preview_and_save(self):
+        path = self.csv("명단.csv", "이름,주소\n홍길동,서울시 중구 1\n김철수,부산시 2\n")
+        _, data = self.post("/api/sheet/labels_preview",
+                            {"path": str(path), "lblines": "{이름} 님\n{주소}"})
+        self.assertEqual((data["count"], data["pages"], data["per_page"]),
+                         (2, 1, 21))
+        self.assertEqual(data["rows"][0], ["홍길동 님 / 서울시 중구 1"])
+        self.assertIn("at sheet labels", data["command"])
+        self.assertEqual(list(path.parent.glob("*라벨*")), [])
+
+        _, made = self.post("/api/sheet/labels_save",
+                            {"path": str(path), "lblines": "{이름} 님"})
+        saved = Path(made["saved"])
+        self.assertTrue(saved.is_file())
+        body = saved.read_text(encoding="utf-8")
+        self.assertEqual(body.count('class="cell"'), 2)
+        self.assertIn("size: 210mm 297mm", body)
+
+    def test_labels_refuse_cells_off_the_paper(self):
+        path = self.csv("명단.csv", "이름\n홍길동\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/labels_preview",
+                      {"path": str(path), "lbcols": "5", "lbwidth": "63.5"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_gaps_finds_missing_numbers(self):
         path = self.csv("전표.csv", "전표번호\n1001\n1002\n1005\n")
         _, data = self.post("/api/sheet/gaps",
