@@ -1618,6 +1618,24 @@ class TablesFromDocxTest(unittest.TestCase):
             sheet.tables_from_docx(bad)
 
 
+class SerialCodeTest(unittest.TestCase):
+    """사번·코드 열에서 모든 짝이 «비슷함» 으로 쏟아지지 않아야 한다."""
+
+    def test_numbers_apart_are_not_typos(self):
+        self.assertFalse(sheet._one_char_apart("e001", "e002"))
+        self.assertFalse(sheet._one_char_apart("2025년", "2026년"))
+
+    def test_letters_apart_are_still_typos(self):
+        self.assertTrue(sheet._one_char_apart("다라테크", "다라테그"))
+        self.assertTrue(sheet._one_char_apart("abc1", "abd1"))
+
+    def test_id_column_is_quiet(self):
+        table = sheet.Table(headers=["사번"],
+                            rows=[[f"E00{i}"] for i in range(1, 5)])
+        pairs, _cut = sheet.find_similar(table, "사번")
+        self.assertEqual(pairs, [])
+
+
 class SimilarCountTest(unittest.TestCase):
     """같은 값이 여러 행에 있어도 짝은 하나여야 한다."""
 
@@ -1685,7 +1703,8 @@ class SimilarTest(unittest.TestCase):
         self.assertEqual(pairs, [])
 
     def test_limit_reports_that_it_stopped(self):
-        rows = [[f"가나상사{i}"] for i in range(10)]
+        # 끝 글자만 다른 이름들. 숫자만 다른 값은 이제 짝으로 보지 않는다
+        rows = [[f"가나상{ch}"] for ch in "사시서소수샤셔쇼슈스"]
         _pairs, cut = sheet.find_similar(sheet.Table(["상호"], rows), limit=3,
                                          column="상호")
         self.assertTrue(cut)

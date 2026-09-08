@@ -3209,13 +3209,18 @@ def _one_char_apart(a: str, b: str) -> bool:
     if min(len(a), len(b)) < 3 or abs(len(a) - len(b)) > 1:
         return False
     changed = 0
+    digits = False
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b).get_opcodes():
         if tag == "equal":
             continue
         changed += max(i2 - i1, j2 - j1)
+        digits = (a[i1:i2].isdigit() or not a[i1:i2]) and \
+                 (b[j1:j2].isdigit() or not b[j1:j2])
         if changed > 1:
             return False
-    return changed == 1
+    # 숫자만 다르면 오타가 아니라 다른 번호다 (E001 과 E002, 2025년과 2026년).
+    # 사번·코드 열에서 모든 짝이 «비슷함» 으로 쏟아지던 자리다.
+    return changed == 1 and not digits
 
 
 @dataclass
