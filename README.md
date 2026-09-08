@@ -251,7 +251,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev re <정규식> <글>` | 정규식을 걸어 보고 매치·그룹·치환 결과를 미리 본다 |
 | `at dev cron <표현식>` | cron 표현식을 한국어로 풀어 주고 다음 실행 시각을 KST로 보여준다 |
 | `at dev gen [종류]` | 비밀번호·토큰·hex·UUID·PIN 을 CSPRNG 로 만든다 |
-| `at dev enc <값>` | base64/base64url/hex/URL 인코딩과 해시를 한 번에, 디코딩도 자동 시도 |
+| `at dev enc <값>` | base64/base64url/hex/URL 인코딩과 해시를 한 번에, 디코딩도 자동 시도. `--file` 이면 파일을 base64·data URI 로 |
 
 ```bash
 at dev env                       # 배포 전 .env 점검, 문제 있으면 exit 1
@@ -269,6 +269,8 @@ at dev wait localhost:5432 -t 60 && ./migrate.sh
 at dev cron "30 2 * * 6"
 at dev gen password -l 20 --readable
 at dev enc "SGVsbG8gd29ybGQ="
+at dev enc --file 아이콘.png --data-uri      # CSS·HTML 에 그대로 박을 꼴로
+at dev enc --file 로고.png -o 로고.b64
 at dev bench -n 20 -- pytest -q
 at dev bench --cmd "sort a.txt" --cmd "sort -S1M a.txt"   # 두 방식 비교
 at dev log app.log                      # 전체 요약

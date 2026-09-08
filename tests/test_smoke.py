@@ -594,6 +594,14 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("안 되는 것 1개", 죽은주소)
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
+        아이콘 = Path(self.path("아이콘.png"))
+        아이콘.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+        박기 = self.run_cli("dev", "enc", "--file", str(아이콘), "--data-uri")
+        self.assertIn("data:image/png;base64,", 박기)
+        self.run_cli("dev", "enc", "--file", str(아이콘),
+                     "-o", self.path("아이콘.b64"))
+        self.assertTrue(Path(self.path("아이콘.b64")).is_file())
+
         import sqlite3
 
         db = self.path("가게.db")

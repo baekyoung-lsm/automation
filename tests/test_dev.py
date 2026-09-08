@@ -176,6 +176,37 @@ class DevkitTest(unittest.TestCase):
         self.assertIn("돌리지 못했습니다", str(ctx.exception))
 
 
+class FileBase64Test(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_base64_and_data_uri(self):
+        path = self.root / "그림.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 4)
+        packed, uri, size = devkit.file_base64(path)
+        import base64
+
+        self.assertEqual(base64.b64decode(packed), path.read_bytes())
+        self.assertTrue(uri.startswith("data:image/png;base64,"))
+        self.assertEqual(size, path.stat().st_size)
+
+    def test_unknown_type_falls_back(self):
+        path = self.root / "무엇.qzx"
+        path.write_bytes("가나다".encode("utf-8"))
+        _packed, uri, _size = devkit.file_base64(path)
+        self.assertTrue(uri.startswith("data:application/octet-stream;base64,"))
+
+    def test_big_file_is_refused_with_a_reason(self):
+        path = self.root / "큰것.bin"
+        path.write_bytes(b"0" * 1000)
+        with self.assertRaises(ValueError) as ctx:
+            devkit.file_base64(path, limit=500)
+        self.assertIn("파일이 큽니다", str(ctx.exception))
+
+
 class CronTest(unittest.TestCase):
     def runs(self, expr, start, n=3):
         from datetime import datetime

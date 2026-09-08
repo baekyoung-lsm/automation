@@ -724,6 +724,25 @@ def fetch(url: str, *, method: str = "GET", headers: dict | None = None,
                           content, _time.perf_counter() - started)
 
 
+def file_base64(path: Path, *, limit: int = 8 << 20) -> tuple[str, str, int]:
+    """파일을 base64 로. (base64, data URI, 바이트 수)
+
+    큰 파일은 화면에 다 찍어도 못 쓰므로 부르는 쪽이 자를 수 있게 길이도
+    함께 준다. limit 을 넘으면 읽지 않는다 - 메모리를 두 배로 먹는다.
+    """
+    import base64
+    import mimetypes
+
+    size = path.stat().st_size
+    if size > limit:
+        raise ValueError(f"파일이 큽니다: {size:,}바이트 "
+                         f"(여기서는 {limit:,}바이트까지 다룹니다)")
+    raw = path.read_bytes()
+    packed = base64.b64encode(raw).decode("ascii")
+    kind = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return packed, f"data:{kind};base64,{packed}", size
+
+
 def parse_header(text: str) -> tuple[str, str]:
     """'Key: Value' 를 (이름, 값). 콜론이 없으면 오류."""
     name, sep, value = text.partition(":")

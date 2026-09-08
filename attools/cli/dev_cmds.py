@@ -1143,6 +1143,35 @@ def cmd_dev_gen(a) -> int:
 
 
 def cmd_dev_enc(a) -> int:
+    if a.file:
+        path = Path(a.file)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        try:
+            packed, uri, size = devkit.file_base64(path)
+        except (OSError, ValueError) as e:
+            _p(str(e))
+            return 1
+
+        body = uri if a.data_uri else packed
+        _p(f"{path.name}  {files.human_size(size)}  ->  "
+           f"base64 {len(packed):,}글자")
+        if a.out:
+            out = Path(a.out)
+            if not _may_write(a, out):
+                return 1
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(body + "\n", encoding="ascii")
+            _p(f"저장: {out}")
+        else:
+            _p(body if len(body) <= 400 else body[:400] + "…")
+            if len(body) > 400:
+                _p("\n앞 400글자만 보였습니다. 다 쓰려면 -o 로 저장하세요.")
+        _p("base64 는 원본보다 3분의 1쯤 커집니다. "
+           "data URI 로 박으면 캐시가 안 되는 것도 생각하세요.")
+        return 0
+
     value = sys.stdin.read().strip() if a.value == "-" else a.value
     for k, v in devkit.encodings(value).items():
         _p(f"{_pad(k, 16)}{v}")
@@ -1536,6 +1565,16 @@ def add_commands(sub) -> None:
 
     en = dp.add_parser("enc", help="base64/hex/URL 인코딩·디코딩 한 번에")
     en.add_argument("value", nargs="?", default="-")
+    en.add_argument("--file", metavar="파일",
+                    help="파일을 base64 로 (아이콘을 CSS 에 박을 때)")
+    en.add_argument("--data-uri", action="store_true",
+                    help="data:<종류>;base64,... 꼴로")
+    en.add_argument("-o", "--out", metavar="파일", help="결과를 파일로 저장")
+    en.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    en.epilog = ('예: at dev enc "SGVsbG8="\n'
+                 '    at dev enc --file 아이콘.png --data-uri\n'
+                 '    at dev enc --file 로고.png -o 로고.b64')
     en.set_defaults(func=cmd_dev_enc)
 
     bn = dp.add_parser("bench", help="명령 실행 시간 측정·비교")
