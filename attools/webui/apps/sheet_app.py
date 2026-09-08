@@ -778,6 +778,78 @@ def vcard_save(payload: dict) -> dict:
     return out
 
 
+def _mail_drafts(payload: dict):
+    table = _open(payload)
+    template_path = form.existing_file({"path": form.text(payload, "mltemplate")})
+    subject = form.text(payload, "mlsubject")
+    to = form.text(payload, "mlto")
+    if not subject or not to:
+        raise UiError("제목 틀과 받는 사람 열을 채워 주세요.")
+    body = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+    attach = form.text(payload, "mlattach") or None
+    try:
+        drafts, missing = sheet.build_mails(table, template=body,
+                                            subject=subject, to=to,
+                                            attach=attach)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+    if missing:
+        raise UiError("표에 없는 자리표시자: " + ", ".join(sorted(missing))
+                      + f" (있는 열: {', '.join(table.headers)}, 번호)")
+    return table, template_path, drafts
+
+
+def _mail_command(payload: dict, template, out=None) -> str:
+    args: list[object] = ["sheet", "mail", *_source_args(payload),
+                          "-t", template,
+                          "--subject", form.text(payload, "mlsubject"),
+                          "--to", form.text(payload, "mlto")]
+    if form.text(payload, "mlattach"):
+        args += ["--attach", form.text(payload, "mlattach")]
+    if out:
+        args += ["-o", out, "--apply"]
+    return form.command(*args)
+
+
+def _mail_result(drafts) -> dict:
+    good = [d for d in drafts if d.ok]
+    return {"rows": [[d.to, d.subject, str(len(d.attachments)) if d.attachments
+                      else ""] for d in good[:PEEK_ROWS]],
+            "count": len(good),
+            "problems": [[str(d.line), d.problem] for d in drafts if not d.ok],
+            "first": (good[0].body[:1500] if good else "")}
+
+
+def mail_preview(payload: dict) -> dict:
+    _table, template, drafts = _mail_drafts(payload)
+    out = _mail_result(drafts)
+    out["command"] = _mail_command(payload, template)
+    return out
+
+
+def mail_make(payload: dict) -> dict:
+    """사람마다 .eml 을 만든다. 보내지는 않는다."""
+    from ... import hangul
+
+    table, template, drafts = _mail_drafts(payload)
+    good = [d for d in drafts if d.ok]
+    if not good:
+        raise UiError("보낼 수 있는 행이 없습니다. (메일 주소·첨부를 보세요)")
+
+    source = Path(table.source)
+    folder = files.unique_path(source.with_name(source.stem + " 메일초안"))
+    folder.mkdir(parents=True)
+    for draft in good:
+        name = hangul.sanitize_filename(
+            f"{draft.row:03d}_{draft.to.split(',')[0].strip()}.eml")
+        (folder / name).write_bytes(sheet.to_eml(draft))
+
+    out = _mail_result(drafts)
+    out["saved"] = str(folder)
+    out["command"] = _mail_command(payload, template, folder)
+    return out
+
+
 def audit(payload: dict) -> dict:
     """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
     table = _open(payload)
@@ -1557,6 +1629,34 @@ BODY = """
 </section>
 
 <section class="card" data-panel="여러 파일" hidden>
+  <h2>사람마다 메일 초안 만들기</h2>
+  <p class="note">명단과 본문 틀로 <b>사람마다 .eml 초안 파일</b>을 만듭니다.
+     본문·제목에 <code>{이름}</code> 처럼 열 이름을 적으면 그 자리에 값이 들어갑니다.
+     <b>보내지 않습니다</b> - 파일을 메일 앱에서 열면 초안으로 뜨고, 보내는 것은
+     사람이 한 번 더 보고 누릅니다. 메일 주소로 보이지 않는 행과 첨부를 찾지 못한
+     행은 만들지 않고 몇 행이 왜 빠졌는지 알려 줍니다.</p>
+  <div class="row">
+    <div style="flex:2 1 16rem"><label for="mltemplate">본문 틀 파일</label>
+      <input type="text" id="mltemplate" spellcheck="false"
+             data-browse=".md,.txt"></div>
+    <div style="flex:2 1 14rem"><label for="mlsubject">제목 틀</label>
+      <input type="text" id="mlsubject" spellcheck="false"
+             placeholder="{이름}님 3월 정산 안내"></div>
+  </div>
+  <div class="row" style="margin-top:.6rem">
+    <div><label for="mlto">받는 사람 열</label><select id="mlto"></select></div>
+    <div><label for="mlattach">첨부 경로 열</label>
+      <select id="mlattach"></select></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-mail">누구에게 무엇이 가나</button>
+    <button id="btn-mail-save" disabled>초안 만들기</button>
+  </div>
+  <div id="mailmsg"></div>
+  <div id="mailout"></div>
+</section>
+
+<section class="card" data-panel="여러 파일" hidden>
   <h2>양식 취합</h2>
   <p class="note">부서마다 같은 서식에 채워 보낸 파일들에서 <b>같은 칸</b>만 뽑아
      한 표로 만듭니다. 칸은 엑셀에서 보이는 주소(B3, C7)로 적습니다. 칸이 비어도
@@ -2044,6 +2144,42 @@ BODY = """
   $("btn-age").addEventListener("click", function () { runAge(false); });
   $("btn-age-save").addEventListener("click", function () { runAge(true); });
 
+  function mailValues() {
+    const b = values();
+    b.mltemplate = $("mltemplate").value; b.mlsubject = $("mlsubject").value;
+    b.mlto = $("mlto").value; b.mlattach = $("mlattach").value;
+    return b;
+  }
+
+  function drawMail(d) {
+    $("mailout").innerHTML =
+      AT.table(["받는 사람", "제목", "첨부"], d.rows, [null, null, "num"]) +
+      (d.problems.length
+        ? "<h2>만들지 않은 행</h2>" +
+          AT.table(["행", "까닭"], d.problems, ["num", null])
+        : "") +
+      (d.first ? "<h2>첫 건 본문</h2><pre>" + AT.esc(d.first) + "</pre>" : "") +
+      AT.command(d.command);
+  }
+
+  async function runMail(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/mail_make"
+                                   : "/api/sheet/mail_preview", mailValues());
+      drawMail(d);
+      AT.message($("mailmsg"), "초안 <b>" + d.count + "건</b>" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 아직 아무것도 만들지 않았습니다."), "ok");
+      $("btn-mail-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("mailmsg"), AT.esc(e.message), "bad");
+      $("btn-mail-save").disabled = true;
+    }
+  }
+
+  $("btn-mail").addEventListener("click", function () { runMail(false); });
+  $("btn-mail-save").addEventListener("click", function () { runMail(true); });
+
   function icsValues() {
     const b = values();
     b.ictitle = $("ictitle").value; b.icstart = $("icstart").value;
@@ -2296,6 +2432,8 @@ BODY = """
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
       options($("acol"), data.headers, "");
+      options($("mlto"), data.headers, "");
+      options($("mlattach"), data.headers, "쓰지 않음");
       options($("ictitle"), data.headers, "");
       options($("icstart"), data.headers, "");
       options($("icend"), data.headers, "쓰지 않음");
@@ -2393,6 +2531,7 @@ def make() -> App:
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
                  "age_preview": age_preview, "age_save": age_save,
+                 "mail_preview": mail_preview, "mail_make": mail_make,
                  "ics_preview": ics_preview, "ics_save": ics_save,
                  "vcard_preview": vcard_preview, "vcard_save": vcard_save,
                  "similar": similar, "outliers": outliers,

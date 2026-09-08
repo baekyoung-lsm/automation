@@ -665,6 +665,46 @@ class SheetAppTest(UiCase):
                       {"path": str(path), "ictitle": "일정", "icstart": ""})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_mail_drafts(self):
+        path = self.csv("정산.csv",
+                        "이름,메일,금액\n홍길동,a@b.com,120000\n김철수,없음,5000\n")
+        template = self.work / "본문.md"
+        template.write_text("{이름}님, {금액:,}원입니다.\n", encoding="utf-8")
+        body = {"path": str(path), "mltemplate": str(template),
+                "mlsubject": "{이름}님 정산", "mlto": "메일"}
+
+        _, data = self.post("/api/sheet/mail_preview", body)
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["rows"][0][:2], ["a@b.com", "홍길동님 정산"])
+        self.assertEqual(data["problems"][0][0], "3")
+        self.assertIn("120,000원", data["first"])
+
+        _, made = self.post("/api/sheet/mail_make", body)
+        folder = Path(made["saved"])
+        eml = list(folder.glob("*.eml"))
+        self.assertEqual(len(eml), 1)
+        self.assertIn("To: a@b.com", eml[0].read_text(encoding="utf-8"))
+
+    def test_mail_needs_a_subject(self):
+        path = self.csv("정산.csv", "이름,메일\n가,a@b.com\n")
+        template = self.work / "본문.md"
+        template.write_text("{이름}님\n", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/mail_preview",
+                      {"path": str(path), "mltemplate": str(template),
+                       "mlsubject": "", "mlto": "메일"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_mail_reports_unknown_placeholders(self):
+        path = self.csv("정산.csv", "이름,메일\n가,a@b.com\n")
+        template = self.work / "본문.md"
+        template.write_text("{부서} 앞\n", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/mail_preview",
+                      {"path": str(path), "mltemplate": str(template),
+                       "mlsubject": "안내", "mlto": "메일"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_audit_collects_notes(self):
         path = self.csv("받은것.csv",
                         "상호,메일\n(주)가나,a@a.com\n주식회사 가나,b@a.com\n"
@@ -2523,6 +2563,20 @@ class CommandHintTest(UiCase):
                           {"path": str(cards), "vcname": "이름",
                            "vccompany": "회사"})
         self.accepts(vc["command"])
+
+    def test_sheet_mail_command(self):
+        path = self.work / "정산.csv"
+        path.write_text("이름,메일\n홍길동,a@b.com\n", encoding="utf-8")
+        template = self.work / "본문.md"
+        template.write_text("{이름}님\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/mail_preview",
+                            {"path": str(path), "mltemplate": str(template),
+                             "mlsubject": "{이름}님 안내", "mlto": "메일"})
+        self.accepts(data["command"])
+        _, made = self.post("/api/sheet/mail_make",
+                            {"path": str(path), "mltemplate": str(template),
+                             "mlsubject": "{이름}님 안내", "mlto": "메일"})
+        self.accepts(made["command"])
 
     def test_sheet_age_command(self):
         path = self.work / "생일.csv"

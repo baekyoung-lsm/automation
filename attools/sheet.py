@@ -1169,7 +1169,7 @@ MAIL_ADDRESS_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
 
 @dataclass
 class MailDraft:
-    row: int
+    row: int                    # 몇 번째 사람인가 ({번호} 와 파일 이름에 쓴다)
     to: str
     subject: str
     body: str
@@ -1177,6 +1177,7 @@ class MailDraft:
     attachments: list = field(default_factory=list)      # [Path]
     lost: list = field(default_factory=list)             # 못 찾은 첨부 경로
     problem: str = ""                                    # 만들 수 없는 까닭
+    line: int = 0               # 파일에서 몇 줄째인가 (머리글이 1)
 
     @property
     def ok(self) -> bool:
@@ -1216,6 +1217,8 @@ def build_mails(table: Table, *, template: str, subject: str, to: str,
 
         draft = MailDraft(
             row=number,
+            line=number - start + 2,          # 머리글이 1행이다
+
             to=to_text(cells[index["to"]]).strip(),
             subject=render(subject, values, missing=missing).strip(),
             body=render(template, values, missing=missing),

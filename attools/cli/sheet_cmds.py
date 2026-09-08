@@ -1639,7 +1639,7 @@ def cmd_sheet_mail(a) -> int:
     bad = [d for d in drafts if not d.ok]
 
     _grid(["행", "받는 사람", "제목", "첨부"],
-          [[str(d.row), _cut(d.to, 24), _cut(d.subject, 28),
+          [[str(d.line), _cut(d.to, 24), _cut(d.subject, 28),
             str(len(d.attachments)) if d.attachments else ""]
            for d in good[:a.limit]])
     if len(good) > a.limit:
@@ -1648,7 +1648,7 @@ def cmd_sheet_mail(a) -> int:
     if bad:
         _p(f"\n만들지 않은 행 {len(bad):,}개:")
         for d in bad[:a.limit]:
-            _p(f"  {d.row}행: {d.problem}")
+            _p(f"  {d.line}행: {d.problem}")
         if len(bad) > a.limit:
             _p(f"  ... {len(bad) - a.limit:,}행 더")
 
