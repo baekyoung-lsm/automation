@@ -487,6 +487,116 @@ def pdf_make(payload: dict) -> dict:
             "command": _pdf_command(payload, root, made)}
 
 
+def _cut_plan(payload: dict):
+    """고른 PDF 와 뽑을 쪽을 정한다. 계획은 언제나 서버에서 다시 세운다."""
+    from ... import pdf
+
+    path = form.existing_file(payload, "cutfile", max_bytes=0)
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        keep = (pdf.page_numbers(form.text(payload, "cutpages"), total)
+                if form.text(payload, "cutpages") else list(range(1, total + 1)))
+        if form.text(payload, "cutdrop"):
+            drop = set(pdf.page_numbers(form.text(payload, "cutdrop"), total))
+            keep = [n for n in keep if n not in drop]
+    except (pdf.PdfError, OSError, ValueError) as exc:
+        raise UiError(str(exc)) from None
+    if not keep:
+        raise UiError("남는 쪽이 없습니다. 뺀 쪽을 다시 보세요.")
+    return doc, path, total, keep
+
+
+def _cut_command(payload: dict, path, out=None) -> str:
+    args: list[object] = ["file", "pdfcut", path]
+    if form.text(payload, "cutpages"):
+        args += ["--pages", form.text(payload, "cutpages")]
+    if form.text(payload, "cutdrop"):
+        args += ["--drop", form.text(payload, "cutdrop")]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _cut_rows(path, total: int, keep: list[int]) -> list[list[str]]:
+    return [[path.name, f"{total:,}쪽", f"{len(keep):,}쪽",
+             ", ".join(str(n) for n in keep[:40])
+             + (" ..." if len(keep) > 40 else "")]]
+
+
+def cut_preview(payload: dict) -> dict:
+    _doc, path, total, keep = _cut_plan(payload)
+    return {"rows": _cut_rows(path, total, keep), "count": len(keep),
+            "command": _cut_command(payload, path)}
+
+
+def cut_make(payload: dict) -> dict:
+    """원본 옆에 «이름(쪽뽑음).pdf» 를 만든다. 원본은 건드리지 않는다."""
+    from ... import pdf
+
+    doc, path, total, keep = _cut_plan(payload)
+    out = files.unique_path(path.with_name(f"{path.stem}(쪽뽑음).pdf"))
+    try:
+        result = pdf.join_pdfs([(doc, keep)], out)
+    except (pdf.PdfError, OSError) as exc:
+        raise UiError(str(exc)) from None
+    return {"rows": _cut_rows(path, total, keep), "count": result.pages,
+            "saved": str(out), "size": files.human_size(out.stat().st_size),
+            "missing": result.missing,
+            "command": _cut_command(payload, path, out)}
+
+
+def _join_plan(payload: dict):
+    """폴더 안의 PDF 를 이름 순으로. 스캔은 대개 그 차례가 맞다."""
+    from ... import pdf
+
+    root = form.folder(payload, "joinroot")
+    targets = sorted(p for p in root.iterdir()
+                     if p.is_file() and p.suffix.lower() == ".pdf")
+    picks, rows, skipped = [], [], []
+    for path in targets:
+        try:
+            doc = pdf.open_pdf(path)
+            count = len(doc.pages())
+        except (pdf.PdfError, OSError, ValueError) as exc:
+            skipped.append([path.name, str(exc)])
+            continue
+        picks.append((doc, list(range(1, count + 1))))
+        rows.append([str(len(rows) + 1), path.name, f"{count:,}"])
+    return root, targets, picks, rows, skipped
+
+
+def _join_command(payload: dict, targets, out=None) -> str:
+    return form.command("file", "pdfjoin", *targets,
+                        *(["-o", out] if out else []))
+
+
+def join_preview(payload: dict) -> dict:
+    _root, targets, picks, rows, skipped = _join_plan(payload)
+    return {"rows": rows, "skipped": skipped,
+            "count": sum(len(n) for _doc, n in picks),
+            "files": len(picks),
+            "command": _join_command(payload, targets)}
+
+
+def join_make(payload: dict) -> dict:
+    """폴더 옆에 «폴더이름.pdf» 를 만든다. 원본은 그대로 둔다."""
+    from ... import pdf
+
+    root, targets, picks, rows, skipped = _join_plan(payload)
+    if len(picks) < 2:
+        raise UiError("합칠 PDF 가 두 개 넘게 있어야 합니다. "
+                      f"({root} 안에서 {len(picks)}개를 찾았습니다)")
+    out = files.unique_path(root.with_name(f"{root.name}(합본).pdf"))
+    try:
+        result = pdf.join_pdfs(picks, out)
+    except (pdf.PdfError, OSError) as exc:
+        raise UiError(str(exc)) from None
+    return {"rows": rows, "skipped": skipped, "count": result.pages,
+            "files": len(picks), "saved": str(out),
+            "size": files.human_size(out.stat().st_size),
+            "missing": result.missing,
+            "command": _join_command(payload, targets, out)}
+
+
 def _pack_plan(payload: dict):
     root = form.folder(payload, "packroot")
     try:
@@ -778,6 +888,47 @@ BODY = """
   </div>
   <div id="pdfmsg"></div>
   <div id="pdfout"></div>
+</section>
+
+<section class="card">
+  <h2>PDF 쪽 뽑기</h2>
+  <p class="note">계약서 몇 쪽만 보내야 할 때. <b>이 컴퓨터 안에서</b> 끝나므로
+     문서를 모르는 웹사이트에 올리지 않아도 됩니다. 글자·그림은 눌린 그대로
+     옮겨 화질과 글꼴이 원본 그대로입니다. <b>원본은 그대로 두고</b> 옆에
+     «이름(쪽뽑음).pdf» 를 만듭니다. 책갈피·양식·서명은 따라가지 않습니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="cutfile">PDF 파일</label>
+      <input type="text" id="cutfile" data-browse="file" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="cutpages">뽑을 쪽</label>
+      <input type="text" id="cutpages" placeholder="1-3,7" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="cutdrop">뺄 쪽</label>
+      <input type="text" id="cutdrop" placeholder="2" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-cut">몇 쪽이 나오나</button>
+    <button id="btn-cut-save" disabled>뽑아 만들기</button>
+  </div>
+  <div id="cutmsg"></div>
+  <div id="cutout"></div>
+</section>
+
+<section class="card">
+  <h2>PDF 합치기</h2>
+  <p class="note">폴더 안의 PDF 를 <b>이름 순으로</b> 이어 붙입니다. 나눠 스캔한
+     것을 하나로 묶을 때 씁니다. 무엇이 어떤 차례로 붙는지 먼저 보여 줍니다.
+     못 여는 파일(암호가 걸렸거나 망가진 것)은 <b>조용히 빼지 않고</b> 까닭과
+     함께 알려 줍니다. <b>원본은 그대로 두고</b> 폴더 옆에 «폴더이름(합본).pdf»
+     를 만듭니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="joinroot">PDF 가 있는 폴더</label>
+      <input type="text" id="joinroot" data-browse="dir" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-join">어떤 차례로 붙나</button>
+    <button id="btn-join-save" disabled>합쳐 만들기</button>
+  </div>
+  <div id="joinmsg"></div>
+  <div id="joinout"></div>
 </section>
 
 <section class="card">
@@ -1126,6 +1277,70 @@ BODY = """
   $("btn-pdf").addEventListener("click", function () { runPdf(false); });
   $("btn-pdf-save").addEventListener("click", function () { runPdf(true); });
 
+  function cutValues() {
+    return { cutfile: $("cutfile").value, cutpages: $("cutpages").value,
+             cutdrop: $("cutdrop").value };
+  }
+
+  function drawCut(d) {
+    $("cutout").innerHTML =
+      AT.table(["파일", "전체", "뽑을 쪽", "쪽 번호"], d.rows) +
+      AT.command(d.command);
+  }
+
+  async function runCut(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/cut_make"
+                                   : "/api/files/cut_preview", cutValues());
+      drawCut(d);
+      AT.remember("files", "cutfile", $("cutfile").value);
+      AT.message($("cutmsg"), "<b>" + d.count + "쪽</b>" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                   AT.esc(d.size) + ")"
+                 : " · 아직 만들지 않았습니다.") +
+        (d.missing ? " · 원본이 가리키는데 없던 객체 " + d.missing +
+                     "개는 비워 두었습니다." : ""), "ok");
+      $("btn-cut-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("cutmsg"), AT.esc(e.message), "bad");
+      $("btn-cut-save").disabled = true;
+    }
+  }
+
+  $("btn-cut").addEventListener("click", function () { runCut(false); });
+  $("btn-cut-save").addEventListener("click", function () { runCut(true); });
+
+  function joinValues() { return { joinroot: $("joinroot").value }; }
+
+  function drawJoin(d) {
+    $("joinout").innerHTML =
+      AT.table(["차례", "파일", "쪽"], d.rows) +
+      (d.skipped.length
+        ? "<h2>못 연 파일</h2>" + AT.table(["파일", "까닭"], d.skipped)
+        : "") + AT.command(d.command);
+  }
+
+  async function runJoin(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/join_make"
+                                   : "/api/files/join_preview", joinValues());
+      drawJoin(d);
+      AT.remember("files", "joinroot", $("joinroot").value);
+      AT.message($("joinmsg"), "PDF <b>" + d.files + "개</b> · 모두 " +
+        d.count + "쪽" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                   AT.esc(d.size) + ")"
+                 : " · 아직 만들지 않았습니다."), "ok");
+      $("btn-join-save").disabled = !!save || d.files < 2;
+    } catch (e) {
+      AT.message($("joinmsg"), AT.esc(e.message), "bad");
+      $("btn-join-save").disabled = true;
+    }
+  }
+
+  $("btn-join").addEventListener("click", function () { runJoin(false); });
+  $("btn-join-save").addEventListener("click", function () { runJoin(true); });
+
   function packValues() {
     return { packroot: $("packroot").value, packmax: $("packmax").value,
              packglob: $("packglob").value, packhidden: $("packhidden").checked };
@@ -1263,6 +1478,8 @@ def make() -> App:
                  "photos": photos, "photos_strip": photos_strip,
                  "sync_preview": sync_preview, "sync_apply": sync_apply,
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
+                 "cut_preview": cut_preview, "cut_make": cut_make,
+                 "join_preview": join_preview, "join_make": join_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,
                  "compare": compare,

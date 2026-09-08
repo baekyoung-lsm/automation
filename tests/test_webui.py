@@ -25,6 +25,26 @@ class UiCase(unittest.TestCase):
     더 돈다. 열두 화면이면 열두 번이다.
     """
 
+    def _two_page_pdf(self, name: str = "스캔") -> Path:
+        """화면의 «이미지를 PDF 로» 로 시험용 PDF 를 만든다."""
+        import struct
+        import zlib
+
+        def chunk(kind, body):
+            return (struct.pack(">I", len(body)) + kind + body
+                    + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+        rows = b"".join(b"\x00" + bytes([10, 20, 30]) * 4 for _ in range(3))
+        png = (b"\x89PNG\r\n\x1a\n"
+               + chunk(b"IHDR", struct.pack(">IIBBBBB", 4, 3, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+        folder = self.work / name
+        folder.mkdir()
+        (folder / "1.png").write_bytes(png)
+        (folder / "2.png").write_bytes(png)
+        _, made = self.post("/api/files/pdf_make", {"pdfroot": str(folder)})
+        return Path(made["saved"])
+
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.home = self.root / "home"
@@ -302,6 +322,59 @@ class WebUiTest(UiCase):
         self.assertEqual(info.pages, 2)
         self.assertEqual(info.title, "제출용")
         self.assertTrue((folder / "1.png").is_file())      # 원본은 그대로
+
+    def test_pdf_cut_pages(self):
+        from attools import pdf as pdfkit
+
+        source = self._two_page_pdf()
+        _, data = self.post("/api/files/cut_preview",
+                            {"cutfile": str(source), "cutpages": "2"})
+        self.assertEqual(data["count"], 1)
+        self.assertIn("at file pdfcut", data["command"])
+        self.assertEqual(len(list(source.parent.glob("*(쪽뽑음)*.pdf"))), 0)
+
+        _, made = self.post("/api/files/cut_make",
+                            {"cutfile": str(source), "cutpages": "2"})
+        saved = Path(made["saved"])
+        self.assertTrue(saved.is_file())
+        self.assertEqual(pdfkit.read_info(saved).pages, 1)
+        self.assertEqual(pdfkit.read_info(source).pages, 2)   # 원본은 그대로
+
+    def test_pdf_cut_refuses_missing_page(self):
+        source = self._two_page_pdf()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/cut_preview",
+                      {"cutfile": str(source), "cutpages": "9"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_pdf_join_folder(self):
+        from attools import pdf as pdfkit
+
+        one = self._two_page_pdf("앞")
+        two = self._two_page_pdf("뒤")
+        folder = self.work / "모음"
+        folder.mkdir()
+        shutil.copy(one, folder / "1.pdf")
+        shutil.copy(two, folder / "2.pdf")
+        (folder / "망가진.pdf").write_bytes("%PDF-1.4\n엉망".encode("utf-8"))
+
+        _, data = self.post("/api/files/join_preview", {"joinroot": str(folder)})
+        self.assertEqual([row[1] for row in data["rows"]], ["1.pdf", "2.pdf"])
+        self.assertEqual(data["count"], 4)
+        self.assertEqual([row[0] for row in data["skipped"]], ["망가진.pdf"])
+
+        _, made = self.post("/api/files/join_make", {"joinroot": str(folder)})
+        saved = Path(made["saved"])
+        self.assertEqual(pdfkit.read_info(saved).pages, 4)
+
+    def test_pdf_join_needs_two(self):
+        one = self._two_page_pdf("하나")
+        folder = self.work / "혼자"
+        folder.mkdir()
+        shutil.copy(one, folder / "1.pdf")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/join_make", {"joinroot": str(folder)})
+        self.assertEqual(ctx.exception.code, 400)
 
     def test_pdf_needs_images(self):
         empty = self.work / "빈폴더"
@@ -2593,6 +2666,20 @@ class CommandHintTest(UiCase):
                       "hidden": True, "fixname": True}):
             _, data = self.post("/api/files/preview", body)
             self.accepts(data["command"])
+
+    def test_files_pdf_commands(self):
+        source = self._two_page_pdf("명령확인")
+        _, data = self.post("/api/files/cut_preview",
+                            {"cutfile": str(source), "cutpages": "1-2",
+                             "cutdrop": "2"})
+        self.accepts(data["command"])
+
+        folder = self.work / "합칠것"
+        folder.mkdir()
+        shutil.copy(source, folder / "1.pdf")
+        shutil.copy(source, folder / "2.pdf")
+        _, joined = self.post("/api/files/join_preview", {"joinroot": str(folder)})
+        self.accepts(joined["command"])
 
     def test_files_scrub_command(self):
         import zipfile
