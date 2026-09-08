@@ -702,3 +702,49 @@ def repeated_sentences(sources: list[tuple[str, str]], *, min_chars: int = 12,
                 spot.places.append((name, line_no))
     return sorted((r for r in seen.values() if r.count >= min_count),
                   key=lambda r: (-r.count, r.text))
+
+
+# ------------------------------------------------------------------ 글자 세기
+
+MANUSCRIPT_SHEET = 200          # 원고지 한 장 = 200자 (국내에서 쓰는 기준)
+
+
+@dataclass
+class TextCount:
+    path: Path
+    kind: str = ""              # 무엇으로 읽었는지 (인코딩, 워드 문단 …)
+    chars: int = 0              # 공백 포함
+    chars_no_space: int = 0     # 공백 뺀 것 (자소서·과제에서 세는 기준)
+    words: int = 0
+    lines: int = 0
+    paragraphs: int = 0         # 빈 줄로 나눈 덩어리
+    bytes: int = 0              # utf-8 로 적었을 때
+    error: str = ""
+
+    @property
+    def sheets(self) -> float:
+        """원고지 매수. 200자를 한 장으로 센다."""
+        return round(self.chars / MANUSCRIPT_SHEET, 1)
+
+
+def count_text(path: Path) -> TextCount:
+    """글자 수를 센다. 워드·한글 문서면 문단 글자만 센다.
+
+    «공백 포함» 과 «공백 제외» 를 함께 낸다 - 자소서·과제는 둘 중 어느
+    기준인지가 매번 다르고, 하나만 내면 반드시 틀린 쪽을 보게 된다.
+    """
+    count = TextCount(path=path)
+    try:
+        body, kind = read_words_or_text(path)
+    except (TextError, docx.DocxError, hwpx.HwpxError, OSError) as exc:
+        count.error = str(exc)
+        return count
+
+    count.kind = kind
+    count.chars = len(body)
+    count.chars_no_space = len(re.sub(r"\s", "", body))
+    count.words = len(body.split())
+    count.lines = len(body.splitlines())
+    count.paragraphs = len([p for p in re.split(r"\n\s*\n", body) if p.strip()])
+    count.bytes = len(body.encode("utf-8"))
+    return count

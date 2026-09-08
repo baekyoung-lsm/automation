@@ -130,6 +130,53 @@ def cmd_text_find(a) -> int:
     return 0
 
 
+def cmd_text_count(a) -> int:
+    """글자 수를 센다. 자소서·과제·기고문에서 매번 세는 그 숫자다."""
+    targets = _text_targets(a, documents=True)
+    if targets is None:
+        return 1
+    if not targets:
+        _p("파일이 없습니다.")
+        return 1
+
+    counts = [text.count_text(p) for p in targets]
+    good = [c for c in counts if not c.error]
+    counts.sort(key=lambda c: -c.chars)
+
+    _grid(["파일", "글자(공백 포함)", "글자(공백 제외)", "낱말", "줄", "문단",
+           "원고지", "못 읽은 까닭"],
+          [[_cut(c.path.name, 24), f"{c.chars:,}", f"{c.chars_no_space:,}",
+            f"{c.words:,}", f"{c.lines:,}", f"{c.paragraphs:,}",
+            f"{c.sheets:g}", _cut(c.error, 24)]
+           for c in counts[:a.limit]], limit=24)
+    if len(counts) > a.limit:
+        _p(f"  ... {len(counts) - a.limit:,}개 더")
+
+    if len(good) > 1:
+        chars = sum(c.chars for c in good)
+        no_space = sum(c.chars_no_space for c in good)
+        _p(f"\n파일 {len(good):,}개  ·  글자 {chars:,} (공백 제외 {no_space:,})"
+           f"  ·  원고지 {round(chars / text.MANUSCRIPT_SHEET, 1):g}장")
+
+    if a.limit_chars:
+        over = [c for c in good
+                if (c.chars_no_space if a.no_space else c.chars) > a.limit_chars]
+        기준 = "공백 제외" if a.no_space else "공백 포함"
+        if over:
+            _p(f"\n{기준} {a.limit_chars:,}자를 넘는 파일 {len(over)}개:")
+            for c in over[:a.limit]:
+                셈 = c.chars_no_space if a.no_space else c.chars
+                _p(f"  {c.path.name}  {셈:,}자  ({셈 - a.limit_chars:,}자 초과)")
+            return 1
+        _p(f"\n{기준} {a.limit_chars:,}자를 넘는 파일이 없습니다.")
+
+    if any(c.kind in ("워드 문단", "한글 문단") for c in good):
+        _p("워드·한글 문서는 문단 글자만 셉니다 (머리글·바닥글·표 밖 글상자는 "
+           "빠집니다).")
+    _p("원고지는 200자를 한 장으로 셈한 것입니다.")
+    return 0
+
+
 def cmd_text_pick(a) -> int:
     """글에서 이메일·전화·금액 같은 것을 뽑는다. 정규식을 몰라도 되게."""
     targets = _text_targets(a)
@@ -598,6 +645,17 @@ def add_commands(sub) -> None:
                             help="미리보기 줄 수")
         parser.add_argument("-q", "--quiet", action="store_true", help="차이 미리보기 생략")
         return parser
+
+    ct = tp.add_parser("count", help="글자 수 세기 (공백 포함·제외, 원고지 매수)")
+    ct.add_argument("paths", nargs="*", metavar="경로")
+    ct.add_argument("-g", "--glob", action="append", metavar="패턴")
+    ct.add_argument("--hidden", action="store_true")
+    ct.add_argument("--limit-chars", type=int, metavar="자",
+                    help="이 글자 수를 넘는 파일이 있으면 1 로 끝난다")
+    ct.add_argument("--no-space", action="store_true",
+                    help="--limit-chars 를 공백 제외로 센다")
+    ct.add_argument("--limit", type=int, default=20, metavar="개")
+    ct.set_defaults(func=cmd_text_count)
 
     pk = tp.add_parser("pick", help="이메일·전화·금액·날짜 뽑아내기 (정규식 없이)")
     text_paths(pk)

@@ -469,5 +469,64 @@ class FindInWordFilesTest(unittest.TestCase):
         self.assertNotIn("깨진.docx", [f.path.name for f in found])
 
 
+class CountTextTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, body: str, name: str = "글.txt") -> Path:
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_counts_with_and_without_spaces(self):
+        # 자소서·과제는 어느 기준인지 매번 달라 둘 다 내야 한다
+        count = text.count_text(self.write("가 나\n다 라\n"))
+        self.assertEqual(count.chars, 8)
+        self.assertEqual(count.chars_no_space, 4)
+
+    def test_words_lines_paragraphs(self):
+        count = text.count_text(self.write("첫 문단 입니다\n\n둘째 문단\n"))
+        self.assertEqual(count.words, 5)
+        self.assertEqual(count.lines, 3)
+        self.assertEqual(count.paragraphs, 2)
+
+    def test_bytes_are_utf8(self):
+        self.assertEqual(text.count_text(self.write("가")).bytes, 3)
+
+    def test_manuscript_sheets(self):
+        count = text.count_text(self.write("가" * 400))
+        self.assertEqual(count.sheets, 2.0)
+
+    def test_cp949_file_is_read(self):
+        path = self.root / "옛글.txt"
+        path.write_bytes("한글 내용\n".encode("cp949"))
+        count = text.count_text(path)
+        self.assertEqual(count.chars_no_space, 4)
+        self.assertEqual(count.error, "")
+
+    def test_unreadable_file_says_why(self):
+        path = self.root / "가짜.docx"
+        path.write_bytes(b"not a zip")
+        count = text.count_text(path)
+        self.assertTrue(count.error)
+        self.assertEqual(count.chars, 0)
+
+    def test_hwpx_counts_paragraph_text(self):
+        import zipfile
+
+        path = self.root / "계획서.hwpx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            z.writestr("Contents/section0.xml",
+                       "<hs:sec xmlns:hs='s' xmlns:hp='p'><hp:p><hp:run>"
+                       "<hp:t>사업 계획서</hp:t></hp:run></hp:p></hs:sec>")
+        count = text.count_text(path)
+        self.assertEqual(count.kind, "한글 문단")
+        self.assertEqual(count.chars_no_space, 5)
+
+
 if __name__ == "__main__":
     unittest.main()

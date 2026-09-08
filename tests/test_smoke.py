@@ -294,6 +294,11 @@ class SmokeTest(unittest.TestCase):
     def test_text_group(self):
         self.assertIn("안녕하세요", self.run_cli("text", "kbd", "dkssudgktpdy"))
         self.assertIn("날짜", self.run_cli("text", "pick", self.path("원고")))
+        셈 = self.run_cli("text", "count", self.path("원고"))
+        self.assertIn("원고지", 셈)
+        넘침 = self.run_cli("text", "count", self.path("원고"),
+                          "--limit-chars", "10", expect=1)
+        self.assertIn("초과", 넘침)
         self.assertIn("곳", self.run_cli("text", "find", "리안", self.path("원고")))
         self.assertIn("인코딩", self.run_cli("text", "encoding", self.path("문서")))
         self.run_cli("text", "trim", self.path("문서"), "-g", "*.txt")
