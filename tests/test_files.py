@@ -18,26 +18,33 @@ from attools.write import names
 
 def exif_jpeg(*, make="Samsung", model="SM-G991N", orientation=6,
               lat=(37, 33, 36.0), lon=(126, 58, 40.0), lat_ref="N",
-              lon_ref="E", taken="2026:03:04 14:30:00") -> bytes:
-    """위치·기기·방향이 든 최소 JPEG. EXIF 읽기·지우기를 시험하는 데 쓴다."""
+              lon_ref="E", taken="2026:03:04 14:30:00", order="MM") -> bytes:
+    """위치·기기·방향이 든 최소 JPEG. EXIF 읽기·지우기를 시험하는 데 쓴다.
+
+    order 는 바이트 순서다. 파일마다 «MM»(빅)과 «II»(리틀)이 섞여 있고,
+    폰·카메라는 대개 II 로 적는다.
+    """
     import struct
+
+    mark = ">" if order == "MM" else "<"
 
     def ascii_entry(tag, text, pool, base):
         raw = text.encode() + b"\x00"
         if len(raw) <= 4:
-            return struct.pack(">HHI4s", tag, 2, len(raw), raw.ljust(4, b"\x00")), pool
+            return struct.pack(mark + "HHI4s", tag, 2, len(raw), raw.ljust(4, b"\x00")), pool
         offset = base + len(pool)
         pool += raw
-        return struct.pack(">HHII", tag, 2, len(raw), offset), pool
+        return struct.pack(mark + "HHII", tag, 2, len(raw), offset), pool
 
     def rationals(tag, values, pool, base):
-        raw = b"".join(struct.pack(">II", int(v * 1000), 1000) for v in values)
+        raw = b"".join(struct.pack(mark + "II", int(v * 1000), 1000) for v in values)
         offset = base + len(pool)
         pool += raw
-        return struct.pack(">HHII", tag, 5, len(values), offset), pool
+        return struct.pack(mark + "HHII", tag, 5, len(values), offset), pool
 
     # TIFF 머리말: MM 00 2a, 첫 IFD 는 8
-    header = b"MM\x00\x2a" + struct.pack(">I", 8)
+    header = ((b"MM\x00\x2a" if order == "MM" else b"II\x2a\x00")
+              + struct.pack(mark + "I", 8))
     # 항목 자리를 먼저 잡아야 offset 을 계산할 수 있다
     entries0 = 5          # Make, Model, Orientation, ExifIFD, GPSIFD
     ifd0_size = 2 + entries0 * 12 + 4
@@ -54,22 +61,22 @@ def exif_jpeg(*, make="Samsung", model="SM-G991N", orientation=6,
     pool = b""
     make_e, pool = ascii_entry(0x010F, make, pool, pool_at)
     model_e, pool = ascii_entry(0x0110, model, pool, pool_at)
-    orient_e = struct.pack(">HHI4s", 0x0112, 3, 1,
-                           struct.pack(">HH", orientation, 0))
-    exif_ptr = struct.pack(">HHII", 0x8769, 4, 1, exif_at)
-    gps_ptr = struct.pack(">HHII", 0x8825, 4, 1, gps_at)
-    ifd0 = (struct.pack(">H", entries0) + make_e + model_e + orient_e
-            + exif_ptr + gps_ptr + struct.pack(">I", 0))
+    orient_e = struct.pack(mark + "HHI4s", 0x0112, 3, 1,
+                           struct.pack(mark + "HH", orientation, 0))
+    exif_ptr = struct.pack(mark + "HHII", 0x8769, 4, 1, exif_at)
+    gps_ptr = struct.pack(mark + "HHII", 0x8825, 4, 1, gps_at)
+    ifd0 = (struct.pack(mark + "H", entries0) + make_e + model_e + orient_e
+            + exif_ptr + gps_ptr + struct.pack(mark + "I", 0))
 
     lat_ref_e, pool = ascii_entry(0x0001, lat_ref, pool, pool_at)
     lat_e, pool = rationals(0x0002, lat, pool, pool_at)
     lon_ref_e, pool = ascii_entry(0x0003, lon_ref, pool, pool_at)
     lon_e, pool = rationals(0x0004, lon, pool, pool_at)
-    gps = (struct.pack(">H", gps_entries) + lat_ref_e + lat_e + lon_ref_e
-           + lon_e + struct.pack(">I", 0))
+    gps = (struct.pack(mark + "H", gps_entries) + lat_ref_e + lat_e + lon_ref_e
+           + lon_e + struct.pack(mark + "I", 0))
 
     taken_e, pool = ascii_entry(0x9003, taken, pool, pool_at)
-    exif_ifd = struct.pack(">H", exif_entries) + taken_e + struct.pack(">I", 0)
+    exif_ifd = struct.pack(mark + "H", exif_entries) + taken_e + struct.pack(mark + "I", 0)
 
     tiff = header + ifd0 + gps + exif_ifd + pool
     app1 = b"Exif\x00\x00" + tiff
@@ -1364,6 +1371,22 @@ class ExifTest(unittest.TestCase):
         self.assertAlmostEqual(meta.longitude, 126.97778, places=4)
         self.assertEqual(meta.taken.strftime("%Y-%m-%d %H:%M"),
                          "2026-03-04 14:30")
+
+    def test_little_endian_exif(self):
+        # 폰·카메라는 대개 II(리틀엔디언)로 적는다. 이쪽이 오히려 흔하다
+        meta = files.photo_info(self.write("아이폰.jpg", order="II",
+                                           make="Apple", model="iPhone"))
+        self.assertEqual((meta.make, meta.model), ("Apple", "iPhone"))
+        self.assertAlmostEqual(meta.latitude, 37.56, places=4)
+        self.assertEqual(meta.orientation, 6)
+        self.assertEqual(meta.taken.strftime("%H:%M"), "14:30")
+
+    def test_little_endian_strip(self):
+        src = self.write("아이폰.jpg", order="II")
+        out, _removed = files.strip_exif(src, self.root / "사본.jpg")
+        after = files.photo_info(out)
+        self.assertEqual(after.where, "")
+        self.assertEqual(after.orientation, 6)
 
     def test_south_and_west_are_negative(self):
         meta = files.photo_info(self.write(lat_ref="S", lon_ref="W"))
