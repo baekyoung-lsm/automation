@@ -384,6 +384,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 주소록은 대개 보이는 이름(FN)을 쓴다. 이름이 빈 행은 건너뛴다(이름 없는 연락처는 주소록에서
 찾을 수 없다).
 
+`at sheet from-vcard` 와 `at sheet from-ics` 는 그 반대다. 폰이나 캘린더에서 내보낸 파일을
+표로 만든다. 접힌 줄과 옛 폰이 쓰는 `QUOTED-PRINTABLE` 한글까지 풀어 읽고, 알림(VALARM)
+안의 글은 일정 설명으로 세지 않는다. 종일 일정의 끝 날짜는 «그날까지» 로 하루를 빼서
+돌려 놓는다 - 파일에는 그 다음 날로 들어 있다. 모두 빈 열은 빼고 보여 준다(`--all` 로 전부).
+
 `at sheet age` 는 명단의 생년월일 열에서 **만 나이**(2023년부터 법으로 통일된 그 나이)와
 연령대(`--group`) 열을 만든다. 칸이 주민등록번호면 일곱째 자리로 세기와 성별까지 읽어
 `--sex` 로 성별 열도 채운다 - 생년월일만 있는 칸은 성별을 알 수 없으므로 비워 두고 몇 개를
@@ -849,6 +854,8 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
 | `at sheet ics <파일>` | 일정표를 캘린더 파일(ics)로 (아웃룩·구글 캘린더로 가져가기) |
 | `at sheet vcard <파일>` | 명단을 연락처 파일(vcf)로 (폰 주소록에 한 번에) |
+| `at sheet from-ics <파일>` | 받은 일정(ics)을 표로 (초대·캘린더 내보내기 정리) |
+| `at sheet from-vcard <파일>` | 받은 연락처(vcf)를 표로 (폰 주소록 → 엑셀) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
@@ -919,6 +926,8 @@ at sheet to-sql 명단.xlsx -t users --dialect mysql --batch 500
 at sheet ics 일정표.xlsx --title 일정 --start 시작 --end 끝 -o 일정.ics
 at sheet ics 일정표.xlsx --title 일정 --start 날짜 --place 장소 --alarm 30 -o 일정.ics
 at sheet vcard 거래처.xlsx --name 담당자 --company 상호 --mobile 휴대폰 -o 연락처.vcf
+at sheet from-vcard 연락처.vcf -o 주소록.xlsx   # 폰에서 내보낸 것을 엑셀로
+at sheet from-ics 일정.ics -o 일정표.xlsx
 at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" ...; done
 at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \

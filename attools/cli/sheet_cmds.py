@@ -745,6 +745,56 @@ def cmd_sheet_vcard(a) -> int:
     return 0
 
 
+
+def cmd_sheet_from_card(a) -> int:
+    """받은 vcf·ics 를 표로. 폰에서 내보낸 것을 엑셀로 옮길 때."""
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        body = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    card = a.kind
+    table = sheet.read_vcards(body) if card == "vcf" else sheet.read_ics(body)
+    what = "연락처" if card == "vcf" else "일정"
+    if not table.rows:
+        _p(f"{what}를 찾지 못했습니다. "
+           f"({'BEGIN:VCARD' if card == 'vcf' else 'BEGIN:VEVENT'} 가 있는 "
+           "파일이어야 합니다)")
+        return 1
+
+    keep = [i for i, _h in enumerate(table.headers)
+            if a.all or any(sheet.to_text(r[i]).strip() for r in table.rows)]
+    shown = sheet.Table([table.headers[i] for i in keep],
+                        [[r[i] for i in keep] for r in table.rows],
+                        source=str(path))
+
+    _grid(shown.headers,
+          [[_cut(sheet.to_text(v), 18) for v in r] for r in shown.rows[:a.rows]],
+          limit=18)
+    if len(shown.rows) > a.rows:
+        _p(f"  ... {len(shown.rows) - a.rows:,}개 더")
+
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        _p(f"\n저장: {sheet.save(shown, out)}  ({what} {len(shown.rows):,}개)")
+    else:
+        _p(f"\n{what} {len(shown.rows):,}개. 파일로 내려면 -o 목록.xlsx 를 "
+           "주세요.")
+    if not a.all:
+        _p("모두 빈 열은 빼고 보여 줍니다. (--all 로 전부)")
+    if card == "ics":
+        _p("종일 일정의 끝 날짜는 «그날까지» 로 돌려 적었습니다. "
+           "(ics 파일에는 그 다음 날로 들어 있습니다)")
+    return 0
+
+
 def cmd_sheet_from_docx(a) -> int:
     """워드 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
     path = Path(a.file)
@@ -2143,6 +2193,24 @@ def add_commands(sub) -> None:
     ts.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
     ts.set_defaults(func=cmd_sheet_to_sql)
+
+    fvc = sh.add_parser("from-vcard", help="받은 연락처(vcf)를 표로")
+    fvc.add_argument("file", metavar="파일.vcf")
+    fvc.add_argument("--all", action="store_true", help="모두 빈 열도 그대로")
+    fvc.add_argument("-n", "--rows", type=int, default=10, metavar="개")
+    fvc.add_argument("-o", "--out", metavar="파일")
+    fvc.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    fvc.set_defaults(func=cmd_sheet_from_card, kind="vcf")
+
+    fic = sh.add_parser("from-ics", help="받은 일정(ics)을 표로")
+    fic.add_argument("file", metavar="파일.ics")
+    fic.add_argument("--all", action="store_true", help="모두 빈 열도 그대로")
+    fic.add_argument("-n", "--rows", type=int, default=10, metavar="개")
+    fic.add_argument("-o", "--out", metavar="파일")
+    fic.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    fic.set_defaults(func=cmd_sheet_from_card, kind="ics")
 
     vc = common(sh.add_parser("vcard", help="명단을 연락처 파일(vcf)로"))
     vc.add_argument("file")

@@ -336,6 +336,10 @@ class SmokeTest(unittest.TestCase):
         카드 = Path(vcf).read_text(encoding="utf-8")
         self.assertIn("FN:홍길동", 카드)
         self.assertIn("TEL;TYPE=CELL:010-1234-5678", 카드)
+        되읽기 = self.run_cli("sheet", "from-vcard", vcf)
+        self.assertIn("홍길동", 되읽기)
+        일정되읽기 = self.run_cli("sheet", "from-ics", 캘린더)
+        self.assertIn("워크숍", 일정되읽기)
         self.assertIn("DTSTART;TZID=Asia/Seoul:20260310T140000", 만든것)
         self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,

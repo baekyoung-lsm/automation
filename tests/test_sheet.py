@@ -2294,5 +2294,77 @@ class VcardTest(unittest.TestCase):
             self.assertLessEqual(len(line.encode("utf-8")), 75)
 
 
+class ReadCardTest(unittest.TestCase):
+    VCF = ("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:홍길동\r\nORG:(주)가나;영업\r\n"
+           "TITLE:팀장\r\nTEL;TYPE=CELL:010-1234-5678\r\n"
+           "TEL;TYPE=WORK:02-100-2000\r\nEMAIL;TYPE=INTERNET:a@b.com\r\n"
+           "ADR;TYPE=WORK:;;서울시 중구 1\\, 2층;;;;\r\nEND:VCARD\r\n")
+
+    def test_reads_one_card(self):
+        table = sheet.read_vcards(self.VCF)
+        row = dict(zip(table.headers, table.rows[0]))
+        self.assertEqual(row["이름"], "홍길동")
+        self.assertEqual(row["회사"], "(주)가나 영업")
+        self.assertEqual(row["직함"], "팀장")
+        self.assertEqual(row["휴대전화"], "010-1234-5678")
+        self.assertEqual(row["전화"], "02-100-2000")
+        self.assertEqual(row["주소"], "서울시 중구 1, 2층")
+
+    def test_unfolds_long_lines(self):
+        text = "BEGIN:VCARD\r\nFN:홍길\r\n 동\r\nEND:VCARD\r\n"
+        self.assertEqual(sheet.read_vcards(text).rows[0][0], "홍길동")
+
+    def test_name_falls_back_to_n(self):
+        text = "BEGIN:VCARD\r\nN:남궁;민수;;;\r\nEND:VCARD\r\n"
+        self.assertEqual(sheet.read_vcards(text).rows[0][0], "남궁 민수")
+
+    def test_quoted_printable_from_old_phones(self):
+        text = ("BEGIN:VCARD\r\nFN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:"
+                "=ED=99=8D=EA=B8=B8=EB=8F=99\r\nEND:VCARD\r\n")
+        self.assertEqual(sheet.read_vcards(text).rows[0][0], "홍길동")
+
+    def test_round_trip(self):
+        people = [sheet.Contact("가나다", company="회사", email="a@b.com",
+                                phones=[("CELL", "010-1")])]
+        table = sheet.read_vcards(sheet.to_vcard(people))
+        row = dict(zip(table.headers, table.rows[0]))
+        self.assertEqual(row["이름"], "가나다")
+        self.assertEqual(row["휴대전화"], "010-1")
+
+    # ---- ics
+
+    ICS = ("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:워크숍\r\n"
+           "DTSTART;VALUE=DATE:20260310\r\nDTEND;VALUE=DATE:20260313\r\n"
+           "LOCATION:양평\r\nBEGIN:VALARM\r\nDESCRIPTION:워크숍\r\n"
+           "END:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+
+    def test_all_day_end_comes_back_inclusive(self):
+        row = dict(zip(sheet.ICS_HEADERS, sheet.read_ics(self.ICS).rows[0]))
+        self.assertEqual(row["시작"], "2026-03-10")
+        self.assertEqual(row["끝"], "2026-03-12")     # 파일에는 13일로 들어 있다
+        self.assertEqual(row["종일"], "예")
+
+    def test_alarm_description_is_not_the_event_description(self):
+        row = dict(zip(sheet.ICS_HEADERS, sheet.read_ics(self.ICS).rows[0]))
+        self.assertEqual(row["설명"], "")
+
+    def test_timed_event(self):
+        text = ("BEGIN:VEVENT\r\nSUMMARY:회의\r\n"
+                "DTSTART;TZID=Asia/Seoul:20260304T143000\r\n"
+                "DTEND;TZID=Asia/Seoul:20260304T160000\r\nEND:VEVENT\r\n")
+        row = dict(zip(sheet.ICS_HEADERS, sheet.read_ics(text).rows[0]))
+        self.assertEqual(row["시작"], "2026-03-04 14:30")
+        self.assertEqual(row["종일"], "")
+
+    def test_unreadable_moment_is_kept_as_is(self):
+        text = "BEGIN:VEVENT\r\nSUMMARY:가\r\nDTSTART:언제나\r\nEND:VEVENT\r\n"
+        row = dict(zip(sheet.ICS_HEADERS, sheet.read_ics(text).rows[0]))
+        self.assertEqual(row["시작"], "언제나")
+
+    def test_nothing_to_read(self):
+        self.assertEqual(sheet.read_ics("아무것도 아님").rows, [])
+        self.assertEqual(sheet.read_vcards("").rows, [])
+
+
 if __name__ == "__main__":
     unittest.main()

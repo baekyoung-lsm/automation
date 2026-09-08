@@ -2200,6 +2200,176 @@ def contacts_from_table(table: Table, *, name: str, company: str | None = None,
     return people, skipped
 
 
+# --------------------------------------------- 받은 ics·vcf 를 표로 (읽기)
+
+CARD_LINE_RE = re.compile(r"^(?P<name>[A-Za-z0-9-]+)(?P<params>(?:;[^:]*)*):"
+                          r"(?P<value>.*)$")
+VCARD_PHONE_LABELS = {"CELL": "휴대전화", "MOBILE": "휴대전화",
+                      "FAX": "팩스", "WORK": "전화", "HOME": "집전화"}
+VCARD_HEADERS = ["이름", "회사", "직함", "휴대전화", "전화", "집전화", "팩스",
+                 "메일", "주소", "메모"]
+ICS_HEADERS = ["일정", "시작", "끝", "종일", "장소", "설명"]
+
+
+def unfold_lines(text: str) -> list[str]:
+    """접힌 줄을 되돌린다. 옛 폰이 쓰는 QUOTED-PRINTABLE 이음(=)까지 본다."""
+    out: list[str] = []
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        if out and raw[:1] in (" ", "\t"):
+            out[-1] += raw[1:]
+        elif out and out[-1].endswith("=") and "QUOTED-PRINTABLE" in out[-1].upper():
+            out[-1] = out[-1][:-1] + raw
+        else:
+            out.append(raw)
+    return [line for line in out if line.strip()]
+
+
+def card_unescape(value: str) -> str:
+    """\\n \\, \\; 를 되돌린다. to_ics·to_vcard 의 반대."""
+    out: list[str] = []
+    i = 0
+    while i < len(value):
+        ch = value[i]
+        if ch == "\\" and i + 1 < len(value):
+            nxt = value[i + 1]
+            out.append("\n" if nxt in "nN" else nxt)
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def parse_card(text: str) -> list[tuple[str, dict, str]]:
+    """ics·vcf 한 장을 (이름, 매개변수, 값) 줄로. 모르는 줄은 버린다."""
+    import quopri
+
+    out: list[tuple[str, dict, str]] = []
+    for line in unfold_lines(text):
+        m = CARD_LINE_RE.match(line)
+        if not m:
+            continue
+        params: dict = {}
+        for chunk in m.group("params").split(";"):
+            if not chunk:
+                continue
+            key, _, value = chunk.partition("=")
+            params.setdefault(key.upper(), []).append(value or key)
+        value = m.group("value")
+        if "QUOTED-PRINTABLE" in str(params.get("ENCODING", "")).upper():
+            charset = (params.get("CHARSET") or ["utf-8"])[0]
+            try:
+                value = quopri.decodestring(value).decode(charset, "replace")
+            except LookupError:
+                value = quopri.decodestring(value).decode("utf-8", "replace")
+        out.append((m.group("name").upper(), params, card_unescape(value)))
+    return out
+
+
+def _adr_text(value: str) -> str:
+    """ADR 의 일곱 칸 가운데 채워진 것만 붙인다."""
+    return " ".join(part.strip() for part in value.split(";") if part.strip())
+
+
+def read_vcards(text: str) -> Table:
+    """받은 vcf 를 표로. 폰에서 내보낸 연락처를 엑셀로 옮길 때."""
+    rows: list[list] = []
+    current: dict | None = None
+
+    for name, params, value in parse_card(text):
+        if name == "BEGIN" and value.upper() == "VCARD":
+            current = {}
+            continue
+        if current is None:
+            continue
+        if name == "END" and value.upper() == "VCARD":
+            rows.append([current.get(h, "") for h in VCARD_HEADERS])
+            current = None
+            continue
+
+        if name == "FN":
+            current["이름"] = value
+        elif name == "N" and not current.get("이름"):
+            current["이름"] = " ".join(p for p in value.split(";")[:2] if p)
+        elif name == "ORG":
+            current["회사"] = value.replace(";", " ").strip()
+        elif name == "TITLE":
+            current["직함"] = value
+        elif name == "TEL":
+            kinds = [k.upper() for k in params.get("TYPE", [])]
+            label = next((VCARD_PHONE_LABELS[k] for k in kinds
+                          if k in VCARD_PHONE_LABELS), "전화")
+            current[label] = (f"{current[label]} / {value}"
+                              if current.get(label) else value)
+        elif name == "EMAIL":
+            current["메일"] = (f"{current['메일']} / {value}"
+                              if current.get("메일") else value)
+        elif name == "ADR":
+            current["주소"] = _adr_text(value)
+        elif name == "NOTE":
+            current["메모"] = value
+    return Table(list(VCARD_HEADERS), rows)
+
+
+def _ics_when(value: str, params: dict) -> tuple[str, bool]:
+    """ics 의 시각 값을 «보이는 글자» 와 종일 여부로. 못 읽으면 원문 그대로."""
+    all_day = "DATE" in [v.upper() for v in params.get("VALUE", [])]
+    body = value.strip()
+    try:
+        if all_day or (len(body) == 8 and body.isdigit()):
+            return str(datetime.strptime(body, "%Y%m%d").date()), True
+        stamp = body[:-1] if body.endswith("Z") else body
+        moment = datetime.strptime(stamp, "%Y%m%dT%H%M%S")
+        return moment.strftime("%Y-%m-%d %H:%M"), False
+    except ValueError:
+        return body, all_day
+
+
+def read_ics(text: str) -> Table:
+    """받은 ics 를 표로. 종일 일정의 끝 날짜는 하루를 빼서 «그날까지» 로 돌린다."""
+    rows: list[list] = []
+    current: dict | None = None
+    inner = 0                 # VALARM 처럼 일정 안에 든 블록
+
+    for name, params, value in parse_card(text):
+        if name == "BEGIN" and value.upper() == "VEVENT":
+            current = {"종일": ""}
+            continue
+        if current is None:
+            continue
+        if name == "BEGIN":
+            inner += 1        # 알림의 DESCRIPTION 을 일정 설명으로 세면 안 된다
+            continue
+        if name == "END" and value.upper() != "VEVENT":
+            inner = max(0, inner - 1)
+            continue
+        if inner:
+            continue
+        if name == "END":
+            rows.append([current.get(h, "") for h in ICS_HEADERS])
+            current = None
+            continue
+
+        if name == "SUMMARY":
+            current["일정"] = value
+        elif name == "LOCATION":
+            current["장소"] = value
+        elif name == "DESCRIPTION":
+            current["설명"] = value
+        elif name in ("DTSTART", "DTEND"):
+            shown, all_day = _ics_when(value, params)
+            if all_day:
+                current["종일"] = "예"
+                if name == "DTEND":
+                    try:
+                        last = date.fromisoformat(shown) - timedelta(days=1)
+                        shown = str(last)      # ics 의 끝 날짜는 «그 다음 날» 이다
+                    except ValueError:
+                        pass
+            current["시작" if name == "DTSTART" else "끝"] = shown
+    return Table(list(ICS_HEADERS), rows)
+
+
 # ------------------------------------------------------------------ 나이·연령대
 
 RRN_BIRTH_RE = re.compile(r"^(\d{2})(\d{2})(\d{2})[-\s]?([0-9])\d{0,6}$")
