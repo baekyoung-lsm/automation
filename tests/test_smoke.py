@@ -892,6 +892,16 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("홍길동", 할일)
         self.assertIn("지남", 할일)
 
+        # 회의록을 .txt 로 적는 사람이 많다. 조용히 빼지 않고 --txt 로 본다
+        회의폴더 = Path(self.path("회의록모음"))
+        회의폴더.mkdir(exist_ok=True)
+        (회의폴더 / "3월회의.txt").write_text(
+            "회의\n- [ ] 자료 정리 @김철수 2026-01-05\n", encoding="utf-8")
+        빠짐 = self.run_cli("doc", "todo", str(회의폴더), expect=1)
+        self.assertIn("--txt", 빠짐)
+        본것 = self.run_cli("doc", "todo", str(회의폴더), "--txt", expect=1)
+        self.assertIn("김철수", 본것)
+
         크기 = self.run_cli("doc", "stats", md)
         self.assertIn("읽기(분)", 크기)
         self.assertIn("문서.md", 크기)

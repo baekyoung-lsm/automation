@@ -10,13 +10,14 @@ from ..docs import fromhtml, mdkit
 from .common import _cut, _p, _grid, MD_SUFFIXES, _may_write
 
 
-def _md_files(paths) -> list[Path]:
+def _md_files(paths, *, extra: tuple[str, ...] = ()) -> list[Path]:
+    kinds = set(MD_SUFFIXES) | set(extra)
     out: list[Path] = []
     for name in paths:
         p = Path(name)
         if p.is_dir():
             out += [q for q in sorted(p.rglob("*"))
-                    if q.suffix.lower() in MD_SUFFIXES
+                    if q.suffix.lower() in kinds
                     and not any(d in q.parts for d in files.IGNORE_DIRS)]
         elif p.is_file():
             out.append(p)
@@ -658,9 +659,10 @@ def cmd_doc_todo(a) -> int:
     """문서에 적어 둔 «- [ ] 할 일» 을 모은다. 회의록 여러 장을 한 표로."""
     from datetime import date as _date
 
-    targets = _md_files(a.paths)
+    targets = _md_files(a.paths, extra=(".txt",) if a.txt else ())
     if not targets:
-        _p("마크다운 파일을 찾지 못했습니다.")
+        _p("마크다운 파일을 찾지 못했습니다."
+           + ("" if a.txt else " (.txt 도 보려면 --txt 를 붙이세요)"))
         return 1
 
     tasks: list = []
@@ -907,7 +909,11 @@ def add_commands(sub) -> None:
     dtd.add_argument("-o", "--out", metavar="파일", help="표로 저장 (csv, xlsx)")
     dtd.add_argument("--overwrite", action="store_true",
                      help="이미 있는 파일을 덮어쓴다")
+    dtd.add_argument("--txt", action="store_true",
+                     help="폴더를 훑을 때 .txt 회의록도 함께 본다")
     dtd.add_argument("--limit", type=int, default=40, metavar="개")
+    dtd.epilog = ("예: at doc todo 회의록/\n"
+                  "    at doc todo 회의록/ --txt --who 홍길동")
     dtd.set_defaults(func=cmd_doc_todo)
 
     dh = dc.add_parser("check", help="제목 단계 건너뜀·중복 점검")
