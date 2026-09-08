@@ -207,6 +207,37 @@ class WebUiTest(UiCase):
             self.post("/api/files/scrub_preview", {"docroot": ""})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_photos_show_and_strip(self):
+        import sys as _sys
+
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_files import exif_jpeg
+
+        folder = self.work / "사진"
+        folder.mkdir()
+        (folder / "여행.jpg").write_bytes(exif_jpeg())
+
+        _, data = self.post("/api/files/photos", {"photoroot": str(folder)})
+        self.assertEqual(data["located"], 1)
+        self.assertIn("37.56000, 126.97778", data["rows"][0])
+        self.assertEqual(list(folder.glob("*정보지움*")), [])
+
+        _, done = self.post("/api/files/photos_strip",
+                            {"photoroot": str(folder)})
+        self.assertEqual(len(done["made"]), 1)
+        self.assertEqual(done["kept"], 1)          # 방향은 남긴다
+        _, after = self.post("/api/files/photos",
+                             {"photoroot": done["made"][0]})
+        self.assertEqual(after["located"], 0)
+        self.assertTrue((folder / "여행.jpg").is_file())   # 원본은 그대로
+
+    def test_photos_strip_needs_something_to_remove(self):
+        folder = self.work / "빈사진"
+        folder.mkdir()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/photos_strip", {"photoroot": str(folder)})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_pdf_from_images(self):
         import struct
         import zlib
@@ -2442,6 +2473,9 @@ class CommandHintTest(UiCase):
         _, shot = self.post("/api/files/pdf_preview",
                             {"pdfroot": str(self.work), "pdfpage": "letter",
                              "pdfmargin": True})
+        self.accepts(shot["command"])
+
+        _, shot = self.post("/api/files/photos", {"photoroot": str(self.work)})
         self.accepts(shot["command"])
 
     def test_text_commands(self):

@@ -322,6 +322,62 @@ def scrub_apply(payload: dict) -> dict:
     return out
 
 
+def _photo_targets(payload: dict):
+    raw = form.text(payload, "photoroot")
+    if not raw:
+        raise UiError("폴더 또는 사진 경로를 적어 주세요.")
+    root = Path(raw).expanduser()
+    if not root.exists():
+        raise UiError(f"없는 경로입니다: {root}")
+    return root, files.scan_photos(root)
+
+
+def _photo_rows(metas) -> list[list[str]]:
+    return [[m.path.name,
+             m.taken.strftime("%Y-%m-%d %H:%M") if m.taken else "",
+             f"{m.make} {m.model}".strip(), m.where,
+             "" if m.orientation in (None, 1) else str(m.orientation),
+             m.error] for m in metas]
+
+
+def photos(payload: dict) -> dict:
+    """사진에 남은 촬영 정보를 본다. 지우지는 않는다."""
+    root, metas = _photo_targets(payload)
+    return {"rows": _photo_rows(metas), "count": len(metas),
+            "located": sum(1 for m in metas if m.where),
+            "dirty": sum(1 for m in metas if m.personal),
+            "command": form.command("file", "exif", root)}
+
+
+def photos_strip(payload: dict) -> dict:
+    """촬영 정보를 지운 사본을 만든다. 원본은 그대로 둔다."""
+    root, metas = _photo_targets(payload)
+    keep = not form.flag(payload, "photoall")
+    made: list[str] = []
+    for meta in metas:
+        if not meta.personal:
+            continue
+        target = files.unique_path(meta.path.with_name(
+            f"{meta.path.stem} (정보지움){meta.path.suffix}"))
+        try:
+            files.strip_exif(meta.path, target, keep_orientation=keep)
+        except (OSError, ValueError):
+            continue
+        made.append(str(target))
+    if not made:
+        raise UiError("지울 촬영 정보가 없습니다.")
+
+    args: list[object] = ["file", "exif", root, "--strip", "--apply"]
+    if not keep:
+        args.append("--all")
+    return {"rows": _photo_rows(metas), "count": len(metas),
+            "located": sum(1 for m in metas if m.where),
+            "dirty": len(made), "made": made,
+            "kept": sum(1 for m in metas
+                        if keep and m.personal and m.orientation not in (None, 1)),
+            "command": form.command(*args)}
+
+
 def _pdf_images(payload: dict):
     from ... import pdf
 
@@ -605,6 +661,25 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>사진에 남은 위치</h2>
+  <p class="note">폰으로 찍은 사진에는 <b>찍은 자리의 좌표</b>가 들어 있습니다. 그대로
+     보내면 집·사무실이 드러납니다. 찍은 날·기기·위치를 보여 주고, 지울 때는
+     <b>«…(정보지움).jpg» 사본</b>을 만듭니다(원본은 그대로).
+     <b>방향은 남깁니다</b> - 그것까지 지우면 사진이 눕혀 보입니다.</p>
+  <div class="row">
+    <div style="flex:3 1 20rem"><label for="photoroot">폴더 또는 사진</label>
+      <input type="text" id="photoroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-photos">무엇이 남았나</button></div>
+    <div style="flex:0 0 auto"><button id="btn-photos-strip" disabled>지운 사본 만들기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="photoall"> 방향 정보까지 지우기</label>
+  </div>
+  <div id="photomsg"></div>
+  <div id="photoout"></div>
+</section>
+
+<section class="card">
   <h2>이미지를 PDF 로 묶기</h2>
   <p class="note">폴더 안의 사진·스캔 이미지를 <b>이름 순으로</b> 한 장에 하나씩 담은
      PDF 로 묶습니다. jpg 는 다시 누르지 않고 그대로 넣어 화질이 그대로입니다.
@@ -868,6 +943,44 @@ BODY = """
     } catch (e) { AT.message($("docsmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function photoValues() {
+    return { photoroot: $("photoroot").value,
+             photoall: $("photoall").checked };
+  }
+
+  function drawPhotos(d) {
+    $("photoout").innerHTML =
+      AT.table(["파일", "찍은 날", "기기", "위치", "방향", "못 읽은 까닭"],
+               d.rows) +
+      (d.made
+        ? "<h2>만든 사본</h2>" +
+          AT.table(["파일"], d.made.map(function (x) { return [x]; }))
+        : "") + AT.command(d.command);
+  }
+
+  async function runPhotos(strip) {
+    try {
+      const d = await AT.call(strip ? "/api/files/photos_strip"
+                                    : "/api/files/photos", photoValues());
+      drawPhotos(d);
+      AT.remember("files", "photoroot", $("photoroot").value);
+      AT.message($("photomsg"), "사진 <b>" + d.count + "장</b> · 위치가 남은 것 " +
+        d.located + "장" +
+        (d.made ? " · 사본 " + d.made.length + "장을 만들었습니다" +
+                  (d.kept ? " (" + d.kept + "장은 방향만 남겼습니다)" : "")
+                : ""), "ok");
+      $("btn-photos-strip").disabled = !!strip || d.dirty === 0;
+    } catch (e) {
+      AT.message($("photomsg"), AT.esc(e.message), "bad");
+      $("btn-photos-strip").disabled = true;
+    }
+  }
+
+  $("btn-photos").addEventListener("click", function () { runPhotos(false); });
+  $("btn-photos-strip").addEventListener("click", function () {
+    runPhotos(true);
+  });
+
   function pdfValues() {
     return { pdfroot: $("pdfroot").value, pdfpage: $("pdfpage").value,
              pdftitle: $("pdftitle").value,
@@ -1036,6 +1149,7 @@ def make() -> App:
                  "pack_preview": pack_preview, "pack_apply": pack_apply,
                  "audit": audit,
                  "documents": documents,
+                 "photos": photos, "photos_strip": photos_strip,
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,
