@@ -11,7 +11,7 @@ from ..webui import check as uicheck
 from .common import _grid, _p
 
 
-def _check(apps, port: int) -> int:
+def _check(apps, port: int, *, timeout: float = 60.0) -> int:
     """화면을 브라우저로 하나씩 열어 자바스크립트 오류를 본다."""
     browser = uicheck.find_browser()
     if browser is None:
@@ -34,7 +34,8 @@ def _check(apps, port: int) -> int:
         # 1분이 넘으므로 몇 개씩 같이 띄운다. 프로필은 따로 줘야 서로 잠금을
         # 다투지 않는다.
         def look(result):
-            return uicheck.check_page(browser, f"{base}/{result.key}?t={token}")
+            return uicheck.check_page(browser, f"{base}/{result.key}?t={token}",
+                                      timeout=timeout)
 
         with ThreadPoolExecutor(max_workers=4) as pool:
             for result, found in zip(results, pool.map(look, results)):
@@ -78,7 +79,7 @@ def cmd_ui(a) -> int:
         return 0
 
     if a.check:
-        return _check(apps, a.port)
+        return _check(apps, a.port, timeout=a.timeout)
 
     picked = None
     if a.app:
@@ -122,4 +123,6 @@ def add_commands(sub) -> None:
     up.add_argument("--check", action="store_true",
                     help="브라우저로 모든 화면을 열어 자바스크립트 오류를 본다 "
                          "(오류 1, 열어 보지 못함 2)")
+    up.add_argument("--timeout", type=float, default=60.0, metavar="초",
+                    help="--check 에서 화면 하나를 기다리는 시간 (느린 러너면 늘린다)")
     up.set_defaults(func=cmd_ui)
