@@ -1581,6 +1581,84 @@ def cmd_sheet_fill(a) -> int:
     return 0
 
 
+
+def cmd_sheet_mail(a) -> int:
+    """명단 + 본문 틀 -> 사람마다 메일 초안 파일(.eml). 보내지는 않는다."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    template_path = Path(a.template)
+    if not template_path.is_file():
+        _p(f"틀 파일이 없습니다: {template_path}")
+        return 1
+    template = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+
+    try:
+        drafts, missing = sheet.build_mails(
+            t, template=template, subject=a.subject, to=a.to, cc=a.cc,
+            attach=a.attach)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if missing:
+        _p(f"표에 없는 자리표시자 {len(missing)}개: {', '.join(sorted(missing))}")
+        _p(f"  있는 열: {', '.join(t.headers)}, 번호")
+        if not a.force:
+            _p("  그래도 진행하려면 --force 를 붙이세요. 빈칸으로 채웁니다.")
+            return 1
+        _p("")
+
+    good = [d for d in drafts if d.ok]
+    bad = [d for d in drafts if not d.ok]
+
+    _grid(["행", "받는 사람", "제목", "첨부"],
+          [[str(d.row), _cut(d.to, 24), _cut(d.subject, 28),
+            str(len(d.attachments)) if d.attachments else ""]
+           for d in good[:a.limit]])
+    if len(good) > a.limit:
+        _p(f"  ... {len(good) - a.limit:,}건 더")
+
+    if bad:
+        _p(f"\n만들지 않은 행 {len(bad):,}개:")
+        for d in bad[:a.limit]:
+            _p(f"  {d.row}행: {d.problem}")
+        if len(bad) > a.limit:
+            _p(f"  ... {len(bad) - a.limit:,}행 더")
+
+    if not good:
+        _p("\n보낼 수 있는 행이 없습니다.")
+        return 1
+
+    out_dir = Path(a.out or "메일초안")
+    if not a.apply:
+        _p(f"\n미리보기입니다. {out_dir}/ 에 {len(good):,}건을 만들려면 "
+           "--apply 를 붙이세요.")
+        first = good[0]
+        _p(f"\n첫 건\n{'-' * 40}")
+        _p(f"받는 사람: {first.to}")
+        if first.cc:
+            _p(f"참조: {first.cc}")
+        _p(f"제목: {first.subject}\n")
+        _p(_cut(first.body, 600))
+        _p("-" * 40)
+        return 0
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    made = 0
+    for draft in good:
+        values = {"번호": draft.row, "받는사람": draft.to.split(",")[0].strip()}
+        name = sheet.render(a.name or "{번호:03d}_{받는사람}.eml", values)
+        target = out_dir / hangul.sanitize_filename(name)
+        target.write_bytes(sheet.to_eml(draft, sender=a.sender or ""))
+        made += 1
+    _p(f"\n{made:,}건을 만들었습니다: {out_dir}/")
+    _p("메일 앱에서 파일을 열면 초안으로 뜹니다. "
+       "보내는 것은 사람이 한 번 더 보고 누르는 일이라 여기서 보내지 않습니다.")
+    return 0
+
+
 CHART_KINDS = {"bar": "가로 막대", "line": "꺾은선"}
 
 
@@ -2516,6 +2594,26 @@ def add_commands(sub) -> None:
     ub.add_argument("--header-row", type=int, default=1, metavar="행")
     ub.add_argument("--apply", action="store_true", help="실제로 파일을 만든다")
     ub.set_defaults(func=cmd_sheet_unbook)
+
+    ml = common(sh.add_parser(
+        "mail", help="명단 + 본문 틀 -> 사람마다 메일 초안 파일(.eml)"))
+    ml.add_argument("file", metavar="명단파일")
+    ml.add_argument("-t", "--template", required=True, metavar="본문틀")
+    ml.add_argument("--subject", required=True, metavar="제목틀",
+                    help="{열이름} 을 쓸 수 있다 (예: '{이름}님 3월 정산')")
+    ml.add_argument("--to", required=True, metavar="열", help="받는 사람 메일 열")
+    ml.add_argument("--cc", metavar="열", help="참조 메일 열")
+    ml.add_argument("--attach", metavar="열",
+                    help="첨부 파일 경로 열 (여러 개면 ; 로 나눈다)")
+    ml.add_argument("--sender", metavar="주소", help="보내는 사람 (From)")
+    ml.add_argument("--name", metavar="틀",
+                    help="파일명 틀 (기본 '{번호:03d}_{받는사람}.eml')")
+    ml.add_argument("-o", "--out", metavar="디렉터리")
+    ml.add_argument("--force", action="store_true",
+                    help="없는 자리표시자를 빈칸으로 두고 진행")
+    ml.add_argument("--limit", type=int, default=10, metavar="개")
+    ml.add_argument("--apply", action="store_true", help="실제로 만든다")
+    ml.set_defaults(func=cmd_sheet_mail)
 
     fl = common(sh.add_parser("fill", help="명단 + 틀 -> 개인별 문서 (메일 머지)"))
     fl.add_argument("file", metavar="명단파일")

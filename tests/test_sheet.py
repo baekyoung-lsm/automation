@@ -2366,5 +2366,75 @@ class ReadCardTest(unittest.TestCase):
         self.assertEqual(sheet.read_vcards("").rows, [])
 
 
+class MailDraftTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.attach = self.root / "명세서.pdf"
+        self.attach.write_bytes(b"%PDF-1.4 fake")
+        self.table = sheet.Table(
+            ["이름", "메일", "금액", "첨부"],
+            [["홍길동", "a@b.com", 120000, str(self.attach)],
+             ["김철수", "없음", 5000, ""],
+             ["박영희", "c@d.com", 7000, str(self.root / "없다.pdf")]])
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def build(self, **kw):
+        kw.setdefault("template", "{이름}님, {금액:,}원입니다.\n")
+        kw.setdefault("subject", "{이름}님 정산")
+        kw.setdefault("to", "메일")
+        return sheet.build_mails(self.table, **kw)
+
+    def test_fills_subject_and_body(self):
+        drafts, _missing = self.build()
+        self.assertEqual(drafts[0].subject, "홍길동님 정산")
+        self.assertIn("120,000원", drafts[0].body)
+
+    def test_bad_address_is_a_problem_not_a_guess(self):
+        drafts, _missing = self.build()
+        self.assertFalse(drafts[1].ok)
+        self.assertIn("메일 주소", drafts[1].problem)
+
+    def test_missing_attachment_stops_that_row(self):
+        drafts, _missing = self.build(attach="첨부")
+        self.assertEqual([p.name for p in drafts[0].attachments],
+                         ["명세서.pdf"])
+        self.assertFalse(drafts[2].ok)
+        self.assertIn("첨부를 찾지 못했습니다", drafts[2].problem)
+
+    def test_missing_placeholder_is_reported(self):
+        _drafts, missing = self.build(template="{부서} 앞")
+        self.assertEqual(missing, {"부서"})
+
+    def test_split_addresses(self):
+        good, bad = sheet.split_addresses("a@b.com; c@d.com, 없음")
+        self.assertEqual(good, ["a@b.com", "c@d.com"])
+        self.assertEqual(bad, ["없음"])
+
+    def test_eml_has_korean_subject_and_body(self):
+        drafts, _missing = self.build(attach="첨부")
+        raw = sheet.to_eml(drafts[0], sender="me@corp.com")
+        import email
+
+        message = email.message_from_bytes(raw)
+        self.assertEqual(message["To"], "a@b.com")
+        self.assertEqual(message["From"], "me@corp.com")
+        self.assertEqual(str(email.header.make_header(
+            email.header.decode_header(message["Subject"]))), "홍길동님 정산")
+        # 아웃룩이 초안으로 열게 하는 표시
+        self.assertEqual(message["X-Unsent"], "1")
+        parts = list(message.walk())
+        self.assertIn("명세서.pdf",
+                      [p.get_filename() for p in parts])
+        body = [p for p in parts if p.get_content_type() == "text/plain"][0]
+        self.assertIn("120,000원",
+                      body.get_payload(decode=True).decode("utf-8"))
+
+    def test_empty_subject_is_a_problem(self):
+        drafts, _missing = self.build(subject="{없는열}")
+        self.assertIn("제목이 비었습니다", drafts[0].problem)
+
+
 if __name__ == "__main__":
     unittest.main()

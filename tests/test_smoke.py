@@ -340,6 +340,23 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("홍길동", 되읽기)
         일정되읽기 = self.run_cli("sheet", "from-ics", 캘린더)
         self.assertIn("워크숍", 일정되읽기)
+        본문틀 = Path(self.path("본문.md"))
+        본문틀.write_text("{이름}님, 안녕하세요.\n", encoding="utf-8")
+        정산 = Path(self.path("정산.csv"))
+        정산.write_text("이름,메일\n홍길동,a@b.com\n", encoding="utf-8")
+        초안폴더 = self.path("메일초안")
+        미리 = self.run_cli("sheet", "mail", str(정산), "-t", str(본문틀),
+                          "--subject", "{이름}님 안내", "--to", "메일",
+                          "-o", 초안폴더)
+        self.assertIn("미리보기", 미리)
+        self.assertFalse(Path(초안폴더).exists())
+        self.run_cli("sheet", "mail", str(정산), "-t", str(본문틀),
+                     "--subject", "{이름}님 안내", "--to", "메일",
+                     "-o", 초안폴더, "--apply")
+        만든메일 = list(Path(초안폴더).glob("*.eml"))
+        self.assertEqual(len(만든메일), 1)
+        self.assertIn("To: a@b.com",
+                      만든메일[0].read_text(encoding="utf-8"))
         self.assertIn("DTSTART;TZID=Asia/Seoul:20260310T140000", 만든것)
         self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,

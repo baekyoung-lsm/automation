@@ -1103,6 +1103,112 @@ def fill(table: Table, template: str, *, name_template: str = "",
     return out, missing
 
 
+# -------------------------------------------------------- 개인별 메일 초안(eml)
+
+MAIL_ADDRESS_RE = re.compile(r"^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$")
+
+
+@dataclass
+class MailDraft:
+    row: int
+    to: str
+    subject: str
+    body: str
+    cc: str = ""
+    attachments: list = field(default_factory=list)      # [Path]
+    lost: list = field(default_factory=list)             # 못 찾은 첨부 경로
+    problem: str = ""                                    # 만들 수 없는 까닭
+
+    @property
+    def ok(self) -> bool:
+        return not self.problem
+
+
+def split_addresses(raw: str) -> tuple[list[str], list[str]]:
+    """쉼표·세미콜론으로 나눈다. (제대로 된 주소, 이상한 것)"""
+    parts = [p.strip() for p in re.split(r"[,;]", raw) if p.strip()]
+    good = [p for p in parts if MAIL_ADDRESS_RE.fullmatch(p)]
+    bad = [p for p in parts if not MAIL_ADDRESS_RE.fullmatch(p)]
+    return good, bad
+
+
+def build_mails(table: Table, *, template: str, subject: str, to: str,
+                cc: str | None = None, attach: str | None = None,
+                start: int = 1) -> tuple[list[MailDraft], set[str]]:
+    """행마다 메일 초안을 만든다. (초안들, 틀에 있는데 표에 없는 열 이름)
+
+    보내지 않는다. 파일만 만든다 - 보내는 것은 사람이 메일 앱에서 한 번 더
+    보고 눌러야 한다.
+    """
+    index = {"to": table.index_of(to)}
+    if cc:
+        index["cc"] = table.index_of(cc)
+    if attach:
+        index["attach"] = table.index_of(attach)
+
+    missing: set[str] = set()
+    drafts: list[MailDraft] = []
+    for number, row in enumerate(table.rows, start):
+        values: dict[str, object] = {
+            h: row[i] if i < len(row) else None
+            for i, h in enumerate(table.headers)}
+        values["번호"] = number
+        cells = list(row) + [None] * (table.width - len(row))
+
+        draft = MailDraft(
+            row=number,
+            to=to_text(cells[index["to"]]).strip(),
+            subject=render(subject, values, missing=missing).strip(),
+            body=render(template, values, missing=missing),
+            cc=(to_text(cells[index["cc"]]).strip() if "cc" in index else ""))
+
+        good, bad = split_addresses(draft.to)
+        if not good:
+            draft.problem = ("메일 주소가 없습니다" if not draft.to
+                             else f"메일 주소로 보이지 않습니다: {', '.join(bad)}")
+        elif bad:
+            draft.problem = f"메일 주소로 보이지 않습니다: {', '.join(bad)}"
+        elif not draft.subject:
+            draft.problem = "제목이 비었습니다"
+
+        if "attach" in index:
+            raw = to_text(cells[index["attach"]]).strip()
+            for piece in [p.strip() for p in raw.split(";") if p.strip()]:
+                path = Path(piece).expanduser()
+                if path.is_file():
+                    draft.attachments.append(path)
+                else:
+                    draft.lost.append(piece)
+            if draft.lost and not draft.problem:
+                draft.problem = f"첨부를 찾지 못했습니다: {', '.join(draft.lost)}"
+        drafts.append(draft)
+    return drafts, missing
+
+
+def to_eml(draft: MailDraft, *, sender: str = "") -> bytes:
+    """초안 하나를 .eml 로. 메일 앱에서 열어 보내면 된다."""
+    import mimetypes
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["To"] = draft.to
+    if draft.cc:
+        message["Cc"] = draft.cc
+    if sender:
+        message["From"] = sender
+    message["Subject"] = draft.subject
+    message["X-Unsent"] = "1"      # 아웃룩이 «보낸 메일» 이 아니라 초안으로 연다
+    message.set_content(draft.body)
+
+    for path in draft.attachments:
+        guess, _enc = mimetypes.guess_type(path.name)
+        main, _, sub = (guess or "application/octet-stream").partition("/")
+        message.add_attachment(path.read_bytes(), maintype=main,
+                               subtype=sub or "octet-stream",
+                               filename=path.name)
+    return message.as_bytes()
+
+
 # ----------------------------------------------------------------- 표 합치기
 
 @dataclass
