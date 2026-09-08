@@ -391,6 +391,32 @@ class WebUiTest(UiCase):
                       {"cutfile": str(source), "cutpages": "9"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_pdf_numbers_pages(self):
+        from attools import pdf as pdfkit
+
+        source = self._two_page_pdf("번호")
+        _, data = self.post("/api/files/num_preview", {"numfile": str(source)})
+        self.assertEqual(data["count"], 2)
+        self.assertEqual(data["rows"][0][3], "1 / 2")
+        self.assertEqual(list(source.parent.glob("*쪽번호*")), [])
+
+        _, made = self.post("/api/files/num_make",
+                            {"numfile": str(source), "numskip": "1"})
+        saved = Path(made["saved"])
+        doc = pdfkit.open_pdf(saved)
+        first = doc.get(doc.pages()[0].data.get("Contents"))
+        self.assertNotIsInstance(first, list)          # 표지에는 안 찍는다
+        second = doc.get(doc.pages()[1].data.get("Contents"))
+        body = pdfkit.stream_data(doc.get(second[-1]), doc).decode("latin-1")
+        self.assertIn("(1 / 1)", body)
+
+    def test_pdf_numbers_refuse_hangul(self):
+        source = self._two_page_pdf("한글번호")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/num_preview",
+                      {"numfile": str(source), "numformat": "{쪽}쪽"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_pdf_join_folder(self):
         from attools import pdf as pdfkit
 

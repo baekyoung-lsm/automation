@@ -552,6 +552,71 @@ def cut_make(payload: dict) -> dict:
             "command": _cut_command(payload, path, out)}
 
 
+def _num_plan(payload: dict):
+    from ... import pdf
+
+    path = form.existing_file(payload, "numfile", max_bytes=0)
+    template = form.text(payload, "numformat") or "{쪽} / {전체}"
+    skip = int(form.number(payload, "numskip", 0, low=0, high=500))
+    where = form.choice(payload, "numwhere", pdf.STAMP_WHERE, "bottom-center")
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        stamper = pdf.page_stamper(template, total, skip=skip, where=where,
+                                   start=int(form.number(payload, "numstart", 1,
+                                                         low=0, high=10000)))
+        stamper(skip + 1, doc.pages()[min(skip, total - 1)], doc)   # 먼저 걸어 본다
+    except (pdf.PdfError, OSError, ValueError) as exc:
+        raise UiError(str(exc)) from None
+    return doc, path, total, stamper, template, skip, where
+
+
+def _num_command(payload: dict, path, out=None) -> str:
+    args: list[object] = ["file", "pdfnum", path]
+    template = form.text(payload, "numformat")
+    if template and template != "{쪽} / {전체}":
+        args += ["--format", template]
+    skip = int(form.number(payload, "numskip", 0, low=0, high=500))
+    if skip:
+        args += ["--skip", skip]
+    where = form.text(payload, "numwhere")
+    if where and where != "bottom-center":
+        args += ["--where", where]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _num_result(payload: dict, path, total, template, skip, where, made=None) -> dict:
+    from ... import pdf
+
+    shown = template.replace("{쪽}", str(int(form.number(payload, "numstart", 1,
+                                                        low=0, high=10000)))) \
+                    .replace("{전체}", str(max(total - skip, 0)))
+    return {"rows": [[path.name, f"{total:,}쪽", pdf.STAMP_WHERE[where], shown]],
+            "count": total, "skip": skip,
+            "saved": str(made) if made else "",
+            "size": files.human_size(made.stat().st_size) if made else "",
+            "command": _num_command(payload, path, made)}
+
+
+def num_preview(payload: dict) -> dict:
+    _doc, path, total, _stamp, template, skip, where = _num_plan(payload)
+    return _num_result(payload, path, total, template, skip, where)
+
+
+def num_make(payload: dict) -> dict:
+    """원본 옆에 «이름(쪽번호).pdf» 를 만든다. 원본은 건드리지 않는다."""
+    from ... import pdf
+
+    doc, path, total, stamper, template, skip, where = _num_plan(payload)
+    out = files.unique_path(path.with_name(f"{path.stem}(쪽번호).pdf"))
+    try:
+        pdf.join_pdfs([(doc, list(range(1, total + 1)))], out,
+                      catalog_from=doc, stamp=stamper)
+    except (pdf.PdfError, OSError) as exc:
+        raise UiError(str(exc)) from None
+    return _num_result(payload, path, total, template, skip, where, out)
+
+
 def _join_plan(payload: dict):
     """폴더 안의 PDF 를 이름 순으로. 스캔은 대개 그 차례가 맞다."""
     from ... import pdf
@@ -919,6 +984,33 @@ BODY = """
   </div>
   <div id="cutmsg"></div>
   <div id="cutout"></div>
+</section>
+
+<section class="card">
+  <h2>PDF 쪽 번호</h2>
+  <p class="note">합쳐 놓은 제출본·계약서에 통합 쪽 번호를 찍습니다. 원래 내용은
+     그대로 두고 <b>그 위에 한 겹</b> 얹습니다. 글꼴을 파일에 심지 않고 뷰어의
+     Helvetica 를 쓰므로 파일이 거의 커지지 않는 대신 <b>한글은 넣지 못합니다</b>.
+     눕혀 저장된 쪽은 보는 사람 기준으로 아래에 찍습니다.
+     <b>원본은 그대로 두고</b> 옆에 «이름(쪽번호).pdf» 를 만듭니다.</p>
+  <div class="row">
+    <div style="flex:3 1 16rem"><label for="numfile">PDF 파일</label>
+      <input type="text" id="numfile" data-browse="file" spellcheck="false"></div>
+    <div style="flex:0 1 10rem"><label for="numformat">찍을 꼴</label>
+      <input type="text" id="numformat" value="{쪽} / {전체}" spellcheck="false"></div>
+    <div style="flex:0 1 10rem"><label for="numwhere">자리</label>
+      <select id="numwhere"><option value="bottom-center">아래 가운데</option><option value="bottom-right">아래 오른쪽</option><option value="bottom-left">아래 왼쪽</option><option value="top-right">위 오른쪽</option><option value="top-center">위 가운데</option></select></div>
+    <div style="flex:0 1 6rem"><label for="numskip">건너뛸 쪽</label>
+      <input type="text" id="numskip" value="0" spellcheck="false"></div>
+    <div style="flex:0 1 6rem"><label for="numstart">첫 번호</label>
+      <input type="text" id="numstart" value="1" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-num">어떻게 찍히나</button>
+    <button id="btn-num-save" disabled>번호 찍기</button>
+  </div>
+  <div id="nummsg"></div>
+  <div id="numout"></div>
 </section>
 
 <section class="card">
@@ -1319,6 +1411,34 @@ BODY = """
   $("btn-cut").addEventListener("click", function () { runCut(false); });
   $("btn-cut-save").addEventListener("click", function () { runCut(true); });
 
+  function numValues() {
+    return { numfile: $("numfile").value, numformat: $("numformat").value,
+             numwhere: $("numwhere").value, numskip: $("numskip").value,
+             numstart: $("numstart").value };
+  }
+
+  async function runNum(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/num_make"
+                                   : "/api/files/num_preview", numValues());
+      $("numout").innerHTML =
+        AT.table(["파일", "쪽", "자리", "첫 번호"], d.rows) + AT.command(d.command);
+      AT.remember("files", "numfile", $("numfile").value);
+      AT.message($("nummsg"), "<b>" + d.count + "쪽</b>" +
+        (d.skip ? " · 앞의 " + d.skip + "쪽은 건너뜁니다" : "") +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b> (" +
+                   AT.esc(d.size) + ")"
+                 : " · 아직 만들지 않았습니다."), "ok");
+      $("btn-num-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("nummsg"), AT.esc(e.message), "bad");
+      $("btn-num-save").disabled = true;
+    }
+  }
+
+  $("btn-num").addEventListener("click", function () { runNum(false); });
+  $("btn-num-save").addEventListener("click", function () { runNum(true); });
+
   function joinValues() { return { joinroot: $("joinroot").value }; }
 
   function drawJoin(d) {
@@ -1488,6 +1608,7 @@ def make() -> App:
                  "sync_preview": sync_preview, "sync_apply": sync_apply,
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "cut_preview": cut_preview, "cut_make": cut_make,
+                 "num_preview": num_preview, "num_make": num_make,
                  "join_preview": join_preview, "join_make": join_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,
