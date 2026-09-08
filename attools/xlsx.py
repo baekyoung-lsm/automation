@@ -166,8 +166,13 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
                 if el.tag != f"{{{NS['m']}}}row":
                     continue
                 values: dict[int, object] = {}
+                # 칸 주소(r)를 안 적는 파일이 있다. 그때는 나온 차례가 곧
+                # 열 자리다 - 주소가 없다고 A 열로 몰면 앞 칸이 사라진다.
+                at = 0
                 for c in el.findall("m:c", NS):
-                    idx = col_to_index(c.get("r", "A1"))
+                    ref = c.get("r")
+                    idx = col_to_index(ref) if ref else at
+                    at = idx + 1
                     value = _cell_value(c, strings, date_flags)
                     if value is not None:
                         values[idx] = value

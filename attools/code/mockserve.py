@@ -98,6 +98,7 @@ def make_server(routes: list[Route], *, port: int = 0, host: str = "127.0.0.1",
             if route and body is None:
                 body = {"note": "문서에 응답 본문 스키마가 없습니다"}
             raw = json.dumps(body, ensure_ascii=False, indent=2).encode("utf-8")
+            record.add(self.command, self.path, status)   # 보내기 전에 적는다
 
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -111,7 +112,6 @@ def make_server(routes: list[Route], *, port: int = 0, host: str = "127.0.0.1",
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(raw)
-            record.add(self.command, self.path, status)
 
         def do_GET(self) -> None:
             self._answer()

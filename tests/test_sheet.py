@@ -47,6 +47,51 @@ class XlsxTest(unittest.TestCase):
         self.assertEqual(xlsx.index_to_col(0), "A")
         self.assertEqual(xlsx.index_to_col(27), "AB")
 
+    def _bare_xlsx(self, sheet_xml: str) -> Path:
+        """다른 도구가 낸 것처럼 손으로 만든 xlsx. 우리 라이터를 거치지 않는다."""
+        import zipfile
+
+        path = self.root / "남이만든.xlsx"
+        book = ('<?xml version="1.0"?><workbook xmlns="http://schemas.'
+                'openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://'
+                'schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                '<sheets><sheet name="시트" sheetId="1" r:id="rId1"/></sheets>'
+                "</workbook>")
+        rels = ('<?xml version="1.0"?><Relationships xmlns="http://schemas.'
+                'openxmlformats.org/package/2006/relationships"><Relationship '
+                'Id="rId1" Type="http://schemas.openxmlformats.org/'
+                'officeDocument/2006/relationships/worksheet" '
+                'Target="worksheets/sheet1.xml"/></Relationships>')
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("xl/workbook.xml", book)
+            z.writestr("xl/_rels/workbook.xml.rels", rels)
+            z.writestr("xl/worksheets/sheet1.xml",
+                       '<?xml version="1.0"?><worksheet xmlns="http://schemas.'
+                       'openxmlformats.org/spreadsheetml/2006/main">'
+                       "<sheetData>" + sheet_xml + "</sheetData></worksheet>")
+        return path
+
+    def test_cells_without_an_address_keep_their_order(self):
+        # 칸 주소(r)를 안 적는 도구가 있다. A 열로 몰면 앞 칸이 조용히 사라진다
+        path = self._bare_xlsx(
+            "<row><c t='inlineStr'><is><t>가</t></is></c>"
+            "<c t='inlineStr'><is><t>나</t></is></c></row>"
+            "<row><c t='inlineStr'><is><t>1</t></is></c>"
+            "<c t='inlineStr'><is><t>2</t></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["가", "나"], ["1", "2"]])
+
+    def test_skipped_columns_stay_empty(self):
+        path = self._bare_xlsx(
+            "<row><c r='A1' t='inlineStr'><is><t>가</t></is></c>"
+            "<c r='C1' t='inlineStr'><is><t>다</t></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["가", None, "다"]])
+
+    def test_inline_rich_text_is_joined(self):
+        path = self._bare_xlsx(
+            "<row><c r='A1' t='inlineStr'><is><r><t>영업</t></r>"
+            "<r><t>1팀</t></r></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["영업1팀"]])
+
     def test_escapes_xml_and_control_chars(self):
         path = self.root / "x.xlsx"
         xlsx.write_sheets(path, {"s": [["a & b <c>", "탭\t유지"]]})
