@@ -110,6 +110,9 @@ def cmd_file_docs(a) -> int:
         _p(f"속성을 읽지 못한 파일 {len(unread):,}개 (표의 «못 읽은 까닭» 칸)")
     _p("속성만 읽었습니다. 문서 내용은 열지 않았습니다. "
        "(내용은 at doc from-docx, at sheet from-docx)")
+    if any(m.kind == "PDF" for m in metas):
+        _p("PDF 는 속성과 쪽 수만 봅니다. 본문 글자는 꺼내지 않습니다 - "
+           "글꼴에 따라 조용히 틀린 글자가 나오기 때문입니다.")
     return 0
 
 
@@ -124,7 +127,7 @@ def cmd_file_scrub(a) -> int:
         targets = [root]
     else:
         targets = [m.path for m in files.scan_documents(
-            root, recursive=not a.flat)]
+            root, recursive=not a.flat, pdf=False)]
     if not targets:
         _p("워드·엑셀·슬라이드 파일이 없습니다.")
         return 0
@@ -1085,7 +1088,7 @@ def add_commands(sub) -> None:
     o.set_defaults(func=cmd_file_organize)
 
     dcs = fp.add_parser("docs",
-                        help="워드·엑셀·슬라이드 속성 목록 (누가 만든 문서인가)")
+                        help="워드·엑셀·슬라이드·PDF 속성 목록 (누가 만든 문서인가)")
     dcs.add_argument("dir", nargs="?", default=".", metavar="경로")
     dcs.add_argument("-o", "--out", metavar="파일", help="저장 경로 (.csv, .xlsx, .md)")
     dcs.add_argument("--overwrite", action="store_true",

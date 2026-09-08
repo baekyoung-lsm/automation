@@ -263,7 +263,7 @@ def audit(payload: dict) -> dict:
             "command": form.command(*args)}
 
 
-def _scrub_targets(payload: dict):
+def _scrub_targets(payload: dict, *, pdf: bool = False):
     raw = form.text(payload, "docroot")
     if not raw:
         raise UiError("폴더 또는 파일 경로를 적어 주세요.")
@@ -272,7 +272,7 @@ def _scrub_targets(payload: dict):
         raise UiError(f"없는 경로입니다: {root}")
     if root.is_file():
         return root, [root]
-    return root, [m.path for m in files.scan_documents(root)]
+    return root, [m.path for m in files.scan_documents(root, pdf=pdf)]
 
 
 def _scrub_command(payload: dict, root, *, apply: bool = False) -> str:
@@ -282,8 +282,8 @@ def _scrub_command(payload: dict, root, *, apply: bool = False) -> str:
 
 def documents(payload: dict) -> dict:
     """문서 속성만 읽어 «누가 만든 문서인가» 를 본다. 내용은 열지 않는다."""
-    root, targets = _scrub_targets(payload)
-    metas = [files.document_meta(p) for p in targets]
+    root, targets = _scrub_targets(payload, pdf=True)   # 속성 보기는 PDF 도 본다
+    metas = [files.meta_of(p) for p in targets]
     rows = [[m.path.name, m.kind, m.title, m.author, m.last_by,
              m.modified[:10], "" if m.pages is None else f"{m.pages:,}",
              m.error] for m in metas]

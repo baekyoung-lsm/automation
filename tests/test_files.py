@@ -1161,5 +1161,77 @@ class ScrubTest(DocumentMetaTest):
                               "<dc:title>가</dc:title></a>")
 
 
+class PdfMetaTest(unittest.TestCase):
+    """PDF 속성 읽기. 속성만 보고 본문 글자는 꺼내지 않는다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, body: bytes, name: str = "문서.pdf") -> Path:
+        path = self.root / name
+        path.write_bytes(b"%PDF-1.4\n" + body + b"\n%%EOF\n")
+        return path
+
+    def test_counts_page_objects(self):
+        body = (b"1 0 obj<</Type/Pages/Kids[2 0 R 3 0 R]/Count 2>>endobj\n"
+                b"2 0 obj<</Type/Page/Parent 1 0 R>>endobj\n"
+                b"3 0 obj<</Type/Page/Parent 1 0 R>>endobj\n")
+        self.assertEqual(files.pdf_meta(self.make(body)).pages, 2)
+
+    def test_falls_back_to_count_when_no_page_objects(self):
+        body = b"1 0 obj<</Type/Pages/Count 7>>endobj\n"
+        self.assertEqual(files.pdf_meta(self.make(body)).pages, 7)
+
+    def test_reads_plain_info(self):
+        body = (b"1 0 obj<</Type/Page>>endobj\n"
+                b"2 0 obj<</Title (2026 \\(1\\) plan)/Author (Hong)"
+                b"/Producer (attools)/CreationDate (D:20260304120500+09'00')>>"
+                b"endobj\n")
+        meta = files.pdf_meta(self.make(body))
+        self.assertEqual(meta.title, "2026 (1) plan")
+        self.assertEqual(meta.author, "Hong")
+        self.assertEqual(meta.created, "2026-03-04 12:05")
+
+    def test_reads_utf16_hex_info(self):
+        raw = "홍길동".encode("utf-16-be").hex()
+        body = (b"1 0 obj<</Type/Page>>endobj\n2 0 obj<</Author <FEFF"
+                + raw.encode() + b">>>endobj\n")
+        self.assertEqual(files.pdf_meta(self.make(body)).author, "홍길동")
+
+    def test_encrypted_file_is_not_opened(self):
+        body = b"trailer<</Encrypt 9 0 R>>"
+        meta = files.pdf_meta(self.make(body))
+        self.assertIn("암호", meta.error)
+        self.assertIsNone(meta.pages)
+
+    def test_not_a_pdf(self):
+        path = self.root / "가짜.pdf"
+        path.write_bytes("이건 PDF 가 아니다".encode("utf-8"))
+        self.assertIn("PDF 가 아닙니다", files.pdf_meta(path).error)
+
+    def test_unknown_page_count_says_so(self):
+        meta = files.pdf_meta(self.make(b"1 0 obj<</Title (x)>>endobj"))
+        self.assertIsNone(meta.pages)
+        self.assertIn("쪽 수를 읽지 못했습니다", meta.error)
+
+    def test_reads_pages_inside_a_compressed_object_stream(self):
+        import zlib
+
+        inner = (b"1 0 obj<</Type/Page>>endobj 2 0 obj<</Type/Page>>endobj")
+        packed = zlib.compress(inner)
+        body = (b"5 0 obj<</Type/ObjStm/N 2/Filter/FlateDecode>>stream\n"
+                + packed + b"\nendstream endobj\n")
+        self.assertEqual(files.pdf_meta(self.make(body)).pages, 2)
+
+    def test_scan_includes_pdf_and_can_skip_it(self):
+        self.make(b"1 0 obj<</Type/Page>>endobj", "보고서.pdf")
+        found = files.scan_documents(self.root)
+        self.assertEqual([m.kind for m in found], ["PDF"])
+        self.assertEqual(files.scan_documents(self.root, pdf=False), [])
+
+
 if __name__ == "__main__":
     unittest.main()

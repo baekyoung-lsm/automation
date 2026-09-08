@@ -143,8 +143,11 @@ class SmokeTest(unittest.TestCase):
                        "<cp:coreProperties xmlns:cp='c' xmlns:dc='d'>"
                        "<dc:creator>김철수</dc:creator></cp:coreProperties>")
             z.writestr("word/document.xml", "<x/>")
+        (문서폴더 / "보고서.pdf").write_bytes(
+            b"%PDF-1.4\n1 0 obj<</Type/Page>>endobj\n%%EOF\n")
         속성 = self.run_cli("file", "docs", str(문서폴더))
         self.assertIn("김철수", 속성)
+        self.assertIn("PDF", 속성)
         self.assertIn("밖으로 보내기 전에", 속성)
         미리 = self.run_cli("file", "scrub", str(문서폴더))
         self.assertIn("미리보기", 미리)
