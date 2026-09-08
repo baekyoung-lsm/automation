@@ -612,6 +612,63 @@ def cmd_sheet_age(a) -> int:
     return code
 
 
+def cmd_sheet_worktime(a) -> int:
+    """출근·퇴근 열에서 근무 시간을 센다. 근태 취합에 쓴다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        days, table = sheet.work_days(t, start=a.start, end=a.end,
+                                      date=a.date, rest=a.rest)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    good = [d for d in days if not d.problem]
+    unread = [d for d in days if d.problem and d.problem != "빈 칸"]
+    blank = [d for d in days if d.problem == "빈 칸"]
+
+    code = _sheet_result(a, table, f"{a.start} · {a.end} -> 근무 시간")
+
+    if good:
+        worked = sum(d.worked for d in good)
+        over = [d for d in good if d.worked > a.daily * 60]
+        _p(f"\n일한 날 {len(good):,}일  ·  실근무 {worked // 60:,}시간 "
+           f"{worked % 60}분  ·  하루 평균 {worked / len(good) / 60:.1f}시간")
+        if over:
+            _p(f"하루 {a.daily}시간을 넘긴 날 {len(over):,}일 "
+               f"(예: {', '.join(str(d.line) + '행' for d in over[:5])})")
+
+        weeks = sheet.work_weeks(days)
+        if weeks:
+            _p("")
+            _grid(["주 시작(월)", "실근무(시간)", f"{a.weekly}시간 초과"],
+                  [[str(monday), f"{minutes / 60:.1f}",
+                    f"{max(0, minutes - a.weekly * 60) / 60:.1f}"]
+                   for monday, minutes in weeks[:a.limit]])
+            if len(weeks) > a.limit:
+                _p(f"  ... {len(weeks) - a.limit}주 더")
+
+    if unread:
+        _p(f"\n시각을 읽지 못한 행 {len(unread):,}개 - 비워 두었습니다")
+        for day in unread[:a.limit]:
+            _p(f"  {day.line}행")
+    if blank:
+        _p(f"빈 행 {len(blank):,}개 (쉰 날로 보고 세지 않았습니다)")
+
+    night = [d for d in good if d.overnight]
+    if night:
+        _p(f"\n퇴근이 출근보다 이른 행 {len(night):,}개는 자정을 넘긴 것으로 "
+           "봤습니다.")
+    if a.rest is None:
+        _p("휴게는 근로기준법 제54조의 최소 시간(4시간 30분, 8시간 1시간)을 "
+           "뺀 것입니다. 실제로 쉰 시간이 다르면 --rest 로 분을 주세요.")
+    else:
+        _p(f"휴게를 하루 {a.rest}분으로 놓고 뺐습니다.")
+    _p("야간·휴일 가산은 셈하지 않습니다. 시간만 셉니다.")
+    return code
+
+
 def cmd_sheet_to_sql(a) -> int:
     """표를 INSERT 문으로. 엑셀로 받은 자료를 개발 DB 에 넣을 때."""
     t = _load(a)
@@ -2644,6 +2701,21 @@ def add_commands(sub) -> None:
                         f"{k}({v})" for k, v in sheet.DATE_PARTS.items()))
     dt.add_argument("--limit", type=int, default=10, metavar="개")
     dt.set_defaults(func=cmd_sheet_dates)
+
+    wt = sheet_out(common(sh.add_parser(
+        "worktime", help="출근·퇴근 열에서 근무 시간 세기 (근태 취합)")))
+    wt.add_argument("file")
+    wt.add_argument("--start", required=True, metavar="열", help="출근 시각 열")
+    wt.add_argument("--end", required=True, metavar="열", help="퇴근 시각 열")
+    wt.add_argument("--date", metavar="열", help="날짜 열 (주별 합계에 쓴다)")
+    wt.add_argument("--rest", type=int, metavar="분",
+                    help="하루 휴게 시간 (없으면 근로기준법 최소 시간)")
+    wt.add_argument("--daily", type=float, default=8, metavar="시간",
+                    help="하루 기준 시간 (기본 8)")
+    wt.add_argument("--weekly", type=float, default=40, metavar="시간",
+                    help="주 기준 시간 (기본 40)")
+    wt.add_argument("--limit", type=int, default=10, metavar="개")
+    wt.set_defaults(func=cmd_sheet_worktime)
 
     ag = sheet_out(common(sh.add_parser(
         "age", help="생년월일 열에서 만 나이·연령대 열 만들기 (명단 집계)")))

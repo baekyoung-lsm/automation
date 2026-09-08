@@ -2663,5 +2663,80 @@ class CompareFormsTest(unittest.TestCase):
         self.assertEqual(report.odd, report.checks)
 
 
+class WorkTimeTest(unittest.TestCase):
+    """근무 시간 셈. 휴게와 자정 넘김을 어떻게 봤는지가 중요하다."""
+
+    def setUp(self):
+        self.table = sheet.Table(
+            ["날짜", "출근", "퇴근"],
+            [["2026-03-02", "09:00", "18:00"],
+             ["2026-03-03", "09:00", "21:30"],
+             ["2026-03-04", "22:00", "06:00"],
+             ["2026-03-05", "", ""],
+             ["2026-03-06", "아홉시", "18:00"]])
+
+    def days(self, **kw):
+        kw.setdefault("start", "출근")
+        kw.setdefault("end", "퇴근")
+        kw.setdefault("date", "날짜")
+        return sheet.work_days(self.table, **kw)
+
+    def test_legal_break_is_taken_out(self):
+        days, _table = self.days()
+        self.assertEqual(days[0].minutes, 540)      # 아홉 시간 자리에 있었고
+        self.assertEqual(days[0].rest, 60)          # 여덟 시간 넘으면 한 시간
+        self.assertEqual(days[0].worked, 480)
+
+    def test_break_can_be_given(self):
+        days, _table = self.days(rest=30)
+        self.assertEqual(days[0].worked, 510)
+
+    def test_short_day_gets_thirty_minutes(self):
+        table = sheet.Table(["출근", "퇴근"], [["09:00", "14:00"]])
+        days, _t = sheet.work_days(table, start="출근", end="퇴근")
+        self.assertEqual((days[0].minutes, days[0].rest), (300, 30))
+
+    def test_overnight_shift(self):
+        days, _table = self.days()
+        night = days[2]
+        self.assertTrue(night.overnight)
+        self.assertEqual(night.minutes, 480)        # 22시 -> 다음 날 6시
+
+    def test_blank_row_is_a_day_off(self):
+        days, _table = self.days()
+        self.assertEqual(days[3].problem, "빈 칸")
+        self.assertEqual(days[3].worked, 0)
+
+    def test_unreadable_time_is_reported_not_guessed(self):
+        days, table = self.days()
+        self.assertIn("읽지 못했습니다", days[4].problem)
+        self.assertIsNone(table.rows[4][-2])        # 실근무 칸을 비워 둔다
+
+    def test_added_columns(self):
+        _days, table = self.days()
+        self.assertEqual(table.headers[-4:],
+                         ["체류(시간)", "휴게(분)", "실근무(시간)", "자정 넘김"])
+
+    def test_weekly_totals_start_on_monday(self):
+        from datetime import date
+
+        days, _table = self.days()
+        weeks = sheet.work_weeks(days)
+        self.assertEqual(weeks[0][0], date(2026, 3, 2))   # 월요일
+        self.assertEqual(weeks[0][1], 480 + 690 + 420)
+
+    def test_clock_formats(self):
+        from datetime import datetime, time
+
+        self.assertEqual(sheet.parse_clock("9:05"), time(9, 5))
+        self.assertEqual(sheet.parse_clock("9시"), time(9, 0))
+        self.assertEqual(sheet.parse_clock("18시 30"), time(18, 30))
+        self.assertEqual(sheet.parse_clock(datetime(1899, 12, 30, 9, 0)),
+                         time(9, 0))
+        self.assertEqual(sheet.parse_clock("0.375"), time(9, 0))
+        self.assertIsNone(sheet.parse_clock("25:00"))
+        self.assertIsNone(sheet.parse_clock(""))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -385,6 +385,14 @@ class SmokeTest(unittest.TestCase):
         나이표 = Path(self.path("생일.csv"))
         나이표.write_text("이름,생년월일\n가,1990-05-06\n나,900101-2345678\n",   # attools: ignore
                         encoding="utf-8")
+        근태 = Path(self.path("근태.csv"))
+        근태.write_text("날짜,출근,퇴근\n2026-03-02,09:00,18:00\n"
+                      "2026-03-03,09:00,21:30\n", encoding="utf-8")
+        시간 = self.run_cli("sheet", "worktime", str(근태), "--start", "출근",
+                          "--end", "퇴근", "--date", "날짜")
+        self.assertIn("실근무", 시간)
+        self.assertIn("근로기준법", 시간)
+
         나이 = self.run_cli("sheet", "age", str(나이표), "-c", "생년월일",
                           "--group", "--sex", "--on", "2026-03-01")
         self.assertIn("30대", 나이)

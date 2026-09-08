@@ -3244,6 +3244,131 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
     return report
 
 
+# ------------------------------------------------------------- 근무 시간 셈
+
+# 근로기준법 제54조: 4시간 일하면 30분, 8시간 일하면 1시간 이상 휴게.
+BREAK_RULES = ((8 * 60, 60), (4 * 60, 30))
+CLOCK_RE = re.compile(r"^(\d{1,2})\s*[:시]\s*(\d{1,2})?")
+
+
+@dataclass
+class WorkDay:
+    line: int
+    date: object = None          # 날짜로 읽었으면 date, 아니면 원문 글자
+    start: object = None         # time
+    end: object = None
+    minutes: int = 0             # 자리에 있던 시간 (퇴근 - 출근)
+    rest: int = 0                # 뺀 휴게 시간
+    worked: int = 0              # 실근무
+    overnight: bool = False      # 자정을 넘겼다고 본 날
+    problem: str = ""
+
+
+def parse_clock(cell: object):
+    """셀에서 시각을 읽는다. 못 읽으면 None.
+
+    엑셀은 시각만 든 칸을 «1899-12-30 09:00» 처럼 돌려주므로 그것도 받는다.
+    """
+    from datetime import time as _time
+
+    if isinstance(cell, datetime):
+        return cell.time().replace(second=0, microsecond=0)
+    if isinstance(cell, _time):
+        return cell.replace(second=0, microsecond=0)
+    if _is_blank(cell):
+        return None
+
+    text = to_text(cell).strip()
+    if not text:
+        return None
+    if text.replace(".", "", 1).isdigit() and "." in text:
+        share = float(text)      # 0.375 처럼 하루의 몫으로 적힌 칸
+        if 0 <= share < 1:
+            total = round(share * 24 * 60)
+            return _time(total // 60 % 24, total % 60)
+    m = CLOCK_RE.match(text)
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if hour == 24 and minute == 0:
+        return _time(0, 0)
+    if hour > 23 or minute > 59:
+        return None
+    return _time(hour, minute)
+
+
+def legal_break(minutes: int) -> int:
+    """근로기준법이 정한 최소 휴게 시간(분)."""
+    for limit, rest in BREAK_RULES:
+        if minutes >= limit:
+            return rest
+    return 0
+
+
+def work_days(table: Table, *, start: str, end: str, date: str | None = None,
+              rest: int | None = None) -> tuple[list, Table]:
+    """출근·퇴근 열에서 하루치 근무 시간을 센다. (하루들, 붙인 표)
+
+    rest 가 None 이면 근로기준법이 정한 최소 휴게(4시간 30분, 8시간 1시간)를
+    뺀다. 실제로 쉰 시간은 회사마다 다르므로 숫자로 직접 줄 수도 있다.
+    퇴근이 출근보다 이르면 자정을 넘긴 것으로 보고 그렇다고 표시한다.
+    """
+    from datetime import datetime as _dt
+
+    index = {"출근": table.index_of(start), "퇴근": table.index_of(end)}
+    if date:
+        index["날짜"] = table.index_of(date)
+
+    days: list[WorkDay] = []
+    rows: list[list] = []
+    for line, row in enumerate(table.rows, 2):
+        cells = list(row) + [None] * (table.width - len(row))
+        day = WorkDay(line=line)
+        if "날짜" in index:
+            day.date = _as_date(cells[index["날짜"]]) or cells[index["날짜"]]
+        day.start = parse_clock(cells[index["출근"]])
+        day.end = parse_clock(cells[index["퇴근"]])
+
+        if day.start is None or day.end is None:
+            day.problem = ("출근·퇴근 시각을 읽지 못했습니다"
+                           if not _is_blank(cells[index["출근"]])
+                           or not _is_blank(cells[index["퇴근"]])
+                           else "빈 칸")
+        else:
+            begin = _dt.combine(_dt.min.date(), day.start)
+            finish = _dt.combine(_dt.min.date(), day.end)
+            if finish <= begin:
+                finish += timedelta(days=1)
+                day.overnight = True
+            day.minutes = int((finish - begin).total_seconds() // 60)
+            day.rest = legal_break(day.minutes) if rest is None else max(0, rest)
+            day.worked = max(0, day.minutes - day.rest)
+        days.append(day)
+        rows.append(cells + [
+            None if day.problem else round(day.minutes / 60, 2),
+            None if day.problem else day.rest,
+            None if day.problem else round(day.worked / 60, 2),
+            "예" if day.overnight else "",
+        ])
+
+    headers = list(table.headers) + ["체류(시간)", "휴게(분)", "실근무(시간)",
+                                     "자정 넘김"]
+    return days, Table(headers, rows, source=table.source, sheet=table.sheet)
+
+
+def work_weeks(days: list) -> list:
+    """주(월요일 시작)별 실근무 시간 합계. 날짜를 읽은 날만 센다."""
+    from datetime import date as _date
+
+    weeks: dict = {}
+    for day in days:
+        if day.problem or not isinstance(day.date, _date):
+            continue
+        monday = day.date - timedelta(days=day.date.weekday())
+        weeks[monday] = weeks.get(monday, 0) + day.worked
+    return sorted(weeks.items())
+
+
 # ------------------------------------------------------------------ 가림
 
 HIDDEN = "****"          # 꼴을 알아보지 못한 값을 통째로 가릴 때
