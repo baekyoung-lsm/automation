@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ... import docx, files
+from ... import docx, files, hwpx
 from ... import text as textkit
 from ...docs import fromhtml, mdkit
 from .. import App, UiError, form
@@ -99,32 +99,39 @@ def from_html(payload: dict) -> dict:
 
 
 def from_docx(payload: dict) -> dict:
-    """받은 워드 문서를 마크다운으로. 저장은 문서 옆에 .md 를 만든다."""
+    """받은 워드·한글 문서를 마크다운으로. 저장은 문서 옆에 .md 를 만든다."""
     path = form.existing_file({"path": form.text(payload, "docx_path")})
-    if path.suffix.lower() != ".docx":
-        raise UiError(f"워드 문서(.docx)가 아닙니다: {path.suffix or '확장자 없음'}")
+    suffix = path.suffix.lower()
+    if suffix not in (".docx", ".hwpx"):
+        raise UiError("워드(.docx)나 한글(.hwpx) 문서가 아닙니다: "
+                      f"{path.suffix or '확장자 없음'}. "
+                      "옛 .hwp 는 한글에서 hwpx 로 저장하세요.")
+    reader = hwpx if suffix == ".hwpx" else docx
     try:
-        parts = docx.read_document(path)
-    except docx.DocxError as exc:
+        parts = reader.read_document(path)
+    except (docx.DocxError, hwpx.HwpxError) as exc:
         raise UiError(str(exc)) from None
     if not parts:
         raise UiError("옮길 내용이 없습니다. "
                       "(그림·머리글·각주만 있는 문서일 수 있습니다)")
 
-    made = docx.to_markdown(parts)
+    made = reader.to_markdown(parts)
+    command = "from-hwpx" if suffix == ".hwpx" else "from-docx"
     kinds: dict[str, int] = {}
     for kind, _body in parts:
         kinds[kind] = kinds.get(kind, 0) + 1
     result = {"text": made,
               "counts": [[kind, str(n)] for kind, n in sorted(kinds.items())],
-              "note": "문단·제목·표만 옮깁니다. 그림·머리글·바닥글·각주·메모는 "
-                      "옮기지 않습니다.",
-              "command": form.command("doc", "from-docx", path)}
+              "note": ("문단·표만 옮깁니다. 제목 단계는 짐작하지 않습니다."
+                       if suffix == ".hwpx" else
+                       "문단·제목·표만 옮깁니다.")
+                      + " 그림·머리글·바닥글·각주·메모는 옮기지 않습니다.",
+              "command": form.command("doc", command, path)}
     if form.flag(payload, "save"):
         out = files.unique_path(path.with_suffix(".md"))
         out.write_text(made, encoding="utf-8")
         result["saved"] = str(out)
-        result["command"] = form.command("doc", "from-docx", path, "-o", out)
+        result["command"] = form.command("doc", command, path, "-o", out)
     return result
 
 
@@ -325,13 +332,15 @@ BODY = """
 </section>
 
 <section class="card">
-  <h2>워드 문서 열기</h2>
-  <p class="note">받은 워드 문서(.docx)를 마크다운으로 옮깁니다. 문단·제목·표만
-     가져오고 <b>그림·머리글·바닥글·각주·메모는 옮기지 않습니다</b>.
+  <h2>워드·한글 문서 열기</h2>
+  <p class="note">받은 워드(.docx)나 한글(.hwpx) 문서를 마크다운으로 옮깁니다.
+     문단·표만 가져오고 <b>그림·머리글·바닥글·각주·메모는 옮기지 않습니다</b>.
+     <b>옛 .hwp 는 읽지 못합니다</b> - 한글에서 «hwpx 로 저장» 을 한 번 거치세요.
      저장하면 문서 옆에 같은 이름의 .md 를 만듭니다.</p>
   <div class="row">
-    <div><label for="docx_path">워드 파일</label>
-      <input type="text" id="docx_path" spellcheck="false" data-browse=".docx"></div>
+    <div><label for="docx_path">워드·한글 파일</label>
+      <input type="text" id="docx_path" spellcheck="false"
+             data-browse=".docx,.hwpx"></div>
     <div style="flex:0 0 auto"><button class="primary" id="btn-fromdocx">옮기기</button></div>
     <div style="flex:0 0 auto"><button id="btn-fromdocx-save">.md 로 저장</button></div>
   </div>

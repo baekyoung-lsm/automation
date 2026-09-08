@@ -1620,6 +1620,19 @@ class DocAppTest(UiCase):
             self.post("/api/doc/from_docx", {"docx_path": str(other)})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_from_docx_also_reads_hwpx(self):
+        import zipfile
+
+        path = self.work / "계획서.hwpx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            z.writestr("Contents/section0.xml",
+                       "<hs:sec xmlns:hs='s' xmlns:hp='p'><hp:p><hp:run>"
+                       "<hp:t>사업 계획서</hp:t></hp:run></hp:p></hs:sec>")
+        _, data = self.post("/api/doc/from_docx", {"docx_path": str(path)})
+        self.assertIn("사업 계획서", data["text"])
+        self.assertIn("from-hwpx", data["command"])
+
     def test_check_finds_dead_anchor(self):
         path = self.markdown()
         _, data = self.post("/api/doc/check", {"path": str(path)})
