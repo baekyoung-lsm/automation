@@ -428,6 +428,60 @@ def cmd_dev_api(a) -> int:
     return 0
 
 
+def cmd_dev_mock(a) -> int:
+    """OpenAPI 문서로 가짜 API 서버를 띄운다. 백엔드가 아직 없을 때."""
+    from ..code import mockserve
+
+    source = Path(a.file)
+    if source.suffix.lower() in (".yaml", ".yml"):
+        _p("yaml 은 읽지 못합니다. json 으로 바꿔서 주세요.")
+        return 1
+    try:
+        spec = openapi.load(jsonkit.load(a.file))
+    except (jsonkit.JsonError, openapi.SpecError) as e:
+        _p(str(e))
+        return 1
+
+    routes = mockserve.make_routes(spec)
+    if not routes:
+        _p("문서에 엔드포인트가 없습니다.")
+        return 1
+
+    try:
+        server = mockserve.make_server(routes, port=a.port,
+                                       delay=max(0, a.delay) / 1000,
+                                       cors=not a.no_cors)
+    except OSError as e:
+        _p(f"서버를 띄우지 못했습니다: {e}")
+        return 1
+
+    host, port = server.server_address[0], server.server_address[1]
+    _p(f"{spec.title or '이름 없음'} 가짜 서버  http://{host}:{port}")
+    _grid(["메서드", "경로", "응답", "본문"],
+          [[r.method, r.path, str(r.status),
+            "예시" if r.body is not None else "없음"]
+           for r in sorted(routes, key=lambda r: (r.path, r.method))[:a.limit]],
+          limit=44)
+    if len(routes) > a.limit:
+        _p(f"  ... {len(routes) - a.limit}개 더")
+
+    _p("\n문서에 적힌 예시를 돌려줍니다. 진짜 자료가 아닙니다 "
+       "(응답에 X-Mock 헤더를 붙입니다).")
+    _p("상태를 기억하지 않습니다 - POST 로 넣은 것이 GET 에 나오지 않습니다.")
+    if not a.no_cors:
+        _p("브라우저에서 바로 부를 수 있게 CORS 를 열어 두었습니다 "
+           "(--no-cors 로 끕니다).")
+    _p("끝내려면 Ctrl+C.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        _p("\n서버를 닫았습니다.")
+    finally:
+        server.server_close()
+    return 0
+
+
 def cmd_dev_fake(a) -> int:
     try:
         fields = [fakedata.parse_field(spec) for spec in a.col]
@@ -1517,6 +1571,18 @@ def add_commands(sub) -> None:
                      help="요약이나 오류 응답이 빠진 것만")
     ap_.add_argument("--limit", type=int, default=30)
     ap_.set_defaults(func=cmd_dev_api)
+
+    mk = dp.add_parser("mock",
+                       help="OpenAPI 문서로 가짜 API 서버 띄우기 (백엔드 없이)")
+    mk.add_argument("file", metavar="openapi.json")
+    mk.add_argument("--port", type=int, default=0, metavar="번호",
+                    help="쓸 포트 (기본: 비어 있는 것 아무거나)")
+    mk.add_argument("--delay", type=int, default=0, metavar="ms",
+                    help="응답을 이만큼 늦춘다 (느린 서버 흉내)")
+    mk.add_argument("--no-cors", action="store_true",
+                    help="CORS 헤더를 붙이지 않는다")
+    mk.add_argument("--limit", type=int, default=30, metavar="개")
+    mk.set_defaults(func=cmd_dev_mock)
 
     fk = dp.add_parser("fake", help="시험용 가짜 표 만들기 (한글 이름·전화·주소)")
     fk.add_argument("-c", "--col", action="append", required=True, metavar="열=종류",

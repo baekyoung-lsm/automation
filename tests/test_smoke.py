@@ -574,6 +574,13 @@ class SmokeTest(unittest.TestCase):
                 "application/json": {"schema": {"type": "object", "properties": {
                     "금액": {"type": "integer"}}}}}}}}}},
         }, ensure_ascii=False), encoding="utf-8")
+        빈스펙 = self.path("openapi-empty.json")
+        Path(빈스펙).write_text(json.dumps({"openapi": "3.0.0", "paths": {}}),
+                              encoding="utf-8")
+        # 서버를 띄우는 명령이라 여기서는 띄우기 전에 걸리는 자리만 본다
+        self.assertIn("엔드포인트가 없습니다",
+                      self.run_cli("dev", "mock", 빈스펙, expect=1))
+
         예시 = self.run_cli("dev", "api", 예시스펙, "--example")
         self.assertIn('"금액": 1', 예시)
         예시파일 = self.path("예시.json")

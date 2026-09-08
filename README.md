@@ -223,6 +223,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
 | `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기. `--example` 로 요청·응답 예시 JSON |
+| `at dev mock <openapi.json>` | 문서로 가짜 API 서버 띄우기 (백엔드 없이 프런트 붙일 때) |
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
@@ -293,6 +294,8 @@ at dev api openapi.json --holes                        # 요약·오류 응답�
 at dev api 새문서.json --diff 예전문서.json            # 깨질 변화가 있으면 exit 1
 at dev api openapi.json --example                     # 요청·응답 예시
 at dev api openapi.json --example -o 예시.json        # 목 서버·시험 자료로
+at dev mock openapi.json --port 8080                  # 가짜 서버 (Ctrl+C 로 끝)
+at dev mock openapi.json --delay 300                  # 느린 서버 흉내
 at dev db app.sqlite                                   # 표·뷰 목록과 행 수
 at dev db app.sqlite --table users                     # 열 구성과 앞 몇 행
 at dev db app.sqlite -q 'select 부서, count(*) from 사원 group by 부서' -o 집계.xlsx
@@ -469,6 +472,12 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+`at dev mock` 은 그 예시를 그대로 돌려주는 **가짜 API 서버**를 띄운다. 백엔드가 아직 없을 때
+프런트를 붙이는 자리다. `/orders/new` 처럼 고정 경로가 `/orders/{id}` 에 먹히지 않게 고정 조각이
+많은 경로를 먼저 본다. **상태를 기억하지 않는다** - POST 로 넣은 것이 GET 에 나오지 않는다.
+기억하는 척하면 «되는 줄 알았는데» 가 된다. 응답에는 진짜가 아니라는 표시로 `X-Mock` 헤더를
+붙이고, 브라우저에서 바로 부를 수 있게 CORS 를 열어 둔다(`--no-cors` 로 끈다).
 
 `at dev api --example` 은 엔드포인트마다 **요청·응답 예시 JSON** 을 만든다. 프런트를 먼저
 붙일 때나 시험 자료를 만들 때 쓴다. 문서에 `example`·`default`·`enum` 이 적혀 있으면 그 값을
