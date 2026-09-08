@@ -2901,6 +2901,25 @@ class RegistryTest(unittest.TestCase):
         self.assertIsNotNone(webui.find_app(apps, "files"))
         self.assertIsNone(webui.find_app(apps, "없는화면"))
 
+    def test_every_called_api_exists(self):
+        """화면의 자바스크립트가 부르는 /api/<화면>/<동작> 이 실제로 있어야 한다.
+
+        단추를 눌러야만 드러나는 오타라 브라우저 점검(at ui --check)에서도
+        안 잡힌다. 여기서 글자로 훑는다.
+        """
+        import re
+
+        bad = []
+        for app in webui.load_apps():
+            body = app.body()
+            for found in re.finditer(r'"(/api/[a-z0-9_]+/[a-z0-9_]+)"', body):
+                _api, key, action = found.group(1).strip("/").split("/")
+                if key != app.key:
+                    bad.append(f"{app.key}: {found.group(1)} (다른 화면)")
+                elif action not in app.actions:
+                    bad.append(f"{app.key}: {found.group(1)} (그런 동작이 없음)")
+        self.assertEqual(bad, [], f"없는 동작을 부릅니다: {bad}")
+
     def test_keys_are_ascii_and_unique(self):
         """주소에 그대로 들어가므로 아스키여야 한다."""
         apps = webui.load_apps()
