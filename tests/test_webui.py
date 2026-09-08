@@ -1872,6 +1872,27 @@ class DevAppTest(UiCase):
             encoding="utf-8")
         return path
 
+    def test_url_is_taken_apart(self):
+        _, data = self.post("/api/dev/url",
+                            {"url": "https://a.b:8443/v1/주문?q=%ED%99%8D&token=abc&q=2"})
+        self.assertEqual(data["count"], 3)
+        self.assertIn(["q", "홍", "같은 이름이 여러 번"], data["rows"])
+        self.assertTrue(data["secret"])
+        self.assertIn("at dev url", data["command"])
+
+    def test_url_mask_hides_only_secrets(self):
+        _, data = self.post("/api/dev/url",
+                            {"url": "https://a.b/c?page=2&token=abc",
+                             "urlmask": True})
+        self.assertIn("token=***", data["url"])
+        self.assertIn("page=2", data["url"])
+        self.assertNotIn("abc", data["url"])
+
+    def test_url_needs_something(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/dev/url", {"url": "   "})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_regex_with_groups(self):
         _, data = self.post("/api/dev/regex",
                             {"pattern": r"(\d{4})-(\d{2})-(\d{2})",

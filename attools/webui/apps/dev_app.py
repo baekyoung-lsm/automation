@@ -16,6 +16,39 @@ MAX_LOG_BYTES = 20 << 20      # 20MB. 화면에서 여는 것이므로 선을 �
 TOP = 15
 
 
+def url(payload: dict) -> dict:
+    """주소를 뜯어 본다. 비밀로 보이는 값은 골라서 가릴 수 있다."""
+    raw = form.raw_text(payload, "url")
+    mask = form.flag(payload, "urlmask")
+    try:
+        part = devkit.split_url(raw)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    seen: dict = {}
+    for name, _value in part.params:
+        seen[name] = seen.get(name, 0) + 1
+    rows = []
+    for name, value in part.params:
+        shown = "***" if (mask and devkit._looks_secret(name) and value) else value
+        note = "같은 이름이 여러 번" if seen[name] > 1 else ("빈 값" if not value else "")
+        rows.append([name, shown, note])
+
+    where = [["scheme", part.scheme], ["호스트", part.host]]
+    if part.port:
+        where.append(["포트", str(part.port)])
+    where.append(["경로", part.path or "/"])
+    if part.fragment:
+        where.append(["조각(#)", part.fragment])
+
+    return {"url": devkit.build_url(part, mask=mask), "where": where,
+            "rows": rows, "count": len(part.params),
+            "guessed": part.guessed_scheme, "note": part.note,
+            "secret": any(devkit._looks_secret(name) for name, _v in part.params),
+            "command": form.command("dev", "url", raw,
+                                    *(["--mask"] if mask else []))}
+
+
 def jwt(payload: dict) -> dict:
     token = form.text(payload, "token")
     if not token:
@@ -271,7 +304,8 @@ def env(payload: dict) -> dict:
 
 BODY = """
 <nav class="tabs" id="tabs">
-  <button data-tab="jwt" aria-selected="true">JWT</button>
+  <button data-tab="url" aria-selected="true">주소</button>
+  <button data-tab="jwt" aria-selected="false">JWT</button>
   <button data-tab="when" aria-selected="false">시각</button>
   <button data-tab="cron" aria-selected="false">cron</button>
   <button data-tab="mask" aria-selected="false">가리기</button>
@@ -284,7 +318,22 @@ BODY = """
   <button data-tab="deps" aria-selected="false">의존성</button>
 </nav>
 
-<section class="card" data-panel="jwt">
+<section class="card" data-panel="url">
+  <h2>주소 뜯어 보기</h2>
+  <p class="note">긴 주소에 무엇이 들어 있는지 표로 봅니다. 쿼리 값의
+     <code>%XX</code> 를 풀어 한글 검색어가 그대로 읽히고, 같은 이름이 여러 번
+     들어간 파라미터도 짚어 줍니다. <b>가리기</b>를 켜면 token·password 처럼
+     비밀로 보이는 값만 가린 주소를 만들어 줍니다 - 버그 신고에 붙일 때 쓰세요.</p>
+  <textarea id="u-url" spellcheck="false" placeholder="https://example.com/a?b=1&amp;token=xyz"></textarea>
+  <div class="checks">
+    <label><input type="checkbox" id="u-mask"> 비밀로 보이는 값 가리기</label>
+  </div>
+  <div class="actions"><button class="primary" id="btn-url">뜯어보기</button></div>
+  <div id="urlmsg"></div>
+  <div id="url-out"></div>
+</section>
+
+<section class="card" data-panel="jwt" hidden>
   <h2>JWT 안을 본다</h2>
   <p class="note">서명은 검증하지 않습니다. 안에 무엇이 들었는지 볼 뿐이니
      이 결과로 «믿을 수 있다»를 판단하면 안 됩니다.</p>
@@ -454,6 +503,26 @@ BODY = """
     catch (e) { AT.message($(where), AT.esc(e.message), "bad"); }
   }
 
+  $("btn-url").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/dev/url",
+        { url: $("u-url").value, urlmask: $("u-mask").checked });
+      $("url-out").innerHTML =
+        "<pre>" + AT.esc(d.url) + "</pre>" +
+        (d.guessed ? '<p class="note">scheme 이 없어 https 로 봤습니다.</p>' : "") +
+        (d.note ? '<p class="note">' + AT.esc(d.note) + "</p>" : "") +
+        AT.table(["자리", "값"], d.where) +
+        (d.count
+          ? "<h2>파라미터 " + d.count + "개</h2>" +
+            AT.table(["이름", "값", ""], d.rows)
+          : '<div class="empty">쿼리 파라미터가 없습니다.</div>') +
+        AT.command(d.command);
+      AT.message($("urlmsg"), d.secret && !$("u-mask").checked
+        ? "비밀로 보이는 파라미터가 있습니다. 남에게 보낼 때는 가리기를 켜세요."
+        : "값은 %XX 를 푼 것입니다.", d.secret && !$("u-mask").checked ? "bad" : "ok");
+    } catch (e) { AT.message($("urlmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-jwt").addEventListener("click", function () {
     run("jwt-out", "/api/dev/jwt", { token: $("j-token").value }, function (d) {
       $("jwt-out").innerHTML = big(AT.esc(d.state)) +
@@ -607,7 +676,8 @@ def make() -> App:
         summary="정규식·JWT·시각·cron·가리기·인코딩·키·.env·로그·sqlite·의존성",
         subtitle="읽고 계산할 뿐, 고치지 않습니다",
         body=lambda: BODY,
-        actions={"jwt": jwt, "when": when, "cron": cron, "mask": mask,
+        actions={"url": url, "jwt": jwt, "when": when, "cron": cron,
+                 "mask": mask,
                  "encode": encode, "secret": secret, "env": env,
                  "log": log, "db": db, "depends": depends, "locks": locks,
                  "regex": regex},
