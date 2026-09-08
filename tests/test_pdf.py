@@ -516,6 +516,17 @@ class JoinPdfTest(unittest.TestCase):
         made = pdf.open_pdf(out)
         self.assertEqual(made.get(made.pages()[0].data.get("Rotate")), 0)
 
+    def test_catalog_can_be_carried_when_every_page_is_kept(self):
+        path = simple_pdf(self.root / "설정.pdf", pages=2)
+        path.write_bytes(path.read_bytes().replace(
+            b"/Type/Catalog", b"/PageMode/UseThumbs/Type/Catalog"))
+        doc = pdf.open_pdf(path)
+        out = self.root / "그대로.pdf"
+        pdf.join_pdfs([(doc, [1, 2])], out, catalog_from=doc)
+        made = pdf.open_pdf(out)
+        self.assertEqual(str(made.get(made.trailer["Root"]).get("PageMode")),
+                         "UseThumbs")
+
     def test_rotate_must_be_a_right_angle(self):
         doc = pdf.open_pdf(simple_pdf(self.root / "한쪽.pdf", pages=1))
         with self.assertRaises(pdf.PdfError):

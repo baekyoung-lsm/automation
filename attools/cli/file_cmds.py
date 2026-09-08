@@ -259,9 +259,11 @@ def cmd_file_pdfcut(a) -> int:
     out = Path(a.out)
     if not _may_write(a, out):
         return 1
+    whole = wanted == list(range(1, total + 1))   # 쪽을 다 옮기는가
     try:
         result = pdf.join_pdfs([(doc, wanted)], out, title=a.title or "",
-                               rotate=a.rotate)
+                               rotate=a.rotate,
+                               catalog_from=doc if whole else None)
     except (pdf.PdfError, OSError) as e:
         _p(str(e))
         return 1
@@ -270,8 +272,10 @@ def cmd_file_pdfcut(a) -> int:
     if result.missing:
         _p(f"원본이 가리키는데 없던 객체가 {result.missing}개 있었습니다. "
            "그 자리는 비워 두었습니다 - 원본이 조금 망가져 있습니다.")
-    _p("글자와 그림은 눌린 그대로 옮겨 화질이 그대로입니다. "
-       "쪽에 딸린 책갈피·양식은 따라가지 않습니다.")
+    _p("글자와 그림은 눌린 그대로 옮겨 화질이 그대로입니다.")
+    _p("책갈피·양식·쪽 번호 표시도 함께 옮겼습니다. 전자서명은 무효가 됩니다."
+       if whole else
+       "쪽을 골라 냈으므로 책갈피·양식은 따라가지 않습니다.")
     return 0
 
 
