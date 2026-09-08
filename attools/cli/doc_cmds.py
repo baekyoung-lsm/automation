@@ -654,6 +654,62 @@ def cmd_doc_stats(a) -> int:
     return 0
 
 
+def cmd_doc_todo(a) -> int:
+    """문서에 적어 둔 «- [ ] 할 일» 을 모은다. 회의록 여러 장을 한 표로."""
+    from datetime import date as _date
+
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    tasks: list = []
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        tasks += mdkit.find_tasks(path, body)
+
+    if a.who:
+        tasks = [t for t in tasks if a.who in t.who]
+    done = [t for t in tasks if t.done]
+    if not a.all:
+        tasks = [t for t in tasks if not t.done]
+
+    if not tasks:
+        _p(f"문서 {len(targets)}개에서 할 일을 찾지 못했습니다. "
+           "(«- [ ] 할 일» 꼴만 셉니다)")
+        return 0
+
+    today = _date.today().isoformat()
+    tasks.sort(key=lambda t: (t.due == "", t.due, t.path, t.line))
+    _grid(["상태", "기한", "담당", "할 일", "문서", "절"],
+          [["끝" if t.done else ("지남" if t.due and t.due < today else ""),
+            t.due, _cut(t.who, 10), _cut(t.text, 40),
+            _cut(Path(t.path).name, 20), _cut(t.section, 16)]
+           for t in tasks[:a.limit]], limit=40)
+    if len(tasks) > a.limit:
+        _p(f"  ... {len(tasks) - a.limit:,}개 더 (--limit 로 조절)")
+
+    late = [t for t in tasks if not t.done and t.due and t.due < today]
+    _p(f"\n할 일 {len(tasks):,}개" + (f"  ·  기한이 지난 것 {len(late):,}개"
+                                       if late else "")
+       + (f"  ·  끝낸 것 {len(done):,}개" if not a.all and done else ""))
+    if a.out:
+        from .. import sheet as sheetkit
+
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        table = sheetkit.Table(
+            ["상태", "기한", "담당", "할 일", "문서", "절", "줄"],
+            [["끝" if t.done else "남음", t.due, t.who, t.text,
+              Path(t.path).name, t.section, t.line] for t in tasks])
+        _p(f"저장: {sheetkit.save(table, out)}")
+
+    _p("«- [ ] » 로 적은 줄만 셉니다. 문장으로만 적은 약속은 세지 않습니다.")
+    _p("«3/15» 처럼 해가 없는 기한은 올해로 봤습니다.")
+    return 1 if late else 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -842,6 +898,17 @@ def add_commands(sub) -> None:
     dst.add_argument("paths", nargs="*", default=["."], metavar="경로")
     dst.add_argument("--limit", type=int, default=20, metavar="개")
     dst.set_defaults(func=cmd_doc_stats)
+
+    dtd = dc.add_parser("todo",
+                        help="문서에 적어 둔 할 일 모으기 (회의록의 - [ ] 줄)")
+    dtd.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    dtd.add_argument("--all", action="store_true", help="끝낸 것도 함께")
+    dtd.add_argument("--who", metavar="이름", help="이 담당자 것만 (@이름)")
+    dtd.add_argument("-o", "--out", metavar="파일", help="표로 저장 (csv, xlsx)")
+    dtd.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    dtd.add_argument("--limit", type=int, default=40, metavar="개")
+    dtd.set_defaults(func=cmd_doc_todo)
 
     dh = dc.add_parser("check", help="제목 단계 건너뜀·중복 점검")
     dh.add_argument("paths", nargs="+", metavar="경로")

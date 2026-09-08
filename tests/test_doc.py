@@ -543,5 +543,53 @@ class DocStatTest(unittest.TestCase):
         self.assertEqual(self.stat("<!-- toc -->\n<!-- /toc -->\n").todo, 0)
 
 
+class DocTodoTest(unittest.TestCase):
+    TEXT = ("# 3월 회의\n\n## 결정 사항\n"
+            "- [ ] 계약서 검토 @홍길동 3/15까지\n"
+            "- [x] 자료 취합 @김철수\n"
+            "- 그냥 메모\n\n"
+            "## 다음\n- [ ] 일정 잡기 (2026-04-01)\n")
+
+    def tasks(self, text=None, **kw):
+        return mdkit.find_tasks(Path("회의록.md"), text or self.TEXT, **kw)
+
+    def test_only_checkbox_lines_count(self):
+        # 문장으로만 적은 약속을 세면 목록을 믿을 수 없게 된다
+        found = self.tasks()
+        self.assertEqual(len(found), 3)
+        self.assertNotIn("그냥 메모", [t.text for t in found])
+
+    def test_done_flag(self):
+        self.assertEqual([t.done for t in self.tasks()], [False, True, False])
+
+    def test_owner_from_mention(self):
+        self.assertEqual(self.tasks()[0].who, "홍길동")
+        self.assertEqual(self.tasks()[2].who, "")
+
+    def test_section_is_the_heading_above(self):
+        self.assertEqual([t.section for t in self.tasks()],
+                         ["결정 사항", "결정 사항", "다음"])
+
+    def test_due_dates(self):
+        found = self.tasks(year=2026)
+        self.assertEqual(found[0].due, "2026-03-15")     # 3/15 는 올해로
+        self.assertEqual(found[1].due, "")
+        self.assertEqual(found[2].due, "2026-04-01")
+
+    def test_korean_date(self):
+        found = self.tasks("- [ ] 보고 3월 5일까지\n", year=2026)
+        self.assertEqual(found[0].due, "2026-03-05")
+
+    def test_impossible_date_is_not_used(self):
+        self.assertEqual(self.tasks("- [ ] 가 13/45\n")[0].due, "")
+
+    def test_tasks_inside_code_fences_are_skipped(self):
+        text = "```\n- [ ] 예제 안의 할 일\n```\n- [ ] 진짜 할 일\n"
+        self.assertEqual([t.text for t in self.tasks(text)], ["진짜 할 일"])
+
+    def test_line_numbers(self):
+        self.assertEqual(self.tasks()[0].line, 4)
+
+
 if __name__ == "__main__":
     unittest.main()

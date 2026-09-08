@@ -1078,3 +1078,74 @@ def to_docx_parts(text: str) -> list[str]:
             continue
         parts.append(docx.paragraph(plain_text(line)))
     return parts
+
+
+# ------------------------------------------------------- 문서에 적은 할 일
+
+TASK_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
+MENTION_RE = re.compile(r"@([\w가-힣.-]{1,20})")
+DUE_PATTERNS = [
+    re.compile(r"(\d{4})[-./](\d{1,2})[-./](\d{1,2})"),
+    re.compile(r"(?<!\d)(\d{1,2})월\s*(\d{1,2})일"),
+    re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?![\d/])"),
+]
+
+
+@dataclass
+class Task:
+    path: str
+    line: int
+    text: str
+    done: bool = False
+    who: str = ""            # @이름 으로 적은 담당자
+    due: str = ""            # 적혀 있을 때만. 지어내지 않는다
+    section: str = ""        # 바로 위 제목
+
+
+def find_due(text: str, *, year: int | None = None) -> str:
+    """줄에 적힌 날짜를 찾는다. 없으면 빈 문자열.
+
+    «3/15» 처럼 해가 없는 표기는 올해로 본다. 그 사실을 부르는 쪽이 밝힐 수
+    있도록 여기서는 채워 넣기만 하고 «짐작했다» 는 표시는 남기지 않는다 -
+    출력에서 함께 적는다.
+    """
+    from datetime import date
+
+    this_year = year or date.today().year
+    for number, pattern in enumerate(DUE_PATTERNS):
+        m = pattern.search(text)
+        if not m:
+            continue
+        try:
+            if number == 0:
+                found = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            else:
+                found = date(this_year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            continue
+        return found.isoformat()
+    return ""
+
+
+def find_tasks(path: Path, text: str, *, year: int | None = None) -> list[Task]:
+    """문서에서 «- [ ] 할 일» 을 모은다. 체크 상자가 있는 줄만 본다.
+
+    «~하기로 했다» 같은 문장은 세지 않는다. 사람이 적어 둔 표시만 믿어야
+    목록을 믿고 쓸 수 있다.
+    """
+    out: list[Task] = []
+    section = ""
+    for number, line in _outside_fences(text):
+        if m := HEADING_RE.match(line):
+            section = m.group(2).strip()
+            continue
+        m = TASK_RE.match(line)
+        if not m:
+            continue
+        body = m.group(2).strip()
+        who = MENTION_RE.search(body)
+        out.append(Task(str(path), number, body,
+                        done=m.group(1) in ("x", "X"),
+                        who=who.group(1) if who else "",
+                        due=find_due(body, year=year), section=section))
+    return out

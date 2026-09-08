@@ -780,6 +780,13 @@ class SmokeTest(unittest.TestCase):
         점검 = self.run_cli("doc", "lint", md)
         self.assertIn("문서 1개를 봤습니다", 점검)
 
+        회의록 = Path(self.path("회의록.md"))
+        회의록.write_text("# 회의\n\n## 결정\n- [ ] 계약서 검토 @홍길동 2026-01-05\n"
+                        "- [x] 자료 취합\n", encoding="utf-8")
+        할일 = self.run_cli("doc", "todo", str(회의록), expect=1)   # 기한이 지났다
+        self.assertIn("홍길동", 할일)
+        self.assertIn("지남", 할일)
+
         크기 = self.run_cli("doc", "stats", md)
         self.assertIn("읽기(분)", 크기)
         self.assertIn("문서.md", 크기)
