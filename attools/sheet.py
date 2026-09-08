@@ -2111,6 +2111,103 @@ def _sql_column_type(values: list, dialect: str) -> str:
 
 
 
+# ------------------------------------------------------------------ 나이·연령대
+
+RRN_BIRTH_RE = re.compile(r"^(\d{2})(\d{2})(\d{2})[-\s]?([0-9])\d{0,6}$")
+RRN_CENTURY = {"1": 1900, "2": 1900, "3": 2000, "4": 2000,
+               "5": 1900, "6": 1900, "7": 2000, "8": 2000,
+               "9": 1800, "0": 1800}
+RRN_SEX = {"1": "남", "3": "남", "5": "남", "7": "남", "9": "남",
+           "2": "여", "4": "여", "6": "여", "8": "여", "0": "여"}
+
+
+def parse_birth(cell: object) -> tuple[date, str] | None:
+    """생년월일 칸에서 (생일, 성별). 성별을 알 수 없으면 빈 문자열.
+
+    명단에는 «1990-01-01» 도 있고 «900101-2******» 같은 주민번호도 있다. 주민번호면
+    일곱째 자리로 세기와 성별까지 알 수 있으므로 함께 돌려준다. 여섯 자리만
+    적힌 칸(«900101»)은 1990년인지 2090년인지 정할 근거가 없어 읽지 않는다.
+    """
+    if isinstance(cell, datetime):
+        return cell.date(), ""
+    if isinstance(cell, date):
+        return cell, ""
+    if _is_blank(cell):
+        return None
+
+    raw = to_text(cell).strip()
+    if m := RRN_BIRTH_RE.fullmatch(raw.replace(" ", "")):
+        year = RRN_CENTURY[m.group(4)] + int(m.group(1))
+        try:
+            born = date(year, int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+        return born, RRN_SEX[m.group(4)]
+
+    day = parse_date(raw)
+    return (day, "") if day is not None else None
+
+
+def age_bucket(age: int) -> str:
+    """연령대 이름. 집계할 때 쓰는 «30대» 같은 묶음."""
+    if age < 10:
+        return "10세 미만"
+    if age >= 100:
+        return "100세 이상"
+    return f"{age // 10 * 10}대"
+
+
+@dataclass
+class AgeReport:
+    read: int = 0
+    sexed: int = 0
+    failed: list = field(default_factory=list)      # [(행, 원본)]
+
+
+def add_age(table: Table, column: str, *, on: date | None = None,
+            group: bool = False, sex: bool = False) -> tuple[Table, AgeReport]:
+    """생년월일 열에서 만 나이(·연령대·성별) 열을 만들어 붙인다.
+
+    나이는 «만 나이» 다 (2023년부터 법으로 통일된 그 나이). 읽지 못한 칸은
+    비워 두고 몇 행이었는지 알려 준다 - 0 이나 오늘 날짜로 채우면 그 사람이
+    조용히 다른 연령대에 잡힌다.
+    """
+    from .life import korean_age
+
+    index = table.index_of(column)
+    today = on or date.today()
+    headers = list(table.headers) + [f"{column} 만나이"]
+    if group:
+        headers.append(f"{column} 연령대")
+    if sex:
+        headers.append(f"{column} 성별")
+
+    report = AgeReport()
+    rows: list[list] = []
+    for line, row in enumerate(table.rows, 2):
+        cells = list(row) + [None] * (table.width - len(row))
+        got = parse_birth(cells[index])
+        extra: list = []
+        if got is None:
+            extra = [None] * (1 + int(group) + int(sex))
+            if not _is_blank(cells[index]):
+                report.failed.append((line, to_text(cells[index])))
+        else:
+            born, gender = got
+            age = korean_age(born, today)
+            extra = [age]
+            if group:
+                extra.append(age_bucket(age))
+            if sex:
+                extra.append(gender or None)
+            report.read += 1
+            if gender:
+                report.sexed += 1
+        rows.append(cells + extra)
+
+    return Table(headers, rows), report
+
+
 # ---------------------------------------------------------------- 캘린더(ics)
 
 ICS_FOLD = 75                     # RFC 5545 - 한 줄 75옥텟

@@ -2175,5 +2175,70 @@ class IcsTest(unittest.TestCase):
         self.assertIn("SUMMARY:아주 긴 " + "회의" * 40, out)
 
 
+class AgeTest(unittest.TestCase):
+    def setUp(self):
+        from datetime import date, datetime
+        self.date, self.datetime = date, datetime
+        self.table = sheet.Table(
+            ["이름", "생년월일"],
+            [["가", "1990-05-06"], ["나", "900101-2345678"],   # attools: ignore
+             ["다", "몰라"], ["라", ""], ["마", "051231-4000000"]])   # attools: ignore
+
+    def build(self, **kw):
+        kw.setdefault("on", self.date(2026, 3, 1))
+        return sheet.add_age(self.table, "생년월일", **kw)
+
+    def test_reads_plain_birthday(self):
+        self.assertEqual(sheet.parse_birth("1990-05-06"),
+                         (self.date(1990, 5, 6), ""))
+
+    def test_reads_rrn_century_and_sex(self):
+        self.assertEqual(sheet.parse_birth("900101-2345678"),   # attools: ignore
+                         (self.date(1990, 1, 1), "여"))
+        self.assertEqual(sheet.parse_birth("051231-4000000"),   # attools: ignore
+                         (self.date(2005, 12, 31), "여"))
+        self.assertEqual(sheet.parse_birth("051231-3000000"),   # attools: ignore
+                         (self.date(2005, 12, 31), "남"))
+
+    def test_six_digits_alone_are_not_guessed(self):
+        # 900101 이 1990년인지 2090년인지 정할 근거가 없다
+        self.assertIsNone(sheet.parse_birth("900101"))
+
+    def test_impossible_birthday_is_not_read(self):
+        self.assertIsNone(sheet.parse_birth("901301-1234567"))   # attools: ignore
+        self.assertIsNone(sheet.parse_birth("몰라"))
+
+    def test_age_is_korean_age(self):
+        result, _report = self.build()
+        self.assertEqual(result.rows[0][2], 35)      # 생일 전이라 한 살 적다
+        self.assertEqual(result.rows[1][2], 36)
+
+    def test_unreadable_cells_stay_empty(self):
+        result, report = self.build()
+        self.assertIsNone(result.rows[2][2])
+        self.assertIsNone(result.rows[3][2])
+        self.assertEqual([line for line, _raw in report.failed], [4])
+        self.assertEqual(report.read, 3)
+
+    def test_group_column_is_optional(self):
+        plain, _r = self.build()
+        self.assertEqual(plain.headers, ["이름", "생년월일", "생년월일 만나이"])
+        grouped, _r = self.build(group=True)
+        self.assertEqual(grouped.rows[0][3], "30대")
+
+    def test_sex_only_from_rrn(self):
+        result, report = self.build(sex=True)
+        self.assertIsNone(result.rows[0][3])
+        self.assertEqual(result.rows[1][3], "여")
+        self.assertEqual(report.sexed, 2)
+
+    def test_bucket_edges(self):
+        self.assertEqual(sheet.age_bucket(0), "10세 미만")
+        self.assertEqual(sheet.age_bucket(9), "10세 미만")
+        self.assertEqual(sheet.age_bucket(10), "10대")
+        self.assertEqual(sheet.age_bucket(39), "30대")
+        self.assertEqual(sheet.age_bucket(101), "100세 이상")
+
+
 if __name__ == "__main__":
     unittest.main()

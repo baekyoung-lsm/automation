@@ -290,6 +290,13 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("지남", 남은)
         날짜 = self.run_cli("sheet", "dates", csv, "-c", "입사일", "--add", "요일")
         self.assertIn("입사일 요일", 날짜)
+        나이표 = Path(self.path("생일.csv"))
+        나이표.write_text("이름,생년월일\n가,1990-05-06\n나,900101-2345678\n",   # attools: ignore
+                        encoding="utf-8")
+        나이 = self.run_cli("sheet", "age", str(나이표), "-c", "생년월일",
+                          "--group", "--sex", "--on", "2026-03-01")
+        self.assertIn("30대", 나이)
+        self.assertIn("만 나이", 나이)
         sql = self.run_cli("sheet", "to-sql", csv, "-t", "직원", "--create")
         self.assertIn("INSERT INTO", sql)
         일정 = Path(self.path("일정.csv"))

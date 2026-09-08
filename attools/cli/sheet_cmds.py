@@ -574,6 +574,44 @@ def cmd_sheet_dates(a) -> int:
     return _sheet_result(a, result, f"{a.column} -> " + ", ".join(a.add))
 
 
+
+def cmd_sheet_age(a) -> int:
+    """생년월일 열에서 만 나이·연령대·성별 열을 만든다. 명단 집계 전에."""
+    from datetime import date as _date
+
+    t = _load(a)
+    if t is None:
+        return 1
+    on = None
+    if a.on:
+        on = sheet.parse_date(a.on)
+        if on is None:
+            _p(f"날짜로 읽지 못했습니다: {a.on}")
+            return 1
+    try:
+        result, report = sheet.add_age(t, a.column, on=on, group=a.group,
+                                       sex=a.sex)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if report.failed:
+        _p(f"생년월일로 못 읽은 칸 {len(report.failed):,}개 - 비워 두었습니다")
+        for line, value in report.failed[:a.limit]:
+            _p(f"  {line}행  {_cut(value, 40)}")
+        if len(report.failed) > a.limit:
+            _p(f"  ... {len(report.failed) - a.limit:,}개 더")
+        _p("")
+
+    made = ["만나이"] + (["연령대"] if a.group else []) + (["성별"] if a.sex else [])
+    code = _sheet_result(a, result, f"{a.column} -> " + ", ".join(made))
+    _p(f"\n만 나이입니다. 기준일은 {on or _date.today()} 입니다.")
+    if a.sex:
+        _p(f"성별은 주민등록번호에서 읽은 {report.sexed:,}개만 채웠습니다. "
+           "(생년월일만 있으면 알 수 없습니다)")
+    return code
+
+
 def cmd_sheet_to_sql(a) -> int:
     """표를 INSERT 문으로. 엑셀로 받은 자료를 개발 DB 에 넣을 때."""
     t = _load(a)
@@ -2289,6 +2327,18 @@ def add_commands(sub) -> None:
                         f"{k}({v})" for k, v in sheet.DATE_PARTS.items()))
     dt.add_argument("--limit", type=int, default=10, metavar="개")
     dt.set_defaults(func=cmd_sheet_dates)
+
+    ag = sheet_out(common(sh.add_parser(
+        "age", help="생년월일 열에서 만 나이·연령대 열 만들기 (명단 집계)")))
+    ag.add_argument("file")
+    ag.add_argument("-c", "--column", required=True, metavar="열",
+                    help="생년월일 또는 주민등록번호 열")
+    ag.add_argument("--on", metavar="날짜", help="기준일 (기본 오늘)")
+    ag.add_argument("--group", action="store_true", help="연령대 열도 (30대…)")
+    ag.add_argument("--sex", action="store_true",
+                    help="성별 열도 (주민등록번호일 때만 읽을 수 있다)")
+    ag.add_argument("--limit", type=int, default=10, metavar="개")
+    ag.set_defaults(func=cmd_sheet_age)
 
     fdn = sheet_out(common(sh.add_parser("filldown", help="빈 칸을 바로 위 값으로 채우기 (병합 셀 푼 표)")))
     fdn.add_argument("file")
