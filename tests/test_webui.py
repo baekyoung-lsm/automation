@@ -1421,6 +1421,32 @@ class LifeAppTest(UiCase):
         self.assertEqual(data["formal"], "일금 일백이십오만원정")
 
 
+class LifeHourlyTest(UiCase):
+    """시급 화면. 셈한 방법을 화면에서도 밝히는지까지 본다."""
+
+    def test_rates_follow_the_law(self):
+        _, data = self.post("/api/life/hourly", {"hmonthly": "2090000"})
+        rows = {row[0]: row[1] for row in data["rows"]}
+        self.assertEqual(rows["통상시급"], "10,000원")
+        self.assertEqual(rows["연장근로"], "15,000원")
+        self.assertEqual(rows["야간 가산분"], "5,000원")
+        self.assertIn("제56조", data["note"])
+        self.assertIn("흔한 값", data["note"])     # 209시간이 법이 아니라는 것
+
+    def test_extra_hours_add_up(self):
+        _, data = self.post("/api/life/hourly",
+                            {"hmonthly": "2090000", "hover": "10",
+                             "hnight": "4"})
+        paid = {row[0]: row[1] for row in data["paid"]}
+        self.assertEqual(paid["연장 10시간"], "150,000원")
+        self.assertEqual(paid["합계"], "170,000원")
+
+    def test_bad_amount(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/hourly", {"hmonthly": "얼마쯤"})
+        self.assertEqual(ctx.exception.code, 400)
+
+
 class LifeSeveranceTest(UiCase):
     """퇴직금 화면. 조건을 화면에서도 밝히는지까지 본다."""
 
@@ -2809,6 +2835,11 @@ class CommandHintTest(UiCase):
                               {"joined": "2023-03-02", "on": "2026-09-07",
                                "ahead": "3"})
         self.accepts(annual["command"])
+
+        _, hourly = self.post("/api/life/hourly",
+                              {"hmonthly": "300만", "hover": "10",
+                               "hhours": "174"})
+        self.accepts(hourly["command"])
 
         from attools import docx
 

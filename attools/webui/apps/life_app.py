@@ -254,6 +254,57 @@ def rent(payload: dict) -> dict:
                     "시기에 따라 달라 여기서 정하지 않습니다."}
 
 
+def hourly(payload: dict) -> dict:
+    """통상시급과 연장·야간·휴일 가산 수당."""
+    try:
+        monthly = life.parse_amount(form.text(payload, "hmonthly"))
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+    hours = form.number(payload, "hhours", life.MONTHLY_HOURS, low=1, high=400)
+    try:
+        pay = life.hourly_pay(monthly, hours=hours)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    extra = life.extra_pay(
+        pay,
+        overtime=form.number(payload, "hover", 0, low=0, high=400),
+        night=form.number(payload, "hnight", 0, low=0, high=400),
+        holiday=form.number(payload, "hholiday", 0, low=0, high=400))
+
+    args: list = ["life", "hourly", monthly]
+    if hours != life.MONTHLY_HOURS:
+        args += ["--hours", f"{hours:g}"]
+    for name, value in (("--overtime", extra.overtime_hours),
+                        ("--night", extra.night_hours),
+                        ("--holiday", extra.holiday_hours)):
+        if value:
+            args += [name, f"{value:g}"]
+
+    rows = [["통상시급", f"{pay.hourly:,}원", "1.0"],
+            ["연장근로", f"{pay.overtime:,}원", "1.5"],
+            ["야간 가산분", f"{pay.night_extra:,}원", "0.5"],
+            ["휴일근로 (8시간까지)", f"{pay.holiday:,}원", "1.5"],
+            ["휴일근로 (8시간 넘게)", f"{pay.holiday_over:,}원", "2.0"]]
+    paid = []
+    if extra.overtime_hours:
+        paid.append([f"연장 {extra.overtime_hours:g}시간", f"{extra.overtime:,}원"])
+    if extra.night_hours:
+        paid.append([f"야간 {extra.night_hours:g}시간 (가산분만)",
+                     f"{extra.night:,}원"])
+    if extra.holiday_hours:
+        paid.append([f"휴일 {extra.holiday_hours:g}시간", f"{extra.holiday:,}원"])
+    if paid:
+        paid.append(["합계", f"{extra.total:,}원"])
+
+    return {"rows": rows, "paid": paid, "hours": hours,
+            "note": "근로기준법 제56조의 가산율입니다. 한 달 소정근로시간 "
+                    f"{hours:g}시간은 법이 정한 값이 아니라 흔한 값입니다. "
+                    "통상임금 범위는 회사 규정·판례에 따라 다르고, 5인 미만 "
+                    "사업장은 가산 규정이 적용되지 않습니다.",
+            "command": form.command(*args)}
+
+
 def worktime(payload: dict) -> dict:
     """근무 시간 계산. 09:00-18:30 처럼 구간을 줄마다 적는다."""
     spans, bad = [], []
@@ -382,6 +433,7 @@ BODY = """
   <button data-tab="saving" aria-selected="false">적금·예금</button>
   <button data-tab="rent" aria-selected="false">전월세</button>
   <button data-tab="worktime" aria-selected="false">근무 시간</button>
+  <button data-tab="hourly" aria-selected="false">시급·수당</button>
   <button data-tab="annual" aria-selected="false">연차</button>
   <button data-tab="severance" aria-selected="false">퇴직금</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
@@ -526,6 +578,28 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-worktime">계산</button></div>
   </div>
   <div id="worktime-out"></div>
+</section>
+
+<section class="card" data-panel="hourly" hidden>
+  <h2>통상시급과 가산 수당</h2>
+  <p class="note">월 통상임금에서 시급과 연장·야간·휴일 단가를 냅니다
+     (근로기준법 제56조: 연장·야간 50%, 휴일 8시간까지 50%, 넘는 시간 100%).
+     한 달 소정근로시간 209시간은 <b>법이 정한 값이 아니라 흔한 값</b>입니다.
+     야간은 연장과 겹치는 일이 많아 <b>가산분만</b> 셉니다.</p>
+  <div class="row">
+    <div style="flex:1 1 10rem"><label for="hmonthly">월 통상임금</label>
+      <input type="text" id="hmonthly" placeholder="300만" spellcheck="false"></div>
+    <div style="flex:0 1 8rem"><label for="hhours">소정근로시간</label>
+      <input type="text" id="hhours" value="209" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="hover">연장(시간)</label>
+      <input type="text" id="hover" value="0" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="hnight">야간(시간)</label>
+      <input type="text" id="hnight" value="0" spellcheck="false"></div>
+    <div style="flex:0 1 7rem"><label for="hholiday">휴일(시간)</label>
+      <input type="text" id="hholiday" value="0" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-hourly">계산</button></div>
+  </div>
+  <div id="hourly-out"></div>
 </section>
 
 <section class="card" data-panel="annual" hidden>
@@ -728,6 +802,23 @@ BODY = """
     }, function (d) { table2("rent-out", d); });
   });
 
+  $("btn-hourly").addEventListener("click", function () {
+    run("hourly-out", "/api/life/hourly", {
+      hmonthly: $("hmonthly").value, hhours: $("hhours").value,
+      hover: $("hover").value, hnight: $("hnight").value,
+      hholiday: $("hholiday").value,
+    }, function (d) {
+      $("hourly-out").innerHTML =
+        AT.table(["무엇", "1시간", "배수"], d.rows, [null, "num", "num"]) +
+        (d.paid.length
+          ? "<h2>이번 달 가산 수당</h2>" +
+            AT.table(["무엇", "얼마"], d.paid, [null, "num"]) +
+            '<p class="note">가산 수당만 더한 것입니다. 월급은 따로입니다.</p>'
+          : "") +
+        '<p class="note">' + AT.esc(d.note) + "</p>" + AT.command(d.command);
+    });
+  });
+
   $("btn-worktime").addEventListener("click", function () {
     run("worktime-out", "/api/life/worktime", {
       spans: $("t-spans").value, rest: $("t-rest").value,
@@ -759,7 +850,7 @@ def make() -> App:
                  "annual": annual, "severance": severance,
                  "tax": tax, "won": won, "workday": workday,
                  "holidays": holidays, "saving": saving, "rent": rent,
-                 "worktime": worktime},
+                 "worktime": worktime, "hourly": hourly},
         aliases=("일상", "계산", "계산기"),
         section="그 밖",
     )
