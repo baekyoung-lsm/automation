@@ -363,6 +363,7 @@ class DocMeta:
     company: str = ""
     program: str = ""           # 무엇으로 만들었나 (한글, LibreOffice …)
     pages: int | None = None
+    text_pages: int | None = None   # PDF 에서 글꼴이 걸린 쪽 (0 이면 스캔본)
     words: int | None = None
     slides: int | None = None
     size: int = 0
@@ -463,6 +464,7 @@ def pdf_meta(path: Path) -> DocMeta:
     meta.created, meta.modified = info.created, info.modified
     meta.program = info.program or info.version
     meta.pages = info.pages
+    meta.text_pages = info.text_pages
     meta.error = info.error
     return meta
 

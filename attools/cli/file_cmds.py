@@ -113,6 +113,14 @@ def cmd_file_docs(a) -> int:
     if any(m.kind == "PDF" for m in metas):
         _p("PDF 는 속성과 쪽 수만 봅니다. 본문 글자는 꺼내지 않습니다 - "
            "글꼴에 따라 조용히 틀린 글자가 나오기 때문입니다.")
+    scans = [m for m in metas if m.kind == "PDF" and m.text_pages == 0]
+    if scans:
+        _p(f"글꼴이 하나도 없는 PDF {len(scans):,}개 - 스캔본으로 보입니다"
+           " (글자 검색·복사가 안 됩니다):")
+        for m in scans[:a.limit]:
+            _p(f"  {m.path.name}")
+        if len(scans) > a.limit:
+            _p(f"  ... {len(scans) - a.limit:,}개 더")
     return 0
 
 

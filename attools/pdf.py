@@ -41,7 +41,40 @@ class PdfInfo:
     created: str = ""
     modified: str = ""
     pages: int | None = None
+    text_pages: int | None = None   # 글꼴이 걸린 쪽 수 (0 이면 스캔본으로 보인다)
     error: str = ""
+
+
+def _info_by_objects(path: Path, info: "PdfInfo", *, look: int = 20) -> bool:
+    """객체를 제대로 읽어 속성을 채운다. 못 읽으면 False (그때는 훑어 센다).
+
+    정규식으로 «/Type /Page» 를 세면 압축 묶음 안의 옛 판까지 세어 쪽 수가
+    부풀 때가 있다. 읽을 수 있으면 쪽 나무를 걸어가는 편이 정확하다.
+    """
+    try:
+        doc = open_pdf(path)
+        pages = doc.pages()
+    except (PdfError, OSError, ValueError, RecursionError):
+        return False
+
+    info.pages = len(pages) or None
+    meta = doc.get(doc.trailer.get("Info"))
+    if isinstance(meta, dict):
+        for key, field_name in PDF_INFO_KEYS.items():
+            value = _string_text(doc.get(meta.get(key))).strip()
+            if field_name in ("created", "modified"):
+                value = _date(value)
+            if value:
+                setattr(info, field_name, value)
+
+    with_text = 0
+    for page in pages[:look]:
+        resources = doc.get(page.data.get("Resources"))
+        fonts = doc.get(resources.get("Font")) if isinstance(resources, dict) else None
+        if isinstance(fonts, dict) and fonts:
+            with_text += 1
+    info.text_pages = with_text
+    return True
 
 
 def _text(raw: bytes) -> str:
@@ -145,6 +178,10 @@ def read_info(path: Path) -> PdfInfo:
 
     if b"/Encrypt" in raw:
         info.error = "암호가 걸려 있어 속성을 읽지 못했습니다"
+        return info
+
+    read = _info_by_objects(path, info)     # 제대로 읽을 수 있으면 그쪽이 정확하다
+    if read:
         return info
 
     body = _flat(raw)
@@ -1048,7 +1085,11 @@ def _serialize(value) -> bytes:
     if isinstance(value, (bytes, bytearray)):
         return b"<" + bytes(value).hex().encode("ascii") + b">"
     if isinstance(value, str):
-        return b"<" + value.encode("utf-16-be").hex().encode("ascii") + b">"
+        try:                       # 로마자면 그대로, 아니면 UTF-16 (BOM 을 꼭 붙인다)
+            return b"<" + value.encode("latin-1").hex().encode("ascii") + b">"
+        except UnicodeEncodeError:
+            return (b"<feff" + value.encode("utf-16-be").hex().encode("ascii")
+                    + b">")
     if isinstance(value, list):
         return b"[" + b" ".join(_serialize(v) for v in value) + b"]"
     if isinstance(value, dict):
@@ -1219,6 +1260,11 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
             "Type": Name("Font"), "Subtype": Name("Type1"),
             "BaseFont": Name("Helvetica"), "Encoding": Name("WinAnsiEncoding")}
     copier.slots[catalog - 1] = made_catalog
+    if info is None and catalog_from is not None:
+        # 문서를 통째로 다시 쓰는 것이므로 제목·만든 날짜 같은 속성도 그대로 둔다
+        was = catalog_from.get(catalog_from.trailer.get("Info"))
+        info = {k: catalog_from.get(v) for k, v in was.items()} \
+            if isinstance(was, dict) else None
     made = dict(info) if info is not None else {"Producer": "attools"}
     if title:
         made["Title"] = title

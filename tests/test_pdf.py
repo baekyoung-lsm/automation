@@ -392,6 +392,42 @@ def modern_pdf(path: Path) -> Path:
     return path
 
 
+class InfoByObjectsTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_counts_pages_by_walking_the_tree(self):
+        info = pdf.read_info(simple_pdf(self.root / "셋.pdf", pages=3,
+                                        author="홍길동"))
+        self.assertEqual(info.pages, 3)
+        self.assertEqual(info.author, "홍길동")
+        self.assertEqual(info.text_pages, 3)      # 글꼴이 걸린 쪽
+
+    def test_scan_has_no_font(self):
+        path = simple_pdf(self.root / "스캔.pdf", pages=1)
+        raw = path.read_bytes().replace(b"/Resources<</Font<</F1 2 0 R>>>>",
+                                        b"/Resources<<>>                  ")
+        path.write_bytes(raw)
+        self.assertEqual(pdf.read_info(path).text_pages, 0)
+
+    def test_falls_back_when_the_file_is_too_broken(self):
+        path = self.root / "망가진.pdf"
+        path.write_bytes(b"%PDF-1.4\n1 0 obj\n<</Type/Page>>\nendobj\n")
+        info = pdf.read_info(path)          # 훑어 세는 옛 방법으로 떨어진다
+        self.assertEqual(info.pages, 1)
+        self.assertIsNone(info.text_pages)
+
+    def test_hangul_title_survives_a_rewrite(self):
+        source = simple_pdf(self.root / "제목.pdf", pages=1)
+        doc = pdf.open_pdf(source)
+        out = self.root / "다시.pdf"
+        pdf.join_pdfs([(doc, [1])], out, title="분기 보고서")
+        self.assertEqual(pdf.read_info(out).title, "분기 보고서")
+
+
 class PdfPagesTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
