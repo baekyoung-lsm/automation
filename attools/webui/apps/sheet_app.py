@@ -87,6 +87,48 @@ def check(payload: dict) -> dict:
     return {"rows": rows, "clean": not rows, "count": len(table.rows)}
 
 
+def gaps(payload: dict) -> dict:
+    """번호·날짜 열에서 빠진 것 찾기. 고치지 않고 어디가 비었는지만."""
+    table = _open(payload)
+    column = form.text(payload, "gcol")
+    if not column:
+        raise UiError("번호나 날짜가 든 열을 골라 주세요.")
+    every = form.choice(payload, "gevery", sheet.GAP_EVERY, "day")
+    step = int(form.number(payload, "gstep", 1, low=1, high=1000))
+    holidays = form.flag(payload, "gholidays")
+
+    try:
+        report = sheet.find_gaps(table, column, step=step, every=every)
+        notes = []
+        if holidays and report.kind == "날짜":
+            from ... import life
+
+            years = list(range(int(report.first[:4]), int(report.last[:4]) + 1))
+            rest = life.holidays_between(years[0], years[-1],
+                                         life.load_user_holidays())
+            notes = life.missing_lunar_warning(rest, years)
+            report = sheet.find_gaps(table, column, step=step, every=every,
+                                     skip=set(rest))
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    args: list[object] = ["sheet", "gaps", *_source_args(payload), "-c", column]
+    if step != 1:
+        args += ["--step", step]
+    if every != "day":
+        args += ["--every", every]
+    if holidays:
+        args.append("--holidays")
+
+    return {"rows": [[g.start if g.start == g.end else f"{g.start} ~ {g.end}",
+                      f"{g.count:,}"] for g in report.gaps[:PEEK_ROWS]],
+            "kind": report.kind, "first": report.first, "last": report.last,
+            "expected": report.expected, "present": report.present,
+            "missing": report.missing, "count": len(report.gaps),
+            "ignored": report.ignored, "samples": report.samples,
+            "notes": notes, "command": form.command(*args)}
+
+
 def _other(payload: dict) -> sheet.Table:
     """비교·합칠 상대 파일. 같은 시트·머리글 규칙으로 읽는다."""
     return _open({"path": form.text(payload, "other"),
@@ -1388,6 +1430,27 @@ BODY = """
 </section>
 
 <section class="card" data-panel="훑어보기">
+  <h2>빠진 것 찾기</h2>
+  <p class="note">전표 번호가 하나 비었는지, 어느 날 자료가 안 들어왔는지
+     찾습니다. 있는 자료만 봐서는 보이지 않는 것입니다. 빠진 것은 낱개가 아니라
+     <b>이어진 구간으로</b> 묶어 보여 줍니다. 번호도 날짜도 아닌 칸은
+     <b>조용히 버리지 않고</b> 몇 개였는지 알려 줍니다.</p>
+  <div class="row">
+    <div><label for="gcol">번호·날짜 열</label><select id="gcol"></select></div>
+    <div style="flex:0 1 10rem"><label for="gevery">날짜일 때 간격</label>
+      <select id="gevery"><option value="day">날마다</option><option value="weekday">평일마다</option><option value="month">달마다</option></select></div>
+    <div style="flex:0 1 7rem"><label for="gstep">번호 폭</label>
+      <input type="text" id="gstep" value="1" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-gaps">찾기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="gholidays"> 공휴일은 빠진 것으로 세지 않기</label>
+  </div>
+  <div id="gapmsg"></div>
+  <div id="gapout"></div>
+</section>
+
+<section class="card" data-panel="훑어보기">
   <h2>점검</h2>
   <p class="note">중복된 열쇠, 빈 칸, 섞인 자료형처럼 나중에 문제가 되는 것을 찾습니다.</p>
   <div class="row">
@@ -2165,6 +2228,30 @@ BODY = """
     } catch (e) { AT.message($("outmsg"), AT.esc(e.message), "bad"); }
   });
 
+  $("btn-gaps").addEventListener("click", async function () {
+    try {
+      const b = values();
+      b.gcol = $("gcol").value; b.gevery = $("gevery").value;
+      b.gstep = $("gstep").value; b.gholidays = $("gholidays").checked;
+      const d = await AT.call("/api/sheet/gaps", b);
+      $("gapout").innerHTML =
+        '<p class="note">' + AT.esc(d.kind) + " " + AT.esc(d.first) + " ~ " +
+        AT.esc(d.last) + " · 있어야 할 것 " + d.expected + "개 중 " +
+        d.present + "개 있음" +
+        (d.ignored ? " · 읽지 못한 칸 " + d.ignored + "개 (예: " +
+                     d.samples.map(AT.esc).join(", ") + ")" : "") + "</p>" +
+        (d.notes.length
+          ? '<p class="note">' + d.notes.map(AT.esc).join("<br>") + "</p>" : "") +
+        (d.count
+          ? AT.table(["빠진 곳", "개수"], d.rows, [null, "num"])
+          : '<div class="empty">빠진 것이 없습니다.</div>') +
+        AT.command(d.command);
+      AT.message($("gapmsg"), d.missing
+        ? "<b>" + d.missing + "개</b>가 비었습니다 (" + d.count + "곳)"
+        : "빠진 것이 없습니다.", d.missing ? "bad" : "ok");
+    } catch (e) { AT.message($("gapmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function replaceValues() {
     const b = values();
     b.rfind = $("rfind").value; b.rto = $("rto").value;
@@ -2648,6 +2735,7 @@ BODY = """
       options($("vcphone"), data.headers, "쓰지 않음");
       options($("vcemail"), data.headers, "쓰지 않음");
       options($("ocol"), data.headers, "");
+      options($("gcol"), data.headers, "");
       options($("clabel"), data.headers, "");
       options($("cvalue"), data.headers, "건수만 셈");
       options($("ycol"), data.headers, "");
@@ -2741,6 +2829,7 @@ def make() -> App:
                  "ics_preview": ics_preview, "ics_save": ics_save,
                  "vcard_preview": vcard_preview, "vcard_save": vcard_save,
                  "similar": similar, "outliers": outliers,
+                 "gaps": gaps,
                  "audit": audit, "chart": chart, "dday": dday,
                  "replace_preview": replace_preview,
                  "replace_save": replace_save,

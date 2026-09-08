@@ -977,6 +977,28 @@ class SheetAppTest(UiCase):
         self.assertIn("말할 수 없습니다", data["note"])
         self.assertEqual(data["rows"], [])
 
+    def test_gaps_finds_missing_numbers(self):
+        path = self.csv("전표.csv", "전표번호\n1001\n1002\n1005\n")
+        _, data = self.post("/api/sheet/gaps",
+                            {"path": str(path), "gcol": "전표번호"})
+        self.assertEqual(data["kind"], "번호")
+        self.assertEqual(data["missing"], 2)
+        self.assertEqual(data["rows"], [["1003 ~ 1004", "2"]])
+        self.assertIn("at sheet gaps", data["command"])
+
+    def test_gaps_weekday_mode(self):
+        path = self.csv("제출.csv", "제출일\n2026-03-05\n2026-03-06\n2026-03-10\n")
+        _, data = self.post("/api/sheet/gaps",
+                            {"path": str(path), "gcol": "제출일",
+                             "gevery": "weekday"})
+        self.assertEqual(data["rows"], [["2026-03-09", "1"]])
+
+    def test_gaps_needs_a_countable_column(self):
+        path = self.csv("메모.csv", "비고\n가\n나\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/gaps", {"path": str(path), "gcol": "비고"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_replace_leaves_numbers_alone(self):
         path = self.csv("부서.csv", "부서,금액\n영업1팀,1000\n개발팀,2000\n")
         _, data = self.post("/api/sheet/replace_preview",
