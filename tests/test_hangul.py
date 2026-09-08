@@ -69,6 +69,27 @@ class HangulTest(unittest.TestCase):
         self.assertEqual(hangul.fix_typos("며칠 전에 문을 잠갔다."),
                          ("며칠 전에 문을 잠갔다.", 0))
 
+    def test_loanword_spellings(self):
+        body, count = hangul.fix_typos(
+            "워크샵 스케쥴을 컨텐츠 매니아에게 메세지로 보냈다")
+        self.assertEqual(body, "워크숍 스케줄을 콘텐츠 마니아에게 메시지로 보냈다")
+        self.assertEqual(count, 5)
+
+    def test_correct_spellings_are_never_touched(self):
+        # 규칙끼리 겹쳐 바른 말을 망가뜨리면 고치기가 더 나쁜 일이 된다
+        말들 = ["콘셉트", "콘텐츠", "메시지", "네트워크", "애플리케이션", "버전",
+                "비전", "리더십", "액세서리", "주스", "카페", "앙케트", "워크숍",
+                "스케줄", "프레젠테이션", "오랫동안", "웬일", "게거품"]
+        for word in 말들:
+            self.assertEqual(hangul.fix_typos(word), (word, 0), word)
+
+    def test_added_korean_rules(self):
+        for wrong, right in (("오랜동안", "오랫동안"), ("왠일", "웬일"),
+                             ("삼가해 주세요", "삼가 주세요"),
+                             ("눈쌀", "눈살"), ("통채로", "통째로"),
+                             ("궁굼하다", "궁금하다")):
+            self.assertEqual(hangul.fix_typos(wrong)[0], right)
+
 
 class KeyboardTest(unittest.TestCase):
     """한/영 자판을 잘못 눌러 깨진 글 되살리기."""
