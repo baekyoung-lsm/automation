@@ -2197,6 +2197,117 @@ def _as_date(cell: object) -> date | None:
     return parse_date(to_text(cell))
 
 
+# ---------------------------------------------------------- 빠진 번호·날짜
+
+GAP_EVERY = {"day": "날마다", "weekday": "평일마다", "month": "달마다"}
+
+
+@dataclass
+class Gap:
+    """빠진 구간 하나."""
+
+    start: str
+    end: str
+    count: int
+
+
+@dataclass
+class GapReport:
+    kind: str                 # "번호" 또는 "날짜"
+    first: str = ""
+    last: str = ""
+    expected: int = 0         # 있어야 할 개수
+    present: int = 0          # 실제로 있는 개수
+    gaps: list = field(default_factory=list)
+    ignored: int = 0          # 번호도 날짜도 아니어서 못 센 칸
+    samples: list = field(default_factory=list)
+
+    @property
+    def missing(self) -> int:
+        return sum(g.count for g in self.gaps)
+
+
+def _runs(values: list, step, label) -> list[Gap]:
+    """이어진 것끼리 한 구간으로 묶는다. 목록이 길어도 눈으로 볼 수 있게."""
+    gaps: list[Gap] = []
+    last = None
+    for value in values:
+        if gaps and last is not None and value - step == last:
+            gaps[-1] = Gap(gaps[-1].start, label(value), gaps[-1].count + 1)
+        else:
+            gaps.append(Gap(label(value), label(value), 1))
+        last = value
+    return gaps
+
+
+def find_gaps(table: Table, column: str, *, step: int = 1, every: str = "day",
+              skip=frozenset(), limit: int = 5000) -> GapReport:
+    """번호나 날짜 열에서 빠진 것을 찾는다.
+
+    전표 번호가 하나 비었는지, 어느 날 자료가 안 들어왔는지 보는 데 쓴다.
+    번호도 날짜도 아닌 칸은 조용히 버리지 않고 몇 개인지 세어 돌려준다.
+    """
+    if every not in GAP_EVERY:
+        raise SheetError(f"모르는 간격입니다: {every} ({', '.join(GAP_EVERY)})")
+    if step < 1:
+        raise SheetError("건너뛰는 폭은 1 이상이어야 합니다.")
+
+    cells = table.column(column)
+    numbers, dates, odd = set(), set(), []
+    for cell in cells:
+        if _is_blank(cell):
+            continue
+        day = _as_date(cell)
+        if day is not None:
+            dates.add(day)
+            continue
+        value = cell if isinstance(cell, int) and not isinstance(cell, bool) \
+            else parse_number(to_text(cell))
+        if isinstance(value, int):
+            numbers.add(value)
+        else:
+            odd.append(to_text(cell))
+
+    report = GapReport(kind="번호" if len(numbers) >= len(dates) else "날짜",
+                       ignored=len(odd), samples=odd[:5])
+    if report.kind == "번호" and numbers:
+        low, high = min(numbers), max(numbers)
+        if (high - low) // step > limit:
+            raise SheetError(f"{low}부터 {high}까지는 너무 넓습니다. "
+                             "열을 거르거나 --step 을 키우세요.")
+        want = list(range(low, high + 1, step))
+        report.first, report.last = str(low), str(high)
+        report.expected, report.present = len(want), len(numbers & set(want))
+        report.gaps = _runs([n for n in want if n not in numbers], step, str)
+        return report
+
+    if report.kind == "날짜" and dates:
+        low, high = min(dates), max(dates)
+        if (high - low).days > limit:
+            raise SheetError(f"{low}부터 {high}까지는 너무 넓습니다. "
+                             "기간을 좁혀 주세요.")
+        want = []
+        one = low
+        while one <= high:
+            if every == "month":
+                keep = one.day == low.day
+            elif every == "weekday":
+                keep = one.weekday() < 5
+            else:
+                keep = True
+            if keep and one not in skip:
+                want.append(one)
+            one += timedelta(days=1)
+        report.first, report.last = low.isoformat(), high.isoformat()
+        report.expected = len(want)
+        report.present = len(dates & set(want))
+        gone = [d for d in want if d not in dates]
+        report.gaps = _runs(gone, timedelta(days=1), lambda d: d.isoformat())
+        return report
+
+    raise SheetError(f"'{column}' 열에서 번호도 날짜도 찾지 못했습니다.")
+
+
 def add_date_parts(table: Table, column: str, parts: list[str]
                    ) -> tuple[Table, list[tuple[int, str]]]:
     """날짜 열에서 요일·월·분기 같은 열을 만들어 붙인다. (새 표, 못 읽은 칸)

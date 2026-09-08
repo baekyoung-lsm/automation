@@ -2740,3 +2740,66 @@ class WorkTimeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class FindGapsTest(unittest.TestCase):
+    def table(self, values, header="전표"):
+        return sheet.Table(headers=[header], rows=[[v] for v in values])
+
+    def test_missing_numbers_are_grouped(self):
+        report = sheet.find_gaps(self.table([1001, 1002, 1005, 1006]), "전표")
+        self.assertEqual(report.kind, "번호")
+        self.assertEqual((report.expected, report.present), (6, 4))
+        self.assertEqual([(g.start, g.end, g.count) for g in report.gaps],
+                         [("1003", "1004", 2)])
+
+    def test_step_two(self):
+        report = sheet.find_gaps(self.table([2, 4, 8, 10]), "전표", step=2)
+        self.assertEqual([(g.start, g.end, g.count) for g in report.gaps],
+                         [("6", "6", 1)])
+
+    def test_no_gap(self):
+        report = sheet.find_gaps(self.table([3, 1, 2]), "전표")
+        self.assertEqual(report.gaps, [])
+        self.assertEqual(report.missing, 0)
+
+    def test_unreadable_cells_are_counted_not_dropped(self):
+        report = sheet.find_gaps(self.table([1, 2, "미정", "", "취소분"]), "전표")
+        self.assertEqual(report.ignored, 2)
+        self.assertEqual(report.samples, ["미정", "취소분"])
+
+    def test_dates_by_weekday_skip_the_weekend(self):
+        report = sheet.find_gaps(
+            self.table(["2026-03-05", "2026-03-06", "2026-03-10"], "제출일"),
+            "제출일", every="weekday")
+        self.assertEqual(report.kind, "날짜")
+        # 3/7·3/8 은 주말이라 빠진 것이 아니다
+        self.assertEqual([(g.start, g.end, g.count) for g in report.gaps],
+                         [("2026-03-09", "2026-03-09", 1)])
+
+    def test_skipped_days_are_not_missing(self):
+        from datetime import date
+
+        report = sheet.find_gaps(
+            self.table(["2026-03-05", "2026-03-09"], "제출일"),
+            "제출일", every="weekday", skip={date(2026, 3, 6)})
+        self.assertEqual(report.gaps, [])
+
+    def test_month_mode(self):
+        report = sheet.find_gaps(
+            self.table(["2026-01-10", "2026-02-10", "2026-04-10"], "마감"),
+            "마감", every="month")
+        self.assertEqual([(g.start, g.end, g.count) for g in report.gaps],
+                         [("2026-03-10", "2026-03-10", 1)])
+
+    def test_range_too_wide_is_refused(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_gaps(self.table([1, 1000000]), "전표")
+
+    def test_column_with_neither(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_gaps(self.table(["가", "나"]), "전표")
+
+    def test_unknown_every(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.find_gaps(self.table([1, 2]), "전표", every="hour")
+

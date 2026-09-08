@@ -383,6 +383,14 @@ class SmokeTest(unittest.TestCase):
         서식 = self.run_cli("sheet", "forms", str(서식폴더), expect=1)
         self.assertIn("열 다름", 서식)
         self.assertIn("비고", 서식)
+        전표 = Path(self.path("전표.csv"))
+        전표.write_text("전표번호,제출일\n1001,2026-03-05\n1002,2026-03-06\n"
+                      "1004,2026-03-09\n", encoding="utf-8")
+        빠짐 = self.run_cli("sheet", "gaps", str(전표), "-c", "전표번호", expect=1)
+        self.assertIn("1003", 빠짐)
+        평일 = self.run_cli("sheet", "gaps", str(전표), "-c", "제출일",
+                          "--every", "weekday")
+        self.assertIn("빠진 것이 없습니다", 평일)     # 3/7·3/8 은 주말이다
         self.run_cli("sheet", "book", csv, self.path("급여.csv"),
                      "-o", self.path("통합.xlsx"))
         self.assertIn("직원", self.run_cli("sheet", "sheets",

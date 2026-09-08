@@ -575,6 +575,51 @@ def cmd_sheet_dates(a) -> int:
 
 
 
+def cmd_sheet_gaps(a) -> int:
+    """번호·날짜 열에서 빠진 것을 찾는다. 전표 누락·미제출 확인."""
+    t = _load(a)
+    if t is None:
+        return 1
+
+    notes: list[str] = []
+    try:
+        report = sheet.find_gaps(t, a.column, step=a.step, every=a.every)
+        if a.holidays and report.kind == "날짜":
+            # 어느 해가 걸리는지는 한 번 훑어야 알 수 있어 두 번 센다
+            from .. import life
+
+            years = list(range(int(report.first[:4]), int(report.last[:4]) + 1))
+            rest = life.holidays_between(years[0], years[-1],
+                                         life.load_user_holidays())
+            notes = life.missing_lunar_warning(rest, years)
+            report = sheet.find_gaps(t, a.column, step=a.step, every=a.every,
+                                     skip=set(rest))
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{a.column}: {report.kind} {report.first} ~ {report.last}  "
+       f"있어야 할 것 {report.expected:,}개 중 {report.present:,}개 있음")
+    if report.ignored:
+        _p(f"{report.kind}로 읽지 못한 칸 {report.ignored:,}개는 세지 않았습니다"
+           f" (예: {', '.join(_cut(v, 12) for v in report.samples)})")
+
+    for note in notes:
+        _p(note)
+
+    if not report.gaps:
+        _p("\n빠진 것이 없습니다.")
+        return 0
+
+    _grid(["빠진 곳", "개수"],
+          [[g.start if g.start == g.end else f"{g.start} ~ {g.end}",
+            f"{g.count:,}"] for g in report.gaps[:a.limit]], limit=a.limit)
+    if len(report.gaps) > a.limit:
+        _p(f"... {len(report.gaps) - a.limit:,}곳 더")
+    _p(f"\n모두 {report.missing:,}개가 비었습니다.")
+    return 1
+
+
 def cmd_sheet_age(a) -> int:
     """생년월일 열에서 만 나이·연령대·성별 열을 만든다. 명단 집계 전에."""
     from datetime import date as _date
@@ -2701,6 +2746,22 @@ def add_commands(sub) -> None:
                         f"{k}({v})" for k, v in sheet.DATE_PARTS.items()))
     dt.add_argument("--limit", type=int, default=10, metavar="개")
     dt.set_defaults(func=cmd_sheet_dates)
+
+    gp = common(sh.add_parser(
+        "gaps", help="번호·날짜 열에서 빠진 것 찾기 (전표 누락·미제출)"))
+    gp.add_argument("file")
+    gp.add_argument("-c", "--column", required=True, metavar="열")
+    gp.add_argument("--step", type=int, default=1, metavar="폭",
+                    help="번호가 2씩 늘면 2 (기본 1)")
+    gp.add_argument("--every", default="day", choices=list(sheet.GAP_EVERY),
+                    help="날짜 열일 때 세는 간격: "
+                         + ", ".join(f"{k}({v})" for k, v in sheet.GAP_EVERY.items()))
+    gp.add_argument("--holidays", action="store_true",
+                    help="공휴일은 빠진 것으로 세지 않는다 (날짜 열일 때)")
+    gp.add_argument("--limit", type=int, default=30, metavar="곳")
+    gp.epilog = ("예: at sheet gaps 전표.xlsx -c 전표번호\n"
+                 "    at sheet gaps 제출현황.xlsx -c 제출일 --every weekday --holidays")
+    gp.set_defaults(func=cmd_sheet_gaps)
 
     wt = sheet_out(common(sh.add_parser(
         "worktime", help="출근·퇴근 열에서 근무 시간 세기 (근태 취합)")))
