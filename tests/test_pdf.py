@@ -499,6 +499,22 @@ class JoinPdfTest(unittest.TestCase):
         self.assertEqual(self.contents(doc, doc.pages()[0]),
                          self.contents(made, made.pages()[0]))
 
+    def test_rotate_adds_to_the_angle_already_there(self):
+        path = simple_pdf(self.root / "누운.pdf", pages=1)
+        raw = path.read_bytes().replace(b"/Type/Page/Parent",
+                                        b"/Rotate 90/Type/Page/Parent")
+        path.write_bytes(raw)
+        doc = pdf.open_pdf(path)
+        out = self.root / "세운.pdf"
+        pdf.join_pdfs([(doc, [1])], out, rotate=270)
+        made = pdf.open_pdf(out)
+        self.assertEqual(made.get(made.pages()[0].data.get("Rotate")), 0)
+
+    def test_rotate_must_be_a_right_angle(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "한쪽.pdf", pages=1))
+        with self.assertRaises(pdf.PdfError):
+            pdf.join_pdfs([(doc, [1])], self.root / "삐딱.pdf", rotate=45)
+
     def test_missing_object_is_counted_not_hidden(self):
         path = simple_pdf(self.root / "빠진.pdf", pages=1)
         raw = re.sub(rb"/F1 \d 0 R", b"/F1 9 0 R", path.read_bytes())

@@ -243,7 +243,7 @@ def cmd_file_pdfcut(a) -> int:
             if not _may_write(a, out):
                 return 1
             try:
-                pdf.join_pdfs([(doc, [number])], out)
+                pdf.join_pdfs([(doc, [number])], out, rotate=a.rotate)
             except (pdf.PdfError, OSError) as e:
                 _p(f"{out.name}: {e}")
                 return 1
@@ -260,7 +260,8 @@ def cmd_file_pdfcut(a) -> int:
     if not _may_write(a, out):
         return 1
     try:
-        result = pdf.join_pdfs([(doc, wanted)], out, title=a.title or "")
+        result = pdf.join_pdfs([(doc, wanted)], out, title=a.title or "",
+                               rotate=a.rotate)
     except (pdf.PdfError, OSError) as e:
         _p(str(e))
         return 1
@@ -1470,9 +1471,13 @@ def add_commands(sub) -> None:
                      help="--each 이면 넣을 폴더")
     cut.add_argument("--overwrite", action="store_true",
                      help="이미 있는 파일을 덮어쓴다")
+    cut.add_argument("--rotate", type=int, default=0, metavar="각도",
+                     choices=(0, 90, 180, 270),
+                     help="쪽을 돌린다. 90, 180, 270 (원래 각도에 더한다)")
     cut.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
     cut.epilog = ("예: at file pdfcut 계약서.pdf --pages 1-3 -o 앞부분.pdf\n"
                   "    at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf\n"
+                  "    at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf\n"
                   "    at file pdfcut 모음.pdf --each --apply")
     cut.set_defaults(func=cmd_file_pdfcut)
 

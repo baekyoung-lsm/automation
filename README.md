@@ -57,7 +57,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file docs [디렉터리]` | 워드·엑셀·슬라이드·한글·PDF 속성 목록 - 제목·만든 사람·쪽 수. 문서에 남은 이름을 찾는다 |
 | `at file scrub [디렉터리]` | 문서 속성의 사람·회사 이름을 지운 **사본**을 만든다 (`--apply`) |
 | `at file pdf <이미지…>` | 사진·스캔 이미지를 PDF 한 장으로 묶는다 (제출용). jpg 는 그대로 넣는다 |
-| `at file pdfcut <파일>` | PDF 에서 필요한 쪽만 뽑는다. `--drop` 으로 빼기, `--each` 로 한 쪽씩 나누기 |
+| `at file pdfcut <파일>` | PDF 에서 필요한 쪽만 뽑는다. `--drop` 으로 빼기, `--each` 로 한 쪽씩, `--rotate` 로 돌리기 |
 | `at file pdfjoin <파일…>` | 여러 PDF 를 준 차례대로 합친다 (인터넷에 올리지 않고) |
 | `at file exif [경로]` | 사진에 남은 촬영 정보(**위치**·기기·날짜) 보기, `--strip` 으로 지운 사본 |
 | `at file audit <디렉터리>` | 받은 폴더 한 번에 훑기 — 구성·이름 문제·중복·찌꺼기·빈 파일·큰 파일 |
@@ -120,6 +120,7 @@ at file pdf 스캔/ -o 제출본.pdf          # 폴더 안 이미지를 이름 �
 at file pdf 1.jpg 2.jpg -o 신청서.pdf --margin 10 --title 신청서
 at file pdfcut 계약서.pdf --pages 1-3 -o 앞부분.pdf   # 필요한 쪽만
 at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf
+at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf  # 거꾸로 스캔된 것
 at file pdfcut 모음.pdf --each --apply              # 한 쪽씩 따로
 at file pdfjoin 앞.pdf 본문.pdf 뒤.pdf -o 합본.pdf
 at file exif ~/사진                      # 위치가 남은 사진 찾기

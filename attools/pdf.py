@@ -1135,8 +1135,14 @@ class JoinResult:
 
 
 def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
-              *, title: str = "") -> JoinResult:
-    """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로."""
+              *, title: str = "", rotate: int = 0) -> JoinResult:
+    """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로.
+
+    rotate 는 90 의 배수. 원래 돌아가 있던 각도에 더한다 - 스캔한 것이
+    이미 눕혀져 있으면 «90 도 더»가 맞지 «90 도로» 는 틀리기 때문이다.
+    """
+    if rotate % 90:
+        raise PdfError(f"돌릴 각도는 90 의 배수여야 합니다: {rotate}")
     out = Path(out)
     copier = _Copier()
     chosen = []
@@ -1160,6 +1166,9 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         copied = copier.convert(doc, data)
         copied["Type"] = Name("Page")
         copied["Parent"] = Ref(tree)
+        if rotate:
+            was = doc.get(page.data.get("Rotate"))
+            copied["Rotate"] = (int(was or 0) + rotate) % 360
         copier.slots[new - 1] = copied
     copier.drain(keep)
 
