@@ -297,6 +297,48 @@ class KoreanHelpTest(unittest.TestCase):
         self.assertEqual(bad, [], f"한국어가 아닌 옵션 설명: {bad}")
 
 
+class EpilogExampleTest(unittest.TestCase):
+    """도움말 아래에 적어 둔 예시가 진짜 되는 명령이어야 한다.
+
+    안내만 그럴듯하고 그대로 쳤을 때 안 되면, 없느니만 못하다.
+    """
+
+    def setUp(self):
+        from attools import cli
+
+        self.cli = cli
+
+    def parses(self, line: str) -> None:
+        import shlex
+
+        parts = shlex.split(line)[1:]         # 맨 앞의 «at» 은 뗀다
+        if "--" in parts:                     # main 과 같이 «--» 뒤는 넘긴다
+            parts = parts[:parts.index("--")]
+        self.cli.build_parser().parse_args(parts)
+
+    def examples(self, parser, path=""):
+        out = []
+        for raw in (getattr(parser, "epilog", None) or "").splitlines():
+            one = raw.strip()
+            for head in ("예:", "예)"):
+                one = one.removeprefix(head).strip()
+            one = one.split("#")[0].strip()
+            if one.startswith("at "):
+                out.append((path, one))
+        for action in parser._actions:
+            if isinstance(getattr(action, "choices", None), dict):
+                for name, sub in action.choices.items():
+                    out += self.examples(sub, f"{path} {name}".strip())
+        return out
+
+    def test_every_example_parses(self):
+        found = self.examples(self.cli.build_parser())
+        self.assertGreater(len(found), 10)    # 예시가 사라지면 이 시험이 조용해진다
+        for path, line in found:
+            with self.subTest(command=path, example=line):
+                self.parses(line)
+
+
 class HouseRulesTest(unittest.TestCase):
     """저장소 규칙을 시험이 지킨다. 적어만 두면 언젠가 어긋난다."""
 
