@@ -850,6 +850,40 @@ def mail_make(payload: dict) -> dict:
     return out
 
 
+def forms(payload: dict) -> dict:
+    """받은 파일들의 열 구성을 견준다. 파일은 건드리지 않는다."""
+    root = form.folder(payload, "ffolder")
+    pattern = form.text(payload, "fglob") or "*"
+    targets = [q for q in sorted(root.rglob(pattern))
+               if q.is_file()
+               and q.suffix.lower() in (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)]
+    if not targets:
+        raise UiError("표 파일을 찾지 못했습니다. (xlsx, csv)")
+
+    report = sheet.compare_forms(targets, sheet=form.text(payload, "sheet") or None)
+    if not report.standard:
+        raise UiError("열 구성을 읽은 파일이 없습니다.")
+
+    def state(check) -> str:
+        if check.error:
+            return "못 읽음"
+        if check.same:
+            return "같음"
+        return "순서 다름" if check.reordered else "열 다름"
+
+    args: list = ["sheet", "forms", root]
+    if pattern != "*":
+        args += ["-g", pattern]
+    return {"standard": report.standard, "common": report.common,
+            "rows": [[c.path.name, c.sheet, f"{c.rows:,}", state(c),
+                      ", ".join([f"없음: {h}" for h in c.missing]
+                                + [f"더 있음: {h}" for h in c.extra])
+                      or c.error]
+                     for c in report.checks],
+            "count": len(report.checks), "odd": len(report.odd),
+            "command": form.command(*args)}
+
+
 def audit(payload: dict) -> dict:
     """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
     table = _open(payload)
@@ -1657,6 +1691,23 @@ BODY = """
 </section>
 
 <section class="card" data-panel="여러 파일" hidden>
+  <h2>받은 파일들의 서식 견주기</h2>
+  <p class="note">합치기 전에 <b>누가 열을 고쳤는지</b> 봅니다. 열이 하나 늘거나 순서가
+     바뀐 채로 합치면 값이 엉뚱한 열로 들어가는데, 표는 그대로 만들어집니다.
+     기준은 <b>가장 흔한 열 구성</b>입니다 - 전부 똑같이 틀렸으면 아무 말도 못 하므로
+     기준도 함께 보여 줍니다. 파일은 건드리지 않습니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="ffolder">받은 파일이 있는 폴더</label>
+      <input type="text" id="ffolder" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="fglob">고를 무늬</label>
+      <input type="text" id="fglob" spellcheck="false" placeholder="*.xlsx"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-forms">견줘 보기</button></div>
+  </div>
+  <div id="formsmsg"></div>
+  <div id="formsout"></div>
+</section>
+
+<section class="card" data-panel="여러 파일" hidden>
   <h2>양식 취합</h2>
   <p class="note">부서마다 같은 서식에 채워 보낸 파일들에서 <b>같은 칸</b>만 뽑아
      한 표로 만듭니다. 칸은 엑셀에서 보이는 주소(B3, C7)로 적습니다. 칸이 비어도
@@ -2144,6 +2195,21 @@ BODY = """
   $("btn-age").addEventListener("click", function () { runAge(false); });
   $("btn-age-save").addEventListener("click", function () { runAge(true); });
 
+  $("btn-forms").addEventListener("click", async function () {
+    try {
+      const b = values();
+      b.ffolder = $("ffolder").value; b.fglob = $("fglob").value;
+      const d = await AT.call("/api/sheet/forms", b);
+      $("formsout").innerHTML =
+        '<p class="note">기준으로 삼은 열 구성 (' + d.common + "개 파일이 같음): <b>" +
+        d.standard.map(AT.esc).join(" | ") + "</b></p>" +
+        AT.table(["파일", "시트", "행", "상태", "다른 점"], d.rows,
+                 [null, null, "num", null, null]) + AT.command(d.command);
+      AT.message($("formsmsg"), "파일 <b>" + d.count + "개</b> · 서식이 다른 것 " +
+        d.odd + "개", d.odd ? "bad" : "ok");
+    } catch (e) { AT.message($("formsmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function mailValues() {
     const b = values();
     b.mltemplate = $("mltemplate").value; b.mlsubject = $("mlsubject").value;
@@ -2532,6 +2598,7 @@ def make() -> App:
                  "dates_save": dates_save,
                  "age_preview": age_preview, "age_save": age_save,
                  "mail_preview": mail_preview, "mail_make": mail_make,
+                 "forms": forms,
                  "ics_preview": ics_preview, "ics_save": ics_save,
                  "vcard_preview": vcard_preview, "vcard_save": vcard_save,
                  "similar": similar, "outliers": outliers,

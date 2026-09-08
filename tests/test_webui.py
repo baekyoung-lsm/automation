@@ -768,6 +768,31 @@ class SheetAppTest(UiCase):
                        "mlsubject": "안내", "mlto": "메일"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_forms_compares_headers(self):
+        folder = self.work / "부서제출"
+        folder.mkdir()
+        (folder / "영업.csv").write_text("사번,이름\nE1,홍길동\n",
+                                        encoding="utf-8")
+        (folder / "개발.csv").write_text("사번,이름\nE2,김철수\n",
+                                        encoding="utf-8")
+        (folder / "인사.csv").write_text("사번,이름,비고\nE3,이영희,추가\n",
+                                        encoding="utf-8")
+
+        _, data = self.post("/api/sheet/forms", {"ffolder": str(folder)})
+        self.assertEqual(data["standard"], ["사번", "이름"])
+        self.assertEqual(data["common"], 2)
+        self.assertEqual(data["odd"], 1)
+        odd = [row for row in data["rows"] if row[0] == "인사.csv"][0]
+        self.assertEqual(odd[3], "열 다름")
+        self.assertIn("비고", odd[4])
+
+    def test_forms_needs_table_files(self):
+        folder = self.work / "빈폴더"
+        folder.mkdir()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/forms", {"ffolder": str(folder)})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_audit_collects_notes(self):
         path = self.csv("받은것.csv",
                         "상호,메일\n(주)가나,a@a.com\n주식회사 가나,b@a.com\n"
@@ -2678,6 +2703,13 @@ class CommandHintTest(UiCase):
                             {"path": str(path), "mltemplate": str(template),
                              "mlsubject": "{이름}님 안내", "mlto": "메일"})
         self.accepts(made["command"])
+
+        folder = self.work / "부서제출"
+        folder.mkdir()
+        (folder / "가.csv").write_text("사번,이름\nE1,가\n", encoding="utf-8")
+        _, forms = self.post("/api/sheet/forms",
+                             {"ffolder": str(folder), "fglob": "*.csv"})
+        self.accepts(forms["command"])
 
     def test_sheet_age_command(self):
         path = self.work / "생일.csv"
