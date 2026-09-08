@@ -193,6 +193,13 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("쪽 수",
                       self.run_cli("file", "docs", 묶음))
 
+        백업 = Path(self.path("백업"))
+        옮김 = self.run_cli("file", "sync", self.path("문서"), str(백업))
+        self.assertIn("미리보기", 옮김)
+        self.assertFalse(백업.exists())
+        self.run_cli("file", "sync", self.path("문서"), str(백업), "--apply")
+        self.assertTrue((백업 / "보고서.txt").is_file())
+
         미리 = self.run_cli("file", "scrub", str(문서폴더))
         self.assertIn("미리보기", 미리)
         self.assertFalse(list(문서폴더.glob("*이름지움*")))

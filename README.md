@@ -67,6 +67,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file big [경로]` | 어디가 용량을 먹는지 디렉터리·파일 순위로 보여준다 |
 | `at file hash [경로]` | 체크섬 만들기·검증. `sha256sum -c` 와 같은 형식 |
 | `at file diff <왼쪽> <오른쪽>` | 두 디렉터리 비교 — 한쪽에만 있는 파일, 내용이 다른 파일 |
+| `at file sync <원본> <백업>` | 새것·바뀐 것만 백업 폴더로 넣는다 (`--apply`). 덮어쓰기 전 판을 남긴다 |
 | `at file archive <디렉터리>` | 오래된 파일을 zip 으로 묶고, 검증에 성공하면 원본 정리 |
 | `at file pack <폴더> --max 25MB` | 메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담기 |
 | `at file unzip <zip>` | 윈도우에서 만든 zip 의 깨진 한글 이름(cp949)을 되살려 푼다 |
@@ -90,6 +91,8 @@ at file rename ~/스캔 -t '{parent}_{seq:03d}{ext}' --apply
 at file hash dist/ -o SHA256SUMS.txt
 at file hash dist/ --check SHA256SUMS.txt      # 달라진 게 있으면 exit 1
 at file diff 배포전/ 배포후/ -g '*.py'
+at file sync 작업폴더/ /media/USB/백업/          # 미리보기
+at file sync 작업폴더/ /media/USB/백업/ --apply   # 새것·바뀐 것만
 at file archive ~/로그 --older 365 -g '*.log'            # 미리보기
 at file pack 납품자료 --max 20MB --apply    # 20MB 씩 나눠 담기
 at file archive ~/로그 --older 365 -g '*.log' --apply --remove
@@ -122,6 +125,12 @@ at file undo
 그대로 남아 있는 일이 잦아, 사람·회사 이름이 남은 문서를 따로 모아 보여 준다. 속성을 읽지
 못한 파일은 빈 칸으로 두지 않고 까닭을 적는다 - 빈 칸은 «속성이 없다» 로 읽히지만 실제로는
 못 읽은 것일 수 있다. 내용을 꺼내려면 `at doc from-docx`, `at sheet from-docx` 를 쓴다.
+
+`at file sync` 는 작업 폴더에서 백업 폴더로 **새것과 바뀐 것만** 넣는다. 기본은 미리보기이고
+`--apply` 를 붙여야 실제로 넣는다. 덮어쓰기 전의 판은 백업 폴더 안 `.이전 (attools)/<시각>/`
+으로 옮겨 둔다 - 백업이 원본을 덮는 순간 예전 판이 사라지는데, 사람이 찾는 것은 대개 그
+예전 판이다(`--no-keep` 으로 끈다). 원본에 없는 파일은 **그대로 둔다**. 지우려면
+`--remove-extra` 까지 붙여야 하고, 그때도 지우기 전에 한 벌을 옮겨 둔다.
 
 `at file exif` 는 사진에 남은 촬영 정보를 본다 - **찍은 자리의 좌표**, 기기, 찍은 시각. 폰으로
 찍어 그대로 보낸 사진에는 집·사무실 좌표가 그대로 들어 있다. `--strip` 은 그 정보를 뺀

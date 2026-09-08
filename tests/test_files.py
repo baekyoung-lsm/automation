@@ -1439,5 +1439,104 @@ class ExifTest(unittest.TestCase):
         self.assertEqual([m.path.name for m in found], ["가.jpg"])
 
 
+class SyncTest(unittest.TestCase):
+    """백업 폴더에 맞춰 넣기. 지우는 일이 섞여 있어 자세히 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.source = self.root / "원본"
+        self.backup = self.root / "백업"
+        self.source.mkdir()
+        self.backup.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, where: Path, name: str, body: str) -> Path:
+        path = where / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def plan(self, **kw):
+        return files.plan_sync(self.source, self.backup, **kw)
+
+    def test_counts_new_changed_and_extra(self):
+        self.write(self.source, "가.txt", "새것")
+        self.write(self.source, "나.txt", "바뀐 것")
+        self.write(self.backup, "나.txt", "옛것")
+        self.write(self.source, "다.txt", "같음")
+        self.write(self.backup, "다.txt", "같음")
+        self.write(self.backup, "라.txt", "백업에만")
+
+        plan = self.plan()
+        self.assertEqual(plan.new, ["가.txt"])
+        self.assertEqual(plan.changed, ["나.txt"])
+        self.assertEqual(plan.extra, ["라.txt"])
+        self.assertEqual(plan.same, 1)
+
+    def test_plan_touches_nothing(self):
+        self.write(self.source, "가.txt", "새것")
+        self.plan()
+        self.assertFalse((self.backup / "가.txt").exists())
+
+    def test_apply_copies_new_and_changed(self):
+        self.write(self.source, "가운데/가.txt", "새것")
+        self.write(self.source, "나.txt", "바뀐 것")
+        self.write(self.backup, "나.txt", "옛것")
+        plan = self.plan()
+        copied, removed, failed = files.apply_sync(self.source, self.backup,
+                                                   plan)
+        self.assertEqual((copied, removed, failed), (2, 0, []))
+        self.assertEqual((self.backup / "가운데" / "가.txt").read_text("utf-8"),
+                         "새것")
+        self.assertEqual((self.backup / "나.txt").read_text("utf-8"), "바뀐 것")
+
+    def test_old_version_is_kept_before_overwriting(self):
+        # 백업이 원본을 덮는 순간 예전 판이 사라진다. 사람이 찾는 건 대개 그쪽이다
+        self.write(self.source, "나.txt", "바뀐 것")
+        self.write(self.backup, "나.txt", "옛것")
+        files.apply_sync(self.source, self.backup, self.plan(),
+                         stamp="20260308-000000")
+        old = (self.backup / files.OLD_VERSIONS_DIR / "20260308-000000"
+               / "나.txt")
+        self.assertEqual(old.read_text("utf-8"), "옛것")
+
+    def test_no_keep_drops_the_old_version(self):
+        self.write(self.source, "나.txt", "바뀐 것")
+        self.write(self.backup, "나.txt", "옛것")
+        files.apply_sync(self.source, self.backup, self.plan(), keep_old=False)
+        self.assertFalse((self.backup / files.OLD_VERSIONS_DIR).exists())
+
+    def test_extra_files_stay_by_default(self):
+        self.write(self.backup, "라.txt", "백업에만")
+        files.apply_sync(self.source, self.backup, self.plan())
+        self.assertTrue((self.backup / "라.txt").is_file())
+
+    def test_remove_extra_moves_it_aside_first(self):
+        self.write(self.backup, "라.txt", "백업에만")
+        _copied, removed, _failed = files.apply_sync(
+            self.source, self.backup, self.plan(), remove_extra=True,
+            stamp="20260308-000000")
+        self.assertEqual(removed, 1)
+        self.assertFalse((self.backup / "라.txt").exists())
+        kept = (self.backup / files.OLD_VERSIONS_DIR / "20260308-000000"
+                / "라.txt")
+        self.assertEqual(kept.read_text("utf-8"), "백업에만")
+
+    def test_kept_versions_are_not_counted_as_extra(self):
+        self.write(self.source, "나.txt", "바뀐 것")
+        self.write(self.backup, "나.txt", "옛것")
+        files.apply_sync(self.source, self.backup, self.plan(),
+                         stamp="20260308-000000")
+        # 두 번째로 셀 때 «백업에만 있는 파일» 로 잡히면 지우자고 들 것이다
+        self.assertEqual(self.plan().extra, [])
+
+    def test_missing_backup_folder_is_all_new(self):
+        self.write(self.source, "가.txt", "새것")
+        plan = files.plan_sync(self.source, self.root / "아직없음")
+        self.assertEqual(plan.new, ["가.txt"])
+
+
 if __name__ == "__main__":
     unittest.main()

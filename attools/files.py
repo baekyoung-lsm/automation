@@ -1129,6 +1129,90 @@ def diff_dirs(left: Path, right: Path, *, include_hidden: bool = False,
     return result
 
 
+# ------------------------------------------------------- 백업 폴더에 맞춰 넣기
+
+OLD_VERSIONS_DIR = ".이전 (attools)"      # 덮어쓰기 전의 것을 여기 옮겨 둔다
+
+
+@dataclass
+class SyncPlan:
+    new: list = field(default_factory=list)        # 백업에 없는 파일 (상대 경로)
+    changed: list = field(default_factory=list)    # 내용이 다른 파일
+    extra: list = field(default_factory=list)      # 백업에만 있는 파일
+    same: int = 0
+    bytes: int = 0                                 # 새로 넣을 용량
+
+    @property
+    def empty(self) -> bool:
+        return not (self.new or self.changed)
+
+
+def plan_sync(source: Path, backup: Path, *, include_hidden: bool = False,
+              glob: list[str] | None = None, quick: bool = False) -> SyncPlan:
+    """원본에서 백업으로 무엇을 넣어야 하는지 센다. 아무것도 건드리지 않는다."""
+    diff = diff_dirs(source, backup, include_hidden=include_hidden, glob=glob,
+                     quick=quick)
+    plan = SyncPlan(new=list(diff.only_left),
+                    changed=[name for name, _l, _r in diff.changed],
+                    extra=[name for name in diff.only_right
+                           if not name.startswith(OLD_VERSIONS_DIR)],
+                    same=diff.same)
+    for name in plan.new + plan.changed:
+        try:
+            plan.bytes += (source / name).stat().st_size
+        except OSError:
+            pass
+    return plan
+
+
+def apply_sync(source: Path, backup: Path, plan: SyncPlan, *,
+               keep_old: bool = True, remove_extra: bool = False,
+               stamp: str = "") -> tuple[int, int, list]:
+    """계획대로 넣는다. (넣은 개수, 지운 개수, 못 한 것)
+
+    덮어쓰기 전의 파일은 백업 폴더 안 «.이전 (attools)/<시각>/» 으로 옮겨
+    둔다 - 백업이 원본을 덮어 쓰는 순간 예전 판이 사라지는데, 사람이 원하는
+    것은 대개 그 예전 판이다.
+    """
+    import shutil
+
+    when = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+    kept = backup / OLD_VERSIONS_DIR / when
+    copied = removed = 0
+    failed: list = []
+
+    for name in plan.new + plan.changed:
+        src, dst = source / name, backup / name
+        try:
+            if keep_old and dst.exists():
+                old = kept / name
+                old.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(dst), str(old))
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
+        except OSError as exc:
+            failed.append((name, str(exc)))
+
+    if remove_extra:
+        for name in plan.extra:
+            target = backup / name
+            if not target.is_file():
+                failed.append((name, "지울 파일이 없습니다"))
+                continue
+            try:
+                if keep_old:                 # 지우기 전에도 한 벌 남긴다
+                    old = kept / name
+                    old.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(target), str(old))
+                else:
+                    target.unlink()
+                removed += 1
+            except OSError as exc:
+                failed.append((name, str(exc)))
+    return copied, removed, failed
+
+
 CODE_SUFFIXES = {
     ".py", ".js", ".ts", ".tsx", ".jsx", ".java", ".kt", ".go", ".rs", ".rb",
     ".php", ".c", ".h", ".cpp", ".hpp", ".cs", ".swift", ".sh", ".sql", ".vue",

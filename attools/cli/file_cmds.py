@@ -253,6 +253,65 @@ def cmd_file_exif(a) -> int:
     return 0
 
 
+def cmd_file_sync(a) -> int:
+    """원본에서 백업 폴더로 새것·바뀐 것만 넣는다. 기본은 미리보기."""
+    source, backup = Path(a.source), Path(a.backup)
+    if not source.is_dir():
+        _p(f"디렉터리가 아닙니다: {source}")
+        return 1
+    if not backup.exists():
+        if not a.apply:
+            _p(f"백업 폴더가 아직 없습니다: {backup}  (--apply 로 만듭니다)")
+        else:
+            backup.mkdir(parents=True)
+    elif not backup.is_dir():
+        _p(f"디렉터리가 아닙니다: {backup}")
+        return 1
+
+    # 백업 폴더가 아직 없으면 «빈 폴더» 로 보고 센다 (rglob 이 빈 목록을 준다)
+    plan = files.plan_sync(source, backup, include_hidden=a.hidden,
+                           glob=a.glob, quick=a.quick)
+    _p(f"{source}  ->  {backup}")
+    _p(f"새로 넣을 것 {len(plan.new):,}개  ·  덮어쓸 것 {len(plan.changed):,}개  ·  "
+       f"그대로 {plan.same:,}개  ·  백업에만 있는 것 {len(plan.extra):,}개")
+    if plan.new or plan.changed:
+        _p(f"옮길 용량 {files.human_size(plan.bytes)}")
+
+    for label, names in (("새로", plan.new), ("덮어씀", plan.changed),
+                         ("백업에만", plan.extra)):
+        if not names:
+            continue
+        _p("")
+        for name in names[:a.limit]:
+            _p(f"  [{label}] {name}")
+        if len(names) > a.limit:
+            _p(f"  ... {len(names) - a.limit:,}개 더")
+
+    if plan.empty and not (a.remove_extra and plan.extra):
+        _p("\n넣을 것이 없습니다.")
+        return 0
+
+    if not a.apply:
+        _p("\n미리보기입니다. 실제로 넣으려면 --apply 를 붙이세요.")
+        if plan.extra and not a.remove_extra:
+            _p("백업에만 있는 파일은 그대로 둡니다. "
+               "지우려면 --remove-extra 까지 붙이세요.")
+        return 0
+
+    copied, removed, failed = files.apply_sync(
+        source, backup, plan, keep_old=not a.no_keep,
+        remove_extra=a.remove_extra)
+    _p(f"\n넣은 파일 {copied:,}개" + (f", 뺀 파일 {removed:,}개" if removed else ""))
+    if failed:
+        _p(f"하지 못한 것 {len(failed)}개:")
+        for name, why in failed[:a.limit]:
+            _p(f"  {name}  {why}")
+    if not a.no_keep and (plan.changed or removed):
+        _p(f"덮어쓰거나 뺀 파일의 예전 판은 "
+           f"{backup / files.OLD_VERSIONS_DIR} 아래에 남겨 두었습니다.")
+    return 0
+
+
 def cmd_file_scrub(a) -> int:
     """문서 속성에서 사람·회사 이름을 지운 사본을 만든다. 원본은 그대로."""
     root = Path(a.dir)
@@ -1262,6 +1321,22 @@ def add_commands(sub) -> None:
     exf.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
     exf.add_argument("--limit", type=int, default=30, metavar="개")
     exf.set_defaults(func=cmd_file_exif)
+
+    syn = fp.add_parser("sync",
+                        help="원본에서 백업 폴더로 새것·바뀐 것만 넣기")
+    syn.add_argument("source", metavar="원본")
+    syn.add_argument("backup", metavar="백업")
+    syn.add_argument("--apply", action="store_true", help="실제로 넣는다")
+    syn.add_argument("--remove-extra", action="store_true",
+                     help="원본에 없는 파일을 백업에서도 뺀다")
+    syn.add_argument("--no-keep", action="store_true",
+                     help="덮어쓰기 전의 판을 남기지 않는다")
+    syn.add_argument("-g", "--glob", action="append", metavar="패턴")
+    syn.add_argument("--hidden", action="store_true", help="숨김 파일도")
+    syn.add_argument("--quick", action="store_true",
+                     help="크기만 견준다 (빠르지만 크기 같은 변경은 못 잡는다)")
+    syn.add_argument("--limit", type=int, default=20, metavar="개")
+    syn.set_defaults(func=cmd_file_sync)
 
     scb = fp.add_parser("scrub",
                         help="문서 속성에서 사람·회사 이름 지우기 (밖으로 보내기 전)")
