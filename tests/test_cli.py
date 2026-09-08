@@ -99,6 +99,20 @@ class FindCommandTest(unittest.TestCase):
         _, out = self.run_find("unzip")
         self.assertIn("at file unzip", out)
 
+    def test_spacing_does_not_matter(self):
+        # 도움말에는 «글자 수», 사람은 «글자수» 라고 친다
+        _, out = self.run_find("글자수")
+        self.assertIn("at text count", out)
+
+    def test_common_words_find_the_right_command(self):
+        # 사람이 치는 말과 도움말에 적힌 말이 다른 자리들
+        for word, command in (("압축", "at file archive"),
+                              ("맞춤법", "at text typo"),
+                              ("연락처", "at sheet vcard"),
+                              ("백업", "at file sync")):
+            _, out = self.run_find(word)
+            self.assertIn(command, out, word)
+
     def test_groups_are_not_listed_as_commands(self):
         _, out = self.run_find("파일")
         self.assertNotIn("at file\n", out)      # 그룹 자체는 실행할 명령이 아니다

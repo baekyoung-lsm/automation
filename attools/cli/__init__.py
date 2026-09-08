@@ -28,12 +28,44 @@ def walk_commands(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()):
             yield from walk_commands(sub, here)
 
 
+# 사람이 치는 말과 도움말에 적힌 말이 다르다. 찾기에서만 쓰는 짝이다.
+FIND_ALIASES = {
+    "압축": ["zip", "보관", "묶"],
+    "글자수": ["글자 수"],
+    "폰트": ["글꼴"],
+    "사진": ["이미지", "그림"],
+    "엑셀": ["xlsx", "csv", "표"],
+    "한글": ["hwpx"],
+    "워드": ["docx"],
+    "메일": ["eml", "첨부"],
+    "일정": ["ics", "캘린더", "마감"],
+    "연락처": ["vcf", "주소록"],
+    "백업": ["sync", "보관"],
+    "번역": [],
+    "암호": ["시크릿", "비밀번호"],
+    "로그": ["log"],
+    "속도": ["시간", "벤치"],
+    "맞춤법": ["표기 오류", "typo"],
+}
+
+
+def _find_needles(text: str) -> list[str]:
+    """찾을 말과, 같은 뜻으로 도움말에 적혔을 만한 말들."""
+    needle = text.strip().lower()
+    out = [needle, needle.replace(" ", "")]
+    for word, others in FIND_ALIASES.items():
+        if word in needle or needle in word:
+            out += [word] + others
+    return [n for n in dict.fromkeys(out) if n]
+
+
 def cmd_find(a) -> int:
     needle = " ".join(a.words).strip().lower()
     if not needle:
         _p("찾을 말을 주세요. 예: at find 중복")
         return 1
 
+    needles = _find_needles(needle)
     rows: list[tuple[str, str]] = []
     for path, help_text, parser in walk_commands(build_parser()):
         if any(isinstance(x, argparse._SubParsersAction) for x in parser._actions):
@@ -43,7 +75,9 @@ def cmd_find(a) -> int:
             haystack += " " + " ".join(
                 (x.help or "") + " " + " ".join(x.option_strings)
                 for x in parser._actions)
-        if needle in haystack.lower():
+        flat = haystack.lower()
+        # 띄어쓰기를 지운 꼴도 본다. «글자수» 로 쳐도 «글자 수» 가 걸리게
+        if any(n in flat or n in flat.replace(" ", "") for n in needles):
             rows.append(("at " + " ".join(path), help_text))
 
     if not rows:

@@ -1284,7 +1284,8 @@ def add_commands(sub) -> None:
     o.set_defaults(func=cmd_file_organize)
 
     dcs = fp.add_parser("docs",
-                        help="워드·엑셀·슬라이드·PDF 속성 목록 (누가 만든 문서인가)")
+                        help="워드·엑셀·슬라이드·한글·PDF 속성 목록 "
+                             "(누가 만든 문서인가)")
     dcs.add_argument("dir", nargs="?", default=".", metavar="경로")
     dcs.add_argument("-o", "--out", metavar="파일", help="저장 경로 (.csv, .xlsx, .md)")
     dcs.add_argument("--overwrite", action="store_true",
