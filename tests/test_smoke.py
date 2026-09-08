@@ -393,6 +393,10 @@ class SmokeTest(unittest.TestCase):
                                           encoding="utf-8")
         (서식폴더 / "인사.csv").write_text("사번,이름,비고\nE3,이영희,추가\n",
                                           encoding="utf-8")
+        폴더합치기 = self.run_cli("sheet", "merge", str(서식폴더),
+                              "-o", self.path("폴더합본.csv"))
+        self.assertIn("표 파일 3개를 찾았습니다", 폴더합치기)
+
         서식 = self.run_cli("sheet", "forms", str(서식폴더), expect=1)
         self.assertIn("열 다름", 서식)
         self.assertIn("비고", 서식)

@@ -3226,6 +3226,8 @@ class SimilarPair:
     right: str
     score: float              # 1.0 이면 다듬은 뒤 완전히 같다
     reason: str               # '표기만 다름' 또는 '비슷함'
+    left_count: int = 1       # 그 값이 몇 행에 있나
+    right_count: int = 1
 
 
 def find_similar(table: Table, column: str, *, threshold: float = 0.85,
@@ -3239,24 +3241,29 @@ def find_similar(table: Table, column: str, *, threshold: float = 0.85,
     같은 것끼리만 견주므로, 첫 글자가 다른 오타(«가나» 와 «나나»)는 못 찾는다.
     """
     index = table.index_of(column)
-    rows: list[tuple[int, str, str]] = []      # (줄 번호, 원래 값, 다듬은 값)
+    # 행끼리 견주면 «개발팀» 300행과 «개 발 팀» 1행이 300줄로 나온다.
+    # 값끼리 견주고 몇 행에 있는지를 함께 돌려준다.
+    seen: dict[str, tuple[int, int]] = {}      # 원래 값 -> (첫 줄, 몇 행)
     for line, row in enumerate(table.rows, 2):
         raw = to_text(row[index]) if index < len(row) else ""
         if not raw.strip():
             continue
-        rows.append((line, raw, normalize_name(raw)))
+        first, count = seen.get(raw, (line, 0))
+        seen[raw] = (first, count + 1)
 
-    buckets: dict[str, list[tuple[int, str, str]]] = defaultdict(list)
-    for item in rows:
+    values = [(first, raw, normalize_name(raw), count)
+              for raw, (first, count) in seen.items()]
+    values.sort(key=lambda item: item[0])
+
+    buckets: dict[str, list[tuple[int, str, str, int]]] = defaultdict(list)
+    for item in values:
         buckets[item[2][:2]].append(item)
 
     pairs: list[SimilarPair] = []
     cut = False
     for bucket in buckets.values():
-        for i, (line_a, raw_a, key_a) in enumerate(bucket):
-            for line_b, raw_b, key_b in bucket[i + 1:]:
-                if raw_a == raw_b:             # 똑같은 값은 at sheet dedupe 의 몫
-                    continue
+        for i, (line_a, raw_a, key_a, count_a) in enumerate(bucket):
+            for line_b, raw_b, key_b, count_b in bucket[i + 1:]:
                 if key_a == key_b:
                     score, reason = 1.0, "표기만 다름"
                 else:
@@ -3268,7 +3275,8 @@ def find_similar(table: Table, column: str, *, threshold: float = 0.85,
                     cut = True
                     break
                 pairs.append(SimilarPair(line_a, line_b, raw_a, raw_b,
-                                         round(score, 3), reason))
+                                         round(score, 3), reason,
+                                         count_a, count_b))
             if cut:
                 break
         if cut:

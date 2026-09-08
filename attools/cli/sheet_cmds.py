@@ -211,6 +211,25 @@ def cmd_sheet_clean(a) -> int:
     return 0
 
 
+def _sheet_paths(names, *, glob: str = "") -> list[Path]:
+    """파일과 폴더가 섞여 와도 표 파일 목록으로 편다.
+
+    월별로 쪼개진 파일은 대개 폴더째 온다. 폴더를 주면 «디렉터리입니다» 하고
+    멈추는 것보다 안에 있는 xlsx·csv 를 이름 순으로 쓰는 편이 맞다.
+    """
+    kinds = sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES
+    out: list[Path] = []
+    for name in names:
+        path = Path(name)
+        if path.is_dir():
+            out += [q for q in sorted(path.rglob(glob or "*"))
+                    if q.is_file() and q.suffix.lower() in kinds
+                    and not q.name.startswith("~$")]   # 엑셀이 만드는 임시 파일
+        else:
+            out.append(path)
+    return out
+
+
 def cmd_sheet_find(a) -> int:
     """여러 파일에서 값 찾기. 어느 파일 어느 시트 몇 행인지 알려 준다."""
     targets: list[Path] = []
@@ -256,12 +275,16 @@ def cmd_sheet_find(a) -> int:
 
 def cmd_sheet_book(a) -> int:
     """여러 파일을 한 엑셀의 여러 시트로 묶는다."""
+    targets = _sheet_paths(a.files)
+    if not targets:
+        _p("표 파일을 찾지 못했습니다. 폴더 안에 xlsx·csv 가 있는지 보세요.")
+        return 1
     tables: dict = {}
-    for name in a.files:
-        table = _load(a, name)
+    for path in targets:
+        table = _load(a, str(path))
         if table is None:
             return 1
-        tables[Path(name).stem] = table
+        tables[path.stem] = table
 
     if not a.out:
         _grid(["파일", "시트 이름", "행", "열"],
@@ -1188,9 +1211,16 @@ def cmd_sheet_collect(a) -> int:
 
 
 def cmd_sheet_merge(a) -> int:
+    targets = _sheet_paths(a.files, glob=a.glob or "")
+    if not targets:
+        _p("표 파일을 찾지 못했습니다. 폴더 안에 xlsx·csv 가 있는지 보세요.")
+        return 1
+    if len(targets) > len(a.files):
+        _p(f"폴더에서 표 파일 {len(targets)}개를 찾았습니다 (이름 순).")
+
     tables = []
-    for name in a.files:
-        t = _load(a, name)
+    for path in targets:
+        t = _load(a, str(path))
         if t is None:
             return 1
         tables.append(t)
@@ -2146,9 +2176,13 @@ def cmd_sheet_similar(a) -> int:
         return 0
 
     _p(f"같은 곳으로 보이는 짝 {len(pairs):,}개  (합치지 않았습니다)\n")
-    _grid(["왜", "닮음", "행", "값", "행", "값"],
-          [[p.reason, f"{p.score:.2f}", str(p.left_row), _cut(p.left, a.width),
-            str(p.right_row), _cut(p.right, a.width)] for p in pairs[:a.rows]],
+    def where(row: int, count: int) -> str:
+        return f"{row}행" + (f" 외 {count - 1}" if count > 1 else "")
+
+    _grid(["왜", "닮음", "어디", "값", "어디", "값"],
+          [[p.reason, f"{p.score:.2f}", where(p.left_row, p.left_count),
+            _cut(p.left, a.width), where(p.right_row, p.right_count),
+            _cut(p.right, a.width)] for p in pairs[:a.rows]],
           limit=a.width)
     if len(pairs) > a.rows:
         _p(f"  ... {len(pairs) - a.rows:,}개 더")
@@ -2437,7 +2471,7 @@ def add_commands(sub) -> None:
     fd.set_defaults(func=cmd_sheet_find)
 
     bk = common(sh.add_parser("book", help="여러 파일을 한 엑셀의 여러 시트로"))
-    bk.add_argument("files", nargs="+")
+    bk.add_argument("files", nargs="+", metavar="파일|폴더")
     bk.add_argument("-o", "--out", help="저장 경로 (.xlsx)")
     bk.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
@@ -2605,8 +2639,10 @@ def add_commands(sub) -> None:
     cl2.add_argument("--limit", type=int, default=10, metavar="개")
     cl2.set_defaults(func=cmd_sheet_collect)
 
-    mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기"))
-    mg.add_argument("files", nargs="+")
+    mg = common(sh.add_parser("merge", help="여러 파일을 세로로 합치기 (폴더도 된다)"))
+    mg.add_argument("files", nargs="+", metavar="파일|폴더")
+    mg.add_argument("--glob", metavar="무늬",
+                    help="폴더를 줬을 때 고를 무늬 (예: '2026*.xlsx')")
     mg.add_argument("-o", "--out")
     mg.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")

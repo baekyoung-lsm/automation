@@ -1618,6 +1618,28 @@ class TablesFromDocxTest(unittest.TestCase):
             sheet.tables_from_docx(bad)
 
 
+class SimilarCountTest(unittest.TestCase):
+    """같은 값이 여러 행에 있어도 짝은 하나여야 한다."""
+
+    def table(self, names):
+        return sheet.Table(headers=["부서"], rows=[[n] for n in names])
+
+    def test_repeated_value_is_one_pair(self):
+        pairs, cut = sheet.find_similar(
+            self.table(["개발팀", "개발팀", "개발팀", "개 발 팀"]), "부서")
+        self.assertEqual(len(pairs), 1)
+        self.assertFalse(cut)
+        self.assertEqual((pairs[0].left, pairs[0].left_count), ("개발팀", 3))
+        self.assertEqual((pairs[0].right, pairs[0].right_count), ("개 발 팀", 1))
+        self.assertEqual(pairs[0].left_row, 2)      # 처음 나온 줄
+
+    def test_many_rows_do_not_flood_the_limit(self):
+        names = ["가나상사"] * 300 + ["(주)가나상사"] * 5
+        pairs, cut = sheet.find_similar(self.table(names), "부서")
+        self.assertEqual(len(pairs), 1)
+        self.assertFalse(cut)
+
+
 class SimilarTest(unittest.TestCase):
     def test_normalize_strips_company_words(self):
         for name in ("(주)가나상사", "주식회사 가나상사", "㈜ 가나-상사", "가나 상사"):

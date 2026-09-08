@@ -1318,8 +1318,11 @@ def similar(payload: dict) -> dict:
     except sheet.SheetError as exc:
         raise UiError(str(exc)) from None
 
-    rows = [[p.reason, f"{p.score:.2f}", str(p.left_row), p.left,
-             str(p.right_row), p.right] for p in pairs[:PEEK_ROWS]]
+    def where(row: int, count: int) -> str:
+        return f"{row}행" + (f" 외 {count - 1}" if count > 1 else "")
+
+    rows = [[p.reason, f"{p.score:.2f}", where(p.left_row, p.left_count), p.left,
+             where(p.right_row, p.right_count), p.right] for p in pairs[:PEEK_ROWS]]
     args: list[object] = ["sheet", "similar", *_source_args(payload), "-c", column]
     if float(threshold) != 0.85:
         args += ["--threshold", f"{float(threshold):g}"]
@@ -2291,8 +2294,8 @@ BODY = """
       b.simcol = $("simcol").value; b.threshold = $("threshold").value;
       const d = await AT.call("/api/sheet/similar", b);
       $("simout").innerHTML = (d.count
-          ? AT.table(["왜", "닮음", "행", "값", "행", "값"], d.rows,
-                     [null, "num", "num", null, "num", null])
+          ? AT.table(["왜", "닮음", "어디", "값", "어디", "값"], d.rows,
+                     [null, "num", null, null, null, null])
           : '<div class="empty">같은 곳으로 보이는 짝이 없습니다.</div>') +
         (d.count > d.shown ? '<p class="note">' + d.count + "개 가운데 " +
           d.shown + "개만 보입니다.</p>" : "") +
