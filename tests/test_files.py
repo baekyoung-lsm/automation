@@ -1094,5 +1094,72 @@ class DocumentMetaTest(unittest.TestCase):
         self.assertEqual(len(files.scan_documents(path)), 1)
 
 
+class ScrubTest(DocumentMetaTest):
+    """속성 지우기. 만드는 방법은 DocumentMetaTest 것을 그대로 쓴다."""
+
+    def test_plan_lists_what_would_go(self):
+        plan = files.plan_scrub(self.make())
+        self.assertEqual([label for label, _v in plan.removed],
+                         ["만든 사람", "마지막 저장한 사람", "회사"])
+        self.assertEqual([v for _l, v in plan.removed],
+                         ["김철수", "박영희", "가나상사"])
+        self.assertTrue(plan.ok)
+
+    def test_plan_does_not_touch_the_file(self):
+        path = self.make()
+        before = path.read_bytes()
+        files.plan_scrub(path)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_apply_keeps_the_original_and_the_rest(self):
+        path = self.make()
+        before = path.read_bytes()
+        out = files.apply_scrub(path, self.root / "사본.docx")
+        self.assertEqual(path.read_bytes(), before)
+        meta = files.document_meta(out)
+        self.assertEqual(meta.author, "")
+        self.assertEqual(meta.last_by, "")
+        self.assertEqual(meta.company, "")
+        self.assertEqual(meta.title, "2026 사업계획")   # 내용은 그대로다
+        self.assertEqual(meta.pages, 12)
+
+    def test_scrubbed_copy_has_nothing_left_to_scrub(self):
+        out = files.apply_scrub(self.make(), self.root / "사본.docx")
+        self.assertFalse(files.plan_scrub(out).ok)
+
+    def test_all_parts_survive(self):
+        import zipfile
+
+        out = files.apply_scrub(self.make(), self.root / "사본.docx")
+        with zipfile.ZipFile(out) as z:
+            self.assertIn("word/document.xml", z.namelist())
+
+    def test_comments_are_reported_not_touched(self):
+        import zipfile
+
+        path = self.make()
+        with zipfile.ZipFile(path, "a") as z:
+            z.writestr("word/comments.xml", "<c>김철수</c>")
+        plan = files.plan_scrub(path)
+        self.assertEqual(plan.others, ["word/comments.xml"])
+        out = files.apply_scrub(path, self.root / "사본.docx")
+        with zipfile.ZipFile(out) as z:
+            self.assertIn("김철수", z.read("word/comments.xml").decode("utf-8"))
+
+    def test_broken_file_is_not_scrubbed(self):
+        path = self.root / "가짜.docx"
+        path.write_bytes(b"not a zip")
+        plan = files.plan_scrub(path)
+        self.assertFalse(plan.ok)
+        self.assertIn("열지 못했습니다", plan.error)
+
+    def test_blank_tag_leaves_other_text_alone(self):
+        xml = "<a><dc:creator>김</dc:creator><dc:title>가</dc:title></a>"
+        got, gone = files._blank_tag(xml, "creator")
+        self.assertEqual(gone, "김")
+        self.assertEqual(got, "<a><dc:creator></dc:creator>"
+                              "<dc:title>가</dc:title></a>")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -433,6 +433,92 @@ def document_meta(path: Path) -> DocMeta:
     return meta
 
 
+SCRUB_TAGS = {                       # 지울 자리 -> 사람이 읽는 이름
+    "creator": "만든 사람",
+    "lastModifiedBy": "마지막 저장한 사람",
+    "Company": "회사",
+    "Manager": "관리자",
+}
+COMMENT_PARTS = ("word/comments.xml", "xl/persons/person.xml",
+                 "word/people.xml", "ppt/comments")
+
+
+@dataclass
+class ScrubPlan:
+    path: Path
+    removed: list = field(default_factory=list)     # [(사람이 읽는 이름, 값)]
+    others: list = field(default_factory=list)      # 메모·변경 내역이 있는 자리
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error and bool(self.removed)
+
+
+def _blank_tag(xml: str, tag: str) -> tuple[str, str]:
+    """<dc:creator>김철수</dc:creator> 를 빈 것으로. (새 xml, 지운 값)
+
+    ET 로 다시 쓰면 이름 공간 접두사가 바뀌어 워드가 열지 못하는 일이 있다.
+    그래서 태그 안쪽 글자만 바꾼다 - 나머지는 원문 그대로 둔다.
+    """
+    pattern = re.compile(
+        rf"(<(?:\w+:)?{tag}(?:\s[^>]*)?>)(.*?)(</(?:\w+:)?{tag}>)", re.S)
+    match = pattern.search(xml)
+    if not match or not match.group(2).strip():
+        return xml, ""
+    return (xml[:match.start()] + match.group(1) + match.group(3)
+            + xml[match.end():], match.group(2).strip())
+
+
+def plan_scrub(path: Path) -> ScrubPlan:
+    """이 문서에서 지울 수 있는 이름을 본다. 파일은 건드리지 않는다."""
+    import zipfile
+
+    plan = ScrubPlan(path=path)
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            for part in (CORE_PART, APP_PART):
+                if part not in names:
+                    continue
+                xml = z.read(part).decode("utf-8", errors="replace")
+                for tag, label in SCRUB_TAGS.items():
+                    xml, gone = _blank_tag(xml, tag)
+                    if gone:
+                        plan.removed.append((label, gone))
+            plan.others = [n for n in names
+                           if any(n.startswith(p) for p in COMMENT_PARTS)]
+    except zipfile.BadZipFile:
+        plan.error = "열지 못했습니다 (이름만 바꾼 옛 형식일 수 있습니다)"
+    except OSError as e:
+        plan.error = str(e)
+    return plan
+
+
+def apply_scrub(path: Path, dest: Path) -> Path:
+    """이름을 지운 사본을 만든다. 원본은 그대로 둔다.
+
+    제자리에서 고치지 않는 것은 되돌릴 방법이 없기 때문이다. 문서 안의
+    메모·변경 내역에 남은 이름은 지우지 못한다 - 그건 내용이라 여기서
+    손대면 문서가 달라진다.
+    """
+    import zipfile
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path) as src:
+        items = src.infolist()
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
+            for item in items:
+                data = src.read(item.filename)
+                if item.filename in (CORE_PART, APP_PART):
+                    xml = data.decode("utf-8", errors="replace")
+                    for tag in SCRUB_TAGS:
+                        xml, _gone = _blank_tag(xml, tag)
+                    data = xml.encode("utf-8")
+                out.writestr(item, data)
+    return dest
+
+
 def scan_documents(root: Path, *, recursive: bool = True,
                    include_hidden: bool = False) -> list[DocMeta]:
     """폴더 안의 워드·엑셀·슬라이드 파일 속성을 모은다."""

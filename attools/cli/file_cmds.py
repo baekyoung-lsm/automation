@@ -113,6 +113,70 @@ def cmd_file_docs(a) -> int:
     return 0
 
 
+def cmd_file_scrub(a) -> int:
+    """문서 속성에서 사람·회사 이름을 지운 사본을 만든다. 원본은 그대로."""
+    root = Path(a.dir)
+    if not root.exists():
+        _p(f"없는 경로입니다: {root}")
+        return 1
+
+    if root.is_file():
+        targets = [root]
+    else:
+        targets = [m.path for m in files.scan_documents(
+            root, recursive=not a.flat)]
+    if not targets:
+        _p("워드·엑셀·슬라이드 파일이 없습니다.")
+        return 0
+
+    plans = [files.plan_scrub(p) for p in targets]
+    dirty = [p for p in plans if p.ok]
+    broken = [p for p in plans if p.error]
+
+    if not dirty:
+        _p(f"문서 {len(plans):,}개  ·  속성에 남은 사람·회사 이름이 없습니다.")
+        if broken:
+            _p(f"열지 못한 파일 {len(broken):,}개:")
+            for plan in broken[:a.limit]:
+                _p(f"  {plan.path.name}  {plan.error}")
+        return 0
+
+    _grid(["파일", "지울 자리", "값"],
+          [[_pad(plan.path.name, 0), label, _cut(value, 24)]
+           for plan in dirty[:a.limit] for label, value in plan.removed],
+          limit=32)
+    if len(dirty) > a.limit:
+        _p(f"... {len(dirty) - a.limit:,}개 더 (--limit 로 조절)")
+
+    if not a.apply:
+        _p(f"\n미리보기입니다. 문서 {len(dirty):,}개에서 위 값을 지운 "
+           "사본을 만들려면 --apply 를 붙이세요.")
+        return 0
+
+    made = []
+    for plan in dirty:
+        target = files.unique_path(
+            plan.path.with_name(f"{plan.path.stem} (이름지움){plan.path.suffix}"))
+        try:
+            made.append(files.apply_scrub(plan.path, target))
+        except OSError as e:
+            _p(f"만들지 못했습니다: {plan.path.name}  {e}")
+    _p(f"\n사본 {len(made):,}개를 만들었습니다. 원본은 그대로입니다.")
+    for path in made[:a.limit]:
+        _p(f"  {path}")
+    if len(made) > a.limit:
+        _p(f"  ... {len(made) - a.limit:,}개 더")
+
+    others = sorted({part for plan in dirty for part in plan.others})
+    if others:
+        _p("\n메모·변경 내역이 든 문서가 있습니다. 거기 남은 이름은 지우지 "
+           "못합니다 (내용이라 여기서 손대면 문서가 달라집니다):")
+        for part in others[:5]:
+            _p(f"  {part}")
+    _p("\n문서 속성(docProps)만 지웠습니다. 본문에 적힌 이름은 그대로입니다.")
+    return 0
+
+
 def cmd_file_list(a) -> int:
     """폴더 안 파일 목록을 표로. 제출 자료 목록을 손으로 적지 않게."""
     from .. import sheet
@@ -1030,6 +1094,15 @@ def add_commands(sub) -> None:
     dcs.add_argument("--hidden", action="store_true", help="숨김 파일도")
     dcs.add_argument("--limit", type=int, default=30, metavar="개")
     dcs.set_defaults(func=cmd_file_docs)
+
+    scb = fp.add_parser("scrub",
+                        help="문서 속성에서 사람·회사 이름 지우기 (밖으로 보내기 전)")
+    scb.add_argument("dir", nargs="?", default=".", metavar="경로")
+    scb.add_argument("--apply", action="store_true",
+                     help="사본을 실제로 만든다 (원본은 그대로)")
+    scb.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
+    scb.add_argument("--limit", type=int, default=30, metavar="개")
+    scb.set_defaults(func=cmd_file_scrub)
 
     ls = fp.add_parser("list", help="파일 목록을 표로 (엑셀에 붙일 자료 목록)")
     ls.add_argument("dir")
