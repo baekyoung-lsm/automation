@@ -145,18 +145,27 @@ class SmokeTest(unittest.TestCase):
             z.writestr("word/document.xml", "<x/>")
         (문서폴더 / "보고서.pdf").write_bytes(
             b"%PDF-1.4\n1 0 obj<</Type/Page>>endobj\n%%EOF\n")
+        with zipfile.ZipFile(문서폴더 / "예산안.hwpx", "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            z.writestr("Contents/content.hpf",
+                       "<opf:package xmlns:opf='o' xmlns:dc='d'><opf:metadata>"
+                       "<dc:creator>박영희</dc:creator></opf:metadata>"
+                       "</opf:package>")
         속성 = self.run_cli("file", "docs", str(문서폴더))
         self.assertIn("김철수", 속성)
         self.assertIn("PDF", 속성)
+        self.assertIn("박영희", 속성)
         self.assertIn("밖으로 보내기 전에", 속성)
         미리 = self.run_cli("file", "scrub", str(문서폴더))
         self.assertIn("미리보기", 미리)
         self.assertFalse(list(문서폴더.glob("*이름지움*")))
         self.run_cli("file", "scrub", str(문서폴더), "--apply")
-        지운것 = list(문서폴더.glob("*이름지움*"))
-        self.assertEqual(len(지운것), 1)
-        self.assertNotIn("김철수",
-                         self.run_cli("file", "docs", str(지운것[0])))
+        지운것 = sorted(문서폴더.glob("*이름지움*"))
+        self.assertEqual(len(지운것), 2)          # 워드와 한글 둘 다
+        for 사본 in 지운것:
+            남은것 = self.run_cli("file", "docs", str(사본))
+            self.assertNotIn("김철수", 남은것)
+            self.assertNotIn("박영희", 남은것)
         self.assertIn("문서", self.run_cli("file", "organize", self.path("문서")))
         self.run_cli("file", "fixname", self.path("문서"))
         self.run_cli("file", "dupes", self.path("문서"), "--min-size", "1")

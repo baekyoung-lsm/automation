@@ -1233,5 +1233,47 @@ class PdfMetaTest(unittest.TestCase):
         self.assertEqual(files.scan_documents(self.root, pdf=False), [])
 
 
+class HwpxMetaTest(unittest.TestCase):
+    """한글 문서 속성. 워드와 담는 자리가 달라 따로 본다."""
+
+    HPF = ("<opf:package xmlns:opf='o' xmlns:dc='d'><opf:metadata>"
+           "<dc:title>2026 예산안</dc:title><dc:creator>김철수</dc:creator>"
+           "</opf:metadata></opf:package>")
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, name="예산안.hwpx", meta=True) -> Path:
+        import zipfile
+
+        path = self.root / name
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            if meta:
+                z.writestr("Contents/content.hpf", self.HPF)
+            z.writestr("Contents/section0.xml", "<x/>")
+        return path
+
+    def test_reads_title_and_creator(self):
+        meta = files.document_meta(self.make())
+        self.assertEqual(meta.kind, "한글")
+        self.assertEqual(meta.title, "2026 예산안")
+        self.assertEqual(meta.author, "김철수")
+        self.assertEqual(meta.personal, ["김철수"])
+
+    def test_without_properties(self):
+        self.assertEqual(files.document_meta(self.make(meta=False)).error,
+                         "문서 속성이 없습니다")
+
+    def test_scrub_clears_the_name_but_keeps_the_title(self):
+        out = files.apply_scrub(self.make(), self.root / "사본.hwpx")
+        meta = files.document_meta(out)
+        self.assertEqual(meta.author, "")
+        self.assertEqual(meta.title, "2026 예산안")
+
+
 if __name__ == "__main__":
     unittest.main()

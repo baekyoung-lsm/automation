@@ -334,9 +334,11 @@ def list_files(root: Path, *, recursive: bool = True, include_hidden: bool = Fal
 # ------------------------------------------------- 문서 속성 (누가 만든 문서인가)
 
 OOXML_KINDS = {".docx": "워드", ".docm": "워드", ".xlsx": "엑셀",
-               ".xlsm": "엑셀", ".pptx": "슬라이드", ".pptm": "슬라이드"}
+               ".xlsm": "엑셀", ".pptx": "슬라이드", ".pptm": "슬라이드",
+               ".hwpx": "한글"}
 CORE_PART = "docProps/core.xml"
 APP_PART = "docProps/app.xml"
+HWPX_PART = "Contents/content.hpf"      # 한글은 여기에 속성을 담는다
 CORE_FIELDS = {                      # core.xml 의 태그 -> 우리 이름
     "title": "title", "subject": "subject", "creator": "author",
     "lastModifiedBy": "last_by", "created": "created", "modified": "modified",
@@ -407,11 +409,15 @@ def document_meta(path: Path) -> DocMeta:
     try:
         with zipfile.ZipFile(path) as z:
             names = set(z.namelist())
-            if CORE_PART not in names and APP_PART not in names:
+            if HWPX_PART in names:        # 한글 문서
+                core = _xml_texts(z.read(HWPX_PART))
+                app = {}
+            elif CORE_PART in names or APP_PART in names:
+                core = _xml_texts(z.read(CORE_PART)) if CORE_PART in names else {}
+                app = _xml_texts(z.read(APP_PART)) if APP_PART in names else {}
+            else:
                 meta.error = "문서 속성이 없습니다"
                 return meta
-            core = _xml_texts(z.read(CORE_PART)) if CORE_PART in names else {}
-            app = _xml_texts(z.read(APP_PART)) if APP_PART in names else {}
     except zipfile.BadZipFile:
         meta.error = "열지 못했습니다 (이름만 바꾼 옛 형식일 수 있습니다)"
         return meta
@@ -585,6 +591,7 @@ SCRUB_TAGS = {                       # 지울 자리 -> 사람이 읽는 이름
     "Company": "회사",
     "Manager": "관리자",
 }
+SCRUB_PARTS = (CORE_PART, APP_PART, HWPX_PART)
 COMMENT_PARTS = ("word/comments.xml", "xl/persons/person.xml",
                  "word/people.xml", "ppt/comments")
 
@@ -624,7 +631,7 @@ def plan_scrub(path: Path) -> ScrubPlan:
     try:
         with zipfile.ZipFile(path) as z:
             names = z.namelist()
-            for part in (CORE_PART, APP_PART):
+            for part in SCRUB_PARTS:
                 if part not in names:
                     continue
                 xml = z.read(part).decode("utf-8", errors="replace")
@@ -656,7 +663,7 @@ def apply_scrub(path: Path, dest: Path) -> Path:
         with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
             for item in items:
                 data = src.read(item.filename)
-                if item.filename in (CORE_PART, APP_PART):
+                if item.filename in SCRUB_PARTS:
                     xml = data.decode("utf-8", errors="replace")
                     for tag in SCRUB_TAGS:
                         xml, _gone = _blank_tag(xml, tag)
