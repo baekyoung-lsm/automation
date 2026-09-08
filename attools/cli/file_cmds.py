@@ -684,7 +684,16 @@ def cmd_file_undo(a) -> int:
         journal = candidates[-1]
         _p(f"최근 저널을 사용합니다: {journal}")
 
-    restored, errors = files.undo(journal)
+    if not journal.is_file():
+        _p(f"저널 파일이 아닙니다: {journal}")
+        _p(f"  기록은 {files.journal_dir()} 에 .jsonl 로 남습니다.")
+        return 1
+
+    try:
+        restored, errors = files.undo(journal)
+    except (OSError, ValueError) as e:
+        _p(f"저널을 읽지 못했습니다: {e}")
+        return 1
     _p(f"{restored}개를 되돌렸습니다.")
     for e in errors:
         _p(f"  건너뜀: {e}")

@@ -519,6 +519,10 @@ class Attempt:
     waited: float = 0.0     # 이 시도 전에 기다린 시간
 
 
+class RetryError(Exception):
+    pass
+
+
 def retry(command, *, tries: int = 5, delay: float = 1.0, backoff: float = 2.0,
           max_delay: float = 60.0, shell: bool = False,
           on_attempt=None, sleeper=None) -> list[Attempt]:
@@ -536,13 +540,17 @@ def retry(command, *, tries: int = 5, delay: float = 1.0, backoff: float = 2.0,
         if n > 1:
             sleep(wait)
         started = _time.perf_counter()
-        proc = subprocess.run(command, shell=shell)
+        try:
+            code = subprocess.run(command, shell=shell).returncode
+        except OSError as exc:
+            # 없는 명령·실행 권한 없는 파일. 다시 돌려도 같으므로 여기서 끝낸다
+            raise RetryError(f"명령을 돌리지 못했습니다: {exc}") from None
         elapsed = _time.perf_counter() - started
-        attempt = Attempt(n, proc.returncode, elapsed, wait if n > 1 else 0.0)
+        attempt = Attempt(n, code, elapsed, wait if n > 1 else 0.0)
         attempts.append(attempt)
         if on_attempt:
             on_attempt(attempt)
-        if proc.returncode == 0:
+        if code == 0:
             break
         wait = min(max_delay, delay if n == 1 else wait * backoff)
     return attempts

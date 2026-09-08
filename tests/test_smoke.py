@@ -127,6 +127,20 @@ class SmokeTest(unittest.TestCase):
     def path(self, *parts) -> str:
         return str(self.root.joinpath(*parts))
 
+    # ---------------------------------------------- 엉뚱한 입력 (역추적 금지)
+
+    def test_broken_journals_answer_in_korean(self):
+        """되돌리기에 망가진 저널을 줘도 역추적이 뜨면 안 된다."""
+        가짜 = Path(self.path("가짜.jsonl"))
+        가짜.write_text("{망가진\n", encoding="utf-8")
+        for group in ("file", "text"):
+            out = self.run_cli(group, "undo", str(가짜), expect=1)
+            self.assertIn("읽지 못했습니다", out)
+
+        폴더 = Path(self.path("문서"))
+        self.assertIn("저널 파일이 아닙니다",
+                      self.run_cli("file", "undo", str(폴더), expect=1))
+
     # ------------------------------------------------------------ file
 
     def test_file_group(self):

@@ -218,9 +218,13 @@ def cmd_dev_retry(a) -> int:
         state = "성공" if attempt.code == 0 else f"실패(코드 {attempt.code})"
         _p(f"  {wait}{attempt.number}번째  {state}  {attempt.seconds:.2f}초")
 
-    attempts = devkit.retry(commands, tries=a.tries, delay=a.delay,
-                            backoff=a.backoff, max_delay=a.max_delay,
-                            on_attempt=show)
+    try:
+        attempts = devkit.retry(commands, tries=a.tries, delay=a.delay,
+                                backoff=a.backoff, max_delay=a.max_delay,
+                                on_attempt=show)
+    except devkit.RetryError as e:
+        _p(str(e))
+        return 1
     last = attempts[-1]
     spent = sum(x.seconds + x.waited for x in attempts)
     if last.code == 0:

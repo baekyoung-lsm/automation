@@ -1087,6 +1087,22 @@ class FolderAuditTest(unittest.TestCase):
         self.assertEqual(set(self.kinds()), {"구성", "큰 파일"})
 
 
+class UndoInputTest(unittest.TestCase):
+    """되돌리기에 엉뚱한 것을 줬을 때. 역추적 대신 사람 말이어야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_broken_journal_is_reported(self):
+        journal = self.root / "가짜.jsonl"
+        journal.write_text("{이건 JSON 이 아니다\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            files.undo(journal)
+
+
 class DocumentMetaTest(unittest.TestCase):
     CORE = ("<?xml version='1.0' encoding='UTF-8'?>"
             "<cp:coreProperties"

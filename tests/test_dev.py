@@ -169,6 +169,12 @@ class DevkitTest(unittest.TestCase):
     def test_retry_runs_once_even_with_zero_tries(self):
         self.assertEqual(len(devkit.retry(["true"], tries=0, sleeper=lambda s: None)), 1)
 
+    def test_retry_says_why_it_cannot_run(self):
+        # 없는 명령·못 도는 파일은 다시 돌려도 같다. 역추적 대신 사람 말로
+        with self.assertRaises(devkit.RetryError) as ctx:
+            devkit.retry(["/없는/명령"], tries=3, sleeper=lambda s: None)
+        self.assertIn("돌리지 못했습니다", str(ctx.exception))
+
 
 class CronTest(unittest.TestCase):
     def runs(self, expr, start, n=3):

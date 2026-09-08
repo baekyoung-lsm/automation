@@ -619,7 +619,12 @@ def cmd_text_undo(a) -> int:
         return 1
     if not a.journal:
         _p(f"최근 저널을 사용합니다: {journal}")
-    restored, errors = text.undo(journal)
+    try:
+        restored, errors = text.undo(journal)
+    except (OSError, ValueError) as e:
+        _p(f"저널을 읽지 못했습니다: {e}")
+        _p(f"  기록은 {text.backup_dir()} 아래에 남습니다.")
+        return 1
     _p(f"{restored}개 파일을 되돌렸습니다.")
     for e in errors:
         _p(f"  건너뜀: {e}")
