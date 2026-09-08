@@ -134,6 +134,18 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("파일", self.run_cli("file", "list", self.path("문서")))
         self.run_cli("file", "list", self.path("문서"),
                      "-o", self.path("목록.csv"))
+        문서폴더 = Path(self.path("속성"))
+        문서폴더.mkdir(exist_ok=True)
+        import zipfile
+
+        with zipfile.ZipFile(문서폴더 / "계획서.docx", "w") as z:
+            z.writestr("docProps/core.xml",
+                       "<cp:coreProperties xmlns:cp='c' xmlns:dc='d'>"
+                       "<dc:creator>김철수</dc:creator></cp:coreProperties>")
+            z.writestr("word/document.xml", "<x/>")
+        속성 = self.run_cli("file", "docs", str(문서폴더))
+        self.assertIn("김철수", 속성)
+        self.assertIn("밖으로 보내기 전에", 속성)
         self.assertIn("문서", self.run_cli("file", "organize", self.path("문서")))
         self.run_cli("file", "fixname", self.path("문서"))
         self.run_cli("file", "dupes", self.path("문서"), "--min-size", "1")

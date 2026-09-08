@@ -49,6 +49,70 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def cmd_file_docs(a) -> int:
+    """워드·엑셀·슬라이드 파일의 속성을 표로. 누가 만든 문서인지 본다."""
+    from .. import sheet
+
+    root = Path(a.dir)
+    if not root.exists():
+        _p(f"없는 경로입니다: {root}")
+        return 1
+
+    metas = files.scan_documents(root, recursive=not a.flat, include_hidden=a.hidden)
+    if not metas:
+        _p("워드·엑셀·슬라이드 파일이 없습니다. "
+           f"({', '.join(sorted(files.OOXML_KINDS))})")
+        return 0
+
+    def number(value) -> str:
+        return f"{value:,}" if isinstance(value, int) else ""
+
+    def moment(value: str) -> str:
+        """문서 속성의 시각은 세계시(UTC)다. 한국 시각인 척 적지 않는다."""
+        if value.endswith("Z") and "T" in value:
+            return value[:-1].replace("T", " ")[:16] + " UTC"
+        return value.replace("T", " ")
+
+    headers = ["이름", "종류", "제목", "만든 사람", "마지막 저장", "만든 날짜",
+               "고친 날짜", "회사", "만든 프로그램", "쪽", "낱말", "장",
+               "크기(바이트)", "못 읽은 까닭"]
+    table = sheet.Table(headers, [
+        [m.path.name, m.kind, m.title, m.author, m.last_by, moment(m.created),
+         moment(m.modified), m.company, m.program, m.pages, m.words, m.slides,
+         m.size, m.error] for m in metas], source=str(root))
+
+    if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
+        out = sheet.save(table, Path(a.out))
+        _p(f"저장: {out}  (문서 {len(metas):,}개)")
+        return 0
+
+    _grid(["이름", "종류", "제목", "만든 사람", "고친 날짜", "쪽/장"],
+          [[_pad(m.path.name, 0), m.kind, _cut(m.title or m.error, 20),
+            _cut(m.author or m.last_by, 12), m.modified[:10],
+            number(m.pages if m.pages is not None else m.slides)]
+           for m in metas[:a.limit]], limit=30)
+    if len(metas) > a.limit:
+        _p(f"... {len(metas) - a.limit:,}개 더 (--limit 로 조절)")
+
+    left = [m for m in metas if m.personal]
+    unread = [m for m in metas if m.error]
+    _p(f"\n문서 {len(metas):,}개")
+    if left:
+        _p(f"사람·회사 이름이 남아 있는 문서 {len(left):,}개 - "
+           "밖으로 보내기 전에 보세요:")
+        for m in left[:a.limit]:
+            _p(f"  {m.path.name}  {', '.join(m.personal)}")
+        if len(left) > a.limit:
+            _p(f"  ... {len(left) - a.limit:,}개 더")
+    if unread:
+        _p(f"속성을 읽지 못한 파일 {len(unread):,}개 (표의 «못 읽은 까닭» 칸)")
+    _p("속성만 읽었습니다. 문서 내용은 열지 않았습니다. "
+       "(내용은 at doc from-docx, at sheet from-docx)")
+    return 0
+
+
 def cmd_file_list(a) -> int:
     """폴더 안 파일 목록을 표로. 제출 자료 목록을 손으로 적지 않게."""
     from .. import sheet
@@ -955,6 +1019,17 @@ def add_commands(sub) -> None:
     o.add_argument("--fixname", action="store_true", help="옮기면서 파일명도 정리")
     o.add_argument("-v", "--verbose", action="store_true")
     o.set_defaults(func=cmd_file_organize)
+
+    dcs = fp.add_parser("docs",
+                        help="워드·엑셀·슬라이드 속성 목록 (누가 만든 문서인가)")
+    dcs.add_argument("dir", nargs="?", default=".", metavar="경로")
+    dcs.add_argument("-o", "--out", metavar="파일", help="저장 경로 (.csv, .xlsx, .md)")
+    dcs.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    dcs.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
+    dcs.add_argument("--hidden", action="store_true", help="숨김 파일도")
+    dcs.add_argument("--limit", type=int, default=30, metavar="개")
+    dcs.set_defaults(func=cmd_file_docs)
 
     ls = fp.add_parser("list", help="파일 목록을 표로 (엑셀에 붙일 자료 목록)")
     ls.add_argument("dir")

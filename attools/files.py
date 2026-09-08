@@ -331,6 +331,125 @@ def list_files(root: Path, *, recursive: bool = True, include_hidden: bool = Fal
     return out
 
 
+# ------------------------------------------------- 문서 속성 (누가 만든 문서인가)
+
+OOXML_KINDS = {".docx": "워드", ".docm": "워드", ".xlsx": "엑셀",
+               ".xlsm": "엑셀", ".pptx": "슬라이드", ".pptm": "슬라이드"}
+CORE_PART = "docProps/core.xml"
+APP_PART = "docProps/app.xml"
+CORE_FIELDS = {                      # core.xml 의 태그 -> 우리 이름
+    "title": "title", "subject": "subject", "creator": "author",
+    "lastModifiedBy": "last_by", "created": "created", "modified": "modified",
+    "revision": "revision", "keywords": "keywords",
+}
+APP_FIELDS = {"Pages": "pages", "Words": "words", "Slides": "slides",
+              "Company": "company", "Application": "program"}
+
+
+@dataclass
+class DocMeta:
+    path: Path
+    kind: str
+    title: str = ""
+    subject: str = ""
+    author: str = ""            # 만든 사람 (dc:creator)
+    last_by: str = ""           # 마지막으로 저장한 사람
+    created: str = ""
+    modified: str = ""
+    revision: str = ""
+    keywords: str = ""
+    company: str = ""
+    program: str = ""           # 무엇으로 만들었나 (한글, LibreOffice …)
+    pages: int | None = None
+    words: int | None = None
+    slides: int | None = None
+    size: int = 0
+    error: str = ""             # 못 읽었으면 그 까닭
+
+    @property
+    def personal(self) -> list[str]:
+        """밖으로 보낼 때 눈에 걸리는 것 - 사람 이름과 회사 이름."""
+        return [v for v in (self.author, self.last_by, self.company) if v]
+
+
+def _xml_texts(raw: bytes) -> dict[str, str]:
+    """이름 공간을 떼고 «태그 이름 -> 글자» 로. 속성은 보지 않는다."""
+    import xml.etree.ElementTree as ET
+
+    out: dict[str, str] = {}
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return out
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1]
+        text = (node.text or "").strip()
+        if text and tag not in out:
+            out[tag] = text
+    return out
+
+
+def document_meta(path: Path) -> DocMeta:
+    """워드·엑셀·슬라이드 파일의 속성을 읽는다. 내용은 열지 않는다.
+
+    문서를 밖으로 보낼 때 «작성자» 에 사내 계정 이름이 그대로 남아 있는 일이
+    잦다. 읽지 못하면 빈 칸으로 두지 않고 까닭을 적는다 - 빈 칸은 «속성이
+    없다» 로 읽히지만 실제로는 못 읽은 것일 수 있다.
+    """
+    import zipfile
+
+    meta = DocMeta(path=path, kind=OOXML_KINDS.get(path.suffix.lower(), "문서"))
+    try:
+        meta.size = path.stat().st_size
+    except OSError:
+        pass
+
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = set(z.namelist())
+            if CORE_PART not in names and APP_PART not in names:
+                meta.error = "문서 속성이 없습니다"
+                return meta
+            core = _xml_texts(z.read(CORE_PART)) if CORE_PART in names else {}
+            app = _xml_texts(z.read(APP_PART)) if APP_PART in names else {}
+    except zipfile.BadZipFile:
+        meta.error = "열지 못했습니다 (이름만 바꾼 옛 형식일 수 있습니다)"
+        return meta
+    except OSError as e:
+        meta.error = str(e)
+        return meta
+
+    for tag, field_name in CORE_FIELDS.items():
+        if tag in core:
+            setattr(meta, field_name, core[tag])
+    for tag, field_name in APP_FIELDS.items():
+        if tag not in app:
+            continue
+        value = app[tag]
+        if field_name in ("pages", "words", "slides"):
+            setattr(meta, field_name, int(value) if value.isdigit() else None)
+        else:
+            setattr(meta, field_name, value)
+    return meta
+
+
+def scan_documents(root: Path, *, recursive: bool = True,
+                   include_hidden: bool = False) -> list[DocMeta]:
+    """폴더 안의 워드·엑셀·슬라이드 파일 속성을 모은다."""
+    if root.is_file():
+        return [document_meta(root)]
+    out: list[DocMeta] = []
+    walker = root.rglob("*") if recursive else root.glob("*")
+    for path in sorted(walker):
+        if not path.is_file() or path.suffix.lower() not in OOXML_KINDS:
+            continue
+        parts = path.relative_to(root).parts
+        if not include_hidden and any(p.startswith(("~$", ".")) for p in parts):
+            continue
+        out.append(document_meta(path))
+    return out
+
+
 def snapshot_mtimes(root: Path, patterns: list[str]) -> dict[str, float]:
     """감시 대상 파일의 수정 시각 표."""
     out: dict[str, float] = {}

@@ -1013,5 +1013,86 @@ class FolderAuditTest(unittest.TestCase):
         self.assertEqual(set(self.kinds()), {"구성", "큰 파일"})
 
 
+class DocumentMetaTest(unittest.TestCase):
+    CORE = ("<?xml version='1.0' encoding='UTF-8'?>"
+            "<cp:coreProperties"
+            " xmlns:cp='http://schemas.openxmlformats.org/package/2006/"
+            "metadata/core-properties'"
+            " xmlns:dc='http://purl.org/dc/elements/1.1/'"
+            " xmlns:dcterms='http://purl.org/dc/terms/'>"
+            "<dc:title>2026 사업계획</dc:title>"
+            "<dc:creator>김철수</dc:creator>"
+            "<cp:lastModifiedBy>박영희</cp:lastModifiedBy>"
+            "<cp:revision>7</cp:revision>"
+            "<dcterms:modified>2026-02-11T18:20:00Z</dcterms:modified>"
+            "</cp:coreProperties>")
+    APP = ("<?xml version='1.0'?><Properties xmlns='http://schemas."
+           "openxmlformats.org/officeDocument/2006/extended-properties'>"
+           "<Application>Microsoft Office Word</Application>"
+           "<Pages>12</Pages><Words>3400</Words>"
+           "<Company>가나상사</Company></Properties>")
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, name="계획서.docx", *, core=True, app=True) -> Path:
+        import zipfile
+
+        path = self.root / name
+        with zipfile.ZipFile(path, "w") as z:
+            if core:
+                z.writestr("docProps/core.xml", self.CORE)
+            if app:
+                z.writestr("docProps/app.xml", self.APP)
+            z.writestr("word/document.xml", "<x/>")
+        return path
+
+    def test_reads_core_and_app(self):
+        meta = files.document_meta(self.make())
+        self.assertEqual(meta.kind, "워드")
+        self.assertEqual(meta.title, "2026 사업계획")
+        self.assertEqual(meta.author, "김철수")
+        self.assertEqual(meta.last_by, "박영희")
+        self.assertEqual(meta.revision, "7")
+        self.assertEqual(meta.modified, "2026-02-11T18:20:00Z")
+        self.assertEqual(meta.pages, 12)
+        self.assertEqual(meta.words, 3400)
+        self.assertEqual(meta.company, "가나상사")
+        self.assertEqual(meta.error, "")
+
+    def test_personal_lists_names_left_behind(self):
+        meta = files.document_meta(self.make())
+        self.assertEqual(meta.personal, ["김철수", "박영희", "가나상사"])
+
+    def test_document_without_properties(self):
+        meta = files.document_meta(self.make(core=False, app=False))
+        self.assertEqual(meta.error, "문서 속성이 없습니다")
+        self.assertEqual(meta.personal, [])
+
+    def test_broken_file_says_why(self):
+        path = self.root / "가짜.xlsx"
+        path.write_bytes("이건 zip 이 아니다".encode("utf-8"))
+        meta = files.document_meta(path)
+        # 빈 칸으로 두면 «속성이 없다» 로 읽힌다. 못 읽은 것은 못 읽었다고 적는다
+        self.assertIn("열지 못했습니다", meta.error)
+
+    def test_scan_skips_other_files_and_temp_files(self):
+        self.make()
+        self.make("보고.pptx")
+        (self.root / "메모.txt").write_text("가", encoding="utf-8")
+        (self.root / "~$계획서.docx").write_bytes(b"tmp")
+        found = files.scan_documents(self.root)
+        self.assertEqual([m.path.name for m in found],
+                         ["계획서.docx", "보고.pptx"])
+        self.assertEqual(found[1].kind, "슬라이드")
+
+    def test_scan_can_take_one_file(self):
+        path = self.make()
+        self.assertEqual(len(files.scan_documents(path)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
