@@ -714,5 +714,39 @@ class CertTest(unittest.TestCase):
         self.assertIsNone(info.not_after)
 
 
+class WeaveTest(unittest.TestCase):
+    def entries(self, *lines):
+        return logkit.parse(list(lines))
+
+    def test_orders_by_time_across_files(self):
+        app = self.entries("2026-03-04 10:00:00 INFO 시작",
+                           "2026-03-04 10:00:05 ERROR 터짐")
+        web = self.entries("2026-03-04 10:00:02 INFO 요청")
+        woven, borrowed = logkit.weave({"app": app, "web": web})
+        self.assertEqual([w.source for w in woven], ["app", "web", "app"])
+        self.assertEqual(borrowed, 0)
+
+    def test_line_without_time_borrows_the_previous_one(self):
+        # 여러 줄짜리 오류의 뒷줄이 맨 끝으로 밀리면 읽을 수 없다
+        app = self.entries("2026-03-04 10:00:00 INFO 시작", "이어지는 줄")
+        woven, borrowed = logkit.weave({"app": app})
+        self.assertEqual(borrowed, 1)
+        self.assertEqual(woven[1].when, woven[0].when)
+        self.assertTrue(woven[1].borrowed)
+
+    def test_line_before_any_time_stays_in_front(self):
+        web = self.entries("머리말", "2026-03-04 10:00:02 INFO 요청")
+        woven, borrowed = logkit.weave({"web": web})
+        self.assertIsNone(woven[0].when)
+        self.assertEqual(borrowed, 0)
+        self.assertFalse(woven[0].borrowed)
+
+    def test_stack_trace_stays_with_its_line(self):
+        app = self.entries("2026-03-04 10:00:05 ERROR 터짐", "    at foo.py:1")
+        woven, _borrowed = logkit.weave({"app": app})
+        self.assertEqual(len(woven), 1)          # 트레이스는 앞 줄에 붙는다
+        self.assertIn("at foo.py:1", woven[0].entry.raw)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -322,3 +322,38 @@ def by_route(timed: list[Timed], *, top: int = 10,
             "avg": lambda s: -s.avg, "count": lambda s: -s.count,
             "total": lambda s: -s.total}
     return sorted(buckets.values(), key=keys.get(sort, keys["p95"]))[:top]
+
+
+# ------------------------------------------- 여러 로그를 한 줄기로 (timeline)
+
+@dataclass
+class Woven:
+    when: datetime | None
+    source: str            # 어느 파일에서 왔나
+    entry: Entry
+    borrowed: bool = False  # 시각이 없어 앞 줄 시각을 물려받았나
+
+
+def weave(sources: dict[str, list[Entry]]) -> tuple[list[Woven], int]:
+    """파일별 항목을 시각 순으로 섞는다. (섞은 것, 시각을 물려받은 줄 수)
+
+    시각이 없는 줄은 같은 파일에서 바로 앞 줄의 시각으로 놓는다 - 여러 줄짜리
+    오류가 첫 줄만 제자리에 가고 나머지가 맨 끝으로 밀리면 읽을 수 없다.
+    앞에 시각이 아예 없었으면 시각 없는 줄로 남기고 맨 앞에 둔다.
+    """
+    out: list[Woven] = []
+    borrowed = 0
+    for name, entries in sources.items():
+        last: datetime | None = None
+        for entry in entries:
+            if entry.when is not None:
+                last = entry.when
+                out.append(Woven(entry.when, name, entry))
+                continue
+            if last is not None:
+                borrowed += 1
+            out.append(Woven(last, name, entry, borrowed=last is not None))
+
+    # 시각을 모르는 줄은 맨 앞에 둔다. 순서를 지어내지 않으려고 파일 안 순서만 지킨다.
+    out.sort(key=lambda w: (w.when is not None, w.when or datetime.min))
+    return out, borrowed

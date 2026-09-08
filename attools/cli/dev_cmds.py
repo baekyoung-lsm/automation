@@ -1010,6 +1010,87 @@ def cmd_dev_enc(a) -> int:
     return 0
 
 
+def cmd_dev_timeline(a) -> int:
+    """여러 로그를 시각 순으로 한 줄기로. 어느 서비스가 먼저 터졌나 볼 때."""
+    sources: dict = {}
+    for source in a.files:
+        path = Path(source)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        name = path.stem
+        while name in sources:                 # 이름이 겹치면 폴더까지 붙인다
+            name = f"{path.parent.name}/{name}"
+        sources[name] = logkit.parse(manuscript.read_text(path).splitlines())
+
+    if not sources:
+        _p("읽을 로그가 없습니다.")
+        return 1
+
+    woven, borrowed = logkit.weave(sources)
+    if a.since or a.until:
+        stamps = [w.when for w in woven if w.when]
+        first = min(stamps) if stamps else None
+        try:
+            since = logkit.parse_moment(a.since, base=first) if a.since else None
+            until = logkit.parse_moment(a.until, base=first) if a.until else None
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        woven = [w for w in woven if w.when is not None
+                 and (since is None or w.when >= since)
+                 and (until is None or w.when <= until)]
+
+    if a.level:
+        want = {lv.upper() for lv in a.level}
+        woven = [w for w in woven if w.entry.level in want]
+    if a.grep:
+        try:
+            pattern = re.compile(a.grep, re.IGNORECASE)
+        except re.error as e:
+            _p(f"정규식을 읽지 못했습니다: {e}")
+            return 1
+        woven = [w for w in woven if pattern.search(w.entry.raw)]
+
+    if not woven:
+        _p("걸리는 줄이 없습니다.")
+        return 1
+
+    _p(f"파일 {len(sources)}개  ·  {len(woven):,}줄  ·  "
+       + " · ".join(sources))
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("\n".join(f"[{w.source}] {w.entry.raw}" for w in woven)
+                       + "\n", encoding="utf-8")
+        _p(f"저장: {out}")
+    else:
+        shown = woven[-a.rows:] if a.tail else woven[:a.rows]
+        _p("")
+        for w in shown:
+            when = w.when.strftime("%m-%d %H:%M:%S") if w.when else "  시각 없음 "
+            mark = "~" if w.borrowed else " "
+            _, *rest = w.entry.raw.splitlines()
+            level = f"{w.entry.level:<5} " if w.entry.level else ""
+            _p(f"{when}{mark} [{_cut(w.source, 12)}] {level}"
+               f"{_cut(w.entry.message, a.width)}")
+            for line in rest[:3]:
+                _p(f"{' ' * 14} {_cut(line.strip(), a.width)}")
+        if len(woven) > a.rows:
+            _p(f"\n... {len(woven) - a.rows:,}줄 더 "
+               f"({'앞' if a.tail else '뒤'}쪽. --rows 로 조절, "
+               f"{'--tail 없이' if a.tail else '--tail 로'} 반대쪽)")
+
+    if borrowed:
+        _p(f"\n시각이 없어 «~» 로 앞 줄 시각에 놓은 줄 {borrowed:,}개. "
+           "그 안에서의 순서는 원래 파일 순서입니다.")
+    _p("시각 형식이 다른 로그는 섞이지 않을 수 있습니다 "
+       "(2026-03-04 10:00:00 꼴을 읽습니다).")
+    return 0
+
+
 def cmd_dev_log(a) -> int:
     lines: list[str] = []
     for source in a.files:
@@ -1409,6 +1490,22 @@ def add_commands(sub) -> None:
     lk.add_argument("--major", action="store_true", help="맨 앞 숫자가 바뀐 것만")
     lk.add_argument("--limit", type=int, default=40)
     lk.set_defaults(func=cmd_dev_lock)
+
+    tl = dp.add_parser("timeline",
+                       help="여러 로그를 시각 순으로 한 줄기로 (서비스 사이 순서)")
+    tl.add_argument("files", nargs="+", metavar="파일")
+    tl.add_argument("--since", metavar="시각", help="이 시각부터")
+    tl.add_argument("--until", metavar="시각", help="이 시각까지")
+    tl.add_argument("-l", "--level", action="append", metavar="레벨",
+                    help="예: -l ERROR -l WARN")
+    tl.add_argument("--grep", metavar="정규식", help="이 무늬가 든 줄만")
+    tl.add_argument("--rows", type=int, default=40, metavar="개")
+    tl.add_argument("--width", type=int, default=90, metavar="칸")
+    tl.add_argument("--tail", action="store_true", help="끝에서부터 본다")
+    tl.add_argument("-o", "--out", metavar="파일", help="섞은 줄을 그대로 저장")
+    tl.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    tl.set_defaults(func=cmd_dev_timeline)
 
     pv = dp.add_parser("pyver",
                        help="이 코드가 어느 파이썬부터 도는지 (낮은 판 지원 확인)")

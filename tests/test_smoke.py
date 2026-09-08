@@ -489,6 +489,12 @@ class SmokeTest(unittest.TestCase):
                           "--since", "2026-09-01 10:00", "-o", self.path("자른.log"))
         self.assertIn("줄 중", 자름)
         self.assertTrue(Path(self.path("자른.log")).is_file())
+        웹로그 = Path(self.path("web.log"))
+        웹로그.write_text("2026-09-01 10:00:02 INFO GET /pay 500\n",
+                        encoding="utf-8")
+        줄기 = self.run_cli("dev", "timeline", self.path("app.log"), str(웹로그))
+        self.assertIn("[web]", 줄기)
+        self.assertIn("[app]", 줄기)
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
         import sqlite3

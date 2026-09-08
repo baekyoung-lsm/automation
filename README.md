@@ -196,6 +196,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
 | `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기. `--since/--until` 로 시간대만 잘라 `-o` 로 저장 |
 | `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청 |
+| `at dev timeline <파일…>` | 여러 로그를 시각 순으로 한 줄기로 (어느 서비스가 먼저 터졌나) |
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
 | `at dev api <openapi.json>` | API 문서 훑기 - 엔드포인트·인자·응답, 빠진 문서 찾기 |
@@ -237,6 +238,8 @@ at dev bench --cmd "sort a.txt" --cmd "sort -S1M a.txt"   # 두 방식 비교
 at dev log app.log                      # 전체 요약
 at dev log app.log --since 10:00 --until 11:00 -o 사고시간.log
 at dev log app.log -l ERROR -b 10m      # 에러만 10분 단위로
+at dev timeline web.log app.log db.log --since 10:00 --until 10:05
+at dev timeline web.log app.log -l ERROR --grep order=1
 kubectl logs pod | at dev log -
 at dev slow app.log --over 500          # 500ms 넘는 요청 비율까지
 at dev slow app.log --sort total        # 총 소요 시간이 큰 경로부터
@@ -434,6 +437,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+`at dev timeline` 은 서비스 여러 개의 로그를 **시각 순으로 섞어** 한 줄기로 보여 준다.
+«웹이 먼저 500 을 받았나, 앱이 먼저 터졌나» 를 보는 자리다. 시각이 없는 줄은 같은 파일에서
+바로 앞 줄의 시각에 놓고 `~` 로 표시한다 - 여러 줄짜리 오류의 뒷줄이 맨 끝으로 밀리면
+읽을 수 없기 때문이다. 앞에 시각이 아예 없던 줄은 순서를 지어내지 않고 맨 앞에 둔다.
 
 `at dev pyver` 는 낮은 파이썬을 지원해야 할 때 «어디가 걸리나» 를 본다. `match` 문,
 `except*`, 주석의 `X | Y` 같은 문법은 `ast` 로 확실히 보고, 새로 들어온 표준 라이브러리
