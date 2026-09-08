@@ -343,6 +343,21 @@ class HouseRulesTest(unittest.TestCase):
                 bad.append("at " + " ".join(path))
         self.assertEqual(bad, [], f"안전장치가 없는 명령: {bad}")
 
+    def test_readme_lists_each_command_once(self):
+        """README 표에 같은 명령이 두 번 들어가면 한쪽만 고치게 된다."""
+        from collections import Counter
+
+        readme = Path(__file__).resolve().parents[1] / "README.md"
+        names = []
+        for line in readme.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("| `at "):
+                continue
+            command = line.split("`")[1].split()
+            names.append(" ".join(command[:3] if len(command) > 2
+                                  else command[:2]))
+        twice = [name for name, count in Counter(names).items() if count > 1]
+        self.assertEqual(twice, [], f"표에 두 번 나온 명령: {twice}")
+
     def test_logic_modules_do_not_print(self):
         """출력은 cli 에서만 한다. 로직이 찍기 시작하면 시험이 지저분해진다."""
         import ast
