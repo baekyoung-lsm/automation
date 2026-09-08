@@ -517,6 +517,36 @@ class SheetAppTest(UiCase):
         self.assertIn("(날짜)", data["saved"])
         self.assertEqual(path.read_text(encoding="utf-8"), before)
 
+    def test_age_adds_columns(self):
+        path = self.csv("생일.csv",
+                        "이름,생년월일\n가,1990-05-06\n나,900101-2345678\n"   # attools: ignore
+                        "다,몰라\n")
+        _, data = self.post("/api/sheet/age_preview",
+                            {"path": str(path), "acol": "생년월일",
+                             "aon": "2026-03-01", "agroup": True,
+                             "asex": True})
+        self.assertEqual(data["headers"][-3:],
+                         ["생년월일 만나이", "생년월일 연령대", "생년월일 성별"])
+        self.assertEqual(data["rows"][0][-3:], ["35", "30대", ""])
+        self.assertEqual(data["rows"][1][-1], "여")
+        self.assertEqual(data["failed"], [["4", "몰라"]])
+        self.assertEqual(data["read"], 2)
+        self.assertEqual(data["sexed"], 1)
+
+    def test_age_needs_a_column(self):
+        path = self.csv("생일.csv", "이름,생년월일\n가,1990-05-06\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/age_preview", {"path": str(path), "acol": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_age_save_leaves_the_original(self):
+        path = self.csv("생일.csv", "이름,생년월일\n가,1990-05-06\n")
+        before = path.read_text(encoding="utf-8")
+        _, data = self.post("/api/sheet/age_save",
+                            {"path": str(path), "acol": "생년월일"})
+        self.assertIn("(나이)", data["saved"])
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+
     def test_audit_collects_notes(self):
         path = self.csv("받은것.csv",
                         "상호,메일\n(주)가나,a@a.com\n주식회사 가나,b@a.com\n"
@@ -2317,6 +2347,15 @@ class CommandHintTest(UiCase):
         _, data = self.post("/api/sheet/dates_preview",
                             {"path": str(path), "dcol": "주문일",
                              "dparts": ["요일", "주차"]})
+        self.accepts(data["command"])
+
+    def test_sheet_age_command(self):
+        path = self.work / "생일.csv"
+        path.write_text("이름,생년월일\n가,1990-05-06\n", encoding="utf-8")
+        _, data = self.post("/api/sheet/age_preview",
+                            {"path": str(path), "acol": "생년월일",
+                             "aon": "2026-03-01", "agroup": True,
+                             "asex": True})
         self.accepts(data["command"])
 
     def test_sheet_tidy_commands(self):

@@ -616,6 +616,68 @@ def dates_save(payload: dict) -> dict:
             "command": _dates_command(payload, column, parts, out)}
 
 
+def _aged(payload: dict):
+    table = _open(payload)
+    column = form.text(payload, "acol")
+    if not column:
+        raise UiError("생년월일이 든 열을 골라 주세요.")
+    on = None
+    raw = form.text(payload, "aon")
+    if raw:
+        on = sheet.parse_date(raw)
+        if on is None:
+            raise UiError(f"날짜로 읽지 못했습니다: {raw}")
+    group = form.flag(payload, "agroup")
+    sex = form.flag(payload, "asex")
+    try:
+        result, report = sheet.add_age(table, column, on=on, group=group,
+                                       sex=sex)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+    return table, result, report, column, on, group, sex
+
+
+def _age_command(payload: dict, column: str, on, group: bool, sex: bool,
+                 out=None) -> str:
+    args: list[object] = ["sheet", "age", *_source_args(payload), "-c", column]
+    if on:
+        args += ["--on", str(on)]
+    if group:
+        args.append("--group")
+    if sex:
+        args.append("--sex")
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _age_result(table, report) -> dict:
+    return {"headers": table.headers, "rows": _cells(table, PEEK_ROWS),
+            "count": len(table.rows), "shown": min(len(table.rows), PEEK_ROWS),
+            "read": report.read, "sexed": report.sexed,
+            "failed": [[str(line), value] for line, value in report.failed[:20]]}
+
+
+def age_preview(payload: dict) -> dict:
+    _before, table, report, column, on, group, sex = _aged(payload)
+    out = _age_result(table, report)
+    out["command"] = _age_command(payload, column, on, group, sex)
+    return out
+
+
+def age_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(나이)» 파일을 만든다."""
+    before, table, report, column, on, group, sex = _aged(payload)
+    source = Path(before.source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    target = files.unique_path(source.with_name(f"{source.stem} (나이){suffix}"))
+    sheet.save(table, target)
+    out = _age_result(table, report)
+    out["saved"] = str(target)
+    out["command"] = _age_command(payload, column, on, group, sex, target)
+    return out
+
+
 def audit(payload: dict) -> dict:
     """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
     table = _open(payload)
@@ -1249,6 +1311,26 @@ BODY = """
 </section>
 
 <section class="card" data-panel="고치기" hidden>
+  <h2>생년월일에서 나이·연령대</h2>
+  <p class="note">명단의 생년월일 열에서 <b>만 나이</b>와 연령대를 만듭니다.
+     칸이 주민등록번호면 성별까지 읽습니다. <b>읽지 못한 칸은 비워 둡니다</b> -
+     아무 값이나 채우면 그 사람이 조용히 다른 연령대에 잡힙니다.</p>
+  <div class="row">
+    <div><label for="acol">생년월일 열</label><select id="acol"></select></div>
+    <div><label for="aon">기준일 (비우면 오늘)</label>
+      <input type="text" id="aon" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-age">만들어 보기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-age-save" disabled>새 파일로 저장</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="agroup" checked> 연령대 열도 (30대…)</label>
+    <label><input type="checkbox" id="asex"> 성별 열도 (주민등록번호일 때만)</label>
+  </div>
+  <div id="agemsg"></div>
+  <div id="ageout"></div>
+</section>
+
+<section class="card" data-panel="고치기" hidden>
   <h2>빈 칸 채우기 · 합계 줄</h2>
   <p class="note">병합된 셀을 풀면 첫 칸만 남고 아래가 빕니다. 그대로 두면
      정렬·피벗·필터가 어긋납니다. 빈 칸을 <b>바로 위 값</b>으로 채우고,
@@ -1779,6 +1861,45 @@ BODY = """
   $("btn-dday").addEventListener("click", function () { runDday(false); });
   $("btn-dday-save").addEventListener("click", function () { runDday(true); });
 
+  function ageValues() {
+    const b = values();
+    b.acol = $("acol").value;
+    b.aon = $("aon").value;
+    b.agroup = $("agroup").checked;
+    b.asex = $("asex").checked;
+    return b;
+  }
+
+  function drawAge(d) {
+    $("ageout").innerHTML =
+      (d.failed.length
+        ? "<h2>생년월일로 못 읽은 칸</h2>" +
+          AT.table(["행", "값"], d.failed, ["num", null])
+        : "") +
+      AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  async function runAge(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/age_save"
+                                   : "/api/sheet/age_preview", ageValues());
+      drawAge(d);
+      AT.message($("agemsg"), "나이를 읽은 칸 " + d.read + "개" +
+        ($("asex").checked ? " · 성별 " + d.sexed + "개" : "") +
+        (d.saved ? " · 저장했습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 이대로 저장할 수 있습니다."), "ok");
+      $("btn-age-save").disabled = !!save;
+    } catch (e) {
+      AT.message($("agemsg"), AT.esc(e.message), "bad");
+      $("btn-age-save").disabled = true;
+    }
+  }
+
+  $("btn-age").addEventListener("click", function () { runAge(false); });
+  $("btn-age-save").addEventListener("click", function () { runAge(true); });
+
   function datesValues() {
     const b = values();
     b.dcol = $("dcol").value;
@@ -1961,6 +2082,7 @@ BODY = """
       options($("mcol"), data.headers, "");
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
+      options($("acol"), data.headers, "");
       options($("ocol"), data.headers, "");
       options($("clabel"), data.headers, "");
       options($("cvalue"), data.headers, "건수만 셈");
@@ -2047,6 +2169,7 @@ def make() -> App:
                  "collect_save": collect_save,
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
+                 "age_preview": age_preview, "age_save": age_save,
                  "similar": similar, "outliers": outliers,
                  "audit": audit, "chart": chart, "dday": dday,
                  "replace_preview": replace_preview,
