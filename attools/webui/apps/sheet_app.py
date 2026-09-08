@@ -884,6 +884,70 @@ def forms(payload: dict) -> dict:
             "command": form.command(*args)}
 
 
+def _worked(payload: dict):
+    table = _open(payload)
+    start = form.text(payload, "wstart")
+    end = form.text(payload, "wend")
+    if not start or not end:
+        raise UiError("출근 열과 퇴근 열을 골라 주세요.")
+    date = form.text(payload, "wdate") or None
+    raw = form.text(payload, "wrest")
+    rest = int(form.number(payload, "wrest", 0, low=0, high=600)) if raw else None
+    try:
+        days, made = sheet.work_days(table, start=start, end=end, date=date,
+                                     rest=rest)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+    return table, days, made, (start, end, date, rest)
+
+
+def _worktime_command(payload: dict, picks, out=None) -> str:
+    start, end, date, rest = picks
+    args: list = ["sheet", "worktime", *_source_args(payload),
+                  "--start", start, "--end", end]
+    if date:
+        args += ["--date", date]
+    if rest is not None:
+        args += ["--rest", rest]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _worktime_result(days, made) -> dict:
+    good = [d for d in days if not d.problem]
+    worked = sum(d.worked for d in good)
+    return {"headers": made.headers, "rows": _cells(made, PEEK_ROWS),
+            "count": len(made.rows), "shown": min(len(made.rows), PEEK_ROWS),
+            "worked": round(worked / 60, 1), "days": len(good),
+            "average": round(worked / len(good) / 60, 1) if good else 0,
+            "night": sum(1 for d in good if d.overnight),
+            "unread": [[str(d.line), d.problem] for d in days
+                       if d.problem and d.problem != "빈 칸"][:20],
+            "weeks": [[str(monday), f"{minutes / 60:.1f}"]
+                      for monday, minutes in sheet.work_weeks(days)[:20]]}
+
+
+def worktime_preview(payload: dict) -> dict:
+    _table, days, made, picks = _worked(payload)
+    out = _worktime_result(days, made)
+    out["command"] = _worktime_command(payload, picks)
+    return out
+
+
+def worktime_save(payload: dict) -> dict:
+    """원본은 그대로 두고 옆에 «(근무시간)» 파일을 만든다."""
+    table, days, made, picks = _worked(payload)
+    source = Path(table.source)
+    suffix = source.suffix.lower()
+    if suffix not in sheet.XLSX_SUFFIXES:
+        suffix = ".csv"
+    target = files.unique_path(source.with_name(f"{source.stem} (근무시간){suffix}"))
+    sheet.save(made, target)
+    out = _worktime_result(days, made)
+    out["saved"] = str(target)
+    out["command"] = _worktime_command(payload, picks, target)
+    return out
+
+
 def audit(payload: dict) -> dict:
     """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
     table = _open(payload)
@@ -1515,6 +1579,29 @@ BODY = """
   <div class="checks" id="dparts">%(dateparts)s</div>
   <div id="datesmsg"></div>
   <div id="datesout"></div>
+</section>
+
+<section class="card" data-panel="고치기" hidden>
+  <h2>근무 시간 세기</h2>
+  <p class="note">출근·퇴근 열에서 하루 체류·휴게·실근무와 주별 합계를 만듭니다.
+     휴게는 <b>근로기준법 제54조의 최소 시간</b>(4시간 30분, 8시간 1시간)을 뺍니다 -
+     회사가 다르면 분을 직접 적으세요. 퇴근이 출근보다 이르면 <b>자정을 넘긴 것</b>으로
+     봅니다. 시각을 못 읽은 행은 0 으로 채우지 않고 비워 둡니다.
+     <b>야간·휴일 가산은 셈하지 않습니다.</b></p>
+  <div class="row">
+    <div><label for="wstart">출근 열</label><select id="wstart"></select></div>
+    <div><label for="wend">퇴근 열</label><select id="wend"></select></div>
+    <div><label for="wdate">날짜 열 (주별 합계)</label>
+      <select id="wdate"></select></div>
+    <div style="flex:0 1 8rem"><label for="wrest">휴게(분)</label>
+      <input type="text" id="wrest" placeholder="법정" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-worktime">세어 보기</button>
+    <button id="btn-worktime-save" disabled>새 파일로 저장</button>
+  </div>
+  <div id="wtmsg"></div>
+  <div id="wtout"></div>
 </section>
 
 <section class="card" data-panel="고치기" hidden>
@@ -2156,6 +2243,53 @@ BODY = """
   $("btn-dday").addEventListener("click", function () { runDday(false); });
   $("btn-dday-save").addEventListener("click", function () { runDday(true); });
 
+  function worktimeValues() {
+    const b = values();
+    b.wstart = $("wstart").value; b.wend = $("wend").value;
+    b.wdate = $("wdate").value; b.wrest = $("wrest").value;
+    return b;
+  }
+
+  function drawWorktime(d) {
+    $("wtout").innerHTML =
+      (d.unread.length
+        ? "<h2>시각을 읽지 못한 행</h2>" +
+          AT.table(["행", "까닭"], d.unread, ["num", null])
+        : "") +
+      (d.weeks.length
+        ? "<h2>주별 실근무</h2>" +
+          AT.table(["주 시작(월)", "시간"], d.weeks, [null, "num"])
+        : "") +
+      AT.table(d.headers, d.rows) +
+      (d.count > (d.shown || 0) ? '<p class="note">' + d.count + "행 가운데 " +
+        d.shown + "행만 보입니다.</p>" : "") + AT.command(d.command);
+  }
+
+  async function runWorktime(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/worktime_save"
+                                   : "/api/sheet/worktime_preview",
+                              worktimeValues());
+      drawWorktime(d);
+      AT.message($("wtmsg"), "일한 날 <b>" + d.days + "일</b> · 실근무 " +
+        d.worked + "시간 · 하루 평균 " + d.average + "시간" +
+        (d.night ? " · 자정을 넘긴 날 " + d.night + "일" : "") +
+        (d.saved ? " · 저장했습니다: <b>" + AT.esc(d.saved) + "</b>" : ""),
+        "ok");
+      $("btn-worktime-save").disabled = !!save;
+    } catch (e) {
+      AT.message($("wtmsg"), AT.esc(e.message), "bad");
+      $("btn-worktime-save").disabled = true;
+    }
+  }
+
+  $("btn-worktime").addEventListener("click", function () {
+    runWorktime(false);
+  });
+  $("btn-worktime-save").addEventListener("click", function () {
+    runWorktime(true);
+  });
+
   function ageValues() {
     const b = values();
     b.acol = $("acol").value;
@@ -2498,6 +2632,9 @@ BODY = """
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
       options($("acol"), data.headers, "");
+      options($("wstart"), data.headers, "");
+      options($("wend"), data.headers, "");
+      options($("wdate"), data.headers, "쓰지 않음");
       options($("mlto"), data.headers, "");
       options($("mlattach"), data.headers, "쓰지 않음");
       options($("ictitle"), data.headers, "");
@@ -2597,6 +2734,8 @@ def make() -> App:
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
                  "age_preview": age_preview, "age_save": age_save,
+                 "worktime_preview": worktime_preview,
+                 "worktime_save": worktime_save,
                  "mail_preview": mail_preview, "mail_make": mail_make,
                  "forms": forms,
                  "ics_preview": ics_preview, "ics_save": ics_save,

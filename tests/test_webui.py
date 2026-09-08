@@ -768,6 +768,30 @@ class SheetAppTest(UiCase):
                        "mlsubject": "안내", "mlto": "메일"})
         self.assertEqual(ctx.exception.code, 400)
 
+    def test_worktime_counts_hours(self):
+        path = self.csv("근태.csv",
+                        "날짜,출근,퇴근\n2026-03-02,09:00,18:00\n"
+                        "2026-03-03,09:00,21:30\n2026-03-04,아홉시,18:00\n")
+        body = {"path": str(path), "wstart": "출근", "wend": "퇴근",
+                "wdate": "날짜"}
+
+        _, data = self.post("/api/sheet/worktime_preview", body)
+        self.assertEqual(data["days"], 2)
+        self.assertEqual(data["worked"], 19.5)      # 8시간 + 11.5시간
+        self.assertEqual(data["unread"], [["4", "출근·퇴근 시각을 읽지 못했습니다"]])
+        self.assertEqual(data["weeks"][0][1], "19.5")
+
+        _, done = self.post("/api/sheet/worktime_save", body)
+        self.assertIn("(근무시간)", done["saved"])
+        self.assertTrue(Path(done["saved"]).is_file())
+
+    def test_worktime_needs_columns(self):
+        path = self.csv("근태.csv", "출근,퇴근\n09:00,18:00\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/worktime_preview",
+                      {"path": str(path), "wstart": "출근", "wend": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_forms_compares_headers(self):
         folder = self.work / "부서제출"
         folder.mkdir()
@@ -2710,6 +2734,13 @@ class CommandHintTest(UiCase):
         _, forms = self.post("/api/sheet/forms",
                              {"ffolder": str(folder), "fglob": "*.csv"})
         self.accepts(forms["command"])
+
+        clock = self.work / "근태.csv"
+        clock.write_text("출근,퇴근\n09:00,18:00\n", encoding="utf-8")
+        _, work = self.post("/api/sheet/worktime_preview",
+                            {"path": str(clock), "wstart": "출근",
+                             "wend": "퇴근", "wrest": "45"})
+        self.accepts(work["command"])
 
     def test_sheet_age_command(self):
         path = self.work / "생일.csv"
