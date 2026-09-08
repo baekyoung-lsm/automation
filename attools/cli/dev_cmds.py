@@ -831,6 +831,12 @@ def cmd_dev_doctor(a) -> int:
         _p("\n해 볼 만한 것")
         for step in report.steps:
             _p(f"  {step}")
+    if report.ci:
+        _p("\nCI 가 돌리는 명령 (여기서 그대로 돌려 보면 가장 확실하다)")
+        for one in report.ci[:a.ci]:
+            _p(f"  {_cut(one, 90)}")
+        if len(report.ci) > a.ci:
+            _p(f"  ... {len(report.ci) - a.ci}개 더 (--ci 로 조절)")
     if missing:
         _p("\n빠진 것")
         for f in missing:
@@ -1766,6 +1772,8 @@ def add_commands(sub) -> None:
     dr.add_argument("path", nargs="?", default=".", metavar="폴더")
     dr.add_argument("--strict", action="store_true",
                     help="빠진 것이 있으면 1 로 끝낸다")
+    dr.add_argument("--ci", type=int, default=6, metavar="개",
+                    help="CI 가 돌리는 명령을 몇 개까지 보여줄지 (기본 6)")
     dr.set_defaults(func=cmd_dev_doctor)
 
     im = dp.add_parser("imports", help="모듈 import 관계 - 누가 누구를 부르나, 고리는 없나")

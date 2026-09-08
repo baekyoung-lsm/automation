@@ -277,7 +277,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
 | `at dev pyver [경로…]` | 이 코드가 어느 파이썬부터 도는지. `--target 3.10` 을 넘으면 exit 1 |
-| `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나 |
+| `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 시험은 어떻게 돌리나, CI 는 무엇을 돌리나 |
 | `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
 | `at dev health <주소…>` | 여러 주소를 한 번에 두드려 상태·시간 확인. 하나라도 안 되면 exit 1 |
@@ -335,6 +335,7 @@ at dev imports attools --module sheet    # 이 모듈의 앞뒤만
 at dev pyver attools --target 3.10       # 3.10 에서 안 도는 자리가 있나
 at dev pyver attools --all               # 감싼 자리·짐작까지 전부
 at dev doctor                          # 방금 클론한 저장소, 뭐부터 하지
+at dev doctor ../받은저장소 --ci 12     # CI 가 돌리는 명령까지 다 보기
 at dev cert example.com                # 며칠 남았나
 at dev cert api.example.com:8443 --warn 14
 at dev outline src/ --sort 갈림길                      # 조건이 많은 함수부터
@@ -587,6 +588,13 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+새 저장소에서 제일 먼저 궁금한 두 가지, **시험을 어떻게 돌리나**와 **CI 가 무엇을 돌리나**도
+함께 본다. 시험 폴더(`tests/`, `spec/` …)를 찾고, `pytest` 를 쓴다는 흔적이 있을 때만
+`pytest -q` 를, 없으면 `python3 -m unittest discover -s tests` 를 적는다(노드·Go·러스트도
+같은 식이다). CI 설정(`.github/workflows/*.yml` 등)에 적힌 `run:` 명령은 그대로 뽑아
+보여 준다 — **CI 와 같은 것을 돌려 보는 것이 가장 확실하다**. `for`·`done` 같은 셸 얼개는
+명령이 아니므로 뺀다.
 
 `at dev health` 는 주소 여러 개를 **한 번에** 두드려 상태·응답 시간·크기를 표로 낸다. 배포
 뒤 «어디가 죽었나» 를 보는 자리다. 못 부른 주소는 빈 칸으로 두지 않고 까닭을 적는다 - 빈

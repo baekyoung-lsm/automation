@@ -96,3 +96,52 @@ class InspectTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestsAndCiTest(InspectTest):
+    """시험을 어떻게 돌리는지와 CI 가 무엇을 돌리는지."""
+
+    def test_no_tests_says_so(self):
+        self.make("pyproject.toml", "[project]\n")
+        report = project.inspect(self.root)
+        found = self.find(report, "시험 파일")
+        self.assertEqual(found.detail, "찾지 못했습니다")
+        self.assertIsNone(found.ok)          # 없는 것과 못 찾은 것은 다르다
+
+    def test_unittest_when_there_is_no_pytest(self):
+        self.make("pyproject.toml", "[project]\n")
+        self.make("tests/test_x.py", "")
+        report = project.inspect(self.root)
+        self.assertEqual(self.find(report, "시험 폴더").detail, "tests")
+        self.assertEqual(self.find(report, "돌리는 법").detail,
+                         "python3 -m unittest discover -s tests")
+
+    def test_pytest_when_the_file_says_so(self):
+        self.make("pyproject.toml", "[project]\ndependencies = ['pytest']\n")
+        self.make("tests/test_x.py", "")
+        report = project.inspect(self.root)
+        self.assertEqual(self.find(report, "돌리는 법").detail, "pytest -q")
+
+    def test_node_test_script(self):
+        self.make("package.json", '{"scripts": {"test": "vitest"}}')
+        self.make("__tests__/x.test.js", "")
+        report = project.inspect(self.root)
+        self.assertEqual(self.find(report, "돌리는 법").detail, "npm test")
+
+    def test_ci_commands_are_listed(self):
+        self.make(".github/workflows/test.yml",
+                  "jobs:\n  build:\n    steps:\n"
+                  "      - run: pip install -e .\n"
+                  "      - run: |\n"
+                  "          for x in 1 2; do\n"
+                  "          python -m unittest discover -s tests\n"
+                  "          done\n")
+        report = project.inspect(self.root)
+        # 셸 얼개(for·done)는 빼고 진짜 명령만 남는다
+        self.assertEqual(report.ci,
+                         ["pip install -e .",
+                          "python -m unittest discover -s tests"])
+
+    def test_no_ci_is_quiet(self):
+        self.make("pyproject.toml", "[project]\n")
+        self.assertEqual(project.inspect(self.root).ci, [])
+

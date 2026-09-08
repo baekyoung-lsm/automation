@@ -634,6 +634,19 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("안 되는 것 1개", 죽은주소)
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
+        저장소 = Path(self.path("받은저장소"))
+        (저장소 / ".github" / "workflows").mkdir(parents=True, exist_ok=True)
+        (저장소 / "pyproject.toml").write_text("[project]\nname='x'\n",
+                                              encoding="utf-8")
+        (저장소 / "tests").mkdir(exist_ok=True)
+        (저장소 / "tests" / "test_x.py").write_text("", encoding="utf-8")
+        (저장소 / ".github" / "workflows" / "ci.yml").write_text(
+            "jobs:\n  a:\n    steps:\n      - run: python -m unittest\n",
+            encoding="utf-8")
+        훑음 = self.run_cli("dev", "doctor", str(저장소))
+        self.assertIn("unittest discover -s tests", 훑음)
+        self.assertIn("CI 가 돌리는 명령", 훑음)
+
         아이콘 = Path(self.path("아이콘.png"))
         아이콘.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
         박기 = self.run_cli("dev", "enc", "--file", str(아이콘), "--data-uri")

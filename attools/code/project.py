@@ -49,6 +49,7 @@ class Report:
     root: Path
     findings: list[Finding] = field(default_factory=list)
     steps: list[str] = field(default_factory=list)      # 해 볼 만한 것
+    ci: list[str] = field(default_factory=list)         # CI 가 돌리는 명령
 
     def add(self, kind: str, name: str, detail: str, ok: bool | None = True) -> None:
         self.findings.append(Finding(kind, name, detail, ok))
@@ -125,6 +126,103 @@ def _git(root: Path) -> list[Finding]:
     return found
 
 
+# 시험 폴더 -> 무엇으로 돌리는가 (증거가 있을 때만 적는다)
+TEST_DIRS = ("tests", "test", "spec", "__tests__")
+CI_DIRS = (".github/workflows", ".gitlab-ci.yml", ".circleci/config.yml")
+RUN_LINE = re.compile(r"^(\s*)(?:-\s*)?run:\s*(.*)$")
+# 셸 얼개는 «돌려 볼 명령» 이 아니다. 그대로 보여 주면 목록이 지저분해진다.
+SHELL_NOISE = re.compile(r"^(?:#|for\b|done\b|if\b|fi\b|else\b|elif\b|then\b"
+                         r"|esac\b|case\b|while\b|;;|\}|\{)")
+
+
+def _test_command(root: Path) -> str:
+    """이 저장소에서 시험을 무엇으로 돌리는지. 증거가 없으면 빈 글자."""
+    if (root / "pyproject.toml").is_file() or (root / "requirements.txt").is_file():
+        marks = ["pytest.ini", "conftest.py", "tox.ini", "setup.cfg"]
+        text = ""
+        for name in ("pyproject.toml", "requirements.txt", "requirements-dev.txt"):
+            path = root / name
+            if path.is_file():
+                try:
+                    text += path.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    pass
+        if "pytest" in text or any((root / m).is_file() for m in marks):
+            return "pytest -q"
+        return "python3 -m unittest discover -s tests"
+    if (root / "package.json").is_file():
+        scripts = _package_json(root).get("scripts") or {}
+        if isinstance(scripts, dict) and "test" in scripts:
+            return "npm test"
+    if (root / "go.mod").is_file():
+        return "go test ./..."
+    if (root / "Cargo.toml").is_file():
+        return "cargo test"
+    if (root / "pom.xml").is_file():
+        return "mvn test"
+    if (root / "build.gradle").is_file() or (root / "build.gradle.kts").is_file():
+        return "./gradlew test"
+    return ""
+
+
+def _tests(root: Path) -> tuple[list[Finding], str]:
+    """시험이 어디 있고 무엇으로 도는지. 새 저장소에서 제일 먼저 궁금한 것이다."""
+    where = [name for name in TEST_DIRS if (root / name).is_dir()]
+    if not where:
+        loose = sorted(root.glob("test_*.py")) + sorted(root.glob("*_test.go"))
+        if loose:
+            where = ["(폴더 없이 파일로)"]
+    if not where:
+        return [Finding("시험", "시험 파일", "찾지 못했습니다", None)], ""
+
+    command = _test_command(root)
+    found = [Finding("시험", "시험 폴더", ", ".join(where))]
+    if command:
+        found.append(Finding("시험", "돌리는 법", command))
+    return found, command
+
+
+def _ci_commands(root: Path, *, limit: int = 12) -> list[str]:
+    """CI 설정에 적힌 명령. CI 와 같은 것을 돌려 보는 것이 가장 확실하다."""
+    files: list[Path] = []
+    flows = root / ".github" / "workflows"
+    if flows.is_dir():
+        files += sorted(q for q in flows.iterdir()
+                        if q.suffix in (".yml", ".yaml"))[:3]
+    for name in (".gitlab-ci.yml", ".circleci/config.yml"):
+        path = root / name
+        if path.is_file():
+            files.append(path)
+
+    out: list[str] = []
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        i = 0
+        while i < len(lines) and len(out) < limit:
+            match = RUN_LINE.match(lines[i])
+            i += 1
+            if not match:
+                continue
+            indent, body = match.group(1), match.group(2).strip()
+            if body not in ("|", ">", "|-", ">-"):
+                if body and body not in out and not SHELL_NOISE.match(body):
+                    out.append(body)
+                continue
+            while i < len(lines):                 # 여러 줄로 적은 명령
+                one = lines[i]
+                if one.strip() and not one.startswith(indent + " "):
+                    break
+                body = one.strip()
+                if (body and body not in out and not SHELL_NOISE.match(body)
+                        and not body.endswith(("do", "then"))):
+                    out.append(body)
+                i += 1
+    return out[:limit]
+
+
 def inspect(root: Path) -> Report:
     """저장소를 훑어 무엇으로 만들어졌고 무엇부터 하면 되는지 모은다."""
     root = Path(root)
@@ -187,6 +285,16 @@ def inspect(root: Path) -> Report:
                        True if targets else None)
         else:
             report.add("실행", name, "있음")
+
+    tests, test_command = _tests(root)
+    report.findings += tests
+    if test_command:
+        report.steps.append(test_command)
+
+    ci = _ci_commands(root)
+    if ci:
+        report.add("CI", "여기서 돌리는 명령", " · ".join(ci[:4]))
+        report.ci = ci
 
     report.findings += _git(root)
     return report
