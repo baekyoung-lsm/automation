@@ -797,3 +797,50 @@ def fetch_cert(host: str, *, port: int = 443, timeout: float = 5.0) -> CertInfo:
         return CertInfo(host, error=f"인증서 검증 실패: {exc.verify_message or exc}")
     except (OSError, ssl.SSLError) as exc:
         return CertInfo(host, error=f"연결하지 못했습니다: {exc}")
+
+
+# ------------------------------------------------- 여러 주소 한 번에 두드리기
+
+@dataclass
+class Health:
+    url: str
+    status: int = 0
+    seconds: float = 0.0
+    size: int = 0
+    error: str = ""
+    expected: int = 0          # 0 이면 «2xx 면 된다»
+
+    @property
+    def ok(self) -> bool:
+        if self.error:
+            return False
+        if self.expected:
+            return self.status == self.expected
+        return 200 <= self.status < 300
+
+
+def check_urls(urls: list[str], *, timeout: float = 10.0, expect: int = 0,
+               workers: int = 6, method: str = "GET") -> list[Health]:
+    """여러 주소를 함께 두드려 상태·시간을 모은다. 순서는 준 대로 지킨다.
+
+    배포 뒤 «어디가 죽었나» 를 보는 자리다. 못 부른 주소는 빈 칸으로 두지
+    않고 까닭을 적는다 - 빈 칸은 «괜찮다» 로 읽힌다.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(url: str) -> Health:
+        found = Health(url=url, expected=expect)
+        try:
+            result = fetch(url, method=method, timeout=timeout)
+        except (OSError, ValueError) as exc:
+            found.error = str(exc)
+            return found
+        found.status = result.status
+        found.seconds = result.seconds
+        found.size = len(result.body)
+        return found
+
+    if not urls:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(urls)))) as pool:
+        return list(pool.map(one, urls))

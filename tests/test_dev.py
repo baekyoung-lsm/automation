@@ -748,5 +748,59 @@ class WeaveTest(unittest.TestCase):
         self.assertIn("at foo.py:1", woven[0].entry.raw)
 
 
+class CheckUrlsTest(unittest.TestCase):
+    """여러 주소 두드리기. 진짜 서버를 하나 띄워 본다."""
+
+    def setUp(self):
+        import http.server
+        import threading
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                code = 503 if self.path == "/bad" else 200
+                body = b"ok"
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.thread.join(timeout=5)
+        self.server.server_close()
+
+    def test_keeps_the_given_order(self):
+        urls = [f"{self.base}/a", f"{self.base}/bad", f"{self.base}/c"]
+        found = devkit.check_urls(urls)
+        self.assertEqual([h.url for h in found], urls)
+
+    def test_ok_is_2xx_by_default(self):
+        found = devkit.check_urls([f"{self.base}/a", f"{self.base}/bad"])
+        self.assertEqual([h.ok for h in found], [True, False])
+
+    def test_expected_code(self):
+        found = devkit.check_urls([f"{self.base}/bad"], expect=503)
+        self.assertTrue(found[0].ok)
+
+    def test_unreachable_says_why(self):
+        # 빈 칸으로 두면 «괜찮다» 로 읽힌다
+        found = devkit.check_urls(["http://127.0.0.1:1/죽음"], timeout=2)
+        self.assertFalse(found[0].ok)
+        self.assertTrue(found[0].error)
+        self.assertEqual(found[0].status, 0)
+
+    def test_empty_list(self):
+        self.assertEqual(devkit.check_urls([]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

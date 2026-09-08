@@ -556,6 +556,9 @@ class SmokeTest(unittest.TestCase):
         줄기 = self.run_cli("dev", "timeline", self.path("app.log"), str(웹로그))
         self.assertIn("[web]", 줄기)
         self.assertIn("[app]", 줄기)
+        죽은주소 = self.run_cli("dev", "health", "http://127.0.0.1:1/없음",
+                              "--timeout", "1", expect=1)
+        self.assertIn("안 되는 것 1개", 죽은주소)
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
         import sqlite3

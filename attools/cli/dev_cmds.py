@@ -428,6 +428,48 @@ def cmd_dev_api(a) -> int:
     return 0
 
 
+def cmd_dev_health(a) -> int:
+    """여러 주소를 한 번에 두드려 상태·시간을 본다. 배포 뒤 점검용."""
+    urls = list(a.urls)
+    if a.from_file:
+        path = Path(a.from_file)
+        if not path.is_file():
+            _p(f"파일이 없습니다: {path}")
+            return 1
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                urls.append(line)
+    if not urls:
+        _p("두드릴 주소를 주세요. (파일로 주려면 --from 목록.txt)")
+        return 1
+
+    found = devkit.check_urls(urls, timeout=a.timeout, expect=a.expect or 0,
+                              method=a.method.upper())
+    _grid(["", "상태", "시간", "크기", "주소"],
+          [["" if h.ok else "!!", str(h.status or "-"),
+            f"{h.seconds * 1000:,.0f}ms" if h.seconds else "-",
+            files.human_size(h.size) if h.size else "-",
+            _cut(h.url, 52)] for h in found[:a.limit]], limit=54)
+    if len(found) > a.limit:
+        _p(f"  ... {len(found) - a.limit}개 더")
+
+    bad = [h for h in found if not h.ok]
+    for h in bad:
+        if h.error:
+            _p(f"  {h.url}  {h.error}")
+
+    slow = [h for h in found if h.ok and h.seconds >= a.slow / 1000]
+    _p(f"\n주소 {len(found)}개  ·  안 되는 것 {len(bad)}개"
+       + (f"  ·  {a.slow:,}ms 넘게 걸린 것 {len(slow)}개" if slow else ""))
+    if a.expect:
+        _p(f"{a.expect} 을 기대했습니다.")
+    else:
+        _p("2xx 면 된 것으로 봤습니다. (--expect 로 코드를 지정할 수 있습니다)")
+    _p("한 번씩만 불렀습니다. 한 번 안 된다고 늘 안 되는 것은 아닙니다.")
+    return 1 if bad else 0
+
+
 def cmd_dev_mock(a) -> int:
     """OpenAPI 문서로 가짜 API 서버를 띄운다. 백엔드가 아직 없을 때."""
     from ..code import mockserve
@@ -1571,6 +1613,20 @@ def add_commands(sub) -> None:
                      help="요약이나 오류 응답이 빠진 것만")
     ap_.add_argument("--limit", type=int, default=30)
     ap_.set_defaults(func=cmd_dev_api)
+
+    hl = dp.add_parser("health",
+                       help="여러 주소를 한 번에 두드려 상태·시간 보기 (배포 뒤 점검)")
+    hl.add_argument("urls", nargs="*", metavar="주소")
+    hl.add_argument("--from", dest="from_file", metavar="파일",
+                    help="한 줄에 하나씩 적은 주소 목록 (# 은 건너뜀)")
+    hl.add_argument("--expect", type=int, metavar="코드",
+                    help="이 상태 코드를 기대한다 (기본: 2xx 면 됨)")
+    hl.add_argument("--method", default="GET", metavar="메서드")
+    hl.add_argument("--timeout", type=float, default=10.0, metavar="초")
+    hl.add_argument("--slow", type=int, default=1000, metavar="ms",
+                    help="이보다 오래 걸린 것을 따로 센다")
+    hl.add_argument("--limit", type=int, default=40, metavar="개")
+    hl.set_defaults(func=cmd_dev_health)
 
     mk = dp.add_parser("mock",
                        help="OpenAPI 문서로 가짜 API 서버 띄우기 (백엔드 없이)")

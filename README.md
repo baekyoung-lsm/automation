@@ -243,6 +243,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나 |
 | `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
+| `at dev health <주소…>` | 여러 주소를 한 번에 두드려 상태·시간 확인. 하나라도 안 되면 exit 1 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
 | `at dev re <정규식> <글>` | 정규식을 걸어 보고 매치·그룹·치환 결과를 미리 본다 |
@@ -284,6 +285,8 @@ at dev lock /tmp/전.json package-lock.json --major     # 맨 앞 숫자가 바�
 at dev http localhost:8080/api/users                   # 2xx 아니면 exit 1
 at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
 at dev http localhost:8080/health --head               # 헤더만
+at dev health https://api.example.com/health https://example.com  # 배포 뒤
+at dev health --from 주소목록.txt --expect 200
 at dev unused src/ --modules                           # 걸리면 exit 1
 at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
 at dev loc .                       # 이 저장소가 얼마나 큰가
@@ -491,6 +494,11 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 `node_modules/`), `.env` 유무, npm 스크립트와 Makefile 목표, git 브랜치를 모아 «해 볼 만한
 것» 을 낸다. **찾은 것만 말한다** — 아는 마커가 없으면 «알 수 없음», git 이 없으면 «확인 못 함»
 이다. 그럴듯한 실행 방법을 지어내면 되지도 않는 명령을 치게 만든다.
+
+`at dev health` 는 주소 여러 개를 **한 번에** 두드려 상태·응답 시간·크기를 표로 낸다. 배포
+뒤 «어디가 죽었나» 를 보는 자리다. 못 부른 주소는 빈 칸으로 두지 않고 까닭을 적는다 - 빈
+칸은 «괜찮다» 로 읽힌다. 하나라도 안 되면 1 로 끝난다. 다만 **한 번씩만 부른다** - 한 번
+안 된다고 늘 안 되는 것은 아니라는 것도 함께 적는다.
 
 `at dev mock` 은 그 예시를 그대로 돌려주는 **가짜 API 서버**를 띄운다. 백엔드가 아직 없을 때
 프런트를 붙이는 자리다. `/orders/new` 처럼 고정 경로가 `/orders/{id}` 에 먹히지 않게 고정 조각이
