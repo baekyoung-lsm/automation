@@ -2781,6 +2781,46 @@ class BrowserCheckTest(unittest.TestCase):
         self.assertIn("찾지 못했습니다", out.getvalue())
 
 
+class ScreenWiringTest(unittest.TestCase):
+    """화면의 단추와 부르는 주소가 실제로 있는지. 눌러 봐야 아는 것을 미리 잡는다."""
+
+    def apps(self):
+        from attools import webui
+
+        return webui.load_apps()
+
+    def test_every_button_has_something_to_do(self):
+        import re
+
+        for app in self.apps():
+            body = app.body()
+            script = body.split("<script>")[-1]
+            for one in sorted(set(re.findall(r'<button[^>]*id="([^"]+)"', body))):
+                with self.subTest(screen=app.key, button=one):
+                    self.assertIn(f'"{one}"', script)
+
+    def test_every_called_action_exists(self):
+        import re
+
+        for app in self.apps():
+            for key, action in sorted(set(re.findall(r"/api/([\w-]+)/([\w-]+)",
+                                                     app.body()))):
+                with self.subTest(screen=app.key, action=action):
+                    self.assertEqual(key, app.key)      # 남의 화면을 부르지 않는다
+                    self.assertIn(action, app.actions)
+
+    def test_buttons_exist_for_every_action(self):
+        # 등록만 해 두고 화면에서 아무도 부르지 않는 동작은 죽은 코드다
+        import re
+
+        for app in self.apps():
+            called = {action for _key, action
+                      in re.findall(r"/api/([\w-]+)/([\w-]+)", app.body())}
+            for action in sorted(app.actions):
+                with self.subTest(screen=app.key, action=action):
+                    self.assertIn(action, called)
+
+
 class CommandHintTest(UiCase):
     """화면이 보여 주는 터미널 명령이 실제로 되는 명령이어야 한다."""
 
