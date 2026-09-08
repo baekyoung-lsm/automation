@@ -2086,6 +2086,30 @@ class RecentTest(UiCase):
         self.assertLess(body.index("window.AT"), body.index("<main>"))
 
 
+class LauncherTest(UiCase):
+    """런처. 화면이 열두 개라 찾을 수 있어야 한다."""
+
+    def launcher(self):
+        """UiCase 의 self.home 은 임시 홈 경로라 이름을 겹치지 않게 둔다."""
+        import urllib.request
+
+        req = urllib.request.Request(self.base + "/?t=" + self.run.token)
+        with urllib.request.urlopen(req) as res:
+            return res.status, res.read().decode("utf-8")
+
+    def test_every_screen_is_listed_with_search_words(self):
+        from attools import webui
+
+        status, body = self.launcher()
+        self.assertEqual(status, 200)
+        self.assertEqual(body.count('data-find="'), len(webui.load_apps()))
+        self.assertIn('id="q"', body)          # 무엇을 하고 싶은지로 거른다
+
+    def test_search_words_include_aliases(self):
+        _status, body = self.launcher()
+        self.assertIn("엑셀", body)            # sheet 화면의 별명
+        self.assertIn("취합", body)            # 요약에 들어 있는 말
+
 class BrowserCheckTest(unittest.TestCase):
     """화면 점검. 브라우저가 없는 곳에서도 이 시험은 돌아야 한다."""
 

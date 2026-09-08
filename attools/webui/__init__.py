@@ -73,14 +73,45 @@ def launcher_body(apps: list[App], token: str) -> str:
     blocks = []
     for section in order:
         items = "".join(
-            f'<li><a href="/{app.key}?t={token}">'
+            f'<li data-find="{escape(" ".join(app.names() + (app.summary,)).lower())}">'
+            f'<a href="/{app.key}?t={token}">'
             f"<strong>{escape(app.name)}</strong>"
             f"<span>{escape(app.summary)}</span></a></li>"
             for app in grouped[section])
-        blocks.append(f'<section class="card"><h2>{escape(section)}</h2>'
+        blocks.append(f'<section class="card" data-section="1"><h2>{escape(section)}</h2>'
                       f'<ul class="apps">{items}</ul></section>')
 
-    return "".join(blocks) + (
+    # 화면이 열두 개다. 무엇을 하고 싶은지로 걸러 낼 수 있게 한다.
+    search = ('<section class="card">'
+              '<label for="q">무엇을 하고 싶으세요</label>'
+              '<input type="text" id="q" spellcheck="false" '
+              'placeholder="엑셀, 취합, 첨부, 로그, 연차…">'
+              '<div id="none" class="empty" hidden>그런 화면은 없습니다. '
+              '터미널에서 <code>at find 하고싶은일</code> 로 명령을 찾아보세요.</div>'
+              "</section>")
+
+    script = """<script>
+(function () {
+  const box = document.getElementById("q");
+  const none = document.getElementById("none");
+  box.addEventListener("input", function () {
+    const want = box.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll("li[data-find]").forEach(function (li) {
+      const hit = !want || li.dataset.find.indexOf(want) >= 0;
+      li.hidden = !hit;
+      if (hit) shown += 1;
+    });
+    document.querySelectorAll("[data-section]").forEach(function (card) {
+      card.hidden = ![...card.querySelectorAll("li")].some(li => !li.hidden);
+    });
+    none.hidden = shown > 0;
+  });
+  box.focus();
+})();
+</script>"""
+
+    return search + "".join(blocks) + script + (
         '<p class="note">터미널에서 <code>at ui 파일정리</code> 처럼 부르면 '
         "그 화면만 바로 뜹니다. 어떤 이름으로 부르는지는 "
         "<code>at ui --list</code> 로 봅니다.</p>")

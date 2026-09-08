@@ -22,6 +22,9 @@ BROWSER_NAMES = ("chromium", "chromium-browser", "google-chrome",
                  "google-chrome-stable", "chrome")
 BROWSER_ENV = "AT_UI_BROWSER"
 
+# 우리 껍데기(assets.page)가 늘 넣는 표시. 이게 없으면 우리 화면이 아니다.
+PAGE_MARK = "· attools</title>"
+
 
 def find_browser() -> str | None:
     """PATH 와 흔한 자리에서 크로미움 계열을 찾는다."""
@@ -86,4 +89,12 @@ def check_page(browser: str, url: str, *,
         # [pid:pid:시각:INFO:CONSOLE(줄)] "본문", source: ...
         body = line.split("] ", 1)[-1]
         out.append(body.strip())
+
+    # 서버가 500 을 내거나 죽으면 브라우저는 오류 쪽을 그리고 콘솔은 조용하다.
+    # 그러면 «깨끗합니다» 가 나온다. 우리 화면이 맞는지 본문으로 한 번 더 본다.
+    if PAGE_MARK not in done.stdout:
+        # 이것은 «못 봄» 이 아니라 «오류» 다. 브라우저가 없어서 건너뛰는 것과
+        # 서버가 500 을 내는 것을 같이 두면 CI 가 진짜 고장을 건너뛴다.
+        out.append("서버가 화면을 내주지 못했습니다 "
+                   "(본문이 우리 것이 아닙니다 - 서버 쪽 오류일 수 있습니다).")
     return out, ""
