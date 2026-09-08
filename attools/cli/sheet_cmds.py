@@ -796,19 +796,22 @@ def cmd_sheet_from_card(a) -> int:
 
 
 def cmd_sheet_from_docx(a) -> int:
-    """워드 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
+    """워드·한글 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
     path = Path(a.file)
     if not path.is_file():
         _p(f"파일이 없습니다: {path}")
         return 1
+    hangul_doc = getattr(a, "kind", "docx") == "hwpx"
+    read = sheet.tables_from_hwpx if hangul_doc else sheet.tables_from_docx
     try:
-        tables = sheet.tables_from_docx(path)
+        tables = read(path)
     except sheet.SheetError as e:
         _p(f"읽지 못했습니다: {e}")
         return 1
 
     if not tables:
-        _p("표가 없습니다. (글만 있는 문서라면 at doc from-docx 로 옮기세요)")
+        opener = "at doc from-hwpx" if hangul_doc else "at doc from-docx"
+        _p(f"표가 없습니다. (글만 있는 문서라면 {opener} 로 옮기세요)")
         return 1
 
     _p(f"{path.name}  표 {len(tables)}개")
@@ -2359,7 +2362,19 @@ def add_commands(sub) -> None:
                      help="이미 있는 파일을 덮어쓴다")
     fdx.add_argument("--rows", type=int, default=10, metavar="개")
     fdx.add_argument("--width", type=int, default=20, metavar="칸")
-    fdx.set_defaults(func=cmd_sheet_from_docx)
+    fdx.set_defaults(func=cmd_sheet_from_docx, kind="docx")
+
+    fhx = sh.add_parser("from-hwpx", help="한글 문서(hwpx) 안의 표를 엑셀·csv 로")
+    fhx.add_argument("file", metavar="파일")
+    fhx.add_argument("--table", type=int, dest="number", metavar="번호",
+                     help="그 표 하나만 (없으면 전부)")
+    fhx.add_argument("-o", "--out", metavar="파일",
+                     help="xlsx 면 표마다 시트로 나눠 담는다")
+    fhx.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    fhx.add_argument("--rows", type=int, default=10, metavar="개")
+    fhx.add_argument("--width", type=int, default=20, metavar="칸")
+    fhx.set_defaults(func=cmd_sheet_from_docx, kind="hwpx")
 
     cl2 = sh.add_parser("collect", help="같은 양식 파일들에서 같은 칸만 뽑기 (취합)")
     cl2.add_argument("paths", nargs="+", metavar="경로", help="폴더 또는 파일들")

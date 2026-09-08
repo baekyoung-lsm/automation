@@ -6,7 +6,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from .. import docx, files, hangul, sheet, text
+from .. import docx, files, hangul, hwpx, sheet, text
 from ..docs import report
 from .common import _p, _cut, _grid, _may_write
 
@@ -62,7 +62,7 @@ def _docx_hint(a, targets, found=None) -> None:
         left = [p for p in (_text_targets(a, documents=True) or [])
                 if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
         if left:
-            _p(f"\n워드 문서 {len(left)}개는 보지 않았습니다. "
+            _p(f"\n워드·한글 문서 {len(left)}개는 보지 않았습니다. "
                "--docx 를 붙이면 글자를 꺼내 함께 찾습니다.")
         return
     words = [p for p in targets if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
@@ -71,8 +71,8 @@ def _docx_hint(a, targets, found=None) -> None:
     hit_words = [f for f in (found or [])
                  if f.path.suffix.lower() in text.DOCUMENT_SUFFIXES]
     if hit_words:
-        _p("\n워드 문서의 줄 번호는 문단 번호입니다. "
-           "워드 문서는 at text replace 로 고치지 못합니다.")
+        _p("\n워드·한글 문서의 줄 번호는 문단 번호입니다. "
+           "그 문서들은 at text replace 로 고치지 못합니다.")
 
 
 def cmd_text_find(a) -> int:
@@ -379,15 +379,15 @@ def cmd_text_diff(a) -> int:
     try:
         old, old_kind = text.read_words_or_text(left)
         new, new_kind = text.read_words_or_text(right)
-    except (text.TextError, docx.DocxError) as e:
+    except (text.TextError, docx.DocxError, hwpx.HwpxError) as e:
         _p(f"읽지 못했습니다: {e}")
         return 1
 
     unit = {"줄": "line", "문장": "sentence", "문단": "para"}[a.unit]
     report = text.diff_units(old, new, unit=unit, similar=a.similar)
     _p(f"{left} -> {right}  ({a.unit} 단위)")
-    if "워드 문단" in (old_kind, new_kind):
-        _p("  워드 문서는 문단 글자만 견줍니다. "
+    if {"워드 문단", "한글 문단"} & {old_kind, new_kind}:
+        _p("  워드·한글 문서는 문단 글자만 견줍니다. "
            "서식·그림·머리글·각주의 차이는 안 보입니다.")
 
     shown = report.edits[:a.limit]
@@ -629,7 +629,8 @@ def add_commands(sub) -> None:
     fp.add_argument("-i", "--ignore-case", action="store_true")
     fp.add_argument("-w", "--word", action="store_true", help="단어 단위로만")
     fp.add_argument("--docx", action="store_true",
-                    help="워드 문서에서도 글자를 꺼내 찾는다 (줄 번호는 문단 번호)")
+                    help="워드·한글(hwpx) 문서에서도 글자를 꺼내 찾는다 "
+                         "(줄 번호는 문단 번호)")
     fp.add_argument("-C", "--context", type=int, default=0, metavar="줄",
                     help="앞뒤 문맥 줄 수")
     fp.add_argument("--per-file", type=int, default=0, metavar="개",

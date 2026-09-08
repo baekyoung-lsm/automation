@@ -426,6 +426,13 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 읽는 시간은 분당 500자로 어림한 값이다 - 예제 코드까지 세면 «읽는 데 30분» 이 크게 부풀어
 아무도 안 믿는다. 예제 안의 TODO 도 문서 메모로 세지 않는다.
 
+`at doc from-hwpx` 와 `at sheet from-hwpx` 는 한글 문서(`.hwpx`)에서 **문단과 표만** 꺼낸다.
+`.hwpx` 는 zip 안에 XML 이 든 형식이라 의존성 없이 읽을 수 있다. **옛 `.hwp`(이진 형식)는 읽지
+못한다** - 한글에서 «hwpx 로 저장» 을 한 번 거쳐야 하고, 그렇게 안내한다. 제목 단계는 짐작하지
+않는다(한글은 제목을 문단 모양으로만 구분하는 일이 많아 잘못 짐작하면 목차가 통째로 어긋난다).
+XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보므로 판이 달라도 읽는다.
+`at text find --docx` 는 한글 문서 안도 함께 찾는다.
+
 `at doc from-docx` 는 받은 워드 문서에서 **문단·제목·표만** 꺼낸다. 그림·머리글·바닥글·
 각주·메모는 옮기지 않는다 — 옮긴 척하면 «넘겼는데 내용이 빠졌다» 를 나중에 알게 된다.
 `at text find --docx` 도 같은 방법으로 워드 문서 안을 찾고, `at text diff` 는 워드 두 판을
@@ -508,7 +515,7 @@ CI 에 넣을 수 있다.
 | --- | --- |
 | `at text pick <경로…>` | 이메일·전화·사업자번호·금액·날짜·주소를 뽑아 표로 (정규식 없이) |
 | `at text kbd <글>` | 한/영 자판을 잘못 눌러 깨진 글 되살리기 (`dkssud` → `안녕`, 그 반대도) |
-| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만, `--docx` 워드 문서 안까지 |
+| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만, `--docx` 워드·한글(hwpx) 문서 안까지 |
 | `at text replace <찾을것> <바꿀것> [경로]` | 여러 파일에서 찾아 바꾸기. `-e` 정규식, `-i` 대소문자 무시, `-w` 단어 단위 |
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
@@ -524,7 +531,7 @@ CI 에 넣을 수 있다.
 ```bash
 at text kbd dkssudgktpdy                                     # -> 안녕하세요
 at text find old.example.com src/ -C 1                        # 어디 있는지만 (고치지 않음)
-at text find 홍길동 계약서/ --docx      # 워드 문서 안까지 (찾기만 한다)
+at text find 홍길동 계약서/ --docx      # 워드·한글 문서 안까지 (찾기만 한다)
 at text replace old.example.com api.example.com src/          # 미리보기 (차이까지)
 at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply
@@ -644,6 +651,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc index [경로]` | 문서 목록 만들기 - 제목과 첫 문단을 모아 `<!-- index -->` 사이에 |
 | `at doc from-html <파일>` | HTML 을 마크다운으로 (사내 위키·웹 문서 옮기기) |
 | `at doc from-docx <파일>` | 워드 문서를 마크다운으로 (받은 문서 열어 고치기) |
+| `at doc from-hwpx <파일>` | 한글 문서(hwpx)를 마크다운으로. 옛 `.hwp` 는 읽지 못한다 |
 | `at doc docx <파일>` | 마크다운을 워드 문서로 (보고서 제출용) |
 
 ```bash
@@ -660,6 +668,7 @@ at doc html 회의록.md --toc                # 브라우저로 열어 인쇄 �
 at doc index docs/ -o docs/README.md --apply   # 목록 갱신
 at dev http wiki.example.com/page -o page.html && at doc from-html page.html -o page.md
 at doc from-docx 받은보고서.docx -o 보고서.md
+at doc from-hwpx 사업계획서.hwpx -o 계획서.md    # 한글 문서
 at doc docx 보고서.md -o 보고서.docx       # 제출용 워드 문서
 at doc slides 발표.md -o 발표.html         # 화살표로 넘기는 슬라이드
 at doc slides 문서.md --by 제목            # ## 마다 한 장
@@ -894,6 +903,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
 | `at sheet mail <명단> -t <본문틀>` | 사람마다 메일 초안 파일(.eml)을 만든다. **보내지는 않는다** |
 | `at sheet from-docx <파일>` | 워드 문서 안의 표를 엑셀·csv 로 (손으로 다시 치지 않게) |
+| `at sheet from-hwpx <파일>` | 한글 문서(hwpx) 안의 표를 엑셀·csv 로 |
 | `at sheet from-md <파일>` | 마크다운 문서 안의 표를 엑셀·csv 로 |
 | `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
 
@@ -930,6 +940,7 @@ at sheet rename 거래처B.xlsx --map-file 매핑.json -o 맞춘본2.xlsx
 at sheet convert 깨진파일.csv -o 정상.xlsx
 at sheet convert 명단.csv -o 명단.docx     # 보고서에 붙일 워드 표로
 at sheet from-docx 받은보고서.docx -o 표들.xlsx   # 표마다 시트 하나로
+at sheet from-hwpx 예산안.hwpx -o 예산.xlsx       # 한글 문서 안의 표
 at sheet from-docx 받은보고서.docx --table 2 -o 두번째표.csv
 at sheet from-md 회의록.md -o 표들.xlsx        # 문서에 붙은 표로 계산
 at sheet cut 직원.xlsx -c 사번 -c 이름 -c 연봉 -o 요약.xlsx

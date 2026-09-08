@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from . import docx
+from . import docx, hwpx
 from .files import IGNORE_DIRS
 
 def backup_dir() -> Path:
@@ -20,12 +20,13 @@ def backup_dir() -> Path:
 ENCODINGS = ("utf-8", "cp949", "euc-kr", "utf-16")
 BOM_UTF8 = b"\xef\xbb\xbf"
 # 글자를 꺼낼 수 있는 문서. 찾기에서만 쓴다 - 고치지는 못한다.
-DOCUMENT_SUFFIXES = {".docx"}
+DOCUMENT_SUFFIXES = {".docx", ".hwpx"}
 
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz", ".xz",
     ".7z", ".rar", ".exe", ".dll", ".so", ".dylib", ".pyc", ".class", ".jar",
     ".woff", ".woff2", ".ttf", ".otf", ".mp3", ".mp4", ".mov", ".xlsx", ".docx", ".pptx",
+    ".hwp", ".hwpx",
 }
 
 
@@ -221,7 +222,10 @@ def read_words_or_text(path: Path) -> tuple[str, str]:
     «무엇으로 읽었는지» 를 함께 돌려주어 부르는 쪽이 밝힐 수 있게 한다.
     """
     path = Path(path)
-    if path.suffix.lower() in DOCUMENT_SUFFIXES:
+    suffix = path.suffix.lower()
+    if suffix == ".hwpx":
+        return hwpx.read_text(path, separator="\n\n"), "한글 문단"
+    if suffix in DOCUMENT_SUFFIXES:
         # 문단 사이를 빈 줄로 띄운다. 문단 단위로 견줄 때 한 덩어리가 되지 않게.
         return docx.read_text(path, separator="\n\n"), "워드 문단"
     body, encoding = read_text_any(path)
@@ -235,18 +239,19 @@ def find_in_files(files, pattern: re.Pattern[str], *, context: int = 0,
     바꾸기와 같은 pattern 을 쓴다. 찾을 때와 바꿀 때 걸리는 것이 다르면
     미리보기를 믿을 수 없게 된다.
 
-    documents 를 켜면 워드 문서에서 글자를 꺼내 함께 본다. 기본은 끔이다 -
-    워드 문서는 at text replace 로 고치지 못하므로, 찾기에서만 걸리면
+    documents 를 켜면 워드·한글 문서에서 글자를 꺼내 함께 본다. 기본은 끔이다 -
+    그 문서들은 at text replace 로 고치지 못하므로, 찾기에서만 걸리면
     «찾았는데 안 바뀐다» 가 된다. 켤지 말지는 부르는 쪽이 정한다.
     """
     out: list[FileHits] = []
     for path in files:
         try:
             if documents and Path(path).suffix.lower() in DOCUMENT_SUFFIXES:
-                body = docx.read_text(Path(path))     # 줄 번호는 문단 번호가 된다
+                body, _kind = read_words_or_text(Path(path))
+                body = body.replace("\n\n", "\n")   # 줄 번호는 문단 번호가 된다
             else:
                 body, _encoding = read_text_any(path)
-        except (TextError, docx.DocxError, OSError):
+        except (TextError, docx.DocxError, hwpx.HwpxError, OSError):
             continue
 
         lines = body.splitlines()

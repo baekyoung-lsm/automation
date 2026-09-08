@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .hangul import josa
 
-from . import docx, xlsx
+from . import docx, hwpx, xlsx
 
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
@@ -3013,8 +3013,13 @@ def tables_from_docx(path: Path) -> list[Table]:
     except docx.DocxError as exc:
         raise SheetError(str(exc)) from None
 
+    return _tables_from_parts(parts, path)
+
+
+def _tables_from_parts(parts: list, path: Path) -> list[Table]:
+    """('표', 격자) 조각들을 표로. 워드·한글 문서가 같은 방식을 쓴다."""
     out: list[Table] = []
-    for order, (kind, body) in enumerate([p for p in parts if p[0] == "표"], 1):
+    for order, (_kind, body) in enumerate([p for p in parts if p[0] == "표"], 1):
         grid = [[parse_value(c) for c in row] for row in body]  # type: ignore[union-attr]
         if not any(any(c not in (None, "") for c in row) for row in grid):
             continue
@@ -3030,6 +3035,16 @@ def tables_from_docx(path: Path) -> list[Table]:
                                     label=str(path))
         out.append(table)
     return out
+
+
+def tables_from_hwpx(path: Path) -> list[Table]:
+    """한글 문서(hwpx) 안의 표를 순서대로 꺼낸다. 워드와 같은 규칙이다."""
+    path = Path(path)
+    try:
+        parts = hwpx.read_document(path)
+    except hwpx.HwpxError as exc:
+        raise SheetError(str(exc)) from None
+    return _tables_from_parts(parts, path)
 
 
 # ------------------------------------------------------------- 양식 취합

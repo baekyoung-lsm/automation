@@ -556,6 +556,46 @@ def cmd_doc_from_docx(a) -> int:
     return 0
 
 
+def cmd_doc_from_hwpx(a) -> int:
+    """한글 문서(hwpx)를 마크다운으로. 받은 문서를 고치거나 검색하려면 글자가 필요하다."""
+    from .. import hwpx
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    try:
+        parts = hwpx.read_document(path)
+    except hwpx.HwpxError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    if not parts:
+        _p("옮길 내용이 없습니다. (그림·글상자만 있는 문서일 수 있습니다)")
+        return 1
+
+    markdown = hwpx.to_markdown(parts)
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(markdown, encoding="utf-8")
+        kinds: dict = {}
+        for kind, _body in parts:
+            kinds[kind] = kinds.get(kind, 0) + 1
+        _p(f"저장: {out}  ({len(markdown.splitlines()):,}줄)")
+        _p("  " + " · ".join(f"{k} {n}" for k, n in sorted(kinds.items())))
+    else:
+        _p(markdown)
+
+    _p("\n문단과 표만 옮깁니다. 그림·글상자·머리글·바닥글·각주는 옮기지 않습니다.")
+    _p("제목 단계는 짐작하지 않습니다 - 한글은 제목을 문단 모양으로만 "
+       "구분하는 일이 많아 잘못 짐작하면 목차가 통째로 어긋납니다.")
+    return 0
+
+
 def cmd_doc_docx(a) -> int:
     from .. import docx
 
@@ -927,6 +967,14 @@ def add_commands(sub) -> None:
     dfd.add_argument("-o", "--out", metavar="파일")
     dfd.add_argument("--overwrite", action="store_true")
     dfd.set_defaults(func=cmd_doc_from_docx)
+
+    dfh = dc.add_parser("from-hwpx",
+                        help="한글 문서(hwpx)를 마크다운으로 (받은 문서 열기)")
+    dfh.add_argument("file", metavar="파일")
+    dfh.add_argument("-o", "--out", metavar="파일")
+    dfh.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    dfh.set_defaults(func=cmd_doc_from_hwpx)
 
     ddx = dc.add_parser("docx", help="마크다운을 워드 문서로 (보고서 제출용)")
     ddx.add_argument("file", metavar="파일")

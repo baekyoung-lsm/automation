@@ -653,7 +653,27 @@ class SmokeTest(unittest.TestCase):
         워드2 = self.path("문서2.docx")
         self.run_cli("doc", "docx", md, "-o", 워드2)
         견줌 = self.run_cli("text", "diff", 워드, 워드2, expect=0)
-        self.assertIn("워드 문서는 문단 글자만", 견줌)
+        self.assertIn("워드·한글 문서는 문단 글자만", 견줌)
+
+        한글문서 = Path(self.path("계획서.hwpx"))
+        with zipfile.ZipFile(한글문서, "w") as z:
+            z.writestr("mimetype", "application/hwp+zip")
+            z.writestr("Contents/section0.xml",
+                       "<hs:sec xmlns:hs='s' xmlns:hp='p'>"
+                       "<hp:p><hp:run><hp:t>사업 계획서</hp:t></hp:run></hp:p>"
+                       "<hp:p><hp:run><hp:tbl><hp:tr>"
+                       "<hp:tc><hp:p><hp:run><hp:t>항목</hp:t></hp:run></hp:p></hp:tc>"
+                       "<hp:tc><hp:p><hp:run><hp:t>금액</hp:t></hp:run></hp:p></hp:tc>"
+                       "</hp:tr><hp:tr>"
+                       "<hp:tc><hp:p><hp:run><hp:t>인건비</hp:t></hp:run></hp:p></hp:tc>"
+                       "<hp:tc><hp:p><hp:run><hp:t>1000</hp:t></hp:run></hp:p></hp:tc>"
+                       "</hp:tr></hp:tbl></hp:run></hp:p></hs:sec>")
+        한글옮김 = self.run_cli("doc", "from-hwpx", str(한글문서))
+        self.assertIn("사업 계획서", 한글옮김)
+        self.assertIn("| 항목 | 금액 |", 한글옮김)
+        한글표 = self.run_cli("sheet", "from-hwpx", str(한글문서))
+        self.assertIn("인건비", 한글표)
+
         되돌린 = self.run_cli("doc", "from-docx", 워드)
         self.assertIn("하나", 되돌린)
         표뽑기 = self.run_cli("sheet", "from-docx", 워드, expect=1)
