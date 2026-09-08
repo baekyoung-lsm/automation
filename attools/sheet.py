@@ -177,6 +177,35 @@ def sniff_encoding(path: Path) -> str:
     return "utf-8"
 
 
+CSV_DELIMITERS = (",", ";", "\t", "|")
+
+
+def sniff_delimiter(text: str, *, suffix: str = "") -> str:
+    """무엇으로 칸을 나눴는지 고른다. 못 고르면 쉼표.
+
+    엑셀은 나라 설정에 따라 세미콜론으로 내보낸다. 쉼표로만 읽으면 한 줄이
+    통째로 한 칸이 되는데, 표는 «열리기» 때문에 틀린 줄도 모른다.
+    """
+    if suffix == ".tsv":
+        return "\t"
+
+    lines = [line for line in text.splitlines()[:20] if line.strip()][:10]
+    if not lines:
+        return ","
+
+    best, best_score = ",", 0
+    for mark in CSV_DELIMITERS:
+        counts = [len(row) for row in csv.reader(io.StringIO("\n".join(lines)),
+                                                 delimiter=mark)]
+        if not counts or max(counts) < 2:
+            continue
+        # 줄마다 칸 수가 같아야 진짜 구분자다. 같은 점수면 앞의 것(쉼표)을 둔다
+        score = max(counts) if len(set(counts)) == 1 else 1
+        if score > best_score:
+            best, best_score = mark, score
+    return best
+
+
 def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
          raw: bool = False) -> Table:
     path = Path(path)
@@ -193,7 +222,7 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
     elif suffix in CSV_SUFFIXES or not suffix:
         encoding = sniff_encoding(path)
         text = path.read_text(encoding=encoding)
-        delimiter = "\t" if suffix == ".tsv" or text.count("\t") > text.count(",") else ","
+        delimiter = sniff_delimiter(text, suffix=suffix)
         grid = [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)]
         if not raw:
             grid = [[parse_value(c) for c in row] for row in grid]
@@ -3073,7 +3102,7 @@ def _csv_cells(path: Path, refs: list[str]) -> dict[str, object]:
     """csv 를 칸 주소로 읽는다. 엑셀에서 열었을 때와 같은 자리여야 한다."""
     encoding = sniff_encoding(path)
     text = path.read_text(encoding=encoding)
-    delimiter = "\t" if path.suffix.lower() == ".tsv" or text.count("\t") > text.count(",") else ","
+    delimiter = sniff_delimiter(text, suffix=path.suffix.lower())
     grid = [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)]
     found: dict[str, object] = {}
     for ref in refs:

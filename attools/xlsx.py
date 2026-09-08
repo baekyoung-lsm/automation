@@ -18,6 +18,7 @@ NS = {
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
 EPOCH = datetime(1899, 12, 30)  # 엑셀의 1900 윤년 버그를 포함한 기준일
+EPOCH_1904 = datetime(1904, 1, 1)   # 옛 맥 엑셀이 쓰던 기준일 (1462일 차이)
 
 # 엑셀 기본 날짜/시간 서식 번호
 DATE_FMT_IDS = set(range(14, 23)) | {27, 30, 36, 45, 46, 47, 50, 57}
@@ -51,9 +52,13 @@ def index_to_col(index: int) -> str:
     return name
 
 
-def serial_to_datetime(serial: float) -> datetime:
-    """엑셀은 날짜를 실수로 저장하므로 초 단위로 반올림해서 돌려준다."""
-    dt = EPOCH + timedelta(days=serial)
+def serial_to_datetime(serial: float, *, epoch: datetime | None = None) -> datetime:
+    """엑셀은 날짜를 실수로 저장하므로 초 단위로 반올림해서 돌려준다.
+
+    옛 맥 엑셀로 만든 파일은 기준일이 1904년이다. 그걸 모르고 읽으면 모든
+    날짜가 4년 하고 하루씩 앞당겨지는데, 표는 멀쩡해 보인다.
+    """
+    dt = (epoch or EPOCH) + timedelta(days=serial)
     if dt.microsecond:
         dt = (dt + timedelta(seconds=0.5)).replace(microsecond=0)
     return dt
@@ -116,6 +121,17 @@ def _date_style_flags(z: zipfile.ZipFile) -> list[bool]:
     return flags
 
 
+def _date_epoch(z: zipfile.ZipFile) -> datetime:
+    """workbookPr 의 date1904 를 본다. 없으면 1900 기준."""
+    try:
+        with z.open("xl/workbook.xml") as stream:
+            head = stream.read(4096).decode("utf-8", "replace")
+    except (KeyError, OSError):
+        return EPOCH
+    match = re.search(r"date1904\s*=\s*\"(1|true)\"", head, re.IGNORECASE)
+    return EPOCH_1904 if match else EPOCH
+
+
 def _shared_strings(z: zipfile.ZipFile) -> list[str]:
     try:
         root = ET.fromstring(z.read("xl/sharedStrings.xml"))
@@ -156,6 +172,7 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
     with _open(path) as z:
         strings = _shared_strings(z)
         date_flags = _date_style_flags(z)
+        epoch = _date_epoch(z)
         part = _sheet_part(z, sheet)
 
         rows: list[list] = []
@@ -173,7 +190,7 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
                     ref = c.get("r")
                     idx = col_to_index(ref) if ref else at
                     at = idx + 1
-                    value = _cell_value(c, strings, date_flags)
+                    value = _cell_value(c, strings, date_flags, epoch)
                     if value is not None:
                         values[idx] = value
                 el.clear()
@@ -215,6 +232,7 @@ def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[st
     with _open(path) as z:
         strings = _shared_strings(z)
         date_flags = _date_style_flags(z)
+        epoch = _date_epoch(z)
         part = _sheet_part(z, sheet)
         line = 0
         with z.open(part) as stream:
@@ -239,7 +257,8 @@ def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[st
     return found
 
 
-def _cell_value(c: ET.Element, strings: list[str], date_flags: list[bool]):
+def _cell_value(c: ET.Element, strings: list[str], date_flags: list[bool],
+                epoch: datetime | None = None):
     kind = c.get("t", "n")
     if kind == "inlineStr":
         return _text(c.find("m:is", NS)) or None
@@ -271,7 +290,7 @@ def _cell_value(c: ET.Element, strings: list[str], date_flags: list[bool]):
     except ValueError:
         style = 0
     if style < len(date_flags) and date_flags[style]:
-        dt = serial_to_datetime(number)
+        dt = serial_to_datetime(number, epoch=epoch)
         if dt.time() == time(0, 0) and number >= 1:
             return dt.date()
         return dt

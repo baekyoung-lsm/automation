@@ -92,6 +92,68 @@ class XlsxTest(unittest.TestCase):
             "<r><t>1팀</t></r></is></c></row>")
         self.assertEqual(xlsx.read_sheet(path), [["영업1팀"]])
 
+    def test_semicolon_csv_is_read_as_columns(self):
+        # 엑셀은 나라 설정에 따라 세미콜론으로 내보낸다. 쉼표로만 읽으면
+        # 한 줄이 통째로 한 칸이 되는데, 표는 «열리기» 때문에 틀린 줄도 모른다
+        path = self.root / "세미콜론.csv"
+        path.write_text("이름;부서;연봉\n홍길동;영업;5000\n", encoding="utf-8")
+        table = sheet.load(path)
+        self.assertEqual(table.headers, ["이름", "부서", "연봉"])
+        self.assertEqual(table.rows, [["홍길동", "영업", 5000]])
+
+    def test_comma_wins_when_both_appear(self):
+        path = self.root / "쉼표.csv"
+        path.write_text("이름,메모\n홍길동,\"영업; 개발\"\n", encoding="utf-8")
+        self.assertEqual(sheet.load(path).headers, ["이름", "메모"])
+
+    def test_pipe_csv(self):
+        path = self.root / "막대.csv"
+        path.write_text("가|나\n1|2\n", encoding="utf-8")
+        self.assertEqual(sheet.load(path).headers, ["가", "나"])
+
+    def test_one_column_csv_stays_one_column(self):
+        path = self.root / "한열.csv"
+        path.write_text("이름\n홍길동\n김철수\n", encoding="utf-8")
+        self.assertEqual(sheet.load(path).headers, ["이름"])
+
+    def test_mac_1904_workbook_dates(self):
+        """옛 맥 엑셀 파일. 기준일을 모르면 모든 날짜가 4년 앞당겨진다."""
+        import zipfile
+
+        def make(name: str, pr: str) -> Path:
+            path = self.root / name
+            book = ('<?xml version="1.0"?><workbook xmlns="http://schemas.'
+                    'openxmlformats.org/spreadsheetml/2006/main" xmlns:r='
+                    '"http://schemas.openxmlformats.org/officeDocument/2006/'
+                    'relationships">' + pr + '<sheets><sheet name="시트" '
+                    'sheetId="1" r:id="rId1"/></sheets></workbook>')
+            rels = ('<?xml version="1.0"?><Relationships xmlns="http://schemas.'
+                    'openxmlformats.org/package/2006/relationships">'
+                    '<Relationship Id="rId1" Type="http://schemas.'
+                    'openxmlformats.org/officeDocument/2006/relationships/'
+                    'worksheet" Target="worksheets/sheet1.xml"/></Relationships>')
+            styles = ('<?xml version="1.0"?><styleSheet xmlns="http://schemas.'
+                      'openxmlformats.org/spreadsheetml/2006/main"><cellXfs '
+                      'count="2"><xf numFmtId="0"/><xf numFmtId="14" '
+                      'applyNumberFormat="1"/></cellXfs></styleSheet>')
+            body = ('<?xml version="1.0"?><worksheet xmlns="http://schemas.'
+                    'openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                    '<row r="1"><c r="A1" s="1"><v>44621</v></c></row>'
+                    "</sheetData></worksheet>")
+            with zipfile.ZipFile(path, "w") as z:
+                z.writestr("xl/workbook.xml", book)
+                z.writestr("xl/_rels/workbook.xml.rels", rels)
+                z.writestr("xl/styles.xml", styles)
+                z.writestr("xl/worksheets/sheet1.xml", body)
+            return path
+
+        from datetime import date
+
+        old_mac = xlsx.read_sheet(make("맥.xlsx", '<workbookPr date1904="1"/>'))
+        normal = xlsx.read_sheet(make("보통.xlsx", ""))
+        self.assertEqual(normal[0][0], date(2022, 3, 1))
+        self.assertEqual(old_mac[0][0], date(2026, 3, 2))
+
     def test_escapes_xml_and_control_chars(self):
         path = self.root / "x.xlsx"
         xlsx.write_sheets(path, {"s": [["a & b <c>", "탭\t유지"]]})
