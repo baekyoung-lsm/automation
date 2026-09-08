@@ -276,6 +276,28 @@ class LogkitTest(unittest.TestCase):
         self.assertIn("<uuid>", logkit.normalize(
             "id=550e8400-e29b-41d4-a716-446655440000"))
 
+    def test_ids_with_letters_are_collapsed(self):
+        # user=u23 과 user=u5 는 같은 사고다. 안 묶으면 스무 번 난 오류가 스무 줄
+        a = logkit.normalize("/api/pay 실패 user=u23 pool3")
+        b = logkit.normalize("/api/pay 실패 user=u5 pool7")
+        self.assertEqual(a, b)
+
+    def test_numbers_with_units_are_collapsed(self):
+        self.assertEqual(logkit.normalize("took=800ms status=500"),
+                         logkit.normalize("took=1500ms status=500"))
+
+    def test_different_words_still_split(self):
+        self.assertNotEqual(logkit.normalize("결제 실패"),
+                            logkit.normalize("조회 실패"))
+
+    def test_same_count_puts_the_worse_level_first(self):
+        lines = ["2026-09-01 10:00:01 INFO 조회 12ms",
+                 "2026-09-01 10:00:02 INFO 조회 15ms",
+                 "2026-09-01 10:00:03 ERROR 결제 실패 order=1",
+                 "2026-09-01 10:00:04 ERROR 결제 실패 order=2"]
+        groups = logkit.group_messages(logkit.parse(lines))
+        self.assertEqual([g.level for g in groups[:2]], ["ERROR", "INFO"])
+
     def test_group_messages_merges_same_incident(self):
         groups = logkit.group_messages(logkit.parse(self.SAMPLE), levels={"ERROR"})
         self.assertEqual(groups[0].count, 2)

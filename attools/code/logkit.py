@@ -32,7 +32,11 @@ NOISE = [
     (re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\b"), "<time>"),
     (re.compile(r'"[^"]{2,}"'), '"<str>"'),
     (re.compile(r"'[^']{2,}'"), "'<str>'"),
-    (re.compile(r"\b\d[\d,.]*\b"), "<n>"),
+    # user=u23, pool3, order-A17 처럼 글자에 번호가 붙은 값. 이걸 두면 같은
+    # 사고가 사람마다 다른 줄로 갈려서, 스무 번 난 오류가 스무 줄로 나온다.
+    (re.compile(r"\b[A-Za-z][A-Za-z_]*\d+\w*\b"), "<id>"),
+    # 뒤에 단위가 붙은 수도 잡는다 (took=800ms 와 took=1500ms 는 같은 일이다)
+    (re.compile(r"\b\d[\d,.]*"), "<n>"),
 ]
 
 TRACE_LINE = re.compile(r"^\s+(?:at\s|File \"|\.\.\.|Caused by|\tat\s)")
@@ -173,7 +177,9 @@ def group_messages(entries: list[Entry], *, levels: set[str] | None = None,
             g.last = e.when if g.last is None else max(g.last, e.when)
         if LEVEL_ORDER.get(e.level, 9) < LEVEL_ORDER.get(g.level, 9):
             g.level = e.level
-    return sorted(buckets.values(), key=lambda g: -g.count)[:top]
+    # 횟수가 같으면 심각한 것부터. 같은 수라면 먼저 볼 것은 에러다
+    return sorted(buckets.values(),
+                  key=lambda g: (-g.count, LEVEL_ORDER.get(g.level, 9)))[:top]
 
 
 BUCKETS = {"1m": 60, "5m": 300, "10m": 600, "1h": 3600, "1d": 86400}
