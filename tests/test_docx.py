@@ -210,5 +210,58 @@ class DocxToMarkdownTest(unittest.TestCase):
         self.assertEqual(docx.to_markdown(parts).count("|"), 6)
 
 
+class ForeignDocxTest(unittest.TestCase):
+    """남이 만든 문서. 우리 라이터를 거치지 않은 모양을 손으로 만들어 본다."""
+
+    W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, body: str) -> Path:
+        path = self.root / "받은문서.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("word/document.xml",
+                       f'<?xml version="1.0"?><w:document xmlns:w="{self.W}">'
+                       f"<w:body>{body}</w:body></w:document>")
+        return path
+
+    def test_paragraph_inside_a_content_control(self):
+        # 양식 문서에 흔한 w:sdt. 바로 아래 자식만 보면 통째로 빠진다
+        path = self.make(
+            "<w:p><w:r><w:t>앞 문단</w:t></w:r></w:p>"
+            "<w:sdt><w:sdtContent><w:p><w:r><w:t>양식 칸</w:t></w:r></w:p>"
+            "</w:sdtContent></w:sdt>")
+        self.assertEqual([b for _k, b in docx.read_document(path)],
+                         ["앞 문단", "양식 칸"])
+
+    def test_hyperlink_text_is_kept(self):
+        path = self.make("<w:p><w:hyperlink><w:r><w:t>링크 글자</w:t></w:r>"
+                         "</w:hyperlink></w:p>")
+        self.assertEqual(docx.read_text(path), "링크 글자")
+
+    def test_tracked_insert_is_text_and_delete_is_not(self):
+        path = self.make("<w:p><w:ins><w:r><w:t>넣은 말</w:t></w:r></w:ins>"
+                         "<w:del><w:r><w:delText>지운 말</w:delText></w:r>"
+                         "</w:del></w:p>")
+        self.assertEqual(docx.read_text(path), "넣은 말")
+
+    def test_table_cell_wrapped_in_a_control(self):
+        path = self.make(
+            "<w:tbl><w:tr><w:tc><w:sdt><w:sdtContent><w:p><w:r>"
+            "<w:t>칸 값</w:t></w:r></w:p></w:sdtContent></w:sdt></w:tc>"
+            "<w:tc><w:p><w:r><w:t>둘</w:t></w:r></w:p></w:tc>"
+            "</w:tr></w:tbl>")
+        self.assertEqual(docx.read_document(path)[0][1], [["칸 값", "둘"]])
+
+    def test_section_marks_are_not_paragraphs(self):
+        path = self.make("<w:p><w:r><w:t>글</w:t></w:r></w:p>"
+                         "<w:sectPr><w:pgSz w:w='11906'/></w:sectPr>")
+        self.assertEqual([b for _k, b in docx.read_document(path)], ["글"])
+
+
 if __name__ == "__main__":
     unittest.main()

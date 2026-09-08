@@ -134,14 +134,30 @@ def _is_list(paragraph: ET.Element) -> bool:
 
 
 def _table_rows(table: ET.Element) -> list[list[str]]:
+    """표의 칸 글자. 칸 안이 내용 컨트롤이나 표로 한 겹 더 싸여 있어도 읽는다."""
     rows = []
     for tr in table.findall(f"{W}tr"):
         cells = []
         for tc in tr.findall(f"{W}tc"):
-            parts = [_run_text(p).strip() for p in tc.findall(f"{W}p")]
+            parts = [_run_text(p).strip() for p in tc.iter(f"{W}p")]
             cells.append(" ".join(x for x in parts if x))
         rows.append(cells)
     return rows
+
+
+def _blocks(node: ET.Element):
+    """문단과 표를 문서 차례대로 넘긴다.
+
+    내용 컨트롤(w:sdt)이나 수정 표시로 한 겹 싸인 문단이 흔하다. 바로 아래
+    자식만 보면 그런 문단이 통째로 빠지는데, 문서는 «옮겨졌다» 고 나온다.
+    """
+    for child in node:
+        if child.tag in (f"{W}p", f"{W}tbl"):
+            yield child
+            continue
+        if child.tag in (f"{W}sectPr", f"{W}bookmarkStart", f"{W}bookmarkEnd"):
+            continue
+        yield from _blocks(child)
 
 
 def read_document(path: Path) -> list[tuple[str, object]]:
@@ -168,7 +184,7 @@ def read_document(path: Path) -> list[tuple[str, object]]:
         return []
 
     parts: list[tuple[str, object]] = []
-    for node in body:
+    for node in _blocks(body):
         if node.tag == f"{W}p":
             text = _run_text(node).strip()
             if not text:
