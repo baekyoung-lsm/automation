@@ -186,6 +186,73 @@ def cmd_file_pdf(a) -> int:
     return 0
 
 
+def cmd_file_exif(a) -> int:
+    """사진에 남은 촬영 정보(위치·기기·날짜)를 보고, 지운 사본을 만든다."""
+    root = Path(a.dir)
+    if not root.exists():
+        _p(f"없는 경로입니다: {root}")
+        return 1
+
+    metas = files.scan_photos(root, recursive=not a.flat)
+    if not metas:
+        _p("jpg 파일이 없습니다. (EXIF 는 jpg 에서만 읽습니다)")
+        return 0
+
+    _grid(["파일", "찍은 날", "기기", "위치", "방향"],
+          [[_pad(m.path.name, 0),
+            m.taken.strftime("%Y-%m-%d %H:%M") if m.taken else "",
+            _cut(f"{m.make} {m.model}".strip(), 18), m.where,
+            "" if m.orientation in (None, 1) else str(m.orientation)]
+           for m in metas[:a.limit]], limit=30)
+    if len(metas) > a.limit:
+        _p(f"... {len(metas) - a.limit:,}장 더 (--limit 로 조절)")
+
+    located = [m for m in metas if m.where]
+    dirty = [m for m in metas if m.personal]
+    _p(f"\n사진 {len(metas):,}장  ·  위치가 남은 사진 {len(located):,}장")
+    if located:
+        _p("위치는 찍은 자리의 좌표입니다. 집·사무실이 그대로 드러납니다.")
+
+    if not a.strip:
+        if dirty:
+            _p(f"지우려면 --strip 을 붙이세요 (사본을 만듭니다).")
+        return 0
+
+    if not dirty:
+        _p("지울 정보가 없습니다.")
+        return 0
+
+    if not a.apply:
+        _p(f"\n미리보기입니다. 사진 {len(dirty):,}장에서 아래를 지운 사본을 "
+           "만들려면 --apply 를 붙이세요.")
+        for m in dirty[:a.limit]:
+            _p(f"  {m.path.name}  {', '.join(m.personal)}")
+        if len(dirty) > a.limit:
+            _p(f"  ... {len(dirty) - a.limit:,}장 더")
+        return 0
+
+    made = 0
+    kept = 0
+    for m in dirty:
+        target = files.unique_path(
+            m.path.with_name(f"{m.path.stem} (정보지움){m.path.suffix}"))
+        try:
+            _out, _removed = files.strip_exif(m.path, target,
+                                              keep_orientation=not a.all)
+        except (OSError, ValueError) as e:
+            _p(f"만들지 못했습니다: {m.path.name}  {e}")
+            continue
+        made += 1
+        if not a.all and m.orientation not in (None, 1):
+            kept += 1
+    _p(f"\n사본 {made:,}장을 만들었습니다. 원본은 그대로입니다.")
+    if kept:
+        _p(f"그 가운데 {kept:,}장은 방향 정보만 남겼습니다 - 그것까지 지우면 "
+           "폰으로 찍은 사진이 눕혀 보입니다. (--all 로 그것도 지웁니다)")
+    _p("그림 자체는 다시 누르지 않았습니다. 화질이 그대로입니다.")
+    return 0
+
+
 def cmd_file_scrub(a) -> int:
     """문서 속성에서 사람·회사 이름을 지운 사본을 만든다. 원본은 그대로."""
     root = Path(a.dir)
@@ -1183,6 +1250,18 @@ def add_commands(sub) -> None:
     pdfp.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
     pdfp.add_argument("--limit", type=int, default=30, metavar="개")
     pdfp.set_defaults(func=cmd_file_pdf)
+
+    exf = fp.add_parser("exif",
+                        help="사진에 남은 촬영 정보 보기·지우기 (위치·기기)")
+    exf.add_argument("dir", nargs="?", default=".", metavar="경로")
+    exf.add_argument("--strip", action="store_true",
+                     help="촬영 정보를 지운 사본을 만든다")
+    exf.add_argument("--apply", action="store_true", help="실제로 만든다")
+    exf.add_argument("--all", action="store_true",
+                     help="방향 정보까지 지운다 (사진이 눕혀 보일 수 있다)")
+    exf.add_argument("--flat", action="store_true", help="하위 폴더는 보지 않는다")
+    exf.add_argument("--limit", type=int, default=30, metavar="개")
+    exf.set_defaults(func=cmd_file_exif)
 
     scb = fp.add_parser("scrub",
                         help="문서 속성에서 사람·회사 이름 지우기 (밖으로 보내기 전)")

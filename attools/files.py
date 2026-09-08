@@ -1674,6 +1674,229 @@ PHOTO_SUFFIXES = {".jpg", ".jpeg", ".jpe", ".png", ".gif", ".bmp", ".webp",
 PHOTO_BUCKETS = {"year": "%Y", "month": "%Y-%m", "day": "%Y-%m-%d"}
 
 
+# --------------------------------------------- 사진 정보 (찍은 날·기기·위치)
+
+EXIF_MAKE = 0x010F
+EXIF_MODEL = 0x0110
+EXIF_ORIENTATION = 0x0112
+EXIF_SOFTWARE = 0x0131
+EXIF_ARTIST = 0x013B
+EXIF_COPYRIGHT = 0x8298
+EXIF_GPS_IFD = 0x8825
+GPS_LAT_REF, GPS_LAT = 0x0001, 0x0002
+GPS_LON_REF, GPS_LON = 0x0003, 0x0004
+EXIF_TYPE_SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1, 9: 4, 10: 8}
+# 사진에 딸려 다니는 메타 자리. 그림 자체는 SOS 뒤에 있어 건드리지 않는다.
+JPEG_META_SEGMENTS = {0xE1: "Exif/XMP", 0xE2: "색 프로파일", 0xED: "IPTC",
+                      0xEE: "Adobe", 0xFE: "주석"}
+
+
+@dataclass
+class PhotoMeta:
+    path: Path
+    taken: datetime | None = None
+    make: str = ""
+    model: str = ""
+    software: str = ""
+    artist: str = ""
+    copyright: str = ""
+    orientation: int | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    size: int = 0
+    error: str = ""
+
+    @property
+    def where(self) -> str:
+        if self.latitude is None or self.longitude is None:
+            return ""
+        return f"{self.latitude:.5f}, {self.longitude:.5f}"
+
+    @property
+    def personal(self) -> list[str]:
+        """밖으로 보낼 때 걸리는 것 - 위치, 기기, 사람 이름."""
+        out = []
+        if self.where:
+            out.append(f"위치 {self.where}")
+        if self.make or self.model:
+            out.append(("기기 " + f"{self.make} {self.model}".strip()))
+        if self.artist:
+            out.append(f"작성자 {self.artist}")
+        return out
+
+
+def _exif_block(data: bytes) -> tuple[bytes, str] | None:
+    """JPEG 에서 TIFF 덩어리와 바이트 순서를 꺼낸다. 없으면 None."""
+    start = data.find(b"Exif\x00\x00")
+    if start < 0:
+        return None
+    tiff = data[start + 6:]
+    if tiff[:2] not in (b"II", b"MM") or len(tiff) < 8:
+        return None
+    return tiff, ("little" if tiff[:2] == b"II" else "big")
+
+
+def _entries(data: bytes, base: int, order: str):
+    """IFD 하나의 항목을 (태그, 형, 개수, 값바이트) 로 넘긴다."""
+    if base + 2 > len(data):
+        return
+    count = int.from_bytes(data[base:base + 2], order)
+    for i in range(count):
+        at = base + 2 + i * 12
+        if at + 12 > len(data):
+            return
+        tag = int.from_bytes(data[at:at + 2], order)
+        kind = int.from_bytes(data[at + 2:at + 4], order)
+        length = int.from_bytes(data[at + 4:at + 8], order)
+        raw = data[at + 8:at + 12]
+        size = EXIF_TYPE_SIZES.get(kind, 0) * length
+        if size > 4:
+            offset = int.from_bytes(raw, order)
+            raw = data[offset:offset + size]
+        else:
+            raw = raw[:size]
+        yield tag, kind, length, raw
+
+
+def _exif_value(kind: int, count: int, raw: bytes, order: str):
+    """EXIF 값 하나를 파이썬 값으로. 모르는 형이면 None."""
+    if kind == 2:
+        return raw.split(b"\x00")[0].decode("utf-8", "replace").strip()
+    if kind in (1, 3, 4):
+        step = EXIF_TYPE_SIZES[kind]
+        numbers = [int.from_bytes(raw[i:i + step], order)
+                   for i in range(0, min(len(raw), step * count), step)]
+        return numbers[0] if count == 1 and numbers else numbers
+    if kind in (5, 10):
+        out = []
+        for i in range(0, min(len(raw), 8 * count), 8):
+            top = int.from_bytes(raw[i:i + 4], order,
+                                 signed=(kind == 10))
+            bottom = int.from_bytes(raw[i + 4:i + 8], order,
+                                    signed=(kind == 10))
+            out.append(top / bottom if bottom else 0.0)
+        return out
+    return None
+
+
+def _gps_degrees(values, ref: str) -> float | None:
+    """도·분·초를 십진 좌표로. 남/서면 음수."""
+    if not values or len(values) < 3:
+        return None
+    degrees = values[0] + values[1] / 60 + values[2] / 3600
+    return -degrees if ref.upper() in ("S", "W") else degrees
+
+
+def photo_info(path: Path, *, head: int = 262144) -> PhotoMeta:
+    """사진의 촬영 정보를 읽는다. 위치정보가 남아 있는지 보려는 것이다."""
+    meta = PhotoMeta(path=path)
+    try:
+        meta.size = path.stat().st_size
+        with path.open("rb") as fh:
+            data = fh.read(head)
+    except OSError as e:
+        meta.error = str(e)
+        return meta
+    if data[:2] != b"\xff\xd8":
+        meta.error = "JPEG 이 아닙니다 (EXIF 는 jpg 에서만 읽습니다)"
+        return meta
+
+    found = _exif_block(data)
+    if found is None:
+        meta.error = "촬영 정보(EXIF)가 없습니다"
+        return meta
+    tiff, order = found
+
+    first = int.from_bytes(tiff[4:8], order)
+    texts = {EXIF_MAKE: "make", EXIF_MODEL: "model", EXIF_SOFTWARE: "software",
+             EXIF_ARTIST: "artist", EXIF_COPYRIGHT: "copyright"}
+    gps_base = 0
+    for tag, kind, count, raw in _entries(tiff, first, order):
+        if tag in texts and kind == 2:
+            value = _exif_value(kind, count, raw, order)
+            if value:
+                setattr(meta, texts[tag], value)
+        elif tag == EXIF_ORIENTATION and kind == 3:
+            meta.orientation = _exif_value(kind, count, raw, order)
+        elif tag == EXIF_GPS_IFD and kind == 4:
+            gps_base = int.from_bytes(raw, order)
+
+    if gps_base:
+        gps: dict = {}
+        for tag, kind, count, raw in _entries(tiff, gps_base, order):
+            gps[tag] = _exif_value(kind, count, raw, order)
+        meta.latitude = _gps_degrees(gps.get(GPS_LAT),
+                                     str(gps.get(GPS_LAT_REF) or ""))
+        meta.longitude = _gps_degrees(gps.get(GPS_LON),
+                                      str(gps.get(GPS_LON_REF) or ""))
+
+    meta.taken = exif_datetime(path, head=head)
+    return meta
+
+
+def _orientation_exif(orientation: int) -> bytes:
+    """방향 하나만 든 최소 EXIF 덩어리. 지운 뒤에도 사진이 눕지 않게."""
+    body = bytearray(b"Exif\x00\x00MM\x00\x2a")
+    body += (8).to_bytes(4, "big")             # 첫 IFD 자리
+    body += (1).to_bytes(2, "big")             # 항목 하나
+    body += EXIF_ORIENTATION.to_bytes(2, "big")
+    body += (3).to_bytes(2, "big") + (1).to_bytes(4, "big")
+    body += orientation.to_bytes(2, "big") + b"\x00\x00"
+    body += (0).to_bytes(4, "big")             # 다음 IFD 없음
+    return bytes(body)
+
+
+def strip_exif(src: Path, dest: Path, *, keep_orientation: bool = True
+               ) -> tuple[Path, list[str]]:
+    """촬영 정보를 뺀 사본을 만든다. (만든 파일, 지운 자리 이름들)
+
+    그림 자체(SOS 뒤)는 손대지 않고 메타 세그먼트만 뺀다. 다시 눌지 않으므로
+    화질이 그대로다. 방향(Orientation)은 기본으로 남긴다 - 그것까지 지우면
+    폰으로 찍은 사진이 눕혀 보인다.
+    """
+    raw = src.read_bytes()
+    if raw[:2] != b"\xff\xd8":
+        raise ValueError(f"JPEG 이 아닙니다: {src.name}")
+
+    meta = photo_info(src)
+    out = bytearray(b"\xff\xd8")
+    if keep_orientation and meta.orientation and meta.orientation != 1:
+        block = _orientation_exif(meta.orientation)
+        out += b"\xff\xe1" + (len(block) + 2).to_bytes(2, "big") + block
+
+    removed: list[str] = []
+    i = 2
+    while i + 4 <= len(raw):
+        if raw[i] != 0xFF:
+            break
+        marker = raw[i + 1]
+        if marker == 0xDA:                     # 여기부터는 그림 자료다
+            out += raw[i:]
+            break
+        length = int.from_bytes(raw[i + 2:i + 4], "big")
+        if length < 2:
+            break
+        chunk = raw[i:i + 2 + length]
+        if marker in JPEG_META_SEGMENTS:
+            removed.append(JPEG_META_SEGMENTS[marker])
+        else:
+            out += chunk
+        i += 2 + length
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(bytes(out))
+    return dest, removed
+
+
+def scan_photos(root: Path, *, recursive: bool = True) -> list[PhotoMeta]:
+    """폴더 안 jpg 의 촬영 정보를 모은다."""
+    if root.is_file():
+        return [photo_info(root)]
+    walker = root.rglob("*") if recursive else root.glob("*")
+    return [photo_info(p) for p in sorted(walker)
+            if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg")]
+
+
 @dataclass
 class PhotoPlan:
     moves: list[Move] = field(default_factory=list)

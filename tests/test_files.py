@@ -16,6 +16,73 @@ from attools import files, text
 from attools.write import names
 
 
+def exif_jpeg(*, make="Samsung", model="SM-G991N", orientation=6,
+              lat=(37, 33, 36.0), lon=(126, 58, 40.0), lat_ref="N",
+              lon_ref="E", taken="2026:03:04 14:30:00") -> bytes:
+    """위치·기기·방향이 든 최소 JPEG. EXIF 읽기·지우기를 시험하는 데 쓴다."""
+    import struct
+
+    def ascii_entry(tag, text, pool, base):
+        raw = text.encode() + b"\x00"
+        if len(raw) <= 4:
+            return struct.pack(">HHI4s", tag, 2, len(raw), raw.ljust(4, b"\x00")), pool
+        offset = base + len(pool)
+        pool += raw
+        return struct.pack(">HHII", tag, 2, len(raw), offset), pool
+
+    def rationals(tag, values, pool, base):
+        raw = b"".join(struct.pack(">II", int(v * 1000), 1000) for v in values)
+        offset = base + len(pool)
+        pool += raw
+        return struct.pack(">HHII", tag, 5, len(values), offset), pool
+
+    # TIFF 머리말: MM 00 2a, 첫 IFD 는 8
+    header = b"MM\x00\x2a" + struct.pack(">I", 8)
+    # 항목 자리를 먼저 잡아야 offset 을 계산할 수 있다
+    entries0 = 5          # Make, Model, Orientation, ExifIFD, GPSIFD
+    ifd0_size = 2 + entries0 * 12 + 4
+    gps_entries = 4
+    gps_size = 2 + gps_entries * 12 + 4
+    exif_entries = 1      # DateTimeOriginal
+    exif_size = 2 + exif_entries * 12 + 4
+
+    ifd0_at = 8
+    gps_at = ifd0_at + ifd0_size
+    exif_at = gps_at + gps_size
+    pool_at = exif_at + exif_size
+
+    pool = b""
+    make_e, pool = ascii_entry(0x010F, make, pool, pool_at)
+    model_e, pool = ascii_entry(0x0110, model, pool, pool_at)
+    orient_e = struct.pack(">HHI4s", 0x0112, 3, 1,
+                           struct.pack(">HH", orientation, 0))
+    exif_ptr = struct.pack(">HHII", 0x8769, 4, 1, exif_at)
+    gps_ptr = struct.pack(">HHII", 0x8825, 4, 1, gps_at)
+    ifd0 = (struct.pack(">H", entries0) + make_e + model_e + orient_e
+            + exif_ptr + gps_ptr + struct.pack(">I", 0))
+
+    lat_ref_e, pool = ascii_entry(0x0001, lat_ref, pool, pool_at)
+    lat_e, pool = rationals(0x0002, lat, pool, pool_at)
+    lon_ref_e, pool = ascii_entry(0x0003, lon_ref, pool, pool_at)
+    lon_e, pool = rationals(0x0004, lon, pool, pool_at)
+    gps = (struct.pack(">H", gps_entries) + lat_ref_e + lat_e + lon_ref_e
+           + lon_e + struct.pack(">I", 0))
+
+    taken_e, pool = ascii_entry(0x9003, taken, pool, pool_at)
+    exif_ifd = struct.pack(">H", exif_entries) + taken_e + struct.pack(">I", 0)
+
+    tiff = header + ifd0 + gps + exif_ifd + pool
+    app1 = b"Exif\x00\x00" + tiff
+    out = b"\xff\xd8"
+    out += b"\xff\xe1" + struct.pack(">H", len(app1) + 2) + app1
+    out += b"\xff\xfe" + struct.pack(">H", 2 + 5) + b"memo\x00"   # 주석
+    # 최소 SOF0 + SOS + EOI (그림 자료는 없다시피)
+    out += b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, 4, 4, 1) + bytes([1, 0x11, 0])
+    out += b"\xff\xda" + struct.pack(">H", 8) + bytes([1, 1, 0, 0, 63, 0])
+    out += b"\x00" * 8 + b"\xff\xd9"
+    return out
+
+
 class FilesTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
@@ -1273,6 +1340,103 @@ class HwpxMetaTest(unittest.TestCase):
         meta = files.document_meta(out)
         self.assertEqual(meta.author, "")
         self.assertEqual(meta.title, "2026 예산안")
+
+
+class ExifTest(unittest.TestCase):
+    """사진에 남은 촬영 정보. 시험용 JPEG 을 손으로 만들어 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name="사진.jpg", **kw) -> Path:
+        path = self.root / name
+        path.write_bytes(exif_jpeg(**kw))
+        return path
+
+    def test_reads_place_device_and_time(self):
+        meta = files.photo_info(self.write())
+        self.assertEqual((meta.make, meta.model), ("Samsung", "SM-G991N"))
+        self.assertEqual(meta.orientation, 6)
+        self.assertAlmostEqual(meta.latitude, 37.56, places=4)
+        self.assertAlmostEqual(meta.longitude, 126.97778, places=4)
+        self.assertEqual(meta.taken.strftime("%Y-%m-%d %H:%M"),
+                         "2026-03-04 14:30")
+
+    def test_south_and_west_are_negative(self):
+        meta = files.photo_info(self.write(lat_ref="S", lon_ref="W"))
+        self.assertLess(meta.latitude, 0)
+        self.assertLess(meta.longitude, 0)
+
+    def test_personal_lists_what_leaks(self):
+        meta = files.photo_info(self.write())
+        self.assertEqual(meta.personal[0], "위치 37.56000, 126.97778")
+        self.assertIn("기기 Samsung SM-G991N", meta.personal)
+
+    def test_photo_without_exif(self):
+        path = self.root / "민.jpg"
+        path.write_bytes(b"\xff\xd8\xff\xd9")
+        self.assertIn("EXIF", files.photo_info(path).error)
+
+    def test_not_a_jpeg(self):
+        path = self.root / "그림.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        self.assertIn("JPEG 이 아닙니다", files.photo_info(path).error)
+
+    # ---- 지우기
+
+    def test_strip_removes_place_and_device(self):
+        src = self.write()
+        out, removed = files.strip_exif(src, self.root / "사본.jpg")
+        self.assertIn("Exif/XMP", removed)
+        after = files.photo_info(out)
+        self.assertEqual(after.where, "")
+        self.assertEqual(after.make, "")
+        self.assertIsNone(after.taken)
+
+    def test_strip_keeps_orientation_by_default(self):
+        # 방향까지 지우면 폰으로 찍은 사진이 눕혀 보인다
+        out, _removed = files.strip_exif(self.write(orientation=6),
+                                         self.root / "사본.jpg")
+        self.assertEqual(files.photo_info(out).orientation, 6)
+
+    def test_strip_all_drops_orientation_too(self):
+        out, _removed = files.strip_exif(self.write(orientation=6),
+                                         self.root / "사본.jpg",
+                                         keep_orientation=False)
+        self.assertIsNone(files.photo_info(out).orientation)
+
+    def test_stripped_file_is_still_a_jpeg(self):
+        src = self.write()
+        out, _removed = files.strip_exif(src, self.root / "사본.jpg")
+        raw = out.read_bytes()
+        self.assertTrue(raw.startswith(b"\xff\xd8"))
+        self.assertTrue(raw.endswith(b"\xff\xd9"))
+        before = files.image_info(src)
+        after = files.image_info(out)
+        self.assertEqual((after.width, after.height),
+                         (before.width, before.height))
+        self.assertLess(out.stat().st_size, src.stat().st_size)
+
+    def test_original_is_untouched(self):
+        src = self.write()
+        before = src.read_bytes()
+        files.strip_exif(src, self.root / "사본.jpg")
+        self.assertEqual(src.read_bytes(), before)
+
+    def test_strip_refuses_other_formats(self):
+        path = self.root / "그림.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        with self.assertRaises(ValueError):
+            files.strip_exif(path, self.root / "사본.png")
+
+    def test_scan_only_looks_at_jpegs(self):
+        self.write("가.jpg")
+        (self.root / "메모.txt").write_text("가", encoding="utf-8")
+        found = files.scan_photos(self.root)
+        self.assertEqual([m.path.name for m in found], ["가.jpg"])
 
 
 if __name__ == "__main__":

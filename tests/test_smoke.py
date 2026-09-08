@@ -156,6 +156,21 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("PDF", 속성)
         self.assertIn("박영희", 속성)
         self.assertIn("밖으로 보내기 전에", 속성)
+        찍은사진 = Path(self.path("찍은사진"))
+        찍은사진.mkdir(exist_ok=True)
+        import sys as _sys
+
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_files import exif_jpeg
+
+        (찍은사진 / "여행.jpg").write_bytes(exif_jpeg())
+        정보 = self.run_cli("file", "exif", str(찍은사진))
+        self.assertIn("37.56", 정보)
+        self.run_cli("file", "exif", str(찍은사진), "--strip", "--apply")
+        지운사진 = list(찍은사진.glob("*정보지움*"))
+        self.assertEqual(len(지운사진), 1)
+        self.assertNotIn("37.56", self.run_cli("file", "exif", str(지운사진[0])))
+
         사진 = Path(self.path("사진"))
         사진.mkdir(exist_ok=True)
         import struct
