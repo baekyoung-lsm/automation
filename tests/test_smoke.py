@@ -845,6 +845,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("연차", self.run_cli("life", "annual", "2020-03-02",
                                           "--on", "2026-09-07", "--table", "2"))
         self.assertIn("부가세", self.run_cli("life", "tax", "1100000"))
+        시급 = self.run_cli("life", "hourly", "300만", "--overtime", "10")
+        self.assertIn("통상시급", 시급)
+        self.assertIn("연장 10시간", 시급)
         self.assertIn("월세", self.run_cli("life", "rent", "--deposit", "5억",
                                            "--keep", "1억"))
         self.assertIn("일금", self.run_cli("life", "won", "125만"))

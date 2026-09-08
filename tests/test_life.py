@@ -465,5 +465,45 @@ class SeveranceTest(unittest.TestCase):
                                base_pay=-1)
 
 
+class HourlyPayTest(unittest.TestCase):
+    """통상시급과 가산 수당. 사람 돈이라 셈한 방법이 분명해야 한다."""
+
+    def test_hourly_is_monthly_over_209(self):
+        pay = life.hourly_pay(3_000_000)
+        self.assertEqual(pay.hours, 209)
+        self.assertEqual(pay.hourly, 3_000_000 // 209)
+
+    def test_statutory_multipliers(self):
+        pay = life.hourly_pay(2_090_000)          # 시급 10,000원이 되게
+        self.assertEqual(pay.hourly, 10_000)
+        self.assertEqual(pay.overtime, 15_000)    # 연장 1.5배
+        self.assertEqual(pay.night_extra, 5_000)  # 야간은 가산분만
+        self.assertEqual(pay.holiday, 15_000)
+        self.assertEqual(pay.holiday_over, 20_000)
+
+    def test_custom_hours(self):
+        pay = life.hourly_pay(2_000_000, hours=174)
+        self.assertEqual(pay.hourly, 2_000_000 // 174)
+
+    def test_extra_pay_adds_up(self):
+        pay = life.hourly_pay(2_090_000)
+        extra = life.extra_pay(pay, overtime=10, night=4)
+        self.assertEqual(extra.overtime, 150_000)
+        self.assertEqual(extra.night, 20_000)     # 가산분만
+        self.assertEqual(extra.total, 170_000)
+
+    def test_holiday_over_eight_hours(self):
+        pay = life.hourly_pay(2_090_000)
+        extra = life.extra_pay(pay, holiday=10)
+        # 8시간까지 1.5배, 넘는 2시간은 2배
+        self.assertEqual(extra.holiday, 15_000 * 8 + 20_000 * 2)
+
+    def test_bad_input(self):
+        with self.assertRaises(ValueError):
+            life.hourly_pay(0)
+        with self.assertRaises(ValueError):
+            life.hourly_pay(1_000_000, hours=0)
+
+
 if __name__ == "__main__":
     unittest.main()

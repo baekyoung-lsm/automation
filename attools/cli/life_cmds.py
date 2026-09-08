@@ -128,6 +128,53 @@ def cmd_life_unit(a) -> int:
     return 0
 
 
+def cmd_life_hourly(a) -> int:
+    """월 통상임금에서 통상시급과 연장·야간·휴일 가산 수당을 낸다."""
+    try:
+        monthly = life.parse_amount(" ".join(a.amount))
+        pay = life.hourly_pay(monthly, hours=a.hours)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{life.format_won(monthly)}  ·  한 달 소정근로 {pay.hours:g}시간")
+    _grid(["무엇", "1시간", "배수"],
+          [["통상시급", f"{pay.hourly:,}원", "1.0"],
+           ["연장근로", f"{pay.overtime:,}원", "1.5"],
+           ["야간 가산분", f"{pay.night_extra:,}원", "0.5"],
+           ["휴일근로 (8시간까지)", f"{pay.holiday:,}원", "1.5"],
+           ["휴일근로 (8시간 넘게)", f"{pay.holiday_over:,}원", "2.0"]])
+
+    if a.overtime or a.night or a.holiday:
+        extra = life.extra_pay(pay, overtime=a.overtime, night=a.night,
+                               holiday=a.holiday)
+        _p("")
+        rows = []
+        if extra.overtime_hours:
+            rows.append([f"연장 {extra.overtime_hours:g}시간",
+                         f"{extra.overtime:,}원"])
+        if extra.night_hours:
+            rows.append([f"야간 {extra.night_hours:g}시간 (가산분만)",
+                         f"{extra.night:,}원"])
+        if extra.holiday_hours:
+            rows.append([f"휴일 {extra.holiday_hours:g}시간",
+                         f"{extra.holiday:,}원"])
+        rows.append(["합계", f"{extra.total:,}원"])
+        _grid(["무엇", "얼마"], rows)
+        _p(f"\n가산 수당만 더한 것입니다. 월급 {life.format_won(monthly)} 은 "
+           "따로입니다.")
+
+    _p("\n근로기준법 제56조의 가산율입니다 (연장·야간 50%, 휴일 8시간까지 50%, "
+       "넘는 시간 100%).")
+    _p(f"한 달 소정근로시간을 {pay.hours:g}시간으로 봤습니다 - 주 40시간 + "
+       "주휴 8시간을 환산한 흔한 값이고, 법이 정한 값은 아닙니다 (--hours 로 바꿉니다).")
+    _p("통상임금에 무엇이 들어가는지는 회사 규정과 판례에 따라 다릅니다. "
+       "고정수당이 빠지면 시급이 실제보다 낮게 나옵니다.")
+    _p("야간은 연장과 겹치는 일이 많아 가산분(50%)만 셌습니다. "
+       "5인 미만 사업장은 가산 수당 규정이 적용되지 않습니다.")
+    return 0
+
+
 def cmd_life_tax(a) -> int:
     try:
         amount = life.parse_amount(" ".join(a.amount))
@@ -573,6 +620,20 @@ def add_commands(sub) -> None:
     ln.add_argument("--table", type=int, default=0, metavar="회차",
                     help="상환표 출력 (-1 이면 전체)")
     ln.set_defaults(func=cmd_life_loan)
+
+    hr = lp.add_parser("hourly",
+                       help="통상시급과 연장·야간·휴일 가산 수당 (근로기준법 제56조)")
+    hr.add_argument("amount", nargs="+", metavar="월통상임금",
+                    help="예: 300만, 3000000")
+    hr.add_argument("--hours", type=float, default=life.MONTHLY_HOURS,
+                    metavar="시간", help="한 달 소정근로시간 (기본 209)")
+    hr.add_argument("--overtime", type=float, default=0, metavar="시간",
+                    help="연장근로 시간")
+    hr.add_argument("--night", type=float, default=0, metavar="시간",
+                    help="야간근로(22~06시) 시간")
+    hr.add_argument("--holiday", type=float, default=0, metavar="시간",
+                    help="휴일근로 시간")
+    hr.set_defaults(func=cmd_life_hourly)
 
     sv = lp.add_parser("severance", help="퇴직금 계산 (평균임금 기준, 세전)")
     sv.add_argument("joined", metavar="입사일")

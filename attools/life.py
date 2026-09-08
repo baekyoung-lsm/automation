@@ -921,3 +921,81 @@ def severance_pay(joined: date, left: date, *, base_pay: float,
         notes.append("계속근로 1년 미만이라 법정 퇴직금은 생기지 않습니다.")
     return Severance(joined, left, worked, window, total, daily,
                      ordinary_daily, used, amount, eligible, notes)
+
+
+# ------------------------------------------------------- 통상시급과 가산 수당
+
+# 주 40시간 + 주휴 8시간을 한 달로 환산한 시간. (40+8) x 365 / 7 / 12 = 208.57
+MONTHLY_HOURS = 209
+# 근로기준법 제56조의 가산율.
+OVERTIME_RATE = 1.5          # 연장근로 (통상임금의 50% 가산)
+NIGHT_EXTRA = 0.5            # 야간(22시~06시) 가산분
+HOLIDAY_RATE = 1.5           # 휴일근로 8시간까지
+HOLIDAY_OVER_RATE = 2.0      # 휴일근로 8시간을 넘는 시간
+
+
+@dataclass
+class HourlyPay:
+    monthly: int             # 월 통상임금
+    hours: float             # 한 달 소정근로시간
+    hourly: int              # 통상시급 (원 미만 버림)
+    overtime: int            # 연장 1시간
+    night_extra: int         # 야간 가산 1시간분
+    holiday: int             # 휴일 8시간 이내 1시간
+    holiday_over: int        # 휴일 8시간 초과 1시간
+
+
+def hourly_pay(monthly: int, *, hours: float = MONTHLY_HOURS) -> HourlyPay:
+    """월 통상임금에서 통상시급과 가산 수당 단가를 낸다.
+
+    한 달 소정근로시간은 주 40시간 + 주휴 8시간을 환산한 209시간으로 본다.
+    회사의 소정근로시간이 다르면 그 숫자를 줘야 한다 - 209는 «흔한 값»이지
+    법이 정한 값이 아니다.
+    """
+    if monthly <= 0:
+        raise ValueError("월 통상임금은 0보다 커야 합니다.")
+    if hours <= 0:
+        raise ValueError("소정근로시간은 0보다 커야 합니다.")
+
+    base = int(monthly / hours)
+    return HourlyPay(
+        monthly=monthly, hours=hours, hourly=base,
+        overtime=int(base * OVERTIME_RATE),
+        night_extra=int(base * NIGHT_EXTRA),
+        holiday=int(base * HOLIDAY_RATE),
+        holiday_over=int(base * HOLIDAY_OVER_RATE),
+    )
+
+
+@dataclass
+class ExtraPay:
+    overtime_hours: float = 0.0
+    night_hours: float = 0.0
+    holiday_hours: float = 0.0
+    overtime: int = 0
+    night: int = 0
+    holiday: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.overtime + self.night + self.holiday
+
+
+def extra_pay(pay: HourlyPay, *, overtime: float = 0.0, night: float = 0.0,
+              holiday: float = 0.0) -> ExtraPay:
+    """연장·야간·휴일 시간에 대한 가산 수당. 야간은 «가산분만» 더한다.
+
+    야간근로는 연장근로와 겹치는 일이 많아, 시간당 임금을 두 번 세지 않도록
+    가산분(50%)만 따로 센다.
+    """
+    out = ExtraPay(overtime_hours=max(0.0, overtime),
+                   night_hours=max(0.0, night),
+                   holiday_hours=max(0.0, holiday))
+    out.overtime = int(pay.overtime * out.overtime_hours)
+    out.night = int(pay.night_extra * out.night_hours)
+    if out.holiday_hours <= 8:
+        out.holiday = int(pay.holiday * out.holiday_hours)
+    else:
+        out.holiday = int(pay.holiday * 8
+                          + pay.holiday_over * (out.holiday_hours - 8))
+    return out
