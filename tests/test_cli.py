@@ -297,6 +297,37 @@ class KoreanHelpTest(unittest.TestCase):
         self.assertEqual(bad, [], f"한국어가 아닌 옵션 설명: {bad}")
 
 
+class DumpTest(unittest.TestCase):
+    """긴 결과를 화면에 쏟지 않는지. 관(|)으로 넘길 때는 다 나와야 한다."""
+
+    def run_dump(self, text, tty: bool):
+        import io
+        from unittest import mock
+
+        from attools.cli import common
+
+        buffer = io.StringIO()
+        buffer.isatty = lambda: tty          # StringIO 는 언제나 False 를 준다
+        with mock.patch("sys.stdout", buffer):
+            common._dump(text, hint="-o 로 저장")
+        return buffer.getvalue()
+
+    def test_pipe_gets_everything(self):
+        body = "\n".join(f"{i}" for i in range(500))
+        self.assertEqual(len(self.run_dump(body, tty=False).splitlines()), 500)
+
+    def test_screen_gets_the_head_and_a_note(self):
+        body = "\n".join(f"{i}" for i in range(500))
+        shown = self.run_dump(body, tty=True).splitlines()
+        self.assertEqual(len(shown), 21)
+        self.assertIn("480줄 더", shown[-1])
+        self.assertIn("-o 로 저장", shown[-1])
+
+    def test_short_output_is_untouched(self):
+        body = "가\n나\n다"
+        self.assertEqual(self.run_dump(body, tty=True), "가\n나\n다\n")
+
+
 class EpilogExampleTest(unittest.TestCase):
     """도움말 아래에 적어 둔 예시가 진짜 되는 명령이어야 한다.
 

@@ -10,7 +10,7 @@ from .. import files, hangul, sheet, text
 from ..code import devkit, jsonkit
 from ..docs import mdkit, report
 from ..write import names
-from .common import _pad, _p, _cut, _grid, _may_write, _width
+from .common import _pad, _p, _cut, _dump, _grid, _may_write, _width
 
 
 def _load(a, path: str | None = None) -> sheet.Table | None:
@@ -69,6 +69,30 @@ def _save_table(a, table) -> int:
         _p(f"원본에는 시트가 {len(others) + 1}개인데 결과에는 «{table.sheet}» "
            "하나만 담았습니다. 나머지도 그대로 옮기려면 --keep-sheets 를 붙이세요.")
     return 0
+
+
+def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
+               limit: int = 40, keep_last: bool = False) -> None:
+    """열이 많은 표를 화면에 맞게 잘라 찍는다.
+
+    30,000행짜리 표를 뒤집으면 열이 30,000개다. 그대로 찍으면 한 줄이 45만
+    글자가 되어 화면이 망가진다. 잘랐다는 사실은 반드시 함께 적는다.
+    """
+    keep = max(2, cols)
+    tail = 1 if (keep_last and len(headers) > keep) else 0
+    shown = headers[:keep] + (headers[-tail:] if tail else [])
+    hidden = len(headers) - len(shown)
+
+    def cells(row):
+        picked = list(row[:keep]) + (list(row[-tail:]) if tail else [])
+        return [sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}"
+                for v in picked]
+
+    _grid(shown, [cells(r) for r in rows[:limit]])
+    if hidden > 0:
+        _p(f"  ... 열 {hidden:,}개 더 (-o 로 저장하면 다 담깁니다)")
+    if len(rows) > limit:
+        _p(f"  ... 행 {len(rows) - limit:,}개 더")
 
 
 def _sheet_result(a, table, headline: str) -> int:
@@ -851,7 +875,7 @@ def cmd_sheet_to_sql(a) -> int:
         out.write_text(body, encoding="utf-8")
         _p(f"저장: {out}  ({len(t.rows):,}행, {a.dialect})")
     else:
-        _p(body)
+        _dump(body, hint="-o 로 저장하거나 | 로 넘기세요")
 
     _p(f"빈 칸은 NULL 로 넣었습니다. ({a.dialect} 따옴표 규칙)")
     if a.create:
@@ -1417,22 +1441,9 @@ def cmd_sheet_pivot(a) -> int:
 
     # 교차표는 열이 쉽게 수십 개가 된다. 그대로 찍으면 한 줄이 화면을 넘겨
     # 아무것도 못 읽는다. 화면에는 앞쪽만 보이고 파일에는 다 담는다.
-    keep = max(2, a.cols_shown)
     # 맨 끝 합계 열은 자르더라도 남긴다. 교차표에서 제일 많이 보는 칸이다
-    tail = 1 if (len(result.headers) > keep and result.headers[-1] == "합계") else 0
-    headers = result.headers[:keep] + (result.headers[-tail:] if tail else [])
-    hidden = len(result.headers) - len(headers)
-
-    def shown(row):
-        return [sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}"
-                for v in list(row[:keep]) + (list(row[-tail:]) if tail else [])]
-
-    _grid(headers, [shown(r) for r in result.rows[:a.rows_shown]])
-    if hidden > 0:
-        _p(f"  ... 열 {hidden:,}개 더 "
-           "(--cols-shown 으로 조절, -o 로 저장하면 다 담깁니다)")
-    if len(result.rows) > a.rows_shown:
-        _p(f"  ... 행 {len(result.rows) - a.rows_shown:,}개 더")
+    _wide_grid(result.headers, result.rows, cols=a.cols_shown,
+               limit=a.rows_shown, keep_last=result.headers[-1] == "합계")
     _p(f"\n{len(result.rows)}개 그룹")
     if a.out:
         if not _may_write(a, Path(a.out)):
@@ -1477,8 +1488,7 @@ def cmd_sheet_transpose(a) -> int:
         _p(str(e))
         return 1
 
-    _grid(result.headers, [[sheet.to_text(v) for v in r]
-                           for r in result.rows[:a.limit]])
+    _wide_grid(result.headers, result.rows, cols=a.cols_shown, limit=a.limit)
     _p(f"\n{len(t.rows):,}행 x {t.width}열 -> {len(result.rows):,}행 x "
        f"{result.width}열")
     _p(f"첫 열({t.headers[0]})의 값이 새 머리글이 됩니다.")
@@ -2476,7 +2486,7 @@ def cmd_sheet_to_json(a) -> int:
             _p("  빈 칸은 키 자체를 넣지 않았습니다. (--keep-blank 로 null 로 둡니다)")
         return 0
 
-    sys.stdout.write(text_out)
+    _dump(text_out, hint="-o 로 저장하거나 | 로 넘기세요")
     return 0
 
 
@@ -2770,6 +2780,8 @@ def add_commands(sub) -> None:
     tp.add_argument("--name", default="항목", metavar="열이름",
                     help="새 표의 첫 열 이름")
     tp.add_argument("--limit", type=int, default=20)
+    tp.add_argument("--cols-shown", type=int, default=12, metavar="개",
+                    help="화면에 보일 열 수 (파일에는 다 담긴다)")
     tp.add_argument("-o", "--out")
     tp.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")

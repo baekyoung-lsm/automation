@@ -73,6 +73,24 @@ def _may_write(a, target) -> bool:
     return False
 
 
+def _dump(text: str, *, hint: str = "") -> None:
+    """긴 결과를 그대로 쏟는다. 화면이면 앞부분만, 관(|)으로 넘길 때는 전부.
+
+    30,000행짜리 표를 JSON 으로 바꾸면 20만 줄이 된다. 관으로 넘길 때는 다
+    필요하지만, 화면에 그대로 쏟으면 앞의 결과까지 스크롤 밖으로 밀려난다.
+    """
+    if not sys.stdout.isatty():
+        sys.stdout.write(text if text.endswith("\n") else text + "\n")
+        return
+    lines = text.splitlines()
+    if len(lines) <= 40:
+        sys.stdout.write("\n".join(lines) + "\n")
+        return
+    sys.stdout.write("\n".join(lines[:20]) + "\n")
+    _p(f"... {len(lines) - 20:,}줄 더. 화면이라 앞부분만 보였습니다"
+       + (f" ({hint})" if hint else ""))
+
+
 def _grid(headers: list[str], rows: list[list[str]], *, limit: int = 24) -> None:
     """터미널에 표를 정렬해 찍는다."""
     cells = [[_cut(h, limit) for h in headers]] + [[_cut(c, limit) for c in r] for r in rows]
