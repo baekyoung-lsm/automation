@@ -2053,5 +2053,127 @@ class OverwriteGuardTest(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
+class IcsTest(unittest.TestCase):
+    def setUp(self):
+        from datetime import date, datetime, time
+        self.date, self.datetime, self.time = date, datetime, time
+        self.table = sheet.Table(
+            ["일정", "시작", "끝", "장소", "비고"],
+            [["킥오프", "2026-03-04 14:30", "2026-03-04 16:00", "회의실", "가, 나"],
+             ["워크숍", "2026-03-10", "2026-03-12", "양평", ""],
+             ["", "2026-03-11", "", "", ""],
+             ["미정", "언젠가", "", "", ""]])
+
+    def build(self, **kw):
+        return sheet.events_from_table(self.table, summary="일정",
+                                       start="시작", end="끝", **kw)
+
+    # ---- 날짜·시각 읽기
+
+    def test_reads_date_with_clock(self):
+        self.assertEqual(sheet.parse_when("2026-03-04 14:30"),
+                         (self.date(2026, 3, 4), self.time(14, 30)))
+
+    def test_reads_korean_afternoon(self):
+        self.assertEqual(sheet.parse_when("2026.3.4 오후 2시"),
+                         (self.date(2026, 3, 4), self.time(14, 0)))
+
+    def test_date_only_has_no_clock(self):
+        self.assertEqual(sheet.parse_when("2026-03-04"),
+                         (self.date(2026, 3, 4), None))
+
+    def test_impossible_clock_is_not_guessed(self):
+        self.assertIsNone(sheet.parse_when("2026-03-04 12:70"))
+
+    def test_no_date_at_all(self):
+        self.assertIsNone(sheet.parse_when("언젠가"))
+        self.assertIsNone(sheet.parse_when(""))
+
+    def test_datetime_cell(self):
+        got = sheet.parse_when(self.datetime(2026, 3, 4, 9, 5))
+        self.assertEqual(got, (self.date(2026, 3, 4), self.time(9, 5)))
+
+    # ---- 표 -> 일정
+
+    def test_bad_rows_are_skipped_not_filled(self):
+        events, skipped = self.build()
+        self.assertEqual([e.summary for e in events], ["킥오프", "워크숍"])
+        self.assertEqual([line for line, _why in skipped], [4, 5])
+
+    def test_all_day_when_no_clock(self):
+        events, _skipped = self.build()
+        self.assertTrue(events[1].all_day)
+        self.assertFalse(events[0].all_day)
+
+    def test_end_before_start_is_skipped(self):
+        table = sheet.Table(["일정", "시작", "끝"],
+                            [["거꾸로", "2026-03-10", "2026-03-01"]])
+        events, skipped = sheet.events_from_table(table, summary="일정",
+                                                  start="시작", end="끝")
+        self.assertEqual(events, [])
+        self.assertIn("앞섭니다", skipped[0][1])
+
+    # ---- ics 만들기
+
+    def body(self, **kw):
+        events, _skipped = self.build()
+        kw.setdefault("now", self.datetime(2026, 1, 1, 0, 0))
+        return sheet.to_ics(events, **kw)
+
+    def test_all_day_end_gets_one_more_day(self):
+        # ics 의 DTEND 는 «그 다음 날» 이라 12일까지 쉬면 13일로 적어야 한다
+        self.assertIn("DTEND;VALUE=DATE:20260313", self.body())
+
+    def test_timed_event_carries_seoul_zone(self):
+        out = self.body()
+        self.assertIn("DTSTART;TZID=Asia/Seoul:20260304T143000", out)
+        self.assertIn("TZID:Asia/Seoul", out)
+
+    def test_lines_end_with_crlf(self):
+        self.assertTrue(self.body().endswith("END:VCALENDAR\r\n"))
+
+    def test_alarm_is_optional(self):
+        self.assertNotIn("VALARM", self.body())
+        self.assertIn("TRIGGER:-PT30M", self.body(alarm=30))
+
+    def test_default_length_when_no_end_time(self):
+        table = sheet.Table(["일정", "시작"], [["회의", "2026-03-04 09:00"]])
+        events, _skipped = sheet.events_from_table(table, summary="일정",
+                                                   start="시작")
+        out = sheet.to_ics(events, minutes=30)
+        self.assertIn("DTEND;TZID=Asia/Seoul:20260304T093000", out)
+
+    def test_same_event_keeps_same_uid(self):
+        first = sheet.Event("회의", self.date(2026, 3, 4))
+        second = sheet.Event("회의", self.date(2026, 3, 4))
+        other = sheet.Event("회식", self.date(2026, 3, 4))
+        self.assertEqual(sheet._event_uid(first), sheet._event_uid(second))
+        self.assertNotEqual(sheet._event_uid(first), sheet._event_uid(other))
+
+    # ---- 형식
+
+    def test_escapes_comma_and_newline(self):
+        self.assertEqual(sheet.ics_escape("가, 나; 다"), "가\\, 나\\; 다")
+        self.assertEqual(sheet.ics_escape("한\n줄"), "한\\n줄")
+
+    def test_folds_long_lines_without_cutting_hangul(self):
+        line = "SUMMARY:" + "가" * 60
+        folded = sheet.fold_line(line)
+        self.assertGreater(len(folded), 1)
+        for piece in folded:
+            self.assertLessEqual(len(piece.encode("utf-8")), 75)
+        self.assertTrue(all(p.startswith(" ") for p in folded[1:]))
+        self.assertEqual("".join([folded[0]] + [p[1:] for p in folded[1:]]),
+                         line)
+
+    def test_folded_output_can_be_unfolded_back(self):
+        table = sheet.Table(["일정", "시작"], [["아주 긴 " + "회의" * 40,
+                                               "2026-03-04"]])
+        events, _skipped = sheet.events_from_table(table, summary="일정",
+                                                   start="시작")
+        out = sheet.to_ics(events).replace("\r\n ", "")
+        self.assertIn("SUMMARY:아주 긴 " + "회의" * 40, out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -600,6 +600,62 @@ def cmd_sheet_to_sql(a) -> int:
     return 0
 
 
+
+def cmd_sheet_ics(a) -> int:
+    """엑셀 일정표를 캘린더 파일(ics)로. 손으로 다시 입력하지 않게."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        events, skipped = sheet.events_from_table(
+            t, summary=a.title, start=a.start, end=a.end,
+            location=a.place, description=a.memo)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    if not events:
+        _p("캘린더에 넣을 일정이 없습니다.")
+        for line, why in skipped[:10]:
+            _p(f"  {line}행: {why}")
+        return 1
+
+    _grid(["일정", "시작", "끝", "장소"],
+          [[_cut(e.summary, 24),
+            f"{e.start}" + (f" {e.start_time:%H:%M}" if e.start_time else ""),
+            (f"{e.end}" if e.end else "") +
+            (f" {e.end_time:%H:%M}" if e.end_time else ""),
+            _cut(e.location, 16)] for e in events[:a.rows]])
+    if len(events) > a.rows:
+        _p(f"  ... {len(events) - a.rows:,}개 더")
+
+    body = sheet.to_ics(events, name=a.name or "", alarm=a.alarm,
+                        minutes=a.minutes)
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body, encoding="utf-8", newline="")
+        _p(f"\n저장: {out}  (일정 {len(events):,}개)")
+        _p("캘린더 앱에서 «가져오기» 로 열면 들어갑니다.")
+    else:
+        _p(f"\n일정 {len(events):,}개. 파일로 내려면 -o 일정.ics 를 주세요.")
+
+    if skipped:
+        _p(f"\n건너뛴 행 {len(skipped)}개:")
+        for line, why in skipped[:10]:
+            _p(f"  {line}행: {why}")
+        if len(skipped) > 10:
+            _p(f"  ... {len(skipped) - 10}행 더")
+    _p("\n시각이 있는 일정은 한국 시간(Asia/Seoul)으로 넣습니다. "
+       "끝 날짜만 있는 종일 일정은 그날까지 포함합니다.")
+    if not a.end:
+        _p(f"끝 열을 주지 않아 시각이 있는 일정은 {a.minutes}분짜리로 잡았습니다. "
+           "(--end 열, --minutes 분)")
+    return 0
+
+
 def cmd_sheet_from_docx(a) -> int:
     """워드 문서 안의 표를 엑셀·csv 로. 손으로 다시 치지 않게."""
     path = Path(a.file)
@@ -1998,6 +2054,25 @@ def add_commands(sub) -> None:
     ts.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
     ts.set_defaults(func=cmd_sheet_to_sql)
+
+    ic = common(sh.add_parser("ics", help="일정표를 캘린더 파일(ics)로"))
+    ic.add_argument("file")
+    ic.add_argument("--title", required=True, metavar="열", help="일정 이름 열")
+    ic.add_argument("--start", required=True, metavar="열",
+                    help="시작 날짜 열 (시각이 같이 있어도 된다)")
+    ic.add_argument("--end", metavar="열", help="끝 날짜·시각 열")
+    ic.add_argument("--place", metavar="열", help="장소 열")
+    ic.add_argument("--memo", metavar="열", help="설명 열")
+    ic.add_argument("--minutes", type=int, default=60, metavar="분",
+                    help="끝 시각이 없을 때 잡을 길이 (기본 60분)")
+    ic.add_argument("--alarm", type=int, metavar="분", help="몇 분 전에 알림")
+    ic.add_argument("--name", metavar="이름", help="캘린더 이름")
+    ic.add_argument("-n", "--rows", type=int, default=10, metavar="개",
+                    help="미리 볼 일정 수")
+    ic.add_argument("-o", "--out", metavar="파일.ics")
+    ic.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    ic.set_defaults(func=cmd_sheet_ics)
 
     fdx = sh.add_parser("from-docx", help="워드 문서 안의 표를 엑셀·csv 로")
     fdx.add_argument("file", metavar="파일")

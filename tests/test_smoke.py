@@ -292,6 +292,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("입사일 요일", 날짜)
         sql = self.run_cli("sheet", "to-sql", csv, "-t", "직원", "--create")
         self.assertIn("INSERT INTO", sql)
+        일정 = Path(self.path("일정.csv"))
+        일정.write_text("일정,시작,끝\n워크숍,2026-03-10 14:00,2026-03-10 16:00\n",
+                       encoding="utf-8")
+        캘린더 = self.path("일정.ics")
+        self.run_cli("sheet", "ics", str(일정), "--title", "일정",
+                     "--start", "시작", "--end", "끝", "-o", 캘린더)
+        만든것 = Path(캘린더).read_text(encoding="utf-8")
+        self.assertIn("BEGIN:VEVENT", 만든것)
+        self.assertIn("DTSTART;TZID=Asia/Seoul:20260310T140000", 만든것)
         self.assertIn("가림", self.run_cli("sheet", "mask", csv, "--name", "이름"))
         self.assertIn("형식", self.run_cli("sheet", "format", csv,
                                            "--date", "입사일", "--number", "연봉"))

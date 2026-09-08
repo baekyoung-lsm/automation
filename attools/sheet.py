@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import csv
 import difflib
+import hashlib
 import io
 import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from .hangul import josa
@@ -2107,6 +2108,224 @@ def _sql_column_type(values: list, dialect: str) -> str:
             return _SQL_TYPES["실수"][dialect]
         return _SQL_TYPES["글자"][dialect]      # 섞였으면 글자로 둔다
     return _SQL_TYPES[kinds.pop()][dialect]
+
+
+
+# ---------------------------------------------------------------- 캘린더(ics)
+
+ICS_FOLD = 75                     # RFC 5545 - 한 줄 75옥텟
+ICS_TZID = "Asia/Seoul"
+ICS_TIMEZONE = [
+    "BEGIN:VTIMEZONE",
+    f"TZID:{ICS_TZID}",
+    "BEGIN:STANDARD",
+    "DTSTART:19880101T000000",
+    "TZOFFSETFROM:+0900",
+    "TZOFFSETTO:+0900",
+    "TZNAME:KST",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+]
+TIME_RE = re.compile(r"(?<![\d:])(\d{1,2})\s*(?::|시)\s*(\d{1,2})?\s*분?(?![\d:])")
+
+
+def parse_when(cell: object) -> tuple[date, time | None] | None:
+    """셀에서 날짜와 (있으면) 시각을 읽는다. 못 읽으면 None.
+
+    «2026-03-04 14:30», «2026.3.4 오후 2시» 처럼 한 칸에 같이 적는 일이
+    흔해서 시각을 먼저 떼어 내고 남은 것을 날짜로 읽는다. 시각이 없으면
+    시각 자리는 None 이고 종일 일정이 된다.
+    """
+    if isinstance(cell, datetime):
+        return cell.date(), cell.time().replace(microsecond=0)
+    if isinstance(cell, date):
+        return cell, None
+    if _is_blank(cell):
+        return None
+
+    text = to_text(cell).strip()
+    clock: time | None = None
+    if m := TIME_RE.search(text):
+        hour, minute = int(m.group(1)), int(m.group(2) or 0)
+        before = text[:m.start()]
+        if "오후" in before or "PM" in before.upper():
+            if hour < 12:
+                hour += 12
+        elif "오전" in before and hour == 12:
+            hour = 0
+        if hour > 23 or minute > 59:
+            return None       # 시각처럼 생겼는데 시각이 아니다 - 지어내지 않는다
+        clock = time(hour, minute)
+        text = (text[:m.start()] + " " + text[m.end():])
+    text = text.replace("오전", " ").replace("오후", " ").strip()
+
+    day = parse_date(text)
+    if day is None:
+        return None
+    return day, clock
+
+
+@dataclass
+class Event:
+    """캘린더 일정 하나. 끝 시각은 사람이 말하는 대로(그날까지) 담는다."""
+    summary: str
+    start: date
+    start_time: time | None = None
+    end: date | None = None
+    end_time: time | None = None
+    location: str = ""
+    description: str = ""
+
+    @property
+    def all_day(self) -> bool:
+        return self.start_time is None
+
+
+def ics_escape(text: str) -> str:
+    """RFC 5545 의 텍스트 escape. 쉼표·세미콜론을 그대로 두면 줄이 갈라진다."""
+    out = text.replace("\\", "\\\\")
+    for mark in (";", ","):
+        out = out.replace(mark, "\\" + mark)
+    return out.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
+
+
+def fold_line(line: str) -> list[str]:
+    """긴 줄을 75옥텟으로 접는다. 한글이 잘리지 않게 글자 단위로 센다."""
+    out: list[str] = []
+    room = ICS_FOLD
+    piece = ""
+    size = 0
+    for ch in line:
+        width = len(ch.encode("utf-8"))
+        if size + width > room:
+            out.append(piece)
+            piece, size, room = " ", 1, ICS_FOLD   # 이어지는 줄은 공백으로 시작
+        piece += ch
+        size += width
+    out.append(piece)
+    return out
+
+
+def _ics_date(day: date) -> str:
+    return day.strftime("%Y%m%d")
+
+
+def _ics_moment(day: date, clock: time) -> str:
+    return f"{day:%Y%m%d}T{clock:%H%M%S}"
+
+
+def _event_uid(event: Event) -> str:
+    """같은 일정이면 같은 UID. 표를 고쳐 다시 넣어도 새 일정이 쌓이지 않는다."""
+    key = "|".join([event.summary, str(event.start), str(event.start_time),
+                    str(event.end), str(event.end_time), event.location])
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:20] + "@attools"
+
+
+def to_ics(events: list[Event], *, name: str = "", alarm: int | None = None,
+           minutes: int = 60, now: datetime | None = None) -> str:
+    """일정 목록을 ics 한 장으로. 아웃룩·구글 캘린더가 그대로 읽는다.
+
+    시각이 있는 일정은 한국 시간(Asia/Seoul)으로 넣는다. 종일 일정의 끝
+    날짜는 ics 규칙상 «그 다음 날» 이라 하루를 더해 적는다 - 그냥 적으면
+    캘린더에서 마지막 날이 빠진다.
+    """
+    # DTSTAMP 는 UTC 다. 한국 시각을 Z 로 적으면 9시간 어긋난다.
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0",
+             "PRODID:-//attools//KO//", "CALSCALE:GREGORIAN", "METHOD:PUBLISH"]
+    if name:
+        lines.append("X-WR-CALNAME:" + ics_escape(name))
+    if any(not e.all_day for e in events):
+        lines += ICS_TIMEZONE
+
+    for event in events:
+        lines.append("BEGIN:VEVENT")
+        lines.append("UID:" + _event_uid(event))
+        lines.append("DTSTAMP:" + stamp)
+        if event.all_day:
+            last = event.end or event.start
+            lines.append("DTSTART;VALUE=DATE:" + _ics_date(event.start))
+            lines.append("DTEND;VALUE=DATE:"
+                         + _ics_date(last + timedelta(days=1)))
+        else:
+            start_time = event.start_time or time(0, 0)
+            begin = datetime.combine(event.start, start_time)
+            if event.end_time is not None:
+                finish = datetime.combine(event.end or event.start,
+                                          event.end_time)
+            else:
+                finish = begin + timedelta(minutes=minutes)
+            if finish < begin:
+                finish = begin + timedelta(minutes=minutes)
+            lines.append(f"DTSTART;TZID={ICS_TZID}:"
+                         + _ics_moment(begin.date(), begin.time()))
+            lines.append(f"DTEND;TZID={ICS_TZID}:"
+                         + _ics_moment(finish.date(), finish.time()))
+        lines.append("SUMMARY:" + ics_escape(event.summary))
+        if event.location:
+            lines.append("LOCATION:" + ics_escape(event.location))
+        if event.description:
+            lines.append("DESCRIPTION:" + ics_escape(event.description))
+        if alarm is not None:
+            lines += ["BEGIN:VALARM", f"TRIGGER:-PT{alarm}M",
+                      "ACTION:DISPLAY",
+                      "DESCRIPTION:" + ics_escape(event.summary),
+                      "END:VALARM"]
+        lines.append("END:VEVENT")
+
+    lines.append("END:VCALENDAR")
+    folded: list[str] = []
+    for line in lines:
+        folded += fold_line(line)
+    return "\r\n".join(folded) + "\r\n"
+
+
+def events_from_table(table: Table, *, summary: str, start: str,
+                      end: str | None = None, location: str | None = None,
+                      description: str | None = None
+                      ) -> tuple[list[Event], list[tuple[int, str]]]:
+    """일정표를 캘린더 일정으로. (일정 목록, 건너뛴 행)
+
+    날짜를 못 읽은 행은 오늘 날짜 같은 걸 채우지 않고 건너뛰고 몇 행이었는지
+    알려 준다 - 조용히 채우면 엉뚱한 날에 일정이 잡힌다.
+    """
+    columns = {"제목": summary, "시작": start}
+    if end:
+        columns["끝"] = end
+    if location:
+        columns["장소"] = location
+    if description:
+        columns["설명"] = description
+    index = {key: table.index_of(name) for key, name in columns.items()}
+
+    events: list[Event] = []
+    skipped: list[tuple[int, str]] = []
+    for line, row in enumerate(table.rows, 2):
+        cells = list(row) + [None] * (table.width - len(row))
+        title = to_text(cells[index["제목"]]).strip()
+        began = parse_when(cells[index["시작"]])
+        if not title:
+            skipped.append((line, "제목이 비었습니다"))
+            continue
+        if began is None:
+            skipped.append((line, "시작 날짜를 읽지 못했습니다"))
+            continue
+
+        finished = parse_when(cells[index["끝"]]) if "끝" in index else None
+        event = Event(summary=title, start=began[0], start_time=began[1])
+        if finished is not None:
+            event.end, event.end_time = finished
+            if event.end < event.start:
+                skipped.append((line, "끝 날짜가 시작보다 앞섭니다"))
+                continue
+            if event.start_time is None and event.end_time is not None:
+                event.start_time = time(0, 0)
+        if "장소" in index:
+            event.location = to_text(cells[index["장소"]]).strip()
+        if "설명" in index:
+            event.description = to_text(cells[index["설명"]]).strip()
+        events.append(event)
+    return events, skipped
 
 
 def to_sql(table: Table, name: str, *, dialect: str = "sqlite",

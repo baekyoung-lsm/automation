@@ -360,6 +360,13 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 머리글로 쓰지 않고 `열1, 열2…` 자리를 만들어 그 줄도 자료로 남긴다 — 머리글을 지어내면
 어느 열이 무엇인지 아무도 모르게 된다. 표가 여럿이면 xlsx 로 저장할 때 시트로 나눠 담는다.
 
+`at sheet ics` 는 엑셀로 만든 일정표를 캘린더가 읽는 `.ics` 로 낸다. 시작 칸에 시각이
+같이 있으면(`2026-03-04 14:30`, `3/4 오후 2시`) 시각까지 읽고, 날짜만 있으면 종일 일정이
+된다. 종일 일정의 끝 날짜는 하루를 더해 적는다 - ics 의 끝 날짜는 «그 다음 날» 이라
+그냥 적으면 캘린더에서 마지막 날이 빠진다. 시각이 있는 일정은 한국 시간(Asia/Seoul)으로
+넣고, 날짜를 못 읽은 행은 채우지 않고 몇 행이었는지 알려 준다. 같은 일정은 같은 UID 라
+표를 고쳐 다시 가져와도 일정이 두 벌 쌓이지 않는다.
+
 `at doc stats` 는 문서가 얼마나 큰지 한 줄로 본다 - 글자 수, 읽는 데 걸리는 시간, 제목·표·
 그림·링크 수, 코드 줄, 아직 남은 `TODO`·`<!-- -->` 메모. 글자 수는 **코드 블록을 뺀** 것이고
 읽는 시간은 분당 500자로 어림한 값이다 - 예제 코드까지 세면 «읽는 데 30분» 이 크게 부풀어
@@ -802,6 +809,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet from-json <파일>` | JSON 배열을 표로 (API 응답 → 엑셀) |
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |
 | `at sheet to-sql <파일> -t <표>` | 표를 INSERT 문으로 (엑셀 → 개발 DB) |
+| `at sheet ics <파일>` | 일정표를 캘린더 파일(ics)로 (아웃룩·구글 캘린더로 가져가기) |
 | `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
@@ -867,6 +875,8 @@ at sheet from-json 응답.json --path data.users -o 표.csv
 at sheet to-json 명단.xlsx --nest -o 요청.json
 at sheet to-sql 명단.xlsx -t users --create -o seed.sql
 at sheet to-sql 명단.xlsx -t users --dialect mysql --batch 500
+at sheet ics 일정표.xlsx --title 일정 --start 시작 --end 끝 -o 일정.ics
+at sheet ics 일정표.xlsx --title 일정 --start 날짜 --place 장소 --alarm 30 -o 일정.ics
 at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" ...; done
 at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \
