@@ -61,6 +61,21 @@ class HwpxTest(unittest.TestCase):
         parts = hwpx.read_document(self.make())
         self.assertEqual(sum(1 for kind, _b in parts if kind == "문단"), 2)
 
+    def test_text_around_a_table_in_one_paragraph(self):
+        # 표를 품은 문단에 붙은 글자를 버리면 설명이 통째로 사라진다
+        sec = ("<hs:sec xmlns:hs='s' xmlns:hp='p'><hp:p>"
+               "<hp:run><hp:t>표 앞 설명</hp:t></hp:run>"
+               "<hp:run><hp:tbl><hp:tr>"
+               "<hp:tc><hp:p><hp:run><hp:t>가</hp:t></hp:run></hp:p></hp:tc>"
+               "<hp:tc><hp:p><hp:run><hp:t>나</hp:t></hp:run></hp:p></hp:tc>"
+               "</hp:tr></hp:tbl></hp:run>"
+               "<hp:run><hp:t>표 뒤 설명</hp:t></hp:run>"
+               "</hp:p></hs:sec>")
+        parts = hwpx.read_document(self.make(sections=[sec]))
+        self.assertEqual(parts, [("문단", "표 앞 설명"),
+                                 ("표", [["가", "나"]]),
+                                 ("문단", "표 뒤 설명")])
+
     def test_sections_keep_their_order(self):
         second = SECTION.replace("사업 계획서", "둘째 장")
         parts = hwpx.read_document(self.make(sections=[SECTION, second]))

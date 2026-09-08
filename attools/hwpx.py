@@ -87,13 +87,41 @@ def _walk(node: ET.Element, parts: list) -> None:
             continue
         if name == "p":
             if any(_tag(a) == "tbl" for a in child.iter()):
-                _walk(child, parts)       # 표를 담은 문단은 안쪽을 따로 본다
+                _walk_around_tables(child, parts)
                 continue
             text = _text_of(child)
             if text:
                 parts.append(("문단", text))
             continue
         _walk(child, parts)
+
+
+def _walk_around_tables(node: ET.Element, parts: list) -> None:
+    """표를 품은 문단. 표 앞뒤에 붙은 글자도 잃지 않게 차례대로 본다."""
+    buffer: list[str] = []
+
+    def flush() -> None:
+        text = "".join(buffer).strip()
+        buffer.clear()
+        if text:
+            parts.append(("문단", text))
+
+    def walk(inner: ET.Element) -> None:
+        for child in inner:
+            name = _tag(child)
+            if name == "tbl":
+                flush()
+                rows = _table_rows(child)
+                if rows:
+                    parts.append(("표", rows))
+                continue
+            if name == "t":
+                buffer.append("".join(child.itertext()))
+                continue
+            walk(child)
+
+    walk(node)
+    flush()
 
 
 def read_document(path: Path) -> list[tuple[str, object]]:
