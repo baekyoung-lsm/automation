@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import io
+import re
 import unittest
 from pathlib import Path
 
@@ -260,6 +261,40 @@ class DocLintTest(unittest.TestCase):
         code, out = self.run_lint(str(doc))
         self.assertEqual(code, 0)
         self.assertIn("문제가 없습니다", out)
+
+
+class KoreanHelpTest(unittest.TestCase):
+    """도움말은 한국어다. 규칙을 적어만 두면 언젠가 영어가 섞인다."""
+
+    @staticmethod
+    def hangul(text: str) -> bool:
+        return bool(re.search(r"[가-힣]", text or ""))
+
+    def walk(self):
+        from attools import cli
+
+        for path, help_text, parser in cli.walk_commands(cli.build_parser()):
+            if any(isinstance(a, argparse._SubParsersAction)
+                   for a in parser._actions):
+                continue
+            yield path, help_text, parser
+
+    def test_every_command_explains_itself_in_korean(self):
+        bad = [" ".join(path) for path, help_text, _p in self.walk()
+               if not self.hangul(help_text)]
+        self.assertEqual(bad, [], f"한국어 설명이 없는 명령: {bad}")
+
+    def test_option_help_is_korean(self):
+        bad = []
+        for path, _help, parser in self.walk():
+            for action in parser._actions:
+                if action.dest in ("help", "version") or action.help is None:
+                    continue
+                if not self.hangul(action.help):
+                    bad.append(f"at {' '.join(path)} "
+                               f"{action.option_strings or action.dest}: "
+                               f"{action.help}")
+        self.assertEqual(bad, [], f"한국어가 아닌 옵션 설명: {bad}")
 
 
 if __name__ == "__main__":

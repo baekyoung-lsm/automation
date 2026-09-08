@@ -1470,7 +1470,8 @@ def add_commands(sub) -> None:
     pt = dp.add_parser("port", help="포트 점유 프로세스 확인/종료")
     pt.add_argument("port", type=int)
     pt.add_argument("--kill", action="store_true")
-    pt.add_argument("--force", action="store_true", help="SIGKILL")
+    pt.add_argument("--force", action="store_true",
+                    help="바로 강제 종료(SIGKILL). 저장 못 한 것이 사라질 수 있다")
     pt.add_argument("-y", "--yes", action="store_true", help="확인 없이 종료")
     pt.set_defaults(func=cmd_dev_port)
 

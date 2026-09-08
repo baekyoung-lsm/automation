@@ -223,7 +223,9 @@ def add_commands(sub) -> None:
     ky = sub.add_parser("keys", help="단축키 찾기 (한글·Word·엑셀·PPT·구글)")
     ky.add_argument("query", nargs="*", metavar="검색어",
                     help="기능 이름이나 키 조합 (예: 붙여넣기, ctrl+shift+v)")
-    ky.add_argument("-g", "--group", metavar="그룹", help="doc / slide / calc / os")
+    ky.add_argument("-g", "--group", metavar="그룹",
+                    help="갈래: doc(문서) · slide(슬라이드) · "
+                         "calc(스프레드시트) · os(공통)")
     ky.add_argument("-s", "--sort", default="freq", choices=list(keys.SORTS))
     ky.add_argument("--limit", type=int, default=40)
     ky.add_argument("--width", type=int, default=18, metavar="칸")
