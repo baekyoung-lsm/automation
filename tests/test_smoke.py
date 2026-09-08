@@ -156,6 +156,28 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("PDF", 속성)
         self.assertIn("박영희", 속성)
         self.assertIn("밖으로 보내기 전에", 속성)
+        사진 = Path(self.path("사진"))
+        사진.mkdir(exist_ok=True)
+        import struct
+        import zlib
+
+        def chunk(kind, body):
+            return (struct.pack(">I", len(body)) + kind + body
+                    + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+        줄 = b"".join(b"\x00" + bytes([200, 100, 50]) * 8 for _ in range(6))
+        png = (b"\x89PNG\r\n\x1a\n"
+               + chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 6, 8, 2, 0, 0, 0))
+               + chunk(b"IDAT", zlib.compress(줄)) + chunk(b"IEND", b""))
+        (사진 / "1.png").write_bytes(png)
+        (사진 / "2.png").write_bytes(png)
+        묶음 = self.path("스캔.pdf")
+        만든pdf = self.run_cli("file", "pdf", str(사진), "-o", 묶음,
+                             "--title", "제출용")
+        self.assertIn("2쪽", 만든pdf)
+        self.assertIn("쪽 수",
+                      self.run_cli("file", "docs", 묶음))
+
         미리 = self.run_cli("file", "scrub", str(문서폴더))
         self.assertIn("미리보기", 미리)
         self.assertFalse(list(문서폴더.glob("*이름지움*")))

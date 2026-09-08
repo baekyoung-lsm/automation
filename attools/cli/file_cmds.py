@@ -116,6 +116,76 @@ def cmd_file_docs(a) -> int:
     return 0
 
 
+def cmd_file_pdf(a) -> int:
+    """사진·스캔 이미지를 PDF 한 장으로 묶는다. 제출용."""
+    from .. import pdf
+
+    targets: list[Path] = []
+    for raw in a.paths:
+        path = Path(raw)
+        if path.is_dir():
+            targets += sorted(p for p in path.iterdir()
+                              if p.is_file()
+                              and p.suffix.lower() in pdf.IMAGE_SUFFIXES)
+        elif path.is_file():
+            targets.append(path)
+        else:
+            _p(f"없는 경로입니다: {path}")
+            return 1
+    if not targets:
+        _p("이미지를 찾지 못했습니다. "
+           f"({', '.join(sorted(pdf.IMAGE_SUFFIXES))} 만 넣을 수 있습니다)")
+        return 1
+
+    pages = []
+    skipped: list[tuple[Path, str]] = []
+    for path in targets:
+        try:
+            pages.append(pdf.read_image(path))
+        except pdf.PdfError as e:
+            skipped.append((path, str(e)))
+
+    _grid(["차례", "파일", "크기(px)"],
+          [[str(i), _pad(page.path.name, 0), f"{page.width}x{page.height}"]
+           for i, page in enumerate(pages[:a.limit], 1)], limit=40)
+    if len(pages) > a.limit:
+        _p(f"... {len(pages) - a.limit:,}장 더")
+    if skipped:
+        _p(f"\n넣지 못한 파일 {len(skipped)}개:")
+        for path, why in skipped[:a.limit]:
+            _p(f"  {path.name}  {why}")
+        if len(skipped) > a.limit:
+            _p(f"  ... {len(skipped) - a.limit}개 더")
+
+    if not pages:
+        _p("\n넣을 수 있는 이미지가 없습니다.")
+        return 1
+
+    if not a.out:
+        _p(f"\n{len(pages):,}장. 파일로 묶으려면 -o 문서.pdf 를 주세요. "
+           "(이름 순으로 담습니다)")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    try:
+        made = pdf.images_to_pdf(pages, out, page=a.page,
+                                 margin_mm=a.margin, landscape=a.landscape,
+                                 rotate=not a.no_rotate, title=a.title or "")
+    except pdf.PdfError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"\n저장: {made}  ({len(pages):,}쪽, {files.human_size(made.stat().st_size)})")
+    _p(f"쪽 크기는 {a.page}{' 가로' if a.landscape else ''} 이고, "
+       "이미지는 비율을 지켜 가운데에 넣었습니다.")
+    if not a.no_rotate and any(p.width > p.height for p in pages):
+        _p("가로로 긴 이미지는 눕혀 담았습니다 (--no-rotate 로 끕니다).")
+    _p("이미지를 다시 그리지 않습니다. JPEG 은 그대로 넣어 화질이 그대로입니다.")
+    return 0
+
+
 def cmd_file_scrub(a) -> int:
     """문서 속성에서 사람·회사 이름을 지운 사본을 만든다. 원본은 그대로."""
     root = Path(a.dir)
@@ -1097,6 +1167,22 @@ def add_commands(sub) -> None:
     dcs.add_argument("--hidden", action="store_true", help="숨김 파일도")
     dcs.add_argument("--limit", type=int, default=30, metavar="개")
     dcs.set_defaults(func=cmd_file_docs)
+
+    pdfp = fp.add_parser("pdf", help="사진·스캔 이미지를 PDF 한 장으로 묶기")
+    pdfp.add_argument("paths", nargs="+", metavar="경로", help="이미지 또는 폴더")
+    pdfp.add_argument("-o", "--out", metavar="파일.pdf")
+    pdfp.add_argument("--overwrite", action="store_true",
+                      help="이미 있는 파일을 덮어쓴다")
+    pdfp.add_argument("--page", default="a4", metavar="크기",
+                      help="a4, a5, b5, letter, legal (기본 a4)")
+    pdfp.add_argument("--margin", type=float, default=0.0, metavar="mm",
+                      help="쪽 여백 (기본 0)")
+    pdfp.add_argument("--landscape", action="store_true", help="가로 쪽으로")
+    pdfp.add_argument("--no-rotate", action="store_true",
+                      help="가로로 긴 이미지를 눕히지 않는다")
+    pdfp.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
+    pdfp.add_argument("--limit", type=int, default=30, metavar="개")
+    pdfp.set_defaults(func=cmd_file_pdf)
 
     scb = fp.add_parser("scrub",
                         help="문서 속성에서 사람·회사 이름 지우기 (밖으로 보내기 전)")

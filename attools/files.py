@@ -442,146 +442,28 @@ def document_meta(path: Path) -> DocMeta:
 # ------------------------------------------------------------------- PDF 속성
 
 PDF_SUFFIXES = {".pdf"}
-PDF_INFO_KEYS = {"Title": "title", "Author": "author", "Subject": "subject",
-                 "Keywords": "keywords", "Producer": "program",
-                 "CreationDate": "created", "ModDate": "modified"}
-PDF_PAGE_RE = re.compile(rb"/Type\s*/Page(?![sC/\w])")
-PDF_PAGES_COUNT_RE = re.compile(rb"/Type\s*/Pages\b[^>]{0,400}?/Count\s+(\d+)"
-                                rb"|/Count\s+(\d+)[^>]{0,400}?/Type\s*/Pages\b",
-                                re.S)
-PDF_OBJSTM_RE = re.compile(rb"<<[^<>]{0,500}/Type\s*/ObjStm.{0,500}?>>\s*stream\r?\n",
-                           re.S)
-
-
-def _pdf_text(raw: bytes) -> str:
-    """PDF 문자열을 읽는다. (글자) 와 <16진수> 두 가지가 있다."""
-    raw = raw.strip()
-    if raw.startswith(b"<") and raw.endswith(b">"):
-        try:
-            data = bytes.fromhex(raw[1:-1].decode("ascii", "ignore").strip())
-        except ValueError:
-            return ""
-        if data.startswith(b"\xfe\xff"):
-            return data[2:].decode("utf-16-be", "replace").strip()
-        return data.decode("latin-1", "replace").strip()
-
-    if raw.startswith(b"(") and raw.endswith(b")"):
-        body = raw[1:-1]
-        out = bytearray()
-        i = 0
-        while i < len(body):
-            ch = body[i]
-            if ch == 0x5C and i + 1 < len(body):      # 역슬래시 이스케이프
-                nxt = body[i + 1]
-                out.append({0x6E: 10, 0x72: 13, 0x74: 9}.get(nxt, nxt))
-                i += 2
-                continue
-            out.append(ch)
-            i += 1
-        data = bytes(out)
-        if data.startswith(b"\xfe\xff"):
-            return data[2:].decode("utf-16-be", "replace").strip()
-        return data.decode("latin-1", "replace").strip()
-    return ""
-
-
-def _pdf_date(value: str) -> str:
-    """D:20260101120000+09'00' 을 사람이 읽는 꼴로. 못 읽으면 원문 그대로."""
-    body = value[2:] if value.startswith("D:") else value
-    digits = "".join(ch for ch in body if ch.isdigit())
-    if len(digits) < 8:
-        return value
-    out = f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
-    if len(digits) >= 12:
-        out += f" {digits[8:10]}:{digits[10:12]}"
-    return out
-
-
-def _pdf_body(raw: bytes) -> bytes:
-    """읽을 수 있는 만큼 편다. 압축된 객체 묶음(ObjStm)은 풀어서 붙인다."""
-    import zlib
-
-    out = [raw]
-    for match in PDF_OBJSTM_RE.finditer(raw):
-        chunk = raw[match.end():match.end() + (2 << 20)]
-        end = chunk.find(b"endstream")
-        try:
-            out.append(zlib.decompress(chunk[:end] if end > 0 else chunk))
-        except zlib.error:
-            continue          # 다른 방식으로 눌린 것은 건너뛴다
-    return b"\n".join(out)
-
-
-def _pdf_slice(body: bytes, start: int) -> bytes:
-    """그 자리에서 시작하는 값 하나를 잘라 낸다.
-
-    (글자) 안에는 이스케이프한 괄호 «\\)» 도, 짝이 맞는 괄호도 들어간다.
-    첫 «)» 에서 끊으면 «2026 \\(1\\) 계획» 이 «2026 (1» 로 잘린다.
-    """
-    if start >= len(body):
-        return b""
-    if body[start:start + 1] == b"<":
-        end = body.find(b">", start)
-        return body[start:end + 1] if end > 0 else b""
-
-    depth = 0
-    i = start
-    while i < len(body):
-        ch = body[i:i + 1]
-        if ch == b"\\":
-            i += 2
-            continue
-        if ch == b"(":
-            depth += 1
-        elif ch == b")":
-            depth -= 1
-            if depth == 0:
-                return body[start:i + 1]
-        i += 1
-    return b""
 
 
 def pdf_meta(path: Path) -> DocMeta:
-    """PDF 의 제목·만든 사람·쪽 수를 읽는다. 못 읽으면 까닭을 적는다.
+    """PDF 의 제목·만든 사람·쪽 수를 문서 속성 표에 맞춰 담는다.
 
-    쪽 수와 속성만 본다 - 본문 글자는 꺼내지 않는다(글꼴에 따라 조용히
-    틀린 글자가 나오기 때문이다). 암호가 걸린 파일은 열지 않는다.
+    읽는 일은 pdf.py 가 한다. 여기서는 워드·한글과 같은 표에 놓기만 한다.
     """
+    from . import pdf as pdfkit
+
     meta = DocMeta(path=path, kind="PDF")
     try:
         meta.size = path.stat().st_size
-        raw = path.read_bytes()
-    except OSError as e:
-        meta.error = str(e)
-        return meta
+    except OSError:
+        pass
 
-    if not raw.startswith(b"%PDF-"):
-        meta.error = "PDF 가 아닙니다 (%PDF- 로 시작하지 않습니다)"
-        return meta
-    meta.program = raw[1:8].decode("ascii", "replace")     # PDF-1.7
-
-    if b"/Encrypt" in raw:
-        meta.error = "암호가 걸려 있어 속성을 읽지 못했습니다"
-        return meta
-
-    body = _pdf_body(raw)
-    pages = len(PDF_PAGE_RE.findall(body))
-    if not pages:
-        counts = [int(a or b) for a, b in PDF_PAGES_COUNT_RE.findall(body)]
-        pages = max(counts) if counts else 0
-    meta.pages = pages or None
-    if meta.pages is None:
-        meta.error = "쪽 수를 읽지 못했습니다"
-
-    for key, field_name in PDF_INFO_KEYS.items():
-        match = re.search(rb"/" + key.encode() + rb"\s*(?=[(<])", body)
-        if not match:
-            continue
-        value = _pdf_text(_pdf_slice(body, match.end()))
-        if field_name in ("created", "modified"):
-            value = _pdf_date(value)
-        if value:
-            setattr(meta, field_name, value)
+    info = pdfkit.read_info(path)
+    meta.title, meta.author = info.title, info.author
+    meta.subject, meta.keywords = info.subject, info.keywords
+    meta.created, meta.modified = info.created, info.modified
+    meta.program = info.program or info.version
+    meta.pages = info.pages
+    meta.error = info.error
     return meta
 
 
