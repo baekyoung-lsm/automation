@@ -930,6 +930,61 @@ def cmd_sheet_from_md(a) -> int:
     return 0
 
 
+def cmd_sheet_forms(a) -> int:
+    """받은 파일들의 열 구성을 견준다. 합치기 전에 «누가 서식을 고쳤나» 를 본다."""
+    targets: list[Path] = []
+    for name in a.paths:
+        path = Path(name)
+        if path.is_dir():
+            targets += [q for q in sorted(path.rglob(a.glob or "*"))
+                        if q.is_file() and q.suffix.lower() in
+                        (sheet.XLSX_SUFFIXES | sheet.CSV_SUFFIXES)]
+        else:
+            targets.append(path)
+    if not targets:
+        _p("표 파일을 찾지 못했습니다. 폴더 안에 xlsx·csv 가 있는지 보세요.")
+        return 1
+
+    report = sheet.compare_forms(targets, sheet=a.sheet,
+                                 header_row=a.header_row - 1)
+    if not report.standard:
+        _p("열 구성을 읽은 파일이 없습니다.")
+        for check in report.checks[:a.limit]:
+            _p(f"  {check.path.name}  {check.error}")
+        return 1
+
+    _p(f"파일 {len(report.checks):,}개  ·  기준으로 삼은 열 구성 "
+       f"({report.common:,}개 파일이 같음)")
+    _p("  " + " | ".join(report.standard))
+
+    def state(check) -> str:
+        if check.error:
+            return "못 읽음"
+        if check.same:
+            return "같음"
+        if check.reordered:
+            return "순서 다름"
+        return "열 다름"
+
+    _grid(["파일", "시트", "행", "상태", "다른 점"],
+          [[_pad(c.path.name, 0), _cut(c.sheet, 12), f"{c.rows:,}", state(c),
+            _cut(", ".join(
+                [f"없음: {h}" for h in c.missing]
+                + [f"더 있음: {h}" for h in c.extra]) or c.error, 40)]
+           for c in report.checks[:a.limit]], limit=30)
+    if len(report.checks) > a.limit:
+        _p(f"... {len(report.checks) - a.limit:,}개 더")
+
+    odd = report.odd
+    _p(f"\n서식이 다른 파일 {len(odd):,}개")
+    if odd:
+        _p("이대로 합치면 값이 엉뚱한 열로 들어갑니다. "
+           "(at sheet merge 는 열 이름으로 맞춰 담습니다)")
+    _p("기준은 «가장 흔한 열 구성» 입니다. 전부 똑같이 틀렸으면 아무 말도 "
+       "못 하므로 기준도 함께 적었습니다.")
+    return 1 if odd else 0
+
+
 def cmd_sheet_collect(a) -> int:
     """같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합)."""
     targets: list[Path] = []
@@ -2375,6 +2430,14 @@ def add_commands(sub) -> None:
     fhx.add_argument("--rows", type=int, default=10, metavar="개")
     fhx.add_argument("--width", type=int, default=20, metavar="칸")
     fhx.set_defaults(func=cmd_sheet_from_docx, kind="hwpx")
+
+    fm2 = common(sh.add_parser(
+        "forms", help="받은 파일들의 열 구성 견주기 (합치기 전 서식 점검)"))
+    fm2.add_argument("paths", nargs="+", metavar="경로", help="폴더 또는 파일들")
+    fm2.add_argument("-g", "--glob", metavar="무늬",
+                     help="폴더에서 고를 무늬 (예: *.xlsx)")
+    fm2.add_argument("--limit", type=int, default=30, metavar="개")
+    fm2.set_defaults(func=cmd_sheet_forms)
 
     cl2 = sh.add_parser("collect", help="같은 양식 파일들에서 같은 칸만 뽑기 (취합)")
     cl2.add_argument("paths", nargs="+", metavar="경로", help="폴더 또는 파일들")

@@ -3170,6 +3170,80 @@ def collect_cells(paths: list[Path], specs: list[CellSpec], *,
     return Table(headers, rows), skipped
 
 
+# ------------------------------------------------- 받은 파일들의 서식 견주기
+
+@dataclass
+class FormCheck:
+    path: Path
+    sheet: str = ""
+    headers: list = field(default_factory=list)
+    rows: int = 0
+    error: str = ""
+    missing: list = field(default_factory=list)     # 기준에 있는데 없는 열
+    extra: list = field(default_factory=list)       # 기준에 없는데 있는 열
+    reordered: bool = False                         # 열은 같은데 순서가 다르다
+
+    @property
+    def same(self) -> bool:
+        return (not self.error and not self.missing and not self.extra
+                and not self.reordered)
+
+
+@dataclass
+class FormReport:
+    standard: list = field(default_factory=list)    # 가장 흔한 열 구성
+    common: int = 0                                 # 그 구성인 파일 수
+    checks: list = field(default_factory=list)
+
+    @property
+    def odd(self) -> list:
+        return [c for c in self.checks if not c.same]
+
+
+def compare_forms(paths: list[Path], *, sheet: str | None = None,
+                  header_row: int = 0) -> FormReport:
+    """여러 파일의 열 구성을 견준다. 가장 흔한 구성을 기준으로 삼는다.
+
+    부서마다 같은 서식으로 채워 보낸 파일을 합치기 전에 본다. 누가 열을
+    바꿨는지 모르고 합치면 값이 엉뚱한 열로 들어가는데, 표는 만들어진다.
+    기준을 «사람이 정한 것» 이 아니라 «가장 흔한 것» 으로 두므로, 전부
+    똑같이 틀렸으면 아무 말도 못 한다 - 그래서 기준도 함께 보여 준다.
+    """
+    report = FormReport()
+    for raw in paths:
+        path = Path(raw)
+        check = FormCheck(path=path)
+        try:
+            table = load(path, sheet=sheet, header_row=header_row)
+        except (SheetError, OSError, UnicodeDecodeError) as exc:
+            check.error = str(exc)
+            report.checks.append(check)
+            continue
+        check.sheet = table.sheet
+        check.headers = [to_text(h).strip() for h in table.headers]
+        check.rows = len(table.rows)
+        report.checks.append(check)
+
+    shapes = Counter(tuple(c.headers) for c in report.checks
+                     if not c.error and c.headers)
+    if not shapes:
+        return report
+    standard, count = shapes.most_common(1)[0]
+    report.standard = list(standard)
+    report.common = count
+
+    want = set(standard)
+    for check in report.checks:
+        if check.error:
+            continue
+        have = set(check.headers)
+        check.missing = [h for h in standard if h not in have]
+        check.extra = [h for h in check.headers if h not in want]
+        check.reordered = (not check.missing and not check.extra
+                           and check.headers != list(standard))
+    return report
+
+
 # ------------------------------------------------------------------ 가림
 
 HIDDEN = "****"          # 꼴을 알아보지 못한 값을 통째로 가릴 때

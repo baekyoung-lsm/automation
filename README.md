@@ -434,6 +434,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 고치지는 않는다 - 고치는 것이 맞는지는 사람이 정할 일이라 어디인지만 알려 준다. 숫자로 읽힌
 `-5` 는 수라서 세지 않는다.
 
+`at sheet forms` 는 부서마다 받은 파일의 **열 구성**을 견준다. 합치기 전에 «누가 서식을
+고쳤나» 를 보는 자리다 - 열이 하나 늘거나 순서가 바뀐 채로 합치면 값이 엉뚱한 열로 들어가는데
+표는 그대로 만들어진다. 기준은 **가장 흔한 열 구성**이다. 전부 똑같이 틀렸으면 아무 말도 못
+하므로 무엇을 기준으로 삼았는지 함께 보여 준다. 못 읽은 파일도 목록에서 빼지 않는다.
+
 `at sheet mail` 은 명단과 본문 틀로 **사람마다 메일 초안 파일(.eml)** 을 만든다. 제목에도
 `{이름}` 같은 자리표시자를 쓸 수 있고, 첨부 파일 경로가 든 열을 주면 개인별 명세서를 붙인다.
 **보내지 않는다** - SMTP 도, 비밀번호도 쓰지 않는다. 파일을 메일 앱에서 열면 초안으로 뜨고,
@@ -957,6 +962,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet clean <파일>` | 공백·전각 공백 정리, `"1,234원"` → 숫자, `2024.01.05` → 날짜, 빈 행·열·중복 행 제거 |
 | `at sheet merge <파일들>` | 월별·부서별로 쪼개진 파일을 세로로 합치고 출처 열을 붙인다 |
 | `at sheet collect <폴더> --cell <칸=이름>` | 같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합) |
+| `at sheet forms <경로…>` | 받은 파일들의 **열 구성**을 견준다. 서식이 다른 파일이 있으면 exit 1 |
 | `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만, `--cells` 로 같은 자리끼리 칸 단위. `--other-sheet` 로 한 파일 안의 두 시트. `-o` 로 변경 내역을 표로 |
 | `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
@@ -1013,6 +1019,7 @@ at sheet mask 거래처.csv --address 주소 --account 계좌번호 --strict
 at sheet clean 원본.csv --dedupe -o 정리본.xlsx
 at sheet merge 2026-*.csv -o 통합.xlsx
 at sheet collect 부서제출/ --cell B3=담당자 --cell C7=금액 -o 취합.xlsx
+at sheet forms 부서제출/                     # 합치기 전에 서식부터
 at sheet collect 제출/ --cell B3=담당자 --sheet 요약 --glob '*.xlsx'
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --columns   # 서식이 바뀌었는지만

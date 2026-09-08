@@ -2598,5 +2598,70 @@ class CellDiffTest(unittest.TestCase):
         self.assertEqual(len(sheet.diff_cells(self.before, after).changes), 6)
 
 
+class CompareFormsTest(unittest.TestCase):
+    """받은 파일들의 서식 견주기. 합치기 전에 보는 자리다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, name: str, body: str) -> Path:
+        path = self.root / name
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def build(self):
+        self.write("영업.csv", "사번,이름,금액\nE1,홍길동,100\n")
+        self.write("개발.csv", "사번,이름,금액\nE2,김철수,200\n")
+        self.write("인사.csv", "사번,이름,금액,비고\nE3,이영희,300,추가\n")
+        self.write("총무.csv", "이름,사번,금액\n박영희,E4,400\n")
+        return sheet.compare_forms(sorted(self.root.iterdir()))
+
+    def test_standard_is_the_most_common_shape(self):
+        report = self.build()
+        self.assertEqual(report.standard, ["사번", "이름", "금액"])
+        self.assertEqual(report.common, 2)
+
+    def test_extra_column_is_named(self):
+        found = {c.path.name: c for c in self.build().checks}
+        self.assertEqual(found["인사.csv"].extra, ["비고"])
+        self.assertFalse(found["인사.csv"].same)
+
+    def test_reordered_columns_are_reported(self):
+        # 열 이름은 같은데 순서가 다른 파일. 자리로 합치면 값이 엇갈린다
+        found = {c.path.name: c for c in self.build().checks}
+        self.assertTrue(found["총무.csv"].reordered)
+        self.assertEqual(found["총무.csv"].missing, [])
+
+    def test_same_files_are_marked_same(self):
+        found = {c.path.name: c for c in self.build().checks}
+        self.assertTrue(found["영업.csv"].same)
+        self.assertTrue(found["개발.csv"].same)
+
+    def test_missing_column(self):
+        self.write("가.csv", "사번,이름,금액\nE1,가,1\n")
+        self.write("나.csv", "사번,이름,금액\nE2,나,2\n")
+        self.write("다.csv", "사번,이름\nE3,다\n")
+        found = {c.path.name: c for c in
+                 sheet.compare_forms(sorted(self.root.iterdir())).checks}
+        self.assertEqual(found["다.csv"].missing, ["금액"])
+
+    def test_unreadable_file_is_kept_with_a_reason(self):
+        self.write("가.csv", "사번\nE1\n")
+        (self.root / "깨짐.xlsx").write_bytes(b"not a zip")
+        report = sheet.compare_forms(sorted(self.root.iterdir()))
+        broken = [c for c in report.checks if c.path.name == "깨짐.xlsx"][0]
+        self.assertTrue(broken.error)
+        self.assertFalse(broken.same)
+
+    def test_nothing_readable(self):
+        (self.root / "깨짐.xlsx").write_bytes(b"not a zip")
+        report = sheet.compare_forms([self.root / "깨짐.xlsx"])
+        self.assertEqual(report.standard, [])
+        self.assertEqual(report.odd, report.checks)
+
+
 if __name__ == "__main__":
     unittest.main()

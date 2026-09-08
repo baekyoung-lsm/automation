@@ -349,6 +349,17 @@ class SmokeTest(unittest.TestCase):
         모음 = self.run_cli("sheet", "collect", self.path(), "--cell", "A1=머리",
                            "--glob", "명단.csv")
         self.assertIn("명단.csv", 모음)
+        서식폴더 = Path(self.path("서식"))
+        서식폴더.mkdir(exist_ok=True)
+        (서식폴더 / "영업.csv").write_text("사번,이름\nE1,홍길동\n",
+                                          encoding="utf-8")
+        (서식폴더 / "개발.csv").write_text("사번,이름\nE2,김철수\n",
+                                          encoding="utf-8")
+        (서식폴더 / "인사.csv").write_text("사번,이름,비고\nE3,이영희,추가\n",
+                                          encoding="utf-8")
+        서식 = self.run_cli("sheet", "forms", str(서식폴더), expect=1)
+        self.assertIn("열 다름", 서식)
+        self.assertIn("비고", 서식)
         self.run_cli("sheet", "book", csv, self.path("급여.csv"),
                      "-o", self.path("통합.xlsx"))
         self.assertIn("직원", self.run_cli("sheet", "sheets",
