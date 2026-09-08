@@ -578,6 +578,42 @@ class MineTest(unittest.TestCase):
         self.assertEqual([day for day, _g in gitkit.by_day(made)],
                          ["2026-09-07", "2026-09-01"])
 
+    def test_owners_group_by_folder(self):
+        from datetime import datetime
+
+        def made(sha, who, day, files):
+            c = gitkit.Commit(sha, who, datetime(2026, 9, day), "제목")
+            c.files = {name: (1, 0) for name in files}
+            return c
+
+        commits = [made("a", "김철수", 5, ["attools/sheet.py", "README.md"]),
+                   made("b", "김철수", 4, ["attools/files.py"]),
+                   made("c", "이영희", 3, ["attools/sheet.py"]),
+                   made("d", "이영희", 2, ["tests/test_sheet.py"])]
+        owners = {o.area: o for o in gitkit.owners_by_area(commits)}
+        self.assertEqual(owners["attools"].commits, 3)
+        self.assertEqual(owners["attools"].main, "김철수")
+        self.assertEqual(owners["attools"].share, 67)
+        self.assertEqual(owners["attools"].last.day, 5)
+        self.assertEqual(owners["(최상위 파일)"].commits, 1)
+        self.assertEqual(owners["tests"].main, "이영희")
+
+    def test_owners_deeper_folders(self):
+        from datetime import datetime
+
+        commit = gitkit.Commit("a", "나", datetime(2026, 9, 1), "제목")
+        commit.files = {"attools/cli/git_cmds.py": (5, 1),
+                        "tests/test_git.py": (2, 0)}
+        areas = [o.area for o in gitkit.owners_by_area([commit], depth=2)]
+        # 두 단계보다 얕은 경로는 든 폴더로 묶는다
+        self.assertEqual(sorted(areas), ["attools/cli", "tests"])
+
+    def test_renamed_paths_count_as_one(self):
+        self.assertEqual(gitkit.normal_path("attools/{옛.py => 새.py}"),
+                         "attools/새.py")
+        self.assertEqual(gitkit.normal_path("옛.py => 새.py"), "새.py")
+        self.assertEqual(gitkit.normal_path("그냥.py"), "그냥.py")
+
     def test_no_name_configured(self):
         import subprocess
 

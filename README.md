@@ -902,6 +902,7 @@ at doc tables 회의록.md -n 2 -o 안건.xlsx  # 두 번째 표를 엑셀로
 | `at git branches [경로]` | 브랜치별 마지막 커밋·사람·원격 차이. `--stale 30` 으로 방치된 것만 |
 | `at git release [경로]` | 태그 이후 커밋으로 변경 로그 초안을 만든다 |
 | `at git stats [경로]` | 커밋 통계, 사람별 기여, **자주 바뀌는 파일**, 기간·요일 분포 |
+| `at git owners [경로]` | 어느 폴더·파일을 누가 주로 만졌나 - 새 저장소에서 물어볼 사람 찾기 |
 | `at git mine` | 내가 한 일 - 날짜별 커밋 목록 (주간보고 쓸 때) |
 | `at git history <파일>` | 그 파일 이력 - 누가 언제 무엇을 (이름을 바꿔도 따라간다) |
 | `at git todo [경로]` | 코드의 TODO·FIXME·HACK·XXX·BUG 를 모아 담당자와 방치된 기간까지 보여준다 |
@@ -933,6 +934,8 @@ at git history attools/sheet.py --limit 10
 at git mine --since '7 days ago' -o 주간보고.md
 at git mine --author 홍길동 --files
 at git stats --path src/ --weekday
+at git owners --depth 2                  # 어느 폴더를 누가 만졌나
+at git owners --files --since '1 year ago'
 ```
 
 `at git release` 는 `feat:` `fix:` 같은 관례 접두사가 있으면 그것으로 묶고, `attools:` 처럼
@@ -942,6 +945,12 @@ at git stats --path src/ --weekday
 
 `at git stats` 의 "자주 바뀐 파일"은 그냥 통계가 아니다. 같은 파일이 계속 고쳐진다면
 설계가 그 자리에 몰려 있거나 버그가 반복된다는 뜻이라, 리팩터링 대상을 고를 때 쓴다.
+
+`at git owners` 는 새로 받은 저장소에서 **누구에게 물어봐야 하나**를 찾는 데 쓴다. 폴더마다
+커밋 수·마지막 손댄 날·주로 만진 사람과 그 **지분**을 보여 준다. 지분이 낮으면 여럿이 나눠
+만진 자리다. 커밋 수로만 세는 것이라 **많이 만진 사람이 곧 잘 아는 사람은 아니고**, 옮겨 붙인
+커밋 하나가 지분을 흔들기도 한다 — 그렇다고 출력에 적어 둔다. 이름을 바꾼 파일
+(`{옛.py => 새.py}`)은 새 경로 하나로 세지, 두 개로 세지 않는다.
 
 `at git` 명령은 모두 `git ls-files` 로 대상을 고르므로 `.gitignore` 를 그대로 따른다.
 아직 `git add` 하지 않은 저장소에서는 "추적하는 파일이 없다"고 분명히 알린다 —

@@ -392,6 +392,78 @@ def read_log(root: Path, *, since: str = "", until: str = "",
     return commits
 
 
+RENAME_BRACES = re.compile(r"\{([^{}]*) => ([^{}]*)\}")
+
+
+def normal_path(name: str) -> str:
+    """git 이 적는 이름 바꾸기 표기를 새 경로로 편다.
+
+    «attools/{old.py => new.py}» 나 «a.py => b.py» 를 그대로 두면 같은 파일이
+    두 개로 세어져 «누가 만졌나» 가 흐려진다.
+    """
+    if "=>" not in name:
+        return name
+    name = RENAME_BRACES.sub(lambda m: m.group(2), name)
+    if "=>" in name:
+        name = name.split("=>")[-1]
+    return name.replace("//", "/").strip()
+
+
+@dataclass
+class Owner:
+    area: str                                   # 폴더 또는 파일
+    commits: int = 0
+    lines: int = 0
+    last: datetime | None = None
+    people: list = field(default_factory=list)  # [(사람, 커밋 수)] 많은 순
+
+    @property
+    def main(self) -> str:
+        return self.people[0][0] if self.people else ""
+
+    @property
+    def share(self) -> int:
+        """주로 만진 사람의 지분(%). 낮으면 여럿이 나눠 만진 자리다."""
+        if not self.people or not self.commits:
+            return 0
+        return round(self.people[0][1] * 100 / self.commits)
+
+
+def owners_by_area(commits: list[Commit], *, depth: int = 1,
+                   per_file: bool = False) -> list[Owner]:
+    """어느 자리를 누가 주로 만졌는지. 물어볼 사람을 찾을 때 쓴다.
+
+    커밋 수로만 센다 - 이해도까지는 알 수 없다. 그래서 지분과 마지막 날짜를
+    함께 돌려주고, 그 판단은 사람이 한다.
+    """
+    table: dict[str, Owner] = {}
+    counts: dict[str, Counter] = {}
+    for commit in commits:
+        touched: dict[str, int] = {}
+        for name, (added, deleted) in commit.files.items():
+            path = normal_path(name)
+            parts = path.split("/")
+            if per_file:
+                area = path
+            elif len(parts) > depth:
+                area = "/".join(parts[:depth])
+            elif len(parts) > 1:
+                area = "/".join(parts[:-1])    # 그 단계보다 얕으면 든 폴더로
+            else:
+                area = "(최상위 파일)"
+            touched[area] = touched.get(area, 0) + added + deleted
+        for area, lines in touched.items():
+            one = table.setdefault(area, Owner(area))
+            one.commits += 1
+            one.lines += lines
+            if one.last is None or commit.when > one.last:
+                one.last = commit.when
+            counts.setdefault(area, Counter())[commit.author] += 1
+    for area, one in table.items():
+        one.people = counts[area].most_common()
+    return sorted(table.values(), key=lambda o: (-o.commits, o.area))
+
+
 def churn_by_file(commits: list[Commit]) -> list[FileChurn]:
     """파일마다 몇 번, 얼마나 바뀌었는지. 자주 바뀌는 파일은 대개 문제가 몰린 곳이다."""
     table: dict[str, FileChurn] = {}

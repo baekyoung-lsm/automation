@@ -144,6 +144,44 @@ def cmd_git_todo(a) -> int:
     return 0
 
 
+def cmd_git_owners(a) -> int:
+    """어느 자리를 누가 주로 만졌나. 새 저장소에서 물어볼 사람 찾기."""
+    root = _repo(a)
+    if root is None:
+        return 1
+
+    try:
+        commits = gitkit.read_log(root, since=a.since, until=a.until,
+                                  paths=a.path, limit=a.max_commits)
+    except RuntimeError as e:
+        _p(str(e))
+        return 1
+    if not commits:
+        _p("해당 기간에 커밋이 없습니다.")
+        return 0
+
+    owners = gitkit.owners_by_area(commits, depth=a.depth, per_file=a.files)
+    first, last = commits[-1].when, commits[0].when
+    _p(f"커밋 {len(commits):,}개  ·  {first:%Y-%m-%d} ~ {last:%Y-%m-%d}"
+       f"  ·  {'파일' if a.files else f'{a.depth}단계 폴더'} 기준\n")
+
+    rows = []
+    for one in owners[:a.limit]:
+        others = ", ".join(f"{name}({n})" for name, n in one.people[1:a.top])
+        rows.append([_cut(one.area, 46), f"{one.commits:,}",
+                     f"{one.last:%Y-%m-%d}" if one.last else "?",
+                     f"{one.main} {one.share}%", others or "-"])
+    _grid(["자리", "커밋", "마지막", "주로 만진 사람", "그다음"], rows, limit=46)
+    if len(owners) > a.limit:
+        _p(f"... {len(owners) - a.limit:,}곳 더 (--limit 로 조절)")
+
+    _p("\n커밋 수로만 셉니다. 많이 만진 사람이 곧 잘 아는 사람은 아니고, "
+       "옮겨 붙인 커밋 하나가 지분을 흔들기도 합니다.")
+    _p("지분이 낮으면 여럿이 나눠 만진 자리입니다. "
+       "최근에 누가 만졌는지는 --since '1 year ago' 로 좁혀 보세요.")
+    return 0
+
+
 def cmd_git_stats(a) -> int:
     root = _repo(a)
     if root is None:
@@ -628,6 +666,24 @@ def add_commands(sub) -> None:
     st.add_argument("--rows", type=int, default=20, metavar="개")
     st.add_argument("--max-commits", type=int, default=0, metavar="개")
     st.set_defaults(func=cmd_git_stats)
+
+    ow = gp.add_parser("owners", help="어느 자리를 누가 주로 만졌나 (물어볼 사람)")
+    ow.add_argument("dir", nargs="?", default=".")
+    ow.add_argument("--since", default="", metavar="기간",
+                    help="예: '1 year ago', '2026-01-01'")
+    ow.add_argument("--until", default="", metavar="기간")
+    ow.add_argument("--path", action="append", metavar="경로", help="이 경로만")
+    ow.add_argument("--depth", type=int, default=1, metavar="단계",
+                    help="폴더를 몇 단계까지 묶어 볼지 (기본 1)")
+    ow.add_argument("--files", action="store_true", help="폴더 대신 파일마다")
+    ow.add_argument("--top", type=int, default=3, metavar="명",
+                    help="«그다음» 에 몇 명까지 (기본 3)")
+    ow.add_argument("--limit", type=int, default=20, metavar="곳")
+    ow.add_argument("--max-commits", type=int, default=0, metavar="개")
+    ow.epilog = ("예: at git owners\n"
+                 "    at git owners --depth 2 --since '1 year ago'\n"
+                 "    at git owners --files --path attools/sheet.py")
+    ow.set_defaults(func=cmd_git_owners)
 
     rl = gp.add_parser("release", help="태그 사이 커밋으로 변경 로그 초안 만들기")
     rl.add_argument("dir", nargs="?", default=".")

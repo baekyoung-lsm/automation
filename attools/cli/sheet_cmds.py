@@ -613,7 +613,7 @@ def cmd_sheet_gaps(a) -> int:
 
     _grid(["빠진 곳", "개수"],
           [[g.start if g.start == g.end else f"{g.start} ~ {g.end}",
-            f"{g.count:,}"] for g in report.gaps[:a.limit]], limit=a.limit)
+            f"{g.count:,}"] for g in report.gaps[:a.limit]], limit=40)
     if len(report.gaps) > a.limit:
         _p(f"... {len(report.gaps) - a.limit:,}곳 더")
     _p(f"\n모두 {report.missing:,}개가 비었습니다.")
