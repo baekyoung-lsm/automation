@@ -782,3 +782,60 @@ class RenameTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PunctuationTest(unittest.TestCase):
+    def kinds(self, body, **kw):
+        return [(s.kind, s.before) for s in manuscript.punctuation_spots(body, **kw)]
+
+    def test_dots_become_the_publishing_ellipsis(self):
+        self.assertEqual(self.kinds("그래... 그렇구나"), [("줄임표", "...")])
+        fixed, count = manuscript.fix_punctuation("그래... 그렇구나")
+        self.assertEqual((fixed, count), ("그래…… 그렇구나", 1))
+
+    def test_single_ellipsis_char_is_also_lined_up(self):
+        fixed, count = manuscript.fix_punctuation("그래… 그렇구나")
+        self.assertEqual((fixed, count), ("그래…… 그렇구나", 1))
+
+    def test_already_right_is_left_alone(self):
+        body = "그래…… 그렇구나"
+        self.assertEqual(self.kinds(body), [])
+        self.assertEqual(manuscript.fix_punctuation(body), (body, 0))
+
+    def test_ellipsis_choice_can_be_dots(self):
+        fixed, _n = manuscript.fix_punctuation("그래…… 그렇구나", ellipsis="...")
+        self.assertEqual(fixed, "그래... 그렇구나")
+
+    def test_dash_only_when_asked(self):
+        body = "끝 -- 이었다"
+        self.assertEqual(self.kinds(body), [])            # 안 주면 손대지 않는다
+        self.assertEqual(self.kinds(body, dash="―"), [("줄표", "--")])
+        fixed, count = manuscript.fix_punctuation(body, dash="―")
+        self.assertEqual((fixed, count), ("끝 ― 이었다", 1))
+
+    def test_doubled_marks_are_reported_not_fixed(self):
+        body = "뭐라고?? 정말!!"
+        self.assertEqual(self.kinds(body), [("겹친 부호", "??"), ("겹친 부호", "!!")])
+        self.assertEqual(manuscript.fix_punctuation(body), (body, 0))
+
+    def test_spacing_around_marks(self):
+        body = "갔다.그리고 잤다 . 끝"
+        self.assertEqual([k for k, _b in self.kinds(body)],
+                         ["뒤에 빈칸 없음", "앞에 빈칸"])
+        fixed, count = manuscript.fix_punctuation(body)
+        self.assertEqual((fixed, count), ("갔다. 그리고 잤다. 끝", 2))
+
+    def test_spacing_can_be_turned_off(self):
+        body = "갔다.그리고"
+        self.assertEqual(manuscript.fix_punctuation(body, spacing=False),
+                         (body, 0))
+
+    def test_numbers_are_not_touched(self):
+        body = "값은 1,000원이고 3.5배였다.그래서"
+        fixed, count = manuscript.fix_punctuation(body)
+        self.assertEqual(fixed, "값은 1,000원이고 3.5배였다. 그래서")
+        self.assertEqual(count, 1)
+
+    def test_line_numbers_are_right(self):
+        body = "첫 줄\n둘째 줄...\n셋째 줄"
+        self.assertEqual([s.line for s in manuscript.punctuation_spots(body)], [2])
+

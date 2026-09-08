@@ -582,6 +582,71 @@ def cmd_novel_rename(a) -> int:
     return 0
 
 
+def cmd_novel_punct(a) -> int:
+    """문장 부호를 점검하고, 고칠 수 있는 것만 고친다."""
+    targets = manuscript.collect([Path(p) for p in a.paths])
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    changes: list[text.Change] = []
+    total = 0
+    kinds: dict[str, int] = {}
+    for path in targets:
+        try:
+            body, encoding = text.read_text_any(path)
+        except text.TextError as e:
+            _p(f"{path}: 건너뜀 ({e})")
+            continue
+
+        spots = manuscript.punctuation_spots(body, ellipsis=a.ellipsis,
+                                             dash=a.dash or "")
+        if not spots:
+            continue
+        total += len(spots)
+        for spot in spots:
+            kinds[spot.kind] = kinds.get(spot.kind, 0) + 1
+
+        _p(f"{path}  {len(spots)}곳")
+        for spot in spots[:a.limit]:
+            goes = f" -> {spot.after}" if spot.after else " (그대로 둡니다)"
+            _p(f"  {spot.line}행  {spot.kind}  «{spot.before}»{goes}")
+            _p(f"        {_cut(spot.excerpt, 66)}")
+        if len(spots) > a.limit:
+            _p(f"  ... {len(spots) - a.limit}곳 더")
+        _p("")
+
+        새글, _n = manuscript.fix_punctuation(body, ellipsis=a.ellipsis,
+                                            dash=a.dash or "",
+                                            spacing=not a.no_spacing)
+        if 새글 != body:
+            changes.append(text.Change(path, body, 새글, encoding))
+
+    if not total:
+        _p(f"파일 {len(targets)}개  ·  손볼 문장 부호가 없습니다.")
+        return 0
+
+    _p(f"파일 {len(targets)}개에서 {total:,}곳  ·  "
+       + ", ".join(f"{kind} {count:,}" for kind, count in sorted(kinds.items())))
+    _p(f"줄임표는 «{a.ellipsis}» 로 맞춥니다"
+       + (f", 줄표는 «{a.dash}» 로 맞춥니다." if a.dash
+          else ". 줄표는 --dash 를 줄 때만 손댑니다."))
+    _p("겹친 «??»·«!!» 는 고치지 않습니다 - 일부러 쓴 것일 수 있어 사람이 볼 일입니다.")
+
+    if not changes:
+        _p("\n고칠 수 있는 것은 없습니다.")
+        return 0
+    if not a.apply:
+        _p(f"\n미리보기입니다. 파일 {len(changes)}개를 실제로 고치려면 "
+           "--apply 를 붙이세요.")
+        return 0
+
+    journal = text.apply_changes(changes)
+    _p(f"\n파일 {len(changes)}개를 고쳤습니다. 되돌리려면 at text undo")
+    _p(f"백업: {journal.parent if journal else '-'}")
+    return 0
+
+
 def cmd_novel_quote(a) -> int:
     targets = manuscript.collect([Path(p) for p in a.paths])
     if not targets:
@@ -1099,6 +1164,23 @@ def add_commands(sub) -> None:
                     help="미리보기에서 보여줄 차이 줄 수")
     td.add_argument("--apply", action="store_true")
     td.set_defaults(func=cmd_novel_tidy)
+
+    pc = np_.add_parser("punct", help="문장 부호 점검·통일 (줄임표·줄표·빈칸)")
+    pc.add_argument("paths", nargs="+")
+    pc.add_argument("--ellipsis", default="……",
+                    choices=list(manuscript.ELLIPSIS_CHOICES),
+                    help="줄임표를 무엇으로 맞출지: "
+                         + ", ".join(f"{k}({v})"
+                                     for k, v in manuscript.ELLIPSIS_CHOICES.items()))
+    pc.add_argument("--dash", choices=list(manuscript.DASH_CHOICES),
+                    help="줄표를 무엇으로 맞출지 (주지 않으면 손대지 않는다)")
+    pc.add_argument("--no-spacing", action="store_true",
+                    help="부호 앞뒤 빈칸은 손대지 않는다")
+    pc.add_argument("--apply", action="store_true", help="실제로 고친다")
+    pc.add_argument("--limit", type=int, default=20)
+    pc.epilog = ("예: at novel punct 원고/\n"
+                 "    at novel punct 원고/ --dash ― --apply")
+    pc.set_defaults(func=cmd_novel_punct)
 
     qt = np_.add_parser("quote", help="따옴표 짝 점검 - 안 닫힌 대사, 섞인 표기")
     qt.add_argument("paths", nargs="+")

@@ -1045,6 +1045,101 @@ def quote_styles(text: str) -> dict[str, int]:
     return out
 
 
+# ------------------------------------------------------------- 문장 부호
+
+ELLIPSIS_CHOICES = {"……": "가운뎃점 여섯 (출판 관례)", "…": "가운뎃점 셋",
+                    "...": "마침표 셋 (원고 그대로)"}
+DASH_CHOICES = {"―": "긴 줄표 U+2015", "—": "em 대시 U+2014", "--": "붙임표 둘"}
+# 줄임표로 쓰인 자리. «...» «. . .» «‥» «…» «……» 를 한 덩어리로 본다.
+ELLIPSIS_RE = re.compile(r"(?:\.\s?){2,}\.|[…‥]+")
+DASH_RE = re.compile(r"—{1,}|―{1,}|–{1,}|(?<![-<])-{2,}(?!-|>)")
+BANG_RE = re.compile(r"([!?])\1{1,}")
+# 문장 부호 뒤에 바로 글자가 붙은 자리 (안녕.반가워). 숫자·영문 사이는 뺀다.
+NO_SPACE_RE = re.compile(r"(?<=[가-힣])([.,!?])(?=[가-힣])")
+SPACE_BEFORE_RE = re.compile(r"[ \t]+([.,!?;:])")
+
+
+@dataclass
+class PunctSpot:
+    line: int
+    kind: str            # 무엇이 걸렸나
+    before: str
+    after: str           # 고칠 것이 없으면 빈 글자
+    excerpt: str
+
+
+def _line_of(text: str, at: int) -> int:
+    return text.count("\n", 0, at) + 1
+
+
+def punctuation_spots(text: str, *, ellipsis: str = "……",
+                      dash: str = "") -> list[PunctSpot]:
+    """문장 부호가 관례와 다른 자리를 모은다. 고치지는 않는다."""
+    spots: list[PunctSpot] = []
+    for match in ELLIPSIS_RE.finditer(text):
+        was = match.group(0)
+        if was != ellipsis:
+            spots.append(PunctSpot(_line_of(text, match.start()), "줄임표",
+                                   was, ellipsis, _around(text, match)))
+    for match in DASH_RE.finditer(text):
+        was = match.group(0)
+        if dash and was != dash:
+            spots.append(PunctSpot(_line_of(text, match.start()), "줄표",
+                                   was, dash, _around(text, match)))
+    for match in BANG_RE.finditer(text):
+        spots.append(PunctSpot(_line_of(text, match.start()), "겹친 부호",
+                               match.group(0), "", _around(text, match)))
+    for match in NO_SPACE_RE.finditer(text):
+        spots.append(PunctSpot(_line_of(text, match.start()), "뒤에 빈칸 없음",
+                               match.group(1), match.group(1) + " ",
+                               _around(text, match)))
+    for match in SPACE_BEFORE_RE.finditer(text):
+        spots.append(PunctSpot(_line_of(text, match.start()), "앞에 빈칸",
+                               match.group(0), match.group(1),
+                               _around(text, match)))
+    spots.sort(key=lambda s: s.line)
+    return spots
+
+
+def _around(text: str, match: "re.Match", span: int = 24) -> str:
+    start = max(0, match.start() - span)
+    end = min(len(text), match.end() + span)
+    return text[start:end].replace("\n", " ").strip()
+
+
+def fix_punctuation(text: str, *, ellipsis: str = "……", dash: str = "",
+                    spacing: bool = True) -> tuple[str, int]:
+    """고칠 수 있는 것만 고친다. (새 글, 고친 곳 수)
+
+    겹친 «??» 는 고치지 않는다 - 힘을 주려고 일부러 쓴 것일 수 있어서,
+    그건 사람이 볼 일이다.
+    """
+    count = 0
+
+    def swap_ellipsis(match: "re.Match") -> str:
+        nonlocal count
+        if match.group(0) == ellipsis:
+            return match.group(0)
+        count += 1
+        return ellipsis
+
+    def swap_dash(match: "re.Match") -> str:
+        nonlocal count
+        if not dash or match.group(0) == dash:
+            return match.group(0)
+        count += 1
+        return dash
+
+    out = ELLIPSIS_RE.sub(swap_ellipsis, text)
+    out = DASH_RE.sub(swap_dash, out)
+    if spacing:
+        out, n = NO_SPACE_RE.subn(r"\1 ", out)
+        count += n
+        out, n = SPACE_BEFORE_RE.subn(r"\1", out)
+        count += n
+    return out, count
+
+
 # --------------------------------------------------------------- 화 나누기
 
 # '제12화', '12화', '12장', '#12' 처럼 화를 여는 줄. 본문 한가운데의 '3화 때'

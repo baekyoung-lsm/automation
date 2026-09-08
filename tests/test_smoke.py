@@ -959,6 +959,20 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
 
+        # 문장 부호 고치기도 원고를 바꾸므로 따로 만든 원고에서 한다
+        부호원고 = Path(self.path("부호원고"))
+        부호원고.mkdir(exist_ok=True)
+        (부호원고 / "01화.txt").write_text(
+            "그는 말했다... 아니, 그게 아니라...\n갔다.그리고 잤다 . 끝\n",
+            encoding="utf-8")
+        본 = self.run_cli("novel", "punct", str(부호원고))
+        self.assertIn("줄임표", 본)
+        self.assertIn("미리보기", 본)
+        self.run_cli("novel", "punct", str(부호원고), "--apply")
+        고친글 = (부호원고 / "01화.txt").read_text(encoding="utf-8")
+        self.assertIn("말했다……", 고친글)
+        self.assertIn("갔다. 그리고 잤다. 끝", 고친글)
+
         # 이름 바꾸기는 원고를 고치므로 다른 시험이 쓰는 원고는 건드리지 않는다
         바꿀원고 = Path(self.path("이름바꿀원고"))
         바꿀원고.mkdir(exist_ok=True)
