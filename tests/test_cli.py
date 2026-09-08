@@ -297,5 +297,67 @@ class KoreanHelpTest(unittest.TestCase):
         self.assertEqual(bad, [], f"한국어가 아닌 옵션 설명: {bad}")
 
 
+class HouseRulesTest(unittest.TestCase):
+    """저장소 규칙을 시험이 지킨다. 적어만 두면 언젠가 어긋난다."""
+
+    # 정규식을 글자 그대로 적으면 이 파일이 스스로 걸린다. 코드 번호로 적는다.
+    EMOJI = re.compile("[\U0001F300-\U0001FAFF\U0001F000-\U0001F2FF]"
+                       "|[\u2600-\u27bf]|\ufe0f|[\U0001F1E6-\U0001F1FF]")
+    # 고정 표시로 쓰는 기호는 이모지가 아니다 (별표, 화살표).
+    ALLOWED = {"\u2605", "\u2606", "\u2610", "\u2611"}
+
+    def sources(self):
+        root = Path(__file__).resolve().parents[1]
+        return (sorted((root / "attools").rglob("*.py"))
+                + sorted((root / "tests").glob("*.py"))
+                + [root / "README.md", root / "CLAUDE.md"])
+
+    def test_no_emoji_anywhere(self):
+        bad = []
+        for path in self.sources():
+            for number, line in enumerate(
+                    path.read_text(encoding="utf-8").splitlines(), 1):
+                for found in self.EMOJI.finditer(line):
+                    if found.group(0) in self.ALLOWED:
+                        continue
+                    bad.append(f"{path.name}:{number} {found.group(0)!r}")
+        self.assertEqual(bad, [], f"이모지가 들어갔습니다: {bad[:5]}")
+
+    def test_logic_modules_do_not_print(self):
+        """출력은 cli 에서만 한다. 로직이 찍기 시작하면 시험이 지저분해진다."""
+        import ast
+
+        root = Path(__file__).resolve().parents[1] / "attools"
+        bad = []
+        for path in sorted(root.rglob("*.py")):
+            if path.relative_to(root).parts[0] == "cli":
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "print"):
+                    bad.append(f"{path.name}:{node.lineno}")
+        self.assertEqual(bad, [], f"로직 모듈에서 print 를 씁니다: {bad}")
+
+    def test_home_is_not_frozen_at_import_time(self):
+        """Path.home() 을 모듈 최상단에서 굳히면 시험이 진짜 홈을 건드린다."""
+        import ast
+
+        root = Path(__file__).resolve().parents[1] / "attools"
+        bad = []
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in tree.body:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                for sub in ast.walk(node):
+                    if (isinstance(sub, ast.Call)
+                            and isinstance(sub.func, ast.Attribute)
+                            and sub.func.attr == "home"):
+                        bad.append(f"{path.name}:{node.lineno}")
+        self.assertEqual(bad, [], f"홈 경로를 굳혔습니다: {bad}")
+
+
 if __name__ == "__main__":
     unittest.main()
