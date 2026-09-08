@@ -1144,7 +1144,8 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
               *, title: str = "", rotate: int = 0,
               catalog_from: Document | None = None,
               info: dict | None = None,
-              metadata: bytes | None = None) -> JoinResult:
+              metadata: bytes | None = None,
+              stamp=None) -> JoinResult:
     """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로.
 
     rotate 는 90 의 배수. 원래 돌아가 있던 각도에 더한다 - 스캔한 것이
@@ -1153,6 +1154,9 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
     catalog_from 을 주면 그 문서의 목차(책갈피·양식·쪽 번호 표시·구조 태그)를
     함께 옮긴다. 쪽을 다 옮길 때만 뜻이 있다 - 안 옮긴 쪽을 가리키는 책갈피는
     빈 자리가 되기 때문이다.
+
+    stamp(차례, 쪽, 문서) 를 주면 그 쪽 위에 덧그릴 내용 스트림을 받아 붙인다
+    (쪽 번호). 원래 내용은 건드리지 않고 뒤에 한 겹 더 얹는다.
     """
     if rotate % 90:
         raise PdfError(f"돌릴 각도는 90 의 배수여야 합니다: {rotate}")
@@ -1174,7 +1178,8 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
     catalog = copier.reserve(("root", "catalog"))
     info_slot = copier.reserve(("root", "info"))
 
-    for doc, page, new, _key in chosen:
+    stamp_font = copier.reserve(("root", "stampfont")) if stamp else 0
+    for order, (doc, page, new, _key) in enumerate(chosen, 1):
         data = {k: v for k, v in page.data.items() if k != "Parent"}
         copied = copier.convert(doc, data)
         copied["Type"] = Name("Page")
@@ -1182,6 +1187,10 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         if rotate:
             was = doc.get(page.data.get("Rotate"))
             copied["Rotate"] = (int(was or 0) + rotate) % 360
+        if stamp:
+            body = stamp(order, page, doc)
+            if body:
+                _add_stamp(copier, doc, page, copied, body, stamp_font)
         copier.slots[new - 1] = copied
 
     made_catalog: dict = {"Type": Name("Catalog"), "Pages": Ref(tree)}
@@ -1205,6 +1214,10 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         "Kids": [Ref(new) for _doc, _page, new, _key in chosen],
         "Count": len(chosen),
     }
+    if stamp:
+        copier.slots[stamp_font - 1] = {
+            "Type": Name("Font"), "Subtype": Name("Type1"),
+            "BaseFont": Name("Helvetica"), "Encoding": Name("WinAnsiEncoding")}
     copier.slots[catalog - 1] = made_catalog
     made = dict(info) if info is not None else {"Producer": "attools"}
     if title:
@@ -1219,6 +1232,31 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         raise PdfError("만든 PDF 를 다시 읽어 보니 쪽 수가 맞지 않아 지웠습니다")
     return JoinResult(pages=len(chosen), objects=len(copier.slots),
                       missing=len(copier.missing))
+
+
+def _add_stamp(copier: "_Copier", doc: Document, page: PdfPage, copied: dict,
+               body: str, font: int) -> None:
+    """쪽 위에 한 겹 더 얹는다. 원래 내용 스트림은 그대로 두고 뒤에 붙인다."""
+    # 자원 사전은 여러 쪽이 함께 쓰기도 한다. 그 자리에 글꼴을 밀어 넣지 않고
+    # 이 쪽만의 사전으로 풀어서 넣는다.
+    resources = doc.get(page.data.get("Resources"))
+    resources = dict(resources) if isinstance(resources, dict) else {}
+    made = copier.convert(doc, resources)
+    fonts = doc.get(resources.get("Font"))
+    fonts = copier.convert(doc, dict(fonts)) if isinstance(fonts, dict) else {}
+    name = "ATNUM"
+    while name in fonts:                     # 이름이 겹치면 다른 이름을 쓴다
+        name += "1"
+    fonts[name] = Ref(font)
+    made["Font"] = fonts
+    copied["Resources"] = made
+
+    number = copier.reserve(("stamp", len(copier.slots)))
+    copier.slots[number - 1] = Stream(
+        {}, body.replace("/ATNUM", f"/{name}").encode("latin-1"))
+    was = copied.get("Contents")
+    items = was if isinstance(was, list) else ([] if was is None else [was])
+    copied["Contents"] = [*items, Ref(number)]
 
 
 def _write_objects(slots: list, out: Path, *, root: int, info: int) -> None:
@@ -1346,3 +1384,95 @@ def scrub_pdf(doc: Document, out: Path) -> tuple[JoinResult, list[tuple[str, str
         raise PdfError("이름이 그대로 남아 있어 만든 파일을 지웠습니다: "
                        + ", ".join(f"{label} {value}" for label, value in left))
     return result, names
+
+
+# ---- 쪽 번호 찍기
+
+STAMP_WHERE = {"bottom-center": "아래 가운데", "bottom-right": "아래 오른쪽",
+               "bottom-left": "아래 왼쪽", "top-right": "위 오른쪽",
+               "top-center": "위 가운데"}
+# 헬베티카의 실제 글자 폭(1000 분의 1). 쪽 번호에 쓰는 글자만 정확히 적는다.
+HELVETICA_WIDTH = {" ": 278, "/": 278, "-": 333, ".": 278, ",": 278, "(": 333,
+                   ")": 333, ":": 278}
+HELVETICA_DIGIT = 556
+HELVETICA_OTHER = 556        # 나머지는 어림잡는다 (가운데 맞춤이 조금 흔들린다)
+
+
+def text_width(text: str, size: float) -> float:
+    """헬베티카로 찍었을 때의 글자 너비(포인트)."""
+    total = 0
+    for ch in text:
+        if ch.isdigit():
+            total += HELVETICA_DIGIT
+        else:
+            total += HELVETICA_WIDTH.get(ch, HELVETICA_OTHER)
+    return total * size / 1000
+
+
+def _pdf_text(text: str) -> str:
+    return text.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+
+
+def stamp_stream(text: str, box: list, rotate: int, *, where: str = "bottom-center",
+                 size: float = 9.0, margin: float = 12.0, font: str = "ATNUM") -> str:
+    """쪽 번호 한 줄을 그리는 내용 스트림.
+
+    돌아간 쪽(/Rotate)은 보는 사람 기준으로 아래가 달라진다. 그대로 찍으면
+    옆으로 누운 번호가 나오므로, 글자를 반대로 돌려 놓는다.
+    """
+    if where not in STAMP_WHERE:
+        raise PdfError(f"모르는 자리입니다: {where} ({', '.join(STAMP_WHERE)})")
+    try:
+        text.encode("latin-1")
+    except UnicodeEncodeError:
+        raise PdfError("쪽 번호에는 한글을 넣지 못합니다 "
+                       "(글꼴을 파일에 심어야 하는데 그러지 않습니다). "
+                       "숫자와 로마자만 쓰세요.") from None
+
+    x0, y0, x1, y1 = (float(v) for v in (box + [0, 0, 612, 792])[:4])
+    width, height = abs(x1 - x0), abs(y1 - y0)
+    rotate %= 360
+    if rotate in (90, 270):
+        shown_w, shown_h = height, width
+    else:
+        shown_w, shown_h = width, height
+
+    span = text_width(text, size)
+    if where.endswith("right"):
+        shown_x = shown_w - margin - span
+    elif where.endswith("left"):
+        shown_x = margin
+    else:
+        shown_x = (shown_w - span) / 2
+    shown_y = (shown_h - margin - size) if where.startswith("top") else margin
+
+    # 보는 사람 자리 -> 파일 안의 자리
+    if rotate == 90:
+        matrix, x, y = "0 1 -1 0", width - shown_y, shown_x
+    elif rotate == 180:
+        matrix, x, y = "-1 0 0 -1", width - shown_x, height - shown_y
+    elif rotate == 270:
+        matrix, x, y = "0 -1 1 0", shown_y, height - shown_x
+    else:
+        matrix, x, y = "1 0 0 1", shown_x, shown_y
+
+    return (f"q 0 g BT /{font} {size:g} Tf "
+            f"{matrix} {min(x0, x1) + x:.2f} {min(y0, y1) + y:.2f} Tm "
+            f"({_pdf_text(text)}) Tj ET Q\n")
+
+
+def page_stamper(template: str, total: int, *, start: int = 1, skip: int = 0,
+                 where: str = "bottom-center", size: float = 9.0,
+                 margin: float = 12.0):
+    """쪽마다 무엇을 찍을지 정하는 함수를 만든다. {쪽} 과 {전체} 를 쓴다."""
+    def stamp(index: int, page: "PdfPage", doc: "Document") -> str:
+        if index <= skip:
+            return ""                      # 표지처럼 건너뛸 쪽
+        text = template.replace("{쪽}", str(index - skip + start - 1)) \
+                       .replace("{전체}", str(max(total - skip, 0)))
+        box = doc.get(page.data.get("MediaBox")) or [0, 0, 612, 792]
+        box = [float(doc.get(v) or 0) for v in box]
+        turn = doc.get(page.data.get("Rotate")) or 0
+        return stamp_stream(text, box, int(turn), where=where, size=size,
+                            margin=margin)
+    return stamp

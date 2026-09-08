@@ -215,6 +215,10 @@ class SmokeTest(unittest.TestCase):
         합본 = self.path("합본.pdf")
         self.assertIn("3쪽",
                       self.run_cli("file", "pdfjoin", 묶음, 뽑음, "-o", 합본))
+        번호 = self.path("번호붙임.pdf")
+        찍음 = self.run_cli("file", "pdfnum", 합본, "--skip", "1", "-o", 번호)
+        self.assertIn("아래 가운데", 찍음)
+        self.assertIn("3쪽", self.run_cli("file", "pdfcut", 번호))
 
         pdf폴더 = Path(self.path("피디에프"))
         pdf폴더.mkdir(exist_ok=True)

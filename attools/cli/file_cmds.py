@@ -202,6 +202,13 @@ def _page_ranges(numbers: list[int]) -> str:
     return ", ".join(parts)
 
 
+def pdf_where() -> dict:
+    """--where 에 쓸 수 있는 자리. 파서를 만들 때만 부른다."""
+    from .. import pdf
+
+    return pdf.STAMP_WHERE
+
+
 def cmd_file_pdfcut(a) -> int:
     """PDF 에서 필요한 쪽만 뽑는다. 원본은 건드리지 않는다."""
     from .. import pdf
@@ -276,6 +283,60 @@ def cmd_file_pdfcut(a) -> int:
     _p("책갈피·양식·쪽 번호 표시도 함께 옮겼습니다. 전자서명은 무효가 됩니다."
        if whole else
        "쪽을 골라 냈으므로 책갈피·양식은 따라가지 않습니다.")
+    return 0
+
+
+def cmd_file_pdfnum(a) -> int:
+    """PDF 에 쪽 번호를 찍는다. 합본 계약서·제출 자료에 쓴다."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    stamper = pdf.page_stamper(a.format, total, start=a.start, skip=a.skip,
+                               where=a.where, size=a.size, margin=a.margin)
+    try:                                   # 첫 쪽으로 미리 걸어 본다
+        stamper(a.skip + 1, doc.pages()[min(a.skip, total - 1)], doc)
+    except pdf.PdfError as e:
+        _p(str(e))
+        return 1
+
+    보기 = a.format.replace("{쪽}", str(a.start)).replace("{전체}",
+                                                      str(max(total - a.skip, 0)))
+    _p(f"{path.name}  {total}쪽  ·  {pdf.STAMP_WHERE[a.where]}에 "
+       f"{a.size:g}pt  ·  첫 번호 «{보기}»")
+    if a.skip:
+        _p(f"앞의 {a.skip}쪽은 건너뜁니다 (표지·간지).")
+    turned = sum(1 for page in doc.pages()
+                 if int(doc.get(page.data.get("Rotate")) or 0) % 360)
+    if turned:
+        _p(f"돌아가 있는 쪽 {turned}개는 보는 사람 기준으로 아래에 찍습니다.")
+
+    if not a.out:
+        _p("\n미리보기입니다. 파일로 만들려면 -o 번호붙임.pdf 를 주세요.")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    try:
+        result = pdf.join_pdfs([(doc, list(range(1, total + 1)))], out,
+                               catalog_from=doc, stamp=stamper)
+    except (pdf.PdfError, OSError) as e:
+        _p(str(e))
+        return 1
+    _p(f"\n저장: {out}  ({result.pages:,}쪽, "
+       f"{files.human_size(out.stat().st_size)})")
+    _p("원래 내용은 그대로 두고 그 위에 한 겹 더 얹었습니다. "
+       "글꼴은 뷰어에 있는 Helvetica 를 쓰므로 파일이 거의 커지지 않습니다.")
     return 0
 
 
@@ -1490,6 +1551,27 @@ def add_commands(sub) -> None:
                   "    at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf\n"
                   "    at file pdfcut 모음.pdf --each --apply")
     cut.set_defaults(func=cmd_file_pdfcut)
+
+    num = fp.add_parser("pdfnum", help="PDF 에 쪽 번호 찍기 (합본 계약서·제출본)")
+    num.add_argument("file", metavar="파일.pdf")
+    num.add_argument("-o", "--out", metavar="파일.pdf")
+    num.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    num.add_argument("--format", default="{쪽} / {전체}", metavar="틀",
+                     help="{쪽} 과 {전체} 를 쓴다. 한글은 넣지 못한다")
+    num.add_argument("--start", type=int, default=1, metavar="번호",
+                     help="첫 쪽에 찍을 번호 (기본 1)")
+    num.add_argument("--skip", type=int, default=0, metavar="쪽",
+                     help="앞의 몇 쪽은 찍지 않는다 (표지·간지)")
+    num.add_argument("--where", default="bottom-center",
+                     choices=list(pdf_where()), help="찍을 자리")
+    num.add_argument("--size", type=float, default=9.0, metavar="pt")
+    num.add_argument("--margin", type=float, default=12.0, metavar="pt",
+                     help="가장자리에서 띄울 거리")
+    num.epilog = ("예: at file pdfnum 합본.pdf -o 번호붙임.pdf\n"
+                  "    at file pdfnum 계약서.pdf --skip 1 --start 1 "
+                  "--where bottom-right -o 번호붙임.pdf")
+    num.set_defaults(func=cmd_file_pdfnum)
 
     jn = fp.add_parser("pdfjoin", help="여러 PDF 를 준 차례대로 합치기")
     jn.add_argument("files", nargs="+", metavar="파일.pdf")

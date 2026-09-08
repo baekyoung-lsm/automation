@@ -638,3 +638,104 @@ class ScrubPdfTest(unittest.TestCase):
         root = made.get(made.trailer["Root"])
         self.assertEqual(str(root.get("PageMode")), "UseOutlines")
 
+class StampTest(unittest.TestCase):
+    box = [0, 0, 600, 800]
+
+    def test_bottom_center(self):
+        body = pdf.stamp_stream("3 / 10", self.box, 0)
+        span = pdf.text_width("3 / 10", 9)
+        self.assertIn("1 0 0 1", body)
+        self.assertIn(f"{(600 - span) / 2:.2f} 12.00 Tm", body)
+
+    def test_bottom_right(self):
+        body = pdf.stamp_stream("7", self.box, 0, where="bottom-right", margin=20)
+        span = pdf.text_width("7", 9)
+        self.assertIn(f"{600 - 20 - span:.2f} 20.00 Tm", body)
+
+    def test_top_right(self):
+        body = pdf.stamp_stream("7", self.box, 0, where="top-right", size=10)
+        self.assertIn(f"{800 - 12 - 10:.2f} Tm", body)
+
+    def test_turned_page_is_drawn_the_way_it_is_seen(self):
+        span = pdf.text_width("7", 9)
+        turned = pdf.stamp_stream("7", self.box, 90)
+        # 눕힌 쪽은 글자도 눕혀야 보는 사람에게 똑바로 보인다
+        self.assertIn("0 1 -1 0", turned)
+        self.assertIn(f"588.00 {(800 - span) / 2:.2f} Tm", turned)
+
+        upside = pdf.stamp_stream("7", self.box, 180)
+        self.assertIn("-1 0 0 -1", upside)
+        self.assertIn(f"{600 - (600 - span) / 2:.2f} 788.00 Tm", upside)
+
+        other = pdf.stamp_stream("7", self.box, 270)
+        self.assertIn("0 -1 1 0", other)
+        self.assertIn(f"12.00 {800 - (800 - span) / 2:.2f} Tm", other)
+
+    def test_offset_mediabox(self):
+        body = pdf.stamp_stream("7", [10, 20, 610, 820], 0, where="bottom-left")
+        self.assertIn("22.00 32.00 Tm", body)      # 상자 왼쪽 아래에서 12pt
+
+    def test_hangul_is_refused(self):
+        with self.assertRaises(pdf.PdfError) as ctx:
+            pdf.stamp_stream("대외비", self.box, 0)
+        self.assertIn("한글", str(ctx.exception))
+
+    def test_parentheses_are_escaped(self):
+        body = pdf.stamp_stream("(3)", self.box, 0)
+        self.assertIn(r"\(3\)", body)
+
+    def test_unknown_place(self):
+        with self.assertRaises(pdf.PdfError):
+            pdf.stamp_stream("1", self.box, 0, where="middle")
+
+
+class NumberPagesTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def stamped(self, doc, page):
+        blob = doc.get(page.data.get("Contents"))
+        self.assertIsInstance(blob, list)
+        return pdf.stream_data(doc.get(blob[-1]), doc).decode("latin-1")
+
+    def test_numbers_every_page(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "셋.pdf", pages=3))
+        out = self.root / "번호.pdf"
+        pdf.join_pdfs([(doc, [1, 2, 3])], out,
+                      stamp=pdf.page_stamper("{쪽} / {전체}", 3))
+        made = pdf.open_pdf(out)
+        self.assertIn("(1 / 3)", self.stamped(made, made.pages()[0]))
+        self.assertIn("(3 / 3)", self.stamped(made, made.pages()[2]))
+
+    def test_skip_and_start(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "셋.pdf", pages=3))
+        out = self.root / "번호.pdf"
+        pdf.join_pdfs([(doc, [1, 2, 3])], out,
+                      stamp=pdf.page_stamper("{쪽} / {전체}", 3, skip=1, start=5))
+        made = pdf.open_pdf(out)
+        first = made.get(made.pages()[0].data.get("Contents"))
+        self.assertNotIsInstance(first, list)          # 표지에는 안 찍는다
+        self.assertIn("(5 / 2)", self.stamped(made, made.pages()[1]))
+
+    def test_font_is_added_next_to_the_old_ones(self):
+        doc = pdf.open_pdf(simple_pdf(self.root / "하나.pdf", pages=1))
+        out = self.root / "번호.pdf"
+        pdf.join_pdfs([(doc, [1])], out, stamp=pdf.page_stamper("{쪽}", 1))
+        made = pdf.open_pdf(out)
+        fonts = made.get(made.get(made.pages()[0].data["Resources"])["Font"])
+        self.assertIn("F1", fonts)                     # 원래 글꼴은 그대로
+        self.assertIn("ATNUM", fonts)
+
+    def test_original_content_is_kept(self):
+        source = simple_pdf(self.root / "하나.pdf", pages=1, text="본문")
+        doc = pdf.open_pdf(source)
+        out = self.root / "번호.pdf"
+        pdf.join_pdfs([(doc, [1])], out, stamp=pdf.page_stamper("{쪽}", 1))
+        made = pdf.open_pdf(out)
+        blob = made.get(made.pages()[0].data["Contents"])
+        body = pdf.stream_data(made.get(blob[0]), made)
+        self.assertIn("본문1".encode("utf-8"), body)
+

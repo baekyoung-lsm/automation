@@ -59,6 +59,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file pdf <이미지…>` | 사진·스캔 이미지를 PDF 한 장으로 묶는다 (제출용). jpg 는 그대로 넣는다 |
 | `at file pdfcut <파일>` | PDF 에서 필요한 쪽만 뽑는다. `--drop` 으로 빼기, `--each` 로 한 쪽씩, `--rotate` 로 돌리기 |
 | `at file pdfjoin <파일…>` | 여러 PDF 를 준 차례대로 합친다 (인터넷에 올리지 않고) |
+| `at file pdfnum <파일>` | PDF 에 쪽 번호를 찍는다 (합본 계약서·제출본). 원래 내용 위에 한 겹 |
 | `at file exif [경로]` | 사진에 남은 촬영 정보(**위치**·기기·날짜) 보기, `--strip` 으로 지운 사본 |
 | `at file audit <디렉터리>` | 받은 폴더 한 번에 훑기 — 구성·이름 문제·중복·찌꺼기·빈 파일·큰 파일 |
 | `at file photos <디렉터리>` | 사진을 **찍은 날짜**(EXIF)별로 묶는다. 촬영 시각을 못 읽은 사진은 두고 온다 |
@@ -123,6 +124,7 @@ at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf
 at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf  # 거꾸로 스캔된 것
 at file pdfcut 모음.pdf --each --apply              # 한 쪽씩 따로
 at file pdfjoin 앞.pdf 본문.pdf 뒤.pdf -o 합본.pdf
+at file pdfnum 합본.pdf --skip 1 -o 번호붙임.pdf     # 표지 빼고 쪽 번호
 at file exif ~/사진                      # 위치가 남은 사진 찾기
 at file exif 보낼사진/ --strip --apply    # «…(정보지움).jpg» 사본
 at file big ~/Downloads --depth 2
@@ -166,6 +168,12 @@ PDF 는 **속성과 쪽 수만** 본다 - 제목·만든 사람·만든 프로�
 어느 쪽이든 **전자서명은 무효가 된다** - 반쪽만 옮겨 놓고 옮겼다고 하면 나중에 더 곤란하다. 다 쓰고 나면 만든
 파일을 **다시 열어 쪽 수를 세어 보고**, 맞지 않으면 그 파일을 지운다. 암호가 걸린 PDF 는
 열지 않는다(암호를 푼 사본으로 다시 해야 한다). 원본은 어느 쪽도 건드리지 않는다.
+
+`at file pdfnum` 은 쪽 번호를 **원래 내용 위에 한 겹 더 얹는다**. 글꼴은 파일에 심지 않고
+뷰어가 가진 Helvetica 를 쓰므로 파일이 거의 커지지 않는데, 그래서 **한글은 넣지 못한다** —
+넣으려 하면 그렇다고 말하고 멈춘다(빈 네모가 찍힌 PDF 를 내놓는 것보다 낫다). 눕혀 저장된
+쪽(`/Rotate`)은 **보는 사람 기준으로** 아래에 찍는다. 표지·간지는 `--skip 1` 로 건너뛰고,
+번호는 `--start` 로 다시 센다.
 
 `at file scrub` 은 그 이름들을 지운 **사본**을 만든다(`…(이름지움).docx`). 워드·엑셀·슬라이드,
 한글(hwpx), PDF 를 다룬다. 원본은 건드리지
