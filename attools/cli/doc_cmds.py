@@ -583,6 +583,37 @@ def cmd_doc_docx(a) -> int:
     return 0
 
 
+def cmd_doc_stats(a) -> int:
+    """문서가 얼마나 큰가. 넘기기 전에 «읽는 데 얼마나» 를 알려 준다."""
+    targets = _md_files(a.paths)
+    if not targets:
+        _p("마크다운 파일을 찾지 못했습니다.")
+        return 1
+
+    stats = []
+    for path in targets:
+        body = path.read_text(encoding="utf-8", errors="replace")
+        stats.append(mdkit.doc_stat(path, body))
+    stats.sort(key=lambda s: -s.letters)
+
+    _grid(["문서", "글자", "읽기(분)", "줄", "제목", "표", "그림", "링크",
+           "코드줄", "메모"],
+          [[_cut(Path(s.path).name, 26), f"{s.letters:,}",
+            f"{s.reading_minutes:g}", f"{s.lines:,}", str(s.headings),
+            str(s.tables), str(s.images), str(s.links), f"{s.code_lines:,}",
+            str(s.todo)] for s in stats[:a.limit]], limit=26)
+    if len(stats) > a.limit:
+        _p(f"  ... {len(stats) - a.limit}개 더")
+
+    if len(stats) > 1:
+        letters = sum(s.letters for s in stats)
+        _p(f"\n문서 {len(stats)}개  ·  글자 {letters:,}  ·  "
+           f"읽기 {round(letters / 500, 1):g}분")
+    _p("\n글자 수는 코드 블록을 뺀 것입니다. 읽는 시간은 분당 500자로 어림한 값이라 "
+       "사람마다 다릅니다.")
+    return 0
+
+
 def cmd_doc_check(a) -> int:
     targets = _md_files(a.paths)
     if not targets:
@@ -766,6 +797,11 @@ def add_commands(sub) -> None:
     dl.add_argument("--jobs", type=int, default=8, metavar="개",
                     help="한 번에 두드릴 개수")
     dl.set_defaults(func=cmd_doc_links)
+
+    dst = dc.add_parser("stats", help="문서 크기 - 글자 수·읽는 시간·표·링크")
+    dst.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    dst.add_argument("--limit", type=int, default=20, metavar="개")
+    dst.set_defaults(func=cmd_doc_stats)
 
     dh = dc.add_parser("check", help="제목 단계 건너뜀·중복 점검")
     dh.add_argument("paths", nargs="+", metavar="경로")

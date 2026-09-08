@@ -145,6 +145,66 @@ def links(text: str) -> list[Link]:
     return out
 
 
+@dataclass
+class DocStat:
+    path: str
+    letters: int = 0          # 공백을 뺀 글자 수
+    words: int = 0
+    lines: int = 0
+    headings: int = 0
+    tables: int = 0
+    images: int = 0
+    links: int = 0
+    code_lines: int = 0       # 코드 블록 안의 줄
+    todo: int = 0             # TODO·FIXME·<!-- --> 로 남긴 메모
+
+    @property
+    def reading_minutes(self) -> float:
+        """한국어 읽기 속도를 분당 500자로 잡는다 (흔히 쓰는 어림값)."""
+        return round(self.letters / 500, 1)
+
+
+MEMO_RE = re.compile(r"\bTODO\b|\bFIXME\b|<!--(?!\s*/?(?:toc|index))", re.IGNORECASE)
+
+
+def doc_stat(path: Path, text: str) -> DocStat:
+    """문서 하나의 크기. 코드 블록 안은 글자 수에서 뺀다.
+
+    코드까지 글자로 세면 «읽는 데 30분» 같은 값이 크게 부풀어 아무도 안 믿는다.
+    """
+    stat = DocStat(str(path))
+    stat.lines = len(text.splitlines())
+    stat.headings = len(headings(text))
+    stat.tables = len(find_tables(text))
+    for link in links(text):
+        if link.kind == "image":
+            stat.images += 1
+        else:
+            stat.links += 1
+
+    fence: str | None = None
+    prose: list[str] = []
+    for line in text.splitlines():
+        if m := FENCE_RE.match(line):
+            if fence is None:
+                fence = m.group(1)
+                continue
+            if line.strip().startswith(fence):
+                fence = None
+                continue
+        if fence is not None:
+            stat.code_lines += 1
+            continue          # 예제 코드 안의 TODO 는 문서 메모가 아니다
+        prose.append(line)
+        if MEMO_RE.search(line):
+            stat.todo += 1
+
+    body = "\n".join(prose)
+    stat.letters = len(re.sub(r"\s", "", body))
+    stat.words = len(body.split())
+    return stat
+
+
 def check_links(path: Path, *, root: Path | None = None) -> list[Issue]:
     """상대 경로 파일과 문서 안 앵커가 실제로 있는지 본다. 외부 URL 은 건드리지 않는다."""
     text = path.read_text(encoding="utf-8", errors="replace")

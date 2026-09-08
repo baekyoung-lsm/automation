@@ -505,5 +505,43 @@ class MergeTest(unittest.TestCase):
         self.assertIn("## 나", merged)
 
 
+class DocStatTest(unittest.TestCase):
+    def stat(self, text):
+        return mdkit.doc_stat(Path("문서.md"), text)
+
+    def test_code_block_is_not_counted_as_letters(self):
+        prose = self.stat("가나다라마\n")
+        with_code = self.stat("가나다라마\n\n```\nprint('아주아주긴코드')\n```\n")
+        self.assertEqual(with_code.letters, prose.letters)
+        self.assertEqual(with_code.code_lines, 1)
+
+    def test_letters_skip_whitespace(self):
+        self.assertEqual(self.stat("가 나\n다\n").letters, 3)
+
+    def test_reading_minutes_is_letters_over_500(self):
+        stat = mdkit.DocStat("문서.md", letters=1000)
+        self.assertEqual(stat.reading_minutes, 2.0)
+
+    def test_counts_headings_tables_links_images(self):
+        text = ("# 제목\n\n## 작은 제목\n\n"
+                "| 가 | 나 |\n| --- | --- |\n| 1 | 2 |\n\n"
+                "[링크](a.md) 와 ![그림](b.png)\n")
+        stat = self.stat(text)
+        self.assertEqual(stat.headings, 2)
+        self.assertEqual(stat.tables, 1)
+        self.assertEqual(stat.links, 1)
+        self.assertEqual(stat.images, 1)
+
+    def test_memo_counts_todo_and_comments(self):
+        text = "TODO 고치기\nFIXME 여기도\n<!-- 나중에 -->\n보통 줄\n"
+        self.assertEqual(self.stat(text).todo, 3)
+
+    def test_memo_in_code_block_is_not_counted(self):
+        self.assertEqual(self.stat("```\n# TODO 예제 안\n```\n").todo, 0)
+
+    def test_toc_marks_are_not_memos(self):
+        self.assertEqual(self.stat("<!-- toc -->\n<!-- /toc -->\n").todo, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

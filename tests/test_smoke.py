@@ -605,6 +605,10 @@ class SmokeTest(unittest.TestCase):
         점검 = self.run_cli("doc", "lint", md)
         self.assertIn("문서 1개를 봤습니다", 점검)
 
+        크기 = self.run_cli("doc", "stats", md)
+        self.assertIn("읽기(분)", 크기)
+        self.assertIn("문서.md", 크기)
+
         용어문서 = Path(self.path("용어.md"))
         용어문서.write_text("API 설명. api 사용. Api 응답.\n", encoding="utf-8")
         self.assertIn("대소문자",
