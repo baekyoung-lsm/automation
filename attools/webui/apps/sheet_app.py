@@ -678,6 +678,106 @@ def age_save(payload: dict) -> dict:
     return out
 
 
+def _export_target(payload: dict, table, suffix: str) -> Path:
+    """원본 옆에 «이름.ics» 처럼 새 파일을 만든다. 있으면 번호를 붙인다."""
+    source = Path(table.source)
+    return files.unique_path(source.with_name(source.stem + suffix))
+
+
+def ics_preview(payload: dict) -> dict:
+    table = _open(payload)
+    title = form.text(payload, "ictitle")
+    start = form.text(payload, "icstart")
+    if not title or not start:
+        raise UiError("일정 이름 열과 시작 날짜 열을 골라 주세요.")
+    end = form.text(payload, "icend") or None
+    place = form.text(payload, "icplace") or None
+    alarm = int(form.number(payload, "icalarm", 0, low=0, high=10080))
+    try:
+        events, skipped = sheet.events_from_table(
+            table, summary=title, start=start, end=end, location=place)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    args: list[object] = ["sheet", "ics", *_source_args(payload),
+                          "--title", title, "--start", start]
+    if end:
+        args += ["--end", end]
+    if place:
+        args += ["--place", place]
+    if alarm:
+        args += ["--alarm", alarm]
+    return {"rows": [[e.summary,
+                      f"{e.start}" + (f" {e.start_time:%H:%M}"
+                                      if e.start_time else ""),
+                      (f"{e.end}" if e.end else "")
+                      + (f" {e.end_time:%H:%M}" if e.end_time else ""),
+                      e.location] for e in events[:PEEK_ROWS]],
+            "count": len(events),
+            "skipped": [[str(line), why] for line, why in skipped[:20]],
+            "events": len(events), "alarm": alarm,
+            "command": form.command(*args)}
+
+
+def ics_save(payload: dict) -> dict:
+    table = _open(payload)
+    out = ics_preview(payload)
+    events, _skipped = sheet.events_from_table(
+        table, summary=form.text(payload, "ictitle"),
+        start=form.text(payload, "icstart"),
+        end=form.text(payload, "icend") or None,
+        location=form.text(payload, "icplace") or None)
+    alarm = out["alarm"] or None
+    target = _export_target(payload, table, ".ics")
+    target.write_text(sheet.to_ics(events, alarm=alarm), encoding="utf-8",
+                      newline="")
+    out["saved"] = str(target)
+    out["command"] = out["command"] + " -o " + target.name
+    return out
+
+
+def vcard_preview(payload: dict) -> dict:
+    table = _open(payload)
+    name = form.text(payload, "vcname")
+    if not name:
+        raise UiError("이름 열을 골라 주세요.")
+    picks = {key: form.text(payload, "vc" + key) or None
+             for key in ("company", "title", "mobile", "phone", "email")}
+    try:
+        people, skipped = sheet.contacts_from_table(table, name=name, **picks)
+    except sheet.SheetError as exc:
+        raise UiError(str(exc)) from None
+
+    args: list[object] = ["sheet", "vcard", *_source_args(payload),
+                          "--name", name]
+    for key, column in picks.items():
+        if column:
+            args += ["--" + key, column]
+    return {"rows": [[p.name, p.company, p.title,
+                      " / ".join(n for _k, n in p.phones), p.email]
+                     for p in people[:PEEK_ROWS]],
+            "count": len(people),
+            "skipped": [[str(line), why] for line, why in skipped[:20]],
+            "command": form.command(*args)}
+
+
+def vcard_save(payload: dict) -> dict:
+    table = _open(payload)
+    out = vcard_preview(payload)
+    people, _skipped = sheet.contacts_from_table(
+        table, name=form.text(payload, "vcname"),
+        company=form.text(payload, "vccompany") or None,
+        title=form.text(payload, "vctitle") or None,
+        mobile=form.text(payload, "vcmobile") or None,
+        phone=form.text(payload, "vcphone") or None,
+        email=form.text(payload, "vcemail") or None)
+    target = _export_target(payload, table, ".vcf")
+    target.write_text(sheet.to_vcard(people), encoding="utf-8", newline="")
+    out["saved"] = str(target)
+    out["command"] = out["command"] + " -o " + target.name
+    return out
+
+
 def audit(payload: dict) -> dict:
     """받은 표를 한 번에 훑는다. 고치지 않고 볼 만한 곳만 모은다."""
     table = _open(payload)
@@ -1075,6 +1175,7 @@ BODY = """
   <button data-tab="골라내기" aria-selected="false">골라내기</button>
   <button data-tab="여러 파일" aria-selected="false">여러 파일</button>
   <button data-tab="내보내기 전에" aria-selected="false">내보내기 전에</button>
+  <button data-tab="캘린더·연락처" aria-selected="false">캘린더·연락처</button>
 </nav>
 
 <section class="card" data-panel="훑어보기">
@@ -1410,6 +1511,49 @@ BODY = """
   </div>
   <div id="maskmsg"></div>
   <div id="maskout"></div>
+</section>
+
+<section class="card" data-panel="캘린더·연락처" hidden>
+  <h2>일정표 → 캘린더(ics)</h2>
+  <p class="note">엑셀로 만든 일정표를 캘린더가 읽는 파일로 냅니다. 시작 칸에 시각이
+     같이 있으면(<b>2026-03-04 14:30</b>) 시각까지 읽고, 날짜만 있으면 종일 일정이
+     됩니다. 시각이 있는 일정은 한국 시간으로 넣고, <b>날짜를 못 읽은 행은 채우지
+     않고</b> 몇 행인지 알려 줍니다. 파일은 원본 옆에 만듭니다.</p>
+  <div class="row">
+    <div><label for="ictitle">일정 이름 열</label><select id="ictitle"></select></div>
+    <div><label for="icstart">시작 열</label><select id="icstart"></select></div>
+    <div><label for="icend">끝 열</label><select id="icend"></select></div>
+    <div><label for="icplace">장소 열</label><select id="icplace"></select></div>
+    <div style="flex:0 1 7rem"><label for="icalarm">알림(분 전)</label>
+      <input type="text" id="icalarm" value="0" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-ics">어떻게 들어가나</button>
+    <button id="btn-ics-save" disabled>ics 만들기</button>
+  </div>
+  <div id="icsmsg"></div>
+  <div id="icsout"></div>
+</section>
+
+<section class="card" data-panel="캘린더·연락처" hidden>
+  <h2>명단 → 연락처(vcf)</h2>
+  <p class="note">거래처 명단을 폰 주소록이 읽는 파일로 냅니다. <b>이름을 성과 이름으로
+     쪼개지 않습니다</b> - 남궁·제갈 같은 두 자 성을 잘못 자르지 않으려는 것입니다.
+     이름이 빈 행은 건너뜁니다. 파일은 원본 옆에 만듭니다.</p>
+  <div class="row">
+    <div><label for="vcname">이름 열</label><select id="vcname"></select></div>
+    <div><label for="vccompany">회사 열</label><select id="vccompany"></select></div>
+    <div><label for="vctitle">직함 열</label><select id="vctitle"></select></div>
+    <div><label for="vcmobile">휴대전화 열</label><select id="vcmobile"></select></div>
+    <div><label for="vcphone">전화 열</label><select id="vcphone"></select></div>
+    <div><label for="vcemail">메일 열</label><select id="vcemail"></select></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-vcard">어떻게 들어가나</button>
+    <button id="btn-vcard-save" disabled>vcf 만들기</button>
+  </div>
+  <div id="vcmsg"></div>
+  <div id="vcout"></div>
 </section>
 
 <section class="card" data-panel="여러 파일" hidden>
@@ -1900,6 +2044,75 @@ BODY = """
   $("btn-age").addEventListener("click", function () { runAge(false); });
   $("btn-age-save").addEventListener("click", function () { runAge(true); });
 
+  function icsValues() {
+    const b = values();
+    b.ictitle = $("ictitle").value; b.icstart = $("icstart").value;
+    b.icend = $("icend").value; b.icplace = $("icplace").value;
+    b.icalarm = $("icalarm").value;
+    return b;
+  }
+
+  function drawIcs(d) {
+    $("icsout").innerHTML =
+      AT.table(["일정", "시작", "끝", "장소"], d.rows) +
+      (d.skipped.length
+        ? "<h2>건너뛴 행</h2>" + AT.table(["행", "까닭"], d.skipped, ["num", null])
+        : "") + AT.command(d.command);
+  }
+
+  async function runIcs(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/ics_save"
+                                   : "/api/sheet/ics_preview", icsValues());
+      drawIcs(d);
+      AT.message($("icsmsg"), "일정 <b>" + d.count + "개</b>" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 아직 파일을 만들지 않았습니다."), "ok");
+      $("btn-ics-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("icsmsg"), AT.esc(e.message), "bad");
+      $("btn-ics-save").disabled = true;
+    }
+  }
+
+  $("btn-ics").addEventListener("click", function () { runIcs(false); });
+  $("btn-ics-save").addEventListener("click", function () { runIcs(true); });
+
+  function vcardValues() {
+    const b = values();
+    b.vcname = $("vcname").value; b.vccompany = $("vccompany").value;
+    b.vctitle = $("vctitle").value; b.vcmobile = $("vcmobile").value;
+    b.vcphone = $("vcphone").value; b.vcemail = $("vcemail").value;
+    return b;
+  }
+
+  function drawVcard(d) {
+    $("vcout").innerHTML =
+      AT.table(["이름", "회사", "직함", "번호", "메일"], d.rows) +
+      (d.skipped.length
+        ? "<h2>건너뛴 행</h2>" + AT.table(["행", "까닭"], d.skipped, ["num", null])
+        : "") + AT.command(d.command);
+  }
+
+  async function runVcard(save) {
+    try {
+      const d = await AT.call(save ? "/api/sheet/vcard_save"
+                                   : "/api/sheet/vcard_preview",
+                              vcardValues());
+      drawVcard(d);
+      AT.message($("vcmsg"), "연락처 <b>" + d.count + "개</b>" +
+        (d.saved ? " · 만들었습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 아직 파일을 만들지 않았습니다."), "ok");
+      $("btn-vcard-save").disabled = !!save || d.count === 0;
+    } catch (e) {
+      AT.message($("vcmsg"), AT.esc(e.message), "bad");
+      $("btn-vcard-save").disabled = true;
+    }
+  }
+
+  $("btn-vcard").addEventListener("click", function () { runVcard(false); });
+  $("btn-vcard-save").addEventListener("click", function () { runVcard(true); });
+
   function datesValues() {
     const b = values();
     b.dcol = $("dcol").value;
@@ -2083,6 +2296,16 @@ BODY = """
       options($("simcol"), data.headers, "");
       options($("dcol"), data.headers, "");
       options($("acol"), data.headers, "");
+      options($("ictitle"), data.headers, "");
+      options($("icstart"), data.headers, "");
+      options($("icend"), data.headers, "쓰지 않음");
+      options($("icplace"), data.headers, "쓰지 않음");
+      options($("vcname"), data.headers, "");
+      options($("vccompany"), data.headers, "쓰지 않음");
+      options($("vctitle"), data.headers, "쓰지 않음");
+      options($("vcmobile"), data.headers, "쓰지 않음");
+      options($("vcphone"), data.headers, "쓰지 않음");
+      options($("vcemail"), data.headers, "쓰지 않음");
       options($("ocol"), data.headers, "");
       options($("clabel"), data.headers, "");
       options($("cvalue"), data.headers, "건수만 셈");
@@ -2170,6 +2393,8 @@ def make() -> App:
                  "dates_preview": dates_preview,
                  "dates_save": dates_save,
                  "age_preview": age_preview, "age_save": age_save,
+                 "ics_preview": ics_preview, "ics_save": ics_save,
+                 "vcard_preview": vcard_preview, "vcard_save": vcard_save,
                  "similar": similar, "outliers": outliers,
                  "audit": audit, "chart": chart, "dday": dday,
                  "replace_preview": replace_preview,

@@ -581,6 +581,50 @@ class SheetAppTest(UiCase):
         self.assertIn("(나이)", data["saved"])
         self.assertEqual(path.read_text(encoding="utf-8"), before)
 
+    def test_ics_export(self):
+        path = self.csv("일정.csv",
+                        "일정,시작,끝,장소\n워크숍,2026-03-10,2026-03-12,양평\n"
+                        "미정,언젠가,,\n")
+        _, data = self.post("/api/sheet/ics_preview",
+                            {"path": str(path), "ictitle": "일정",
+                             "icstart": "시작", "icend": "끝",
+                             "icplace": "장소"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["skipped"], [["3", "시작 날짜를 읽지 못했습니다"]])
+        self.assertEqual(list(path.parent.glob("*.ics")), [])
+
+        _, done = self.post("/api/sheet/ics_save",
+                            {"path": str(path), "ictitle": "일정",
+                             "icstart": "시작", "icend": "끝",
+                             "icplace": "장소", "icalarm": "30"})
+        body = Path(done["saved"]).read_text(encoding="utf-8")
+        self.assertIn("SUMMARY:워크숍", body)
+        self.assertIn("DTEND;VALUE=DATE:20260313", body)   # 그날까지
+        self.assertIn("TRIGGER:-PT30M", body)
+
+    def test_vcard_export(self):
+        path = self.csv("거래처.csv",
+                        "이름,회사,휴대전화\n홍길동,(주)가나,010-1\n,다라,010-2\n")
+        _, data = self.post("/api/sheet/vcard_preview",
+                            {"path": str(path), "vcname": "이름",
+                             "vccompany": "회사", "vcmobile": "휴대전화"})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["skipped"], [["3", "이름이 비었습니다"]])
+
+        _, done = self.post("/api/sheet/vcard_save",
+                            {"path": str(path), "vcname": "이름",
+                             "vccompany": "회사", "vcmobile": "휴대전화"})
+        body = Path(done["saved"]).read_text(encoding="utf-8")
+        self.assertIn("FN:홍길동", body)
+        self.assertIn("TEL;TYPE=CELL:010-1", body)
+
+    def test_ics_needs_columns(self):
+        path = self.csv("일정.csv", "일정,시작\n가,2026-03-10\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/ics_preview",
+                      {"path": str(path), "ictitle": "일정", "icstart": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_audit_collects_notes(self):
         path = self.csv("받은것.csv",
                         "상호,메일\n(주)가나,a@a.com\n주식회사 가나,b@a.com\n"
@@ -2400,6 +2444,27 @@ class CommandHintTest(UiCase):
                             {"path": str(path), "dcol": "주문일",
                              "dparts": ["요일", "주차"]})
         self.accepts(data["command"])
+
+    def test_sheet_export_commands(self):
+        path = self.work / "일정.csv"
+        path.write_text("일정,시작,장소\n워크숍,2026-03-10,양평\n",
+                        encoding="utf-8")
+        _, data = self.post("/api/sheet/ics_preview",
+                            {"path": str(path), "ictitle": "일정",
+                             "icstart": "시작", "icplace": "장소",
+                             "icalarm": "30"})
+        self.accepts(data["command"])
+        _, saved = self.post("/api/sheet/ics_save",
+                             {"path": str(path), "ictitle": "일정",
+                              "icstart": "시작"})
+        self.accepts(saved["command"])
+
+        cards = self.work / "거래처.csv"
+        cards.write_text("이름,회사\n홍길동,(주)가나\n", encoding="utf-8")
+        _, vc = self.post("/api/sheet/vcard_preview",
+                          {"path": str(cards), "vcname": "이름",
+                           "vccompany": "회사"})
+        self.accepts(vc["command"])
 
     def test_sheet_age_command(self):
         path = self.work / "생일.csv"
