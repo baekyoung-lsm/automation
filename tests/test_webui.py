@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from attools import sheet, webui
+from attools import files, sheet, webui
 
 
 class UiCase(unittest.TestCase):
@@ -205,6 +205,38 @@ class WebUiTest(UiCase):
     def test_scrub_needs_a_path(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.post("/api/files/scrub_preview", {"docroot": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_sync_preview_and_apply(self):
+        source = self.work / "원본"
+        backup = self.work / "백업"
+        source.mkdir()
+        backup.mkdir()
+        (source / "가.txt").write_text("새것", encoding="utf-8")
+        (source / "나.txt").write_text("바뀐 것", encoding="utf-8")
+        (backup / "나.txt").write_text("옛것", encoding="utf-8")
+        (backup / "라.txt").write_text("백업에만", encoding="utf-8")
+        body = {"syncfrom": str(source), "syncto": str(backup)}
+
+        _, data = self.post("/api/files/sync_preview", body)
+        self.assertEqual(data["new"], ["가.txt"])
+        self.assertEqual(data["changed"], ["나.txt"])
+        self.assertEqual(data["extra"], ["라.txt"])
+        self.assertFalse((backup / "가.txt").exists())
+
+        _, done = self.post("/api/files/sync_apply", body)
+        self.assertEqual(done["copied"], 2)
+        self.assertEqual((backup / "나.txt").read_text("utf-8"), "바뀐 것")
+        self.assertTrue((backup / "라.txt").is_file())      # 그대로 둔다
+        kept = list((backup / files.OLD_VERSIONS_DIR).rglob("나.txt"))
+        self.assertEqual(len(kept), 1)                      # 예전 판을 남긴다
+
+    def test_sync_needs_a_backup_folder(self):
+        source = self.work / "원본"
+        source.mkdir()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/sync_preview",
+                      {"syncfrom": str(source), "syncto": ""})
         self.assertEqual(ctx.exception.code, 400)
 
     def test_photos_show_and_strip(self):
@@ -1744,6 +1776,30 @@ class DocAppTest(UiCase):
         self.assertIn("사업 계획서", data["text"])
         self.assertIn("from-hwpx", data["command"])
 
+    def test_doc_todo(self):
+        folder = self.work / "회의록"
+        folder.mkdir()
+        (folder / "3월.md").write_text(
+            "# 회의\n\n## 결정\n- [ ] 계약서 검토 @홍길동 2026-01-05\n"
+            "- [x] 자료 취합\n- 그냥 메모\n", encoding="utf-8")
+
+        _, data = self.post("/api/doc/todo", {"tdroot": str(folder)})
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["late"], 1)
+        self.assertEqual(data["rows"][0][2], "홍길동")
+
+        _, mine = self.post("/api/doc/todo",
+                            {"tdroot": str(folder), "tdwho": "김철수"})
+        self.assertEqual(mine["count"], 0)
+        _, every = self.post("/api/doc/todo",
+                             {"tdroot": str(folder), "tdall": True})
+        self.assertEqual(every["count"], 2)
+
+    def test_doc_todo_needs_a_path(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/doc/todo", {"tdroot": ""})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_check_finds_dead_anchor(self):
         path = self.markdown()
         _, data = self.post("/api/doc/check", {"path": str(path)})
@@ -2686,6 +2742,13 @@ class CommandHintTest(UiCase):
         docx.write_document(path, [docx.paragraph("가")])
         _, moved = self.post("/api/doc/from_docx", {"docx_path": str(path)})
         self.accepts(moved["command"])
+
+        folder = self.work / "회의록"
+        folder.mkdir()
+        (folder / "가.md").write_text("- [ ] 할 일 @홍길동\n", encoding="utf-8")
+        _, todo = self.post("/api/doc/todo",
+                            {"tdroot": str(folder), "tdwho": "홍길동"})
+        self.accepts(todo["command"])
 
     def test_sheet_similar_command(self):
         path = self.work / "거래처.csv"

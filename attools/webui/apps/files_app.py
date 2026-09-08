@@ -322,6 +322,57 @@ def scrub_apply(payload: dict) -> dict:
     return out
 
 
+def _sync_plan(payload: dict):
+    source = form.folder(payload, "syncfrom")
+    raw = form.text(payload, "syncto")
+    if not raw:
+        raise UiError("백업 폴더를 적어 주세요.")
+    backup = Path(raw).expanduser()
+    if backup.exists() and not backup.is_dir():
+        raise UiError(f"폴더가 아닙니다: {backup}")
+    plan = files.plan_sync(source, backup,
+                           include_hidden=form.flag(payload, "synchidden"))
+    return source, backup, plan
+
+
+def _sync_command(payload: dict, source, backup, *, apply: bool = False) -> str:
+    args: list = ["file", "sync", source, backup]
+    if form.flag(payload, "synchidden"):
+        args.append("--hidden")
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
+def _sync_result(plan, source, backup) -> dict:
+    return {"new": plan.new[:200], "changed": plan.changed[:200],
+            "extra": plan.extra[:200], "same": plan.same,
+            "count": len(plan.new) + len(plan.changed),
+            "size": files.human_size(plan.bytes),
+            "backup": str(backup), "source": str(source)}
+
+
+def sync_preview(payload: dict) -> dict:
+    source, backup, plan = _sync_plan(payload)
+    out = _sync_result(plan, source, backup)
+    out["command"] = _sync_command(payload, source, backup)
+    return out
+
+
+def sync_apply(payload: dict) -> dict:
+    """새것·바뀐 것만 넣는다. 원본에 없는 파일은 건드리지 않는다."""
+    source, backup, plan = _sync_plan(payload)
+    if plan.empty:
+        raise UiError("넣을 것이 없습니다.")
+    backup.mkdir(parents=True, exist_ok=True)
+    copied, _removed, failed = files.apply_sync(source, backup, plan)
+    out = _sync_result(plan, source, backup)
+    out["copied"] = copied
+    out["failed"] = [[name, why] for name, why in failed[:20]]
+    out["command"] = _sync_command(payload, source, backup, apply=True)
+    return out
+
+
 def _photo_targets(payload: dict):
     raw = form.text(payload, "photoroot")
     if not raw:
@@ -661,6 +712,30 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>백업 폴더에 넣기</h2>
+  <p class="note">작업 폴더에서 백업 폴더로 <b>새것과 바뀐 것만</b> 넣습니다.
+     무엇이 들어갈지 먼저 보여 주고, 넣기는 따로 누릅니다. 덮어쓰기 전의 판은
+     백업 폴더 안 <code>.이전 (attools)</code> 로 옮겨 둡니다 - 사람이 찾는 것은
+     대개 그 예전 판입니다. <b>원본에 없는 파일은 그대로 둡니다</b>(지우는 것은
+     터미널에서 --remove-extra 로만).</p>
+  <div class="row">
+    <div style="flex:2 1 16rem"><label for="syncfrom">원본 폴더</label>
+      <input type="text" id="syncfrom" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:2 1 16rem"><label for="syncto">백업 폴더</label>
+      <input type="text" id="syncto" data-browse="dir" spellcheck="false"></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="synchidden"> 숨김 파일도</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-sync">무엇이 들어가나</button>
+    <button id="btn-sync-apply" disabled>넣기</button>
+  </div>
+  <div id="syncmsg"></div>
+  <div id="syncout"></div>
+</section>
+
+<section class="card">
   <h2>사진에 남은 위치</h2>
   <p class="note">폰으로 찍은 사진에는 <b>찍은 자리의 좌표</b>가 들어 있습니다. 그대로
      보내면 집·사무실이 드러납니다. 찍은 날·기기·위치를 보여 주고, 지울 때는
@@ -943,6 +1018,42 @@ BODY = """
     } catch (e) { AT.message($("docsmsg"), AT.esc(e.message), "bad"); }
   });
 
+  function syncValues() {
+    return { syncfrom: $("syncfrom").value, syncto: $("syncto").value,
+             synchidden: $("synchidden").checked };
+  }
+
+  function drawSync(d) {
+    const rows = d.new.map(function (n) { return ["새로", n]; })
+      .concat(d.changed.map(function (n) { return ["덮어씀", n]; }))
+      .concat(d.extra.map(function (n) { return ["백업에만", n]; }));
+    $("syncout").innerHTML =
+      AT.table(["어떻게", "파일"], rows) +
+      (d.failed && d.failed.length
+        ? "<h2>하지 못한 것</h2>" + AT.table(["파일", "까닭"], d.failed) : "") +
+      AT.command(d.command);
+  }
+
+  async function runSync(apply) {
+    try {
+      const d = await AT.call(apply ? "/api/files/sync_apply"
+                                    : "/api/files/sync_preview", syncValues());
+      drawSync(d);
+      AT.remember("files", "syncfrom", $("syncfrom").value);
+      AT.message($("syncmsg"), (apply ? "넣은 파일 <b>" + d.copied + "개</b>"
+                                      : "넣을 것 <b>" + d.count + "개</b> (" +
+                                        AT.esc(d.size) + ")") +
+        " · 그대로 " + d.same + "개 · 백업에만 " + d.extra.length + "개", "ok");
+      $("btn-sync-apply").disabled = !!apply || d.count === 0;
+    } catch (e) {
+      AT.message($("syncmsg"), AT.esc(e.message), "bad");
+      $("btn-sync-apply").disabled = true;
+    }
+  }
+
+  $("btn-sync").addEventListener("click", function () { runSync(false); });
+  $("btn-sync-apply").addEventListener("click", function () { runSync(true); });
+
   function photoValues() {
     return { photoroot: $("photoroot").value,
              photoall: $("photoall").checked };
@@ -1150,6 +1261,7 @@ def make() -> App:
                  "audit": audit,
                  "documents": documents,
                  "photos": photos, "photos_strip": photos_strip,
+                 "sync_preview": sync_preview, "sync_apply": sync_apply,
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,

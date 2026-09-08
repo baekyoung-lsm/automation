@@ -135,6 +135,51 @@ def from_docx(payload: dict) -> dict:
     return result
 
 
+def todo(payload: dict) -> dict:
+    """폴더 안 문서에 적어 둔 «- [ ]» 할 일을 모은다. 고치지는 않는다."""
+    from datetime import date
+
+    raw = form.text(payload, "tdroot")
+    if not raw:
+        raise UiError("문서가 있는 폴더나 파일을 적어 주세요.")
+    root = Path(raw).expanduser()
+    if not root.exists():
+        raise UiError(f"없는 경로입니다: {root}")
+
+    targets = ([root] if root.is_file()
+               else sorted(p for p in root.rglob("*")
+                           if p.suffix.lower() in (".md", ".markdown")))
+    if not targets:
+        raise UiError("마크다운 파일을 찾지 못했습니다.")
+
+    tasks: list = []
+    for path in targets:
+        tasks += mdkit.find_tasks(
+            path, path.read_text(encoding="utf-8", errors="replace"))
+
+    who = form.text(payload, "tdwho")
+    if who:
+        tasks = [t for t in tasks if who in t.who]
+    done = [t for t in tasks if t.done]
+    if not form.flag(payload, "tdall"):
+        tasks = [t for t in tasks if not t.done]
+
+    today = date.today().isoformat()
+    tasks.sort(key=lambda t: (t.due == "", t.due, t.path, t.line))
+    late = [t for t in tasks if not t.done and t.due and t.due < today]
+    args: list = ["doc", "todo", root]
+    if who:
+        args += ["--who", who]
+    if form.flag(payload, "tdall"):
+        args.append("--all")
+    return {"rows": [["끝" if t.done else ("지남" if t in late else ""),
+                      t.due, t.who, t.text, Path(t.path).name, t.section]
+                     for t in tasks[:200]],
+            "count": len(tasks), "late": len(late), "done": len(done),
+            "files": len(targets),
+            "command": form.command(*args)}
+
+
 def merge(payload: dict) -> dict:
     """폴더 안의 .md 를 이름순으로 이어 붙인다. at doc split 의 반대."""
     root = form.folder(payload, "mfolder")
@@ -303,6 +348,26 @@ BODY = """
   <div class="actions"><button class="primary" id="btn-fromhtml">옮기기</button></div>
   <div id="htmlmsg"></div>
   <div id="htmlout"></div>
+</section>
+
+<section class="card">
+  <h2>회의록의 할 일 모으기</h2>
+  <p class="note">폴더 안 문서에서 <code>- [ ] 할 일</code> 줄을 모읍니다. 담당은
+     <code>@이름</code>, 기한은 줄에 적힌 날짜(<code>3/15</code>, <code>2026-04-01</code>)로
+     읽습니다. <b>체크 상자가 있는 줄만 셉니다</b> - 문장으로만 적은 약속까지 세면
+     목록을 믿고 쓸 수 없습니다. 문서는 고치지 않습니다.</p>
+  <div class="row">
+    <div style="flex:3 1 18rem"><label for="tdroot">문서가 있는 폴더</label>
+      <input type="text" id="tdroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:1 1 8rem"><label for="tdwho">담당자 (선택)</label>
+      <input type="text" id="tdwho" spellcheck="false" placeholder="홍길동"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-todo">모아 보기</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="tdall"> 끝낸 것도 함께</label>
+  </div>
+  <div id="todomsg"></div>
+  <div id="todoout"></div>
 </section>
 
 <section class="card">
@@ -484,6 +549,24 @@ BODY = """
     } catch (e) { AT.message($("mergemsg"), AT.esc(e.message), "bad"); }
   }
 
+  $("btn-todo").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/doc/todo",
+                              { tdroot: $("tdroot").value,
+                                tdwho: $("tdwho").value,
+                                tdall: $("tdall").checked });
+      $("todoout").innerHTML =
+        AT.table(["상태", "기한", "담당", "할 일", "문서", "절"], d.rows) +
+        '<p class="note">«- [ ] » 로 적은 줄만 셉니다. «3/15» 처럼 해가 없는 ' +
+        "기한은 올해로 봤습니다.</p>" + AT.command(d.command);
+      AT.remember("doc", "tdroot", $("tdroot").value);
+      AT.message($("todomsg"), "문서 " + d.files + "개에서 할 일 <b>" +
+        d.count + "개</b>" + (d.late ? " · 기한이 지난 것 " + d.late + "개" : "") +
+        (d.done ? " · 끝낸 것 " + d.done + "개" : ""),
+        d.late ? "bad" : "ok");
+    } catch (e) { AT.message($("todomsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-merge").addEventListener("click", function () { runMerge(false); });
   $("btn-merge-save").addEventListener("click", function () { runMerge(true); });
 
@@ -526,6 +609,7 @@ def make() -> App:
         subtitle="점검 → 다듬기 → 내보내기",
         body=lambda: BODY,
         actions={"check": check, "terms": terms, "images": images,
+                 "todo": todo,
                  "from_docx": from_docx, "merge": merge,
                  "from_html": from_html,
                  "fix_preview": fix_preview, "fix_apply": fix_apply,
