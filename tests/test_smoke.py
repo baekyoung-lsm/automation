@@ -413,6 +413,16 @@ class SmokeTest(unittest.TestCase):
         self.assertEqual(xlsx.sheet_names(Path(self.path("다시트.xlsx"))),
                          ["1월", "메모"])
 
+        # 교차표는 열이 수십 개가 되기 쉽다. 화면에는 앞쪽과 합계만 보인다
+        넓은표 = self.path("넓은표.csv")
+        Path(넓은표).write_text(
+            "부서,달,금액\n" + "".join(f"영업,{m}월,{m * 10}\n" for m in range(1, 13)),
+            encoding="utf-8")
+        넓게 = self.run_cli("sheet", "pivot", 넓은표, "--rows", "부서",
+                          "--cols", "달", "--values", "금액", "--cols-shown", "3")
+        self.assertIn("열", 넓게)
+        self.assertIn("합계", 넓게)
+
         전표 = Path(self.path("전표.csv"))
         전표.write_text("전표번호,제출일\n1001,2026-03-05\n1002,2026-03-06\n"
                       "1004,2026-03-09\n", encoding="utf-8")

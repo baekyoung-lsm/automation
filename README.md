@@ -1066,7 +1066,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet collect <폴더> --cell <칸=이름>` | 같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합) |
 | `at sheet forms <경로…>` | 받은 파일들의 **열 구성**을 견준다. 서식이 다른 파일이 있으면 exit 1 |
 | `at sheet diff <이전> <이후>` | 키 기준으로 추가·삭제·변경된 값을 찾는다. `--columns` 로 열 구조만, `--cells` 로 같은 자리끼리 칸 단위. `--other-sheet` 로 한 파일 안의 두 시트. `-o` 로 변경 내역을 표로 |
-| `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 |
+| `at sheet pivot <파일> --rows <열>` | 그룹별 합계·평균·건수, `--cols` 로 교차표 (화면에는 앞쪽 열과 합계만, 파일에는 전부) |
 | `at sheet melt <파일> --keep <열>` | 1월~12월처럼 옆으로 늘어선 열을 항목/값 두 열로 눕힌다 |
 | `at sheet transpose <파일>` | 행과 열을 바꾼다. 첫 열의 값이 새 머리글이 된다 |
 | `at sheet expand <파일> --col <열>` | 한 열을 구분자로 갈라 여러 열로 (엑셀 '텍스트 나누기') |
@@ -1133,6 +1133,7 @@ at sheet diff 견적서_v1.xlsx 견적서_v2.xlsx --cells   # 키가 없는 서�
 at sheet diff 월별.xlsx --sheet 8월 --other-sheet 9월 --key 사번
 at sheet diff 지난달.xlsx 이번달.xlsx --key 사번 -o 변경내역.xlsx
 at sheet pivot 매출.xlsx --rows 부서 --cols 분기 --values 금액 --agg sum
+at sheet pivot 매출.xlsx --rows 부서 --cols 날짜 --values 금액 -o 교차표.xlsx
 at sheet melt 월별매출.xlsx --keep 부서 --keep 이름 --name 월 --value 매출 -o 긴표.csv
 at sheet transpose 요약.csv
 at sheet expand 거래처.xlsx --col 주소 --sep ' ' --names 시,구,동 -o 정리본.xlsx

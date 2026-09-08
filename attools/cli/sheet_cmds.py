@@ -1415,9 +1415,24 @@ def cmd_sheet_pivot(a) -> int:
         _p(str(e))
         return 1
 
-    _grid(result.headers,
-          [[sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}" for v in r]
-           for r in result.rows])
+    # 교차표는 열이 쉽게 수십 개가 된다. 그대로 찍으면 한 줄이 화면을 넘겨
+    # 아무것도 못 읽는다. 화면에는 앞쪽만 보이고 파일에는 다 담는다.
+    keep = max(2, a.cols_shown)
+    # 맨 끝 합계 열은 자르더라도 남긴다. 교차표에서 제일 많이 보는 칸이다
+    tail = 1 if (len(result.headers) > keep and result.headers[-1] == "합계") else 0
+    headers = result.headers[:keep] + (result.headers[-tail:] if tail else [])
+    hidden = len(result.headers) - len(headers)
+
+    def shown(row):
+        return [sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}"
+                for v in list(row[:keep]) + (list(row[-tail:]) if tail else [])]
+
+    _grid(headers, [shown(r) for r in result.rows[:a.rows_shown]])
+    if hidden > 0:
+        _p(f"  ... 열 {hidden:,}개 더 "
+           "(--cols-shown 으로 조절, -o 로 저장하면 다 담깁니다)")
+    if len(result.rows) > a.rows_shown:
+        _p(f"  ... 행 {len(result.rows) - a.rows_shown:,}개 더")
     _p(f"\n{len(result.rows)}개 그룹")
     if a.out:
         if not _may_write(a, Path(a.out)):
@@ -2726,6 +2741,10 @@ def add_commands(sub) -> None:
     pv.add_argument("--cols", metavar="열", help="교차표 열 기준")
     pv.add_argument("--values", metavar="열", help="집계할 값 (없으면 건수)")
     pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
+    pv.add_argument("--cols-shown", type=int, default=12, metavar="개",
+                    help="화면에 보일 열 수 (파일에는 다 담긴다)")
+    pv.add_argument("--rows-shown", type=int, default=40, metavar="개",
+                    help="화면에 보일 행 수")
     pv.add_argument("-o", "--out")
     pv.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
