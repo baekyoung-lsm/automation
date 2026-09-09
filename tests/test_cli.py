@@ -335,6 +335,54 @@ class GroupListingTest(unittest.TestCase):
                 self.assertIn(f"at {name} ", out)
 
 
+class ErrorMessageTest(unittest.TestCase):
+    """오타와 빠진 인자를 한국어로, 비슷한 이름까지 짚어 주는지."""
+
+    def run_at(self, *argv):
+        import contextlib
+        import io
+
+        from attools import cli
+
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(list(argv))
+        return ctx.exception.code, err.getvalue()
+
+    def test_typo_suggests_close_names(self):
+        code, err = self.run_at("sheet", "clen")
+        self.assertEqual(code, 2)
+        self.assertIn("없는 이름입니다: clen", err)
+        self.assertIn("clean", err)
+
+    def test_typo_in_group(self):
+        _code, err = self.run_at("shet", "peek")
+        self.assertIn("sheet", err)
+
+    def test_missing_argument(self):
+        _code, err = self.run_at("sheet", "peek")
+        self.assertIn("빠진 것이 있습니다", err)
+        self.assertIn("--help", err)
+
+    def test_unknown_option(self):
+        _code, err = self.run_at("file", "list", ".", "--없는것")
+        self.assertIn("모르는 인자입니다", err)
+
+    def test_bad_number(self):
+        _code, err = self.run_at("life", "weekly", "10000", "--hours", "abc")
+        self.assertIn("숫자가 아닌 값", err)
+
+    def test_english_message_does_not_leak(self):
+        for argv in (("sheet", "clen"), ("sheet", "peek"),
+                     ("file", "list", ".", "--없는것")):
+            _code, err = self.run_at(*argv)
+            with self.subTest(argv=argv):
+                self.assertNotIn("invalid choice", err)
+                self.assertNotIn("the following arguments", err)
+                self.assertNotIn("unrecognized arguments", err)
+
+
 class DumpTest(unittest.TestCase):
     """긴 결과를 화면에 쏟지 않는지. 관(|)으로 넘길 때는 다 나와야 한다."""
 

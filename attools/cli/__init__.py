@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 
 from .. import __version__
@@ -157,6 +158,53 @@ def cmd_completion(a) -> int:
     return 0
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse 의 영어 오류를 한국어로 바꾸고, 오타는 비슷한 이름을 짚어 준다.
+
+    명령이 이백 개가 넘어서 «invalid choice» 한 줄에 이름 쉰 개가 딸려 나온다.
+    사람이 읽을 수 있는 것은 «혹시 이것인가요» 쪽이다.
+    """
+
+    def error(self, message: str):
+        import difflib
+
+        lines = []
+        choice = re.match(r"argument (\S+): invalid choice: '([^']*)'"
+                          r"(?: \(choose from (.*)\))?", message)
+        required = re.match(r"the following arguments are required: (.+)", message)
+        unknown = re.match(r"unrecognized arguments: (.+)", message)
+        wants = re.match(r"argument (\S+): expected (?:one|at least one) argument",
+                         message)
+        bad_value = re.match(r"argument (\S+): invalid (\w+) value: '([^']*)'",
+                             message)
+
+        if choice:
+            _name, given, raw = choice.groups()
+            names = re.findall(r"'([^']+)'", raw or "")
+            near = difflib.get_close_matches(given, names, n=3, cutoff=0.4)
+            lines.append(f"없는 이름입니다: {given}")
+            if near:
+                lines.append("혹시 이것인가요: " + ", ".join(near))
+            lines.append(f"{self.prog} 를 인자 없이 치면 있는 것을 보여 줍니다.")
+        elif required:
+            lines.append(f"빠진 것이 있습니다: {required.group(1)}")
+            lines.append(f"{self.prog} --help 로 쓰는 법을 봅니다.")
+        elif unknown:
+            lines.append(f"모르는 인자입니다: {unknown.group(1)}")
+            lines.append(f"{self.prog} --help 로 쓸 수 있는 것을 봅니다.")
+        elif wants:
+            lines.append(f"«{wants.group(1)}» 에는 값이 있어야 합니다.")
+        elif bad_value:
+            name, kind, given = bad_value.groups()
+            korean = {"int": "정수", "float": "숫자"}.get(kind, kind)
+            lines.append(f"«{name}» 에 {korean}가 아닌 값을 줬습니다: {given}")
+        else:
+            lines.append(message)
+
+        sys.stderr.write("\n".join(lines) + "\n")
+        raise SystemExit(2)
+
+
 def _subparsers(parser: argparse.ArgumentParser):
     """그 파서에 달린 하위 명령 목록 동작. 없으면 None."""
     for action in parser._actions:
@@ -201,7 +249,7 @@ def _list_groups(parser: argparse.ArgumentParser) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(
+    ap = _Parser(
         prog="at", description="파일 / 텍스트 / JSON / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
     sub = ap.add_subparsers(dest="group", required=False)
