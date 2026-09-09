@@ -2869,6 +2869,17 @@ class MailDraftTest(unittest.TestCase):
         self.assertFalse(drafts[2].ok)
         self.assertIn("첨부를 찾지 못했습니다", drafts[2].problem)
 
+    def test_line_breaks_in_a_cell_do_not_break_the_header(self):
+        # 칸 안에 줄바꿈이 든 표가 흔하다. 그대로 제목에 넣으면 메일
+        # 라이브러리가 통째로 거절해 한 건도 못 만든다
+        table = sheet.Table(["이름", "메일"],
+                            [["홍길동\nBcc: spy@example.com", "a@b.com"]])
+        drafts, _missing = sheet.build_mails(
+            table, template="{이름} 님", subject="[안내] {이름} 님", to="메일")
+        self.assertNotIn("\n", drafts[0].subject)
+        self.assertIn("Bcc: spy@example.com", drafts[0].subject)   # 글자로 남는다
+        self.assertTrue(drafts[0].ok)
+
     def test_missing_placeholder_is_reported(self):
         _drafts, missing = self.build(template="{부서} 앞")
         self.assertEqual(missing, {"부서"})

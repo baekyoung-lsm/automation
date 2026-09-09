@@ -1434,6 +1434,16 @@ def split_addresses(raw: str) -> tuple[list[str], list[str]]:
     return good, bad
 
 
+def _header_line(text: str) -> str:
+    """메일 머리글 한 줄로 만든다. 줄바꿈은 빈칸으로.
+
+    칸 안에 줄바꿈이 든 표가 흔한데, 그 값을 제목·받는 사람에 그대로 넣으면
+    메일 라이브러리가 통째로 거절한다(머리글에 줄바꿈을 넣으면 다른 머리글을
+    끼워 넣을 수 있어서다). 여기서 한 줄로 만들어 그 자리를 막는다.
+    """
+    return " ".join(str(text).split())
+
+
 def build_mails(table: Table, *, template: str, subject: str, to: str,
                 cc: str | None = None, attach: str | None = None,
                 start: int = 1) -> tuple[list[MailDraft], set[str]]:
@@ -1461,10 +1471,11 @@ def build_mails(table: Table, *, template: str, subject: str, to: str,
             row=number,
             line=number - start + 2,          # 머리글이 1행이다
 
-            to=to_text(cells[index["to"]]).strip(),
-            subject=render(subject, values, missing=missing).strip(),
+            to=_header_line(to_text(cells[index["to"]])),
+            subject=_header_line(render(subject, values, missing=missing)),
             body=render(template, values, missing=missing),
-            cc=(to_text(cells[index["cc"]]).strip() if "cc" in index else ""))
+            cc=(_header_line(to_text(cells[index["cc"]]))
+                if "cc" in index else ""))
 
         good, bad = split_addresses(draft.to)
         if not good:
