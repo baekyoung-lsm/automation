@@ -568,6 +568,16 @@ class TextExtractTest(unittest.TestCase):
                          b"/Encoding /WinAnsiEncoding >>")
         self.assertEqual(pdf.read_text(pdf.open_pdf(path)).text, "A\nB")
 
+    def test_words_placed_one_by_one_stay_on_one_line(self):
+        # 낱말마다 Td 를 쓰는 문서가 있다. 자리를 옮길 때마다 줄을 나누면
+        # «한 줄에 한 낱말» 이 되어 여러 낱말로 찾을 수 없다
+        path = self.make(b"BT /F1 12 Tf 72 720 Td (Total) Tj 40 0 Td (sales) Tj "
+                         b"0 -20 Td (second) Tj 50 0 Td (line) Tj ET",
+                         b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv "
+                         b"/Encoding /WinAnsiEncoding >>")
+        self.assertEqual(pdf.read_text(pdf.open_pdf(path)).text,
+                         "Total sales\nsecond line")
+
     def test_page_pick(self):
         path = self.make(b"BT /F1 12 Tf (A) Tj ET",
                          b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv >>")

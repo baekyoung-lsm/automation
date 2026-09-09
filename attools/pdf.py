@@ -1727,6 +1727,21 @@ def page_text(doc: "Document", page: PdfPage) -> tuple[str, list[str]]:
         if text:
             lines.append(text)
 
+    # 글자를 찍는 자리(y)가 바뀔 때만 줄을 나눈다. 자리를 옮길 때마다 나누면
+    # 낱말마다 Td 를 쓰는 문서가 «한 줄에 한 낱말» 로 나온다
+    where = [0.0, 0.0]          # 지금 줄의 (x, y)
+
+    def move(x: float, y: float) -> None:
+        if abs(y - where[1]) > 0.5:
+            newline()
+        elif line and not "".join(line).endswith(" ") and x > where[0]:
+            line.append(" ")    # 같은 줄에서 자리를 옮겼으면 띄어 쓴 것으로 본다
+        where[0], where[1] = x, y
+
+    def numbers(items, count: int) -> list:
+        got = [v for v in items if isinstance(v, (int, float))]
+        return got[-count:] if len(got) >= count else []
+
     for operands, op in _content_ops(b"\n".join(chunks)):
         if op == b"Tf" and len(operands) >= 2:
             font = fonts.get(str(operands[-2]))
@@ -1744,8 +1759,14 @@ def page_text(doc: "Document", page: PdfPage) -> tuple[str, list[str]]:
                     show(item)
                 elif isinstance(item, (int, float)) and -item >= _SPACE_GAP:
                     line.append(" ")
-        elif op in (b"Td", b"TD", b"T*", b"Tm", b"BT", b"ET"):
+        elif op in (b"Td", b"TD") and (pair := numbers(operands, 2)):
+            move(where[0] + pair[0], where[1] + pair[1])
+        elif op == b"Tm" and (six := numbers(operands, 6)):
+            move(six[4], six[5])
+        elif op in (b"T*", b"BT", b"ET"):
             newline()
+            if op == b"BT":
+                where[0], where[1] = 0.0, 0.0
     newline()
     return "\n".join(lines), missing
 
