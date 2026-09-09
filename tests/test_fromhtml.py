@@ -60,6 +60,42 @@ class FromHtmlTest(unittest.TestCase):
         self.assertEqual(lines[1], "| --- | --- |")
         self.assertEqual(lines[2], "| 가 | 1 |")
 
+    def test_colspan_and_rowspan_are_expanded(self):
+        # 한 칸으로 세면 열이 밀려 뒤 열의 값이 통째로 어긋난다
+        md = to_md("<table>"
+                   '<tr><th rowspan="2">부서</th><th colspan="2">1분기</th>'
+                   '<th rowspan="2">합계</th></tr>'
+                   "<tr><th>1월</th><th>2월</th></tr>"
+                   "<tr><td>영업</td><td>100</td><td>200</td><td>300</td></tr>"
+                   "</table>")
+        lines = [l for l in md.splitlines() if l.startswith("|")]
+        self.assertEqual(lines[0], "| 부서 | 1분기 1월 | 1분기 2월 | 합계 |")
+        self.assertEqual(lines[1], "| --- | --- | --- | --- |")
+        self.assertEqual(lines[2], "| 영업 | 100 | 200 | 300 |")
+
+    def test_rowspan_in_the_body_fills_down(self):
+        md = to_md("<table><tr><th>이름</th><th>부서</th></tr>"
+                   '<tr><td rowspan="2">홍길동</td><td>영업</td></tr>'
+                   "<tr><td>관리</td></tr></table>")
+        lines = [l for l in md.splitlines() if l.startswith("|")]
+        self.assertEqual(lines[2], "| 홍길동 | 영업 |")
+        self.assertEqual(lines[3], "| 홍길동 | 관리 |")
+
+    def test_body_colspan_is_not_repeated(self):
+        # 자료 칸을 되풀이하면 없던 값이 생겨 합계가 는다
+        md = to_md("<table><tr><th>가</th><th>나</th></tr>"
+                   '<tr><td colspan="2">합계 2건</td></tr></table>')
+        lines = [l for l in md.splitlines() if l.startswith("|")]
+        self.assertEqual(lines[2], "| 합계 2건 |  |")
+
+    def test_table_without_header_says_so(self):
+        md = to_md("<table><tr><td>가</td><td>나</td></tr>"
+                   "<tr><td>1</td><td>2</td></tr></table>")
+        self.assertIn("머리글이 없는 표", md)
+        lines = [l for l in md.splitlines() if l.startswith("|")]
+        self.assertEqual(lines[0], "| 가 | 나 |")
+        self.assertEqual(lines[1], "| --- | --- |")
+
     def test_script_and_style_are_dropped(self):
         md = to_md("<style>p{color:red}</style><script>alert(1)</script><p>글</p>")
         self.assertEqual(md.strip(), "글")

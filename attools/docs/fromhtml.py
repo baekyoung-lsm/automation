@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from html.parser import HTMLParser
 
 SKIP_TAGS = {"script", "style", "head", "meta", "link", "noscript", "svg"}
@@ -15,6 +16,82 @@ BLOCK_TAGS = {"p", "div", "section", "article", "header", "footer", "main",
               "tr", "blockquote", "pre", "hr"}
 SUPPORTED = ("제목, 문단, 목록, 표, 인용, 코드(pre·code), 링크, 이미지, "
              "굵게·기울임·취소선, 수평선")
+
+
+@dataclass
+class Cell:
+    text: str
+    colspan: int = 1
+    rowspan: int = 1
+    header: bool = False
+
+
+def _span(value) -> int:
+    """colspan/rowspan 값. 없거나 이상하면 1. 너무 큰 값은 잘라 둔다."""
+    text = str(value or "").strip()
+    if not text.isdigit():
+        return 1
+    return max(1, min(int(text), 50))
+
+
+def expand_spans(rows: list[list[Cell]]) -> list[list[str]]:
+    """가로·세로로 병합한 칸을 펴서 네모난 격자로 만든다.
+
+    한 칸으로 세면 열이 밀려 뒤 열의 값이 통째로 어긋난다. 세로 병합(rowspan)
+    은 그 값이 아래 줄에도 걸린 것이므로 값을 내려 채우고, 가로 병합은 머리글
+    일 때만 되풀이한다 - 자료 칸에서 되풀이하면 없던 값이 생겨 합계가 는다.
+    """
+    grid: list[list[str]] = []
+    carry: dict[int, list] = {}          # 열 -> [남은 줄 수, 값]
+    for cells in rows:
+        line: list[str] = []
+        column = 0
+        for cell in cells:
+            while carry.get(column, [0])[0] > 0:
+                line.append(carry[column][1])
+                carry[column][0] -= 1
+                column += 1
+            for step in range(cell.colspan):
+                line.append(cell.text if (step == 0 or cell.header) else "")
+                if cell.rowspan > 1:
+                    carry[column + step] = [cell.rowspan - 1, cell.text]
+            column += cell.colspan
+        while carry.get(column, [0])[0] > 0:   # 줄 끝까지 내려오는 값
+            line.append(carry[column][1])
+            carry[column][0] -= 1
+            column += 1
+        grid.append(line)
+    return grid
+
+
+def table_lines(rows: list[list[Cell]]) -> tuple[list[list[str]], bool]:
+    """표를 (마크다운 줄들, 머리글이 있었나)로. 머리글이 여러 줄이면 합친다.
+
+    마크다운 표는 머리글이 한 줄뿐이다. 웹 표는 «1분기 / 1월·2월» 처럼 두 줄
+    로 된 것이 흔한데, 그대로 두면 구분줄이 가운데 끼어 표가 깨진다.
+    """
+    if not rows:
+        return [], False
+    grid = expand_spans(rows)
+    heads = 0
+    for cells in rows:
+        if cells and all(c.header for c in cells):
+            heads += 1
+        else:
+            break
+    if heads <= 1:
+        return grid, heads == 1
+
+    merged: list[str] = []
+    width = max(len(line) for line in grid[:heads])
+    for column in range(width):
+        parts: list[str] = []
+        for line in grid[:heads]:
+            piece = line[column] if column < len(line) else ""
+            if piece and piece not in parts:
+                parts.append(piece)
+        merged.append(" ".join(parts))
+    return [merged] + grid[heads:], True
 
 
 class Converter(HTMLParser):
@@ -26,10 +103,11 @@ class Converter(HTMLParser):
         self.pre = 0
         self.list_stack: list[tuple[str, int]] = []   # (ul|ol, 번호)
         self.quote = 0
-        self.row: list[str] = []
-        self.table: list[list[str]] = []
+        self.row: list[Cell] = []
+        self.table: list[list[Cell]] = []
         self.in_cell = False
         self.header_row = False
+        self.span = (1, 1)          # 지금 읽는 칸의 (가로, 세로) 병합 수
         self.hrefs: list[str] = []
 
     # ---- 도우미
@@ -102,6 +180,7 @@ class Converter(HTMLParser):
         elif tag in ("td", "th"):
             self.in_cell = True
             self.header_row = self.header_row or tag == "th"
+            self.span = (_span(attr.get("colspan")), _span(attr.get("rowspan")))
             self.text.clear()
 
     def handle_endtag(self, tag):
@@ -129,15 +208,14 @@ class Converter(HTMLParser):
             self.out.append("```\n" + body + "\n```")
             self._blank()
         elif tag in ("td", "th"):
-            cell = re.sub(r"\s+", " ", "".join(self.text)).strip()
+            body = re.sub(r"\s+", " ", "".join(self.text)).strip()
             self.text.clear()
             self.in_cell = False
-            self.row.append(cell)
+            self.row.append(Cell(body, *self.span, header=tag == "th"))
+            self.span = (1, 1)
         elif tag == "tr":
             if self.row:
                 self.table.append(self.row)
-                if self.header_row or len(self.table) == 1:
-                    self.table.append(["---"] * len(self.row))
             self.row = []
         elif tag == "table":
             self._write_table()
@@ -186,11 +264,20 @@ class Converter(HTMLParser):
     def _write_table(self) -> None:
         if not self.table:
             return
-        width = max(len(r) for r in self.table)
-        for row in self.table:
-            cells = (row + [""] * width)[:width]
-            self.out.append("| " + " | ".join(cells) + " |")
+        rows, header = table_lines(self.table)
         self.table = []
+        if not rows:
+            return
+        width = max(len(r) for r in rows)
+        lines = [(r + [""] * width)[:width] for r in rows]
+        if not header:
+            # 머리글(th)이 없던 표. 첫 줄을 머리글로 쓴 것을 적어 둔다 -
+            # 마크다운 표는 머리글 없이는 못 쓴다
+            self.out.append("<!-- 머리글이 없는 표라 첫 줄을 머리글로 놓았습니다 -->")
+        self.out.append("| " + " | ".join(lines[0]) + " |")
+        self.out.append("| " + " | ".join(["---"] * width) + " |")
+        for row in lines[1:]:
+            self.out.append("| " + " | ".join(row) + " |")
         self._blank()
 
     def result(self) -> str:
