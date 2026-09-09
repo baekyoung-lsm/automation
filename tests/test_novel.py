@@ -301,6 +301,23 @@ class PaceTest(unittest.TestCase):
         self.assertEqual(p.finish_day(date(2026, 9, 1)), date(2026, 9, 1))
 
 
+class NicknameSuffixTest(unittest.TestCase):
+    """«민준이» 는 «민준» 과 한 사람이다. 따로 세면 둘 다 후보에서 빠진다."""
+
+    TEXT = ("민준이 물었다. 민준이는 우산을 들었다. 민준은 웃었다.\n"
+            "지수는 창밖을 보았다. 지수의 우산. 지수가 나섰다.\n")
+
+    def test_nickname_counts_as_the_same_person(self):
+        found = {n.text for n in names.extract(self.TEXT)}
+        self.assertIn("민준", found)
+        self.assertNotIn("민준이", found)
+
+    def test_nickname_is_not_reported_as_a_typo(self):
+        found = names.extract(self.TEXT)
+        shaky = names.variants(found, names.all_stems(self.TEXT))
+        self.assertNotIn("민준이", [stem.text for _name, stem, _d in shaky])
+
+
 class NamesTest(unittest.TestCase):
     SAMPLE = ("리안은 문을 열었다. 카일이 뒤따랐다.\n"
               "리안는 대답하지 않았다. 리언이 웃었다.\n"
@@ -771,6 +788,28 @@ class RenameTest(unittest.TestCase):
                          [("리안은", "세하는"), ("리안이", "세하가"),
                           ("리안아", "세하야")])
         self.assertEqual(found[0].line, 1)
+
+    def test_nickname_i_is_not_a_particle(self):
+        # «민준이는» 의 «이» 를 주격조사로 보면 «지호가는» 이 되어 문장이 깨진다
+        text = "민준이는 우산을 들었다. 민준이에게 말했다. 민준이 물었다.\n"
+        got, _count = names.apply_rename(text, "민준", "지호")
+        self.assertIn("지호는 우산을", got)
+        self.assertIn("지호에게 말했다", got)
+        self.assertIn("지호가 물었다", got)
+
+    def test_nickname_stays_when_the_new_name_has_batchim(self):
+        got, _count = names.apply_rename("민준이는 갔다", "민준", "지훈")
+        self.assertEqual(got, "지훈이는 갔다")
+
+    def test_preview_and_apply_agree(self):
+        # 보여 준 것과 실제로 바꾸는 것이 갈리면 되돌리기가 있어도 소용없다
+        text = "민준이는 갔고 민준이가 왔다. 민준은 웃었다.\n"
+        for new in ("지호", "지훈"):
+            plan = names.plan_rename(text, "민준", new)
+            got, count = names.apply_rename(text, "민준", new)
+            self.assertEqual(count, len(plan))
+            for change in plan:
+                self.assertIn(change.after, got)
 
     def test_same_name_changes_nothing(self):
         self.assertEqual(names.plan_rename("리안은 갔다", "리안", "리안"), [])

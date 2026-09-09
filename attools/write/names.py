@@ -65,11 +65,34 @@ def all_stems(text: str, *, max_len: int = 5) -> dict[str, Name]:
     return found
 
 
+def merge_nickname_suffix(stems: dict[str, Name]) -> dict[str, Name]:
+    """«민준이» 처럼 이름 뒤에 붙는 «이» 를 이름과 한 사람으로 센다.
+
+    받침 있는 이름 뒤의 «이» 는 사람을 부를 때만 붙는다. 따로 세면 «민준» 2회
+    와 «민준이» 1회로 갈려 어느 쪽도 후보 수를 못 넘기고, 그 인물의 조사 오류
+    도 함께 지나친다. 받침 없는 이름(지수)에는 안 붙으므로 받침을 보고,
+    «고양이» 처럼 우연히 «이» 로 끝나는 말은 «고양» 이 따로 나올 때만 합쳐진다.
+    """
+    merged = {text: name for text, name in stems.items()}
+    for text, name in list(stems.items()):
+        base = text[:-1]
+        if not text.endswith("이") or len(base) < 2 or base not in merged:
+            continue
+        if has_batchim(base[-1]) is not True:
+            continue
+        keep = merged[base]
+        keep.count += name.count
+        keep.particles.update(name.particles)
+        merged.pop(text, None)
+    return merged
+
+
 def extract(text: str, *, min_count: int = 3, min_variety: int = 2,
             max_len: int = 5) -> list[Name]:
     """조사가 여러 종류 붙어 반복 등장하는 말을 고유명사 후보로 본다."""
+    stems = merge_nickname_suffix(all_stems(text, max_len=max_len))
     return sorted(
-        (n for n in all_stems(text, max_len=max_len).values()
+        (n for n in stems.values()
          if n.count >= min_count and n.variety >= min_variety),
         key=lambda n: (-n.count, n.text))   # 같은 횟수면 이름 순으로 고정
 
@@ -98,8 +121,11 @@ def variants(names: list[Name], stems: dict[str, Name], *,
     confirmed = {n.text for n in names}
     out = []
     for name in names:
+        # «민준이» 는 «민준» 의 오타가 아니라 부르는 말이다. 흔들림으로 올리면
+        # 고치라는 말이 되는데, 고치면 원고의 말맛이 사라진다
+        nickname = (name.text + "이") if has_batchim(name.text[-1]) else ""
         for text, stem in stems.items():
-            if text in confirmed or stem.count >= name.count:
+            if text in confirmed or text == nickname or stem.count >= name.count:
                 continue
             if abs(len(text) - len(name.text)) > 1:
                 continue
@@ -457,6 +483,48 @@ def _fixed_particle(particle: str, new: str) -> str:
     return particle
 
 
+@dataclass
+class RenameHit:
+    at: int              # 줄 안에서 이름이 시작하는 자리
+    before: str          # 리안은
+    after: str           # 세하는
+
+
+def rename_hits(line: str, old: str, new: str) -> list[RenameHit]:
+    """한 줄에서 바꿀 자리들. 미리보기와 적용이 같은 판단을 쓰게 모아 둔다.
+
+    보여 준 것과 실제로 바꾸는 것이 갈리면 되돌리기가 있어도 소용이 없다.
+    """
+    hits: list[RenameHit] = []
+    start = 0
+    while (at := line.find(old, start)) != -1:
+        end = at + len(old)
+        particle = _particle_after(line, end)
+        tail = line[end + len(particle):end + len(particle) + 1]
+        start = end
+        if not particle and tail and "가" <= tail <= "힣":
+            continue          # 리안느 - 다른 낱말이다
+        # «민준이는» 의 «이» 는 조사가 아니라 받침 있는 이름 뒤에 붙는 말이다.
+        # 조사로 보면 «지호가는» 이 되어 문장이 깨진다
+        nickname = ""
+        if particle == "이" and tail and "가" <= tail <= "힣" and has_batchim(old):
+            nickname = "이"
+            inner = end + 1
+            particle = _particle_after(line, inner)
+            tail = line[inner + len(particle):inner + len(particle) + 1]
+            if not particle and tail and "가" <= tail <= "힣":
+                continue      # 민준이라면 - 다른 낱말이다
+        # 새 이름에 받침이 없으면 «이» 도 떨어진다 (지호이는 이라고는 안 한다)
+        stem = new + ("이" if nickname and has_batchim(new) else "")
+        before = old + nickname + particle
+        after = stem + _fixed_particle(particle, stem)
+        start = at + len(before)
+        if before == after:
+            continue
+        hits.append(RenameHit(at, before, after))
+    return hits
+
+
 def plan_rename(text: str, old: str, new: str) -> list[Rename]:
     """이름을 바꾸면서 뒤에 붙은 조사도 새 이름에 맞춘다. (바꿀 자리들)
 
@@ -469,46 +537,29 @@ def plan_rename(text: str, old: str, new: str) -> list[Rename]:
 
     out: list[Rename] = []
     for number, line in enumerate(text.splitlines(), 1):
-        start = 0
-        while (at := line.find(old, start)) != -1:
-            end = at + len(old)
-            particle = _particle_after(line, end)
-            tail = line[end + len(particle):end + len(particle) + 1]
-            start = end
-            if not particle and tail and "가" <= tail <= "힣":
-                continue          # 리안느 - 다른 낱말이다
-            if particle and not tail.strip():
-                pass              # 조사 뒤가 공백·문장 끝이면 확실하다
-            before = old + particle
-            after = new + _fixed_particle(particle, new)
-            if before == after:
-                continue
-            out.append(Rename(number, before, after, line.strip()))
+        for hit in rename_hits(line, old, new):
+            out.append(Rename(number, hit.before, hit.after, line.strip()))
     return out
 
 
 def apply_rename(text: str, old: str, new: str) -> tuple[str, int]:
     """이름과 조사를 바꾼 글과 바꾼 횟수."""
+    if not old or not new:
+        raise ValueError("옛 이름과 새 이름을 모두 주세요.")
+
     lines = text.splitlines(keepends=True)
     count = 0
     for index, line in enumerate(lines):
+        hits = rename_hits(line, old, new)
+        if not hits:
+            continue
         out: list[str] = []
-        at = 0
-        while at < len(line):
-            found = line.find(old, at)
-            if found == -1:
-                out.append(line[at:])
-                break
-            end = found + len(old)
-            particle = _particle_after(line, end)
-            tail = line[end + len(particle):end + len(particle) + 1]
-            out.append(line[at:found])
-            if not particle and tail and "가" <= tail <= "힣":
-                out.append(old)   # 다른 낱말이라 그대로 둔다
-                at = end
-                continue
-            out.append(new + _fixed_particle(particle, new))
+        done = 0
+        for hit in hits:
+            out.append(line[done:hit.at])
+            out.append(hit.after)
+            done = hit.at + len(hit.before)
             count += 1
-            at = end + len(particle)
+        out.append(line[done:])
         lines[index] = "".join(out)
     return "".join(lines), count
