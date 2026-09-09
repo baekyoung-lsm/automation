@@ -201,6 +201,7 @@ def db(payload: dict) -> dict:
     except dbkit.DbError as exc:
         raise UiError(str(exc)) from None
 
+    note = ""
     try:
         table = form.text(payload, "table")
         sql = form.raw_text(payload, "sql")
@@ -210,6 +211,12 @@ def db(payload: dict) -> dict:
             headers, rows, more = dbkit.query(conn, sql, limit=200)
         elif table:
             headers, rows, more = dbkit.sample(conn, table, limit=20)
+            # 표끼리 어떻게 이어지는지는 값보다 먼저 궁금하다
+            note = " · ".join(
+                [f"{one.column} -> {one.table}.{one.target}"
+                 for one in dbkit.links(conn, table)]
+                + [f"인덱스 {one.name}({', '.join(one.columns)})"
+                   for one in dbkit.indexes(conn, table)[:4]])
         else:
             found = dbkit.tables(conn)
             return {"tables": [[t.name, t.kind, str(t.rows), str(t.columns)]
@@ -226,7 +233,8 @@ def db(payload: dict) -> dict:
             "headers": headers,
             "rows": [["" if v is None else str(v) for v in row] for row in rows],
             "more": more,
-            "note": "읽기 전용(mode=ro)으로 엽니다. 고칠 수 없습니다."}
+            "note": (f"{note} · " if note else "")
+                    + "읽기 전용(mode=ro)으로 엽니다. 고칠 수 없습니다."}
 
 
 def depends(payload: dict) -> dict:

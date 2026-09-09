@@ -1996,6 +1996,22 @@ class DevAppTest(UiCase):
         self.assertEqual(data["headers"], ["번호", "이름"])
         self.assertEqual(data["rows"], [["1", "홍길동"]])
 
+    def test_db_shows_links_and_indexes(self):
+        # 처음 보는 DB 에서는 표끼리 어떻게 이어지는지가 값보다 먼저 궁금하다
+        import sqlite3
+
+        path = self.sqlite()
+        conn = sqlite3.connect(path)
+        conn.execute("CREATE TABLE 고객(번호 INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE 배송(id INTEGER, 주문번호 INTEGER "
+                     "REFERENCES 고객(번호))")
+        conn.execute("CREATE INDEX 배송_주문 ON 배송(주문번호)")
+        conn.commit()
+        conn.close()
+        _, data = self.post("/api/dev/db", {"path": str(path), "table": "배송"})
+        self.assertIn("주문번호 -> 고객.번호", data["note"])
+        self.assertIn("배송_주문", data["note"])
+
     def test_db_refuses_writes(self):
         """읽기 전용으로 열지만, 무엇이 막혔는지 미리 말해 준다."""
         with self.assertRaises(urllib.error.HTTPError) as ctx:
