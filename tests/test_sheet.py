@@ -209,6 +209,32 @@ class XlsxTest(unittest.TestCase):
         self.assertEqual(xlsx.read_sheet(path)[0][0], "a & b <c>")
 
 
+class OtherFormatHintTest(unittest.TestCase):
+    """그 형식을 읽는 명령이 따로 있으면 이름을 알려 준다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_hint_names_the_right_command(self):
+        for name, hint in (("발표.pptx", "from-pptx"), ("문서.docx", "from-docx"),
+                           ("응답.json", "from-json"), ("옛것.hwp", "hwpx")):
+            path = self.root / name
+            path.write_bytes(b"x")
+            with self.assertRaises(sheet.SheetError) as caught:
+                sheet.load(path)
+            self.assertIn(hint, str(caught.exception), name)
+
+    def test_unknown_suffix_says_only_what_it_reads(self):
+        path = self.root / "그림.png"
+        path.write_bytes(b"x")
+        with self.assertRaises(sheet.SheetError) as caught:
+            sheet.load(path)
+        self.assertIn("csv, tsv, xlsx", str(caught.exception))
+
+
 class CsvNotTextTest(unittest.TestCase):
     """csv 로 이름만 바꾼 파일. 역추적 대신 무엇인지 짚어야 한다."""
 

@@ -230,6 +230,22 @@ def read_csv_text(path: Path) -> str:
         raise SheetError(str(exc)) from None
 
 
+# 표가 든 다른 형식들. 그 형식을 읽는 명령을 오류에 함께 적어 준다
+OTHER_READERS = {
+    ".docx": "워드 문서 안의 표는 at sheet from-docx 로 꺼냅니다.",
+    ".hwpx": "한글 문서 안의 표는 at sheet from-hwpx 로 꺼냅니다.",
+    ".pptx": "슬라이드 안의 표는 at sheet from-pptx 로 꺼냅니다.",
+    ".json": "JSON 배열은 at sheet from-json 으로 표로 만듭니다.",
+    ".md": "마크다운 표는 at sheet from-md 로 꺼냅니다.",
+    ".ics": "일정 파일은 at sheet from-ics 로 표로 만듭니다.",
+    ".vcf": "연락처 파일은 at sheet from-vcard 로 표로 만듭니다.",
+    ".pdf": "PDF 는 표로 읽지 못합니다. 글자는 at file pdftext 로 꺼냅니다.",
+    ".eml": "메일은 at file eml 로 봅니다.",
+    ".hwp": "옛 한글 파일은 읽지 못합니다 - 한글에서 hwpx 로 저장하세요.",
+    ".xls": "옛 엑셀 파일은 읽지 못합니다 - 엑셀에서 xlsx 로 저장하세요.",
+    ".zip": "압축 파일은 at file unzip 으로 먼저 풉니다.",
+}
+
 CSV_DELIMITERS = (",", ";", "\t", "|")
 
 
@@ -285,7 +301,10 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
             grid = [[parse_value(c) for c in row] for row in grid]
         used_sheet = ""
     else:
-        raise SheetError(f"지원하지 않는 형식입니다: {suffix} (csv, tsv, xlsx)")
+        # 그 형식에서 표를 꺼내는 명령이 따로 있다. 이름만 알려 주면 된다
+        raise SheetError(f"지원하지 않는 형식입니다: {suffix} (csv, tsv, xlsx)"
+                         + (f"\n  {OTHER_READERS[suffix]}" if suffix in OTHER_READERS
+                            else ""))
 
     return table_from_grid(grid, header_row=header_row, source=str(path),
                            sheet_name=used_sheet, label=str(path))
