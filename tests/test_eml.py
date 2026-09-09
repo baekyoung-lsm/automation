@@ -72,6 +72,14 @@ class EmlTest(unittest.TestCase):
         (self.root / "메모.txt").write_text("x", encoding="utf-8")
         self.assertEqual([p.name for p in eml.collect(self.root)], ["가.eml"])
 
+    def test_text_search_reads_mail(self):
+        from attools import text
+
+        body, kind = text.read_words_or_text(self.make())
+        self.assertIn("3월 정산 자료", body)      # 제목도 함께 찾을 수 있어야 한다
+        self.assertIn("정산 내역.csv", body)      # 첨부 이름으로도 찾는다
+        self.assertEqual(kind, "메일 글자")
+
     def test_garbage_still_reads_as_an_empty_mail(self):
         # 메일 라이브러리는 아무 글이나 «머리글 없는 메일» 로 읽는다.
         # 그때도 터지지 않고 빈 값으로 와야 한다
