@@ -49,11 +49,35 @@ def cmd_novel_stats(a) -> int:
 
 
 def cmd_novel_check(a) -> int:
+    # 원고는 화마다 파일로 나눠 두는 일이 많다. 다른 novel 명령은 폴더를
+    # 받는데 여기만 안 받으면 «왜 이것만» 이 된다
+    root = Path(a.file) if a.file != "-" else None
+    if root is not None and root.is_dir():
+        targets = manuscript.collect([root])
+        if not targets:
+            _p(f"텍스트 파일을 찾지 못했습니다: {root}")
+            return 1
+        clean = 0
+        for number, path in enumerate(targets):
+            if number:
+                _p("")
+            _p(f"[{path.name}]")
+            if _check_one(a, manuscript.read_text(path)):
+                clean += 1
+        _p(f"\n파일 {len(targets)}개 중 {len(targets) - clean}개에서 걸렸습니다.")
+        return 0
+
     try:
         text = _read_input(a.file)
     except InputError as e:
         _p(str(e))
         return 1
+    _check_one(a, text)
+    return 0
+
+
+def _check_one(a, text: str) -> bool:
+    """한 편을 훑어 결과를 낸다. 걸린 것이 없으면 True."""
     f = manuscript.inspect(text, top=a.top, long_limit=a.long,
                            run_threshold=a.run)
     empty = True
@@ -80,7 +104,7 @@ def cmd_novel_check(a) -> int:
 
     if empty:
         _p("걸리는 항목이 없습니다.")
-    return 0
+    return empty
 
 
 def cmd_novel_snap(a) -> int:

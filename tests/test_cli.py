@@ -211,13 +211,25 @@ class InputErrorTest(unittest.TestCase):
 
         self.cli = cli
 
-    def test_directory_instead_of_file(self):
+    def test_empty_directory_says_what_it_looked_for(self):
         import tempfile
 
+        # novel check 는 폴더도 받는다. 글이 하나도 없으면 그렇다고 말한다
         root = tempfile.mkdtemp()
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
             code = self.cli.main(["novel", "check", root])
+        self.assertEqual(code, 1)
+        self.assertIn("텍스트 파일을 찾지 못했습니다", out.getvalue())
+
+    def test_directory_instead_of_file(self):
+        import tempfile
+
+        # 파일 하나만 받는 명령은 디렉터리라고 그대로 알린다
+        root = tempfile.mkdtemp()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["dev", "mask", root])
         self.assertEqual(code, 1)
         self.assertIn("디렉터리입니다", out.getvalue())
 

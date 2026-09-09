@@ -1072,6 +1072,9 @@ class SmokeTest(unittest.TestCase):
         원고 = self.path("원고")
         self.assertIn("원고지", self.run_cli("novel", "stats", 원고))
         self.run_cli("novel", "check", self.path("원고", "01화.txt"))
+        # 원고는 화마다 파일로 나눠 둔다 - 폴더째 볼 수 있어야 한다
+        묶음 = self.run_cli("novel", "check", self.path("원고"))
+        self.assertIn("파일", 묶음)
         self.assertIn("장면", self.run_cli("novel", "outline", 원고, "--min", "20"))
         self.assertIn("리안", self.run_cli("novel", "find", "리안", 원고,
                                            "--min", "20"))
