@@ -928,6 +928,24 @@ class SheetAppTest(UiCase):
         self.assertIn("(근무시간)", done["saved"])
         self.assertTrue(Path(done["saved"]).is_file())
 
+    def test_worktime_with_a_wage(self):
+        path = self.csv("근태.csv", "출근,퇴근\n09:00,19:30\n13:00,23:00\n")
+        _, data = self.post("/api/sheet/worktime_preview",
+                            {"path": str(path), "wstart": "출근",
+                             "wend": "퇴근", "whourly": "10000"})
+        self.assertIn("일당", data["headers"])
+        self.assertEqual(data["over_extra"], 7500 + 5000)   # 1.5시간 + 1시간
+        self.assertEqual(data["night_extra"], 5000)         # 22~23시
+        self.assertIn("--hourly", data["command"])
+
+    def test_worktime_bad_wage(self):
+        path = self.csv("근태.csv", "출근,퇴근\n09:00,18:00\n")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/sheet/worktime_preview",
+                      {"path": str(path), "wstart": "출근", "wend": "퇴근",
+                       "whourly": "얼마"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_worktime_needs_columns(self):
         path = self.csv("근태.csv", "출근,퇴근\n09:00,18:00\n")
         with self.assertRaises(urllib.error.HTTPError) as ctx:

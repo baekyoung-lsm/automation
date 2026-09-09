@@ -1012,21 +1012,39 @@ def _worked(payload: dict):
                                      rest=rest)
     except sheet.SheetError as exc:
         raise UiError(str(exc)) from None
-    return table, days, made, (start, end, date, rest)
+
+    hourly, pays = 0, []
+    wage = form.text(payload, "whourly")
+    if wage:
+        from ... import life
+
+        try:
+            hourly = int(life.parse_amount(wage))
+            pays = sheet.day_pay(days, hourly=hourly)
+        except (ValueError, sheet.SheetError) as exc:
+            raise UiError(str(exc)) from None
+        made = sheet.Table(
+            list(made.headers) + ["기본임금", "연장가산", "야간가산", "일당"],
+            [row + [p.base or None, p.over_extra or None, p.night_extra or None,
+                    p.total or None] for row, p in zip(made.rows, pays)],
+            source=made.source, sheet=made.sheet)
+    return table, days, made, (start, end, date, rest, hourly), pays
 
 
 def _worktime_command(payload: dict, picks, out=None) -> str:
-    start, end, date, rest = picks
+    start, end, date, rest, hourly = picks
     args: list = ["sheet", "worktime", *_source_args(payload),
                   "--start", start, "--end", end]
     if date:
         args += ["--date", date]
     if rest is not None:
         args += ["--rest", rest]
+    if hourly:
+        args += ["--hourly", hourly]
     return form.command(*args, *(["-o", out] if out else []))
 
 
-def _worktime_result(days, made) -> dict:
+def _worktime_result(days, made, pays=()) -> dict:
     good = [d for d in days if not d.problem]
     worked = sum(d.worked for d in good)
     return {"headers": made.headers, "rows": _cells(made, PEEK_ROWS),
@@ -1037,26 +1055,29 @@ def _worktime_result(days, made) -> dict:
             "unread": [[str(d.line), d.problem] for d in days
                        if d.problem and d.problem != "빈 칸"][:20],
             "weeks": [[str(monday), f"{minutes / 60:.1f}"]
-                      for monday, minutes in sheet.work_weeks(days)[:20]]}
+                      for monday, minutes in sheet.work_weeks(days)[:20]],
+            "pay": sum(p.total for p in pays),
+            "over_extra": sum(p.over_extra for p in pays),
+            "night_extra": sum(p.night_extra for p in pays)}
 
 
 def worktime_preview(payload: dict) -> dict:
-    _table, days, made, picks = _worked(payload)
-    out = _worktime_result(days, made)
+    _table, days, made, picks, pays = _worked(payload)
+    out = _worktime_result(days, made, pays)
     out["command"] = _worktime_command(payload, picks)
     return out
 
 
 def worktime_save(payload: dict) -> dict:
     """원본은 그대로 두고 옆에 «(근무시간)» 파일을 만든다."""
-    table, days, made, picks = _worked(payload)
+    table, days, made, picks, pays = _worked(payload)
     source = Path(table.source)
     suffix = source.suffix.lower()
     if suffix not in sheet.XLSX_SUFFIXES:
         suffix = ".csv"
     target = files.unique_path(source.with_name(f"{source.stem} (근무시간){suffix}"))
     sheet.save(made, target)
-    out = _worktime_result(days, made)
+    out = _worktime_result(days, made, pays)
     out["saved"] = str(target)
     out["command"] = _worktime_command(payload, picks, target)
     return out
@@ -1766,7 +1787,10 @@ BODY = """
      휴게는 <b>근로기준법 제54조의 최소 시간</b>(4시간 30분, 8시간 1시간)을 뺍니다 -
      회사가 다르면 분을 직접 적으세요. 퇴근이 출근보다 이르면 <b>자정을 넘긴 것</b>으로
      봅니다. 시각을 못 읽은 행은 0 으로 채우지 않고 비워 둡니다.
-     <b>야간·휴일 가산은 셈하지 않습니다.</b></p>
+     시급을 적으면 <b>기본임금·연장가산·야간가산·일당</b> 열까지 붙입니다 -
+     연장은 «하루 8시간 초과» 로만 세고, 야간(22~06)은 실근무를 넘지 않게 자릅니다.
+     <b>휴일근로·주휴수당은 세지 않고, 5인 미만 사업장은 가산 규정이 적용되지
+     않습니다.</b></p>
   <div class="row">
     <div><label for="wstart">출근 열</label><select id="wstart"></select></div>
     <div><label for="wend">퇴근 열</label><select id="wend"></select></div>
@@ -1774,6 +1798,8 @@ BODY = """
       <select id="wdate"></select></div>
     <div style="flex:0 1 8rem"><label for="wrest">휴게(분)</label>
       <input type="text" id="wrest" placeholder="법정" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="whourly">시급 (비우면 시간만)</label>
+      <input type="text" id="whourly" placeholder="10030" spellcheck="false"></div>
   </div>
   <div class="actions">
     <button class="primary" id="btn-worktime">세어 보기</button>
@@ -2483,6 +2509,7 @@ BODY = """
     const b = values();
     b.wstart = $("wstart").value; b.wend = $("wend").value;
     b.wdate = $("wdate").value; b.wrest = $("wrest").value;
+    b.whourly = $("whourly").value;
     return b;
   }
 
@@ -2510,6 +2537,9 @@ BODY = """
       AT.message($("wtmsg"), "일한 날 <b>" + d.days + "일</b> · 실근무 " +
         d.worked + "시간 · 하루 평균 " + d.average + "시간" +
         (d.night ? " · 자정을 넘긴 날 " + d.night + "일" : "") +
+        (d.pay ? " · 임금 합계 <b>" + d.pay.toLocaleString() + "원</b>(연장 " +
+                 d.over_extra.toLocaleString() + " · 야간 " +
+                 d.night_extra.toLocaleString() + ")" : "") +
         (d.saved ? " · 저장했습니다: <b>" + AT.esc(d.saved) + "</b>" : ""),
         "ok");
       $("btn-worktime-save").disabled = !!save;
