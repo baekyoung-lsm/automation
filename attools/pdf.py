@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
@@ -1522,3 +1522,267 @@ def page_stamper(template: str, total: int, *, start: int = 1, skip: int = 0,
         return stamp_stream(text, box, int(turn), where=where, size=size,
                             margin=margin)
     return stamp
+
+
+# ------------------------------------------------------- 쪽에서 글자 꺼내기
+#
+# PDF 는 «글자» 가 아니라 «어느 글꼴의 몇 번 글리프» 를 적어 둔 형식이다.
+# 그 번호가 어떤 글자인지는 글꼴이 ToUnicode 표를 달고 있을 때만 알 수 있다.
+# 표가 없으면 지어내지 않고 그 부분을 빼고, 어느 글꼴이 그랬는지 알려 준다 -
+# 아무 값이나 채우면 «꺼냈는데 글자가 뒤죽박죽» 이 되어 더 나쁘다.
+
+_BF_CHAR = re.compile(rb"beginbfchar(.*?)endbfchar", re.S)
+_BF_RANGE = re.compile(rb"beginbfrange(.*?)endbfrange", re.S)
+_HEX_ITEM = re.compile(rb"<([0-9A-Fa-f\s]*)>")
+_RANGE_ITEM = re.compile(
+    rb"<([0-9A-Fa-f\s]*)>\s*<([0-9A-Fa-f\s]*)>\s*(\[[^\]]*\]|<[0-9A-Fa-f\s]*>)", re.S)
+_RANGE_LIMIT = 65536          # 한 구간이 이보다 넓으면 건너뛴다
+# 글자 사이를 이만큼 벌리면 빈칸으로 본다 (TJ 의 값은 1/1000 em 이고 음수가 벌림)
+_SPACE_GAP = 200.0
+SIMPLE_ENCODINGS = {"WinAnsiEncoding": "cp1252", "MacRomanEncoding": "mac_roman",
+                    "StandardEncoding": "latin-1", "PDFDocEncoding": "latin-1"}
+
+
+def _hex_bytes(raw: bytes) -> bytes:
+    # 16진수 아닌 것은 다 버린다. 구간의 목적지는 «<0041>» 처럼 괄호째 잡힌다
+    body = re.sub(rb"[^0-9A-Fa-f]", b"", raw)
+    if len(body) % 2:
+        body += b"0"
+    try:
+        return bytes.fromhex(body.decode("ascii"))
+    except ValueError:
+        return b""
+
+
+def _utf16_text(raw: bytes) -> str:
+    """ToUnicode 의 목적지 값은 UTF-16BE 다."""
+    body = _hex_bytes(raw)
+    if not body:
+        return ""
+    if len(body) % 2:
+        return body.decode("latin-1", "replace")
+    return body.decode("utf-16-be", "replace")
+
+
+def parse_tounicode(data: bytes) -> tuple[dict[int, str], int]:
+    """ToUnicode CMap 을 (코드 -> 글자, 코드 바이트 수)로 읽는다."""
+    table: dict[int, str] = {}
+    width = 1
+    for block in _BF_CHAR.findall(data):
+        items = _HEX_ITEM.findall(block)
+        for i in range(0, len(items) - 1, 2):
+            source = _hex_bytes(items[i])
+            if not source:
+                continue
+            width = max(width, len(source))
+            table[int.from_bytes(source, "big")] = _utf16_text(items[i + 1])
+    for block in _BF_RANGE.findall(data):
+        for low, high, target in _RANGE_ITEM.findall(block):
+            start, stop = _hex_bytes(low), _hex_bytes(high)
+            if not start or not stop:
+                continue
+            width = max(width, len(start))
+            first, last = int.from_bytes(start, "big"), int.from_bytes(stop, "big")
+            if last < first or last - first > _RANGE_LIMIT:
+                continue
+            if target.startswith(b"["):
+                for step, item in enumerate(_HEX_ITEM.findall(target)):
+                    if first + step <= last:
+                        table[first + step] = _utf16_text(item)
+                continue
+            base = _utf16_text(target)
+            if not base:
+                continue
+            for code in range(first, last + 1):
+                # 마지막 코드 단위만 늘린다 (CMap 규칙)
+                table[code] = base[:-1] + chr(ord(base[-1]) + code - first)
+    return table, min(width, 2)
+
+
+@dataclass
+class PdfFont:
+    name: str                       # /F1 같은 자원 이름
+    base: str = ""                  # 글꼴 이름 (BaseFont)
+    table: dict = field(default_factory=dict)
+    width: int = 1                  # 코드 한 개가 몇 바이트인가
+    encoding: str = ""              # ToUnicode 가 없을 때 쓸 인코딩
+
+    @property
+    def readable(self) -> bool:
+        return bool(self.table or self.encoding)
+
+    def decode(self, raw: bytes) -> str:
+        if self.table:
+            out = []
+            step = self.width
+            for i in range(0, len(raw) - step + 1, step):
+                code = int.from_bytes(raw[i:i + step], "big")
+                out.append(self.table.get(code, ""))
+            return "".join(out)
+        if self.encoding:
+            return raw.decode(self.encoding, "replace")
+        return ""
+
+
+def page_fonts(doc: "Document", page: PdfPage) -> dict[str, PdfFont]:
+    """쪽이 쓰는 글꼴마다 코드 -> 글자 표를 만든다."""
+    resources = doc.get(page.data.get("Resources"))
+    fonts = doc.get(resources.get("Font")) if isinstance(resources, dict) else None
+    out: dict[str, PdfFont] = {}
+    if not isinstance(fonts, dict):
+        return out
+
+    for key, value in fonts.items():
+        entry = doc.get(value)
+        if not isinstance(entry, dict):
+            continue
+        font = PdfFont(str(key), str(doc.get(entry.get("BaseFont")) or ""))
+        stream = doc.get(entry.get("ToUnicode"))
+        if isinstance(stream, Stream):
+            try:
+                font.table, font.width = parse_tounicode(stream_data(stream, doc))
+            except (PdfError, ValueError):
+                font.table = {}
+        if not font.table:
+            # 표가 없으면 라틴 글꼴일 때만 바이트를 그대로 글자로 본다.
+            # 한글은 이 길로 오면 통째로 깨지므로 못 읽은 것으로 둔다.
+            kind = str(doc.get(entry.get("Subtype")) or "")
+            code = doc.get(entry.get("Encoding"))
+            name = str(code) if isinstance(code, Name) else ""
+            if kind != "Type0":
+                font.encoding = SIMPLE_ENCODINGS.get(name, "cp1252")
+        elif str(doc.get(entry.get("Subtype")) or "") == "Type0":
+            font.width = max(font.width, 2)
+        out[str(key)] = font
+    return out
+
+
+def _content_ops(data: bytes):
+    """내용 스트림을 (피연산자들, 연산자)로 하나씩 넘긴다."""
+    reader = _Reader(data)
+    operands: list = []
+    end = len(data)
+    while True:
+        reader.skip()
+        if reader.pos >= end:
+            return
+        ch = data[reader.pos]
+        if ch in b"/([<" or ch in b"+-." or 0x30 <= ch <= 0x39:
+            save = reader.pos
+            try:
+                operands.append(reader.value())
+                continue
+            except (PdfError, ValueError, IndexError):
+                reader.pos = save + 1
+                continue
+        word = reader.word()
+        if word in (b"]", b">>", b"}", b"{"):
+            continue
+        if word == b"BI":
+            # 그림이 스트림 한가운데 박힌 자리. 이진 자료를 값으로 읽으면
+            # 그다음이 통째로 어긋나므로 EI 까지 건너뛴다
+            stop = data.find(b"EI", reader.pos)
+            reader.pos = end if stop < 0 else stop + 2
+            operands = []
+            continue
+        yield operands, word
+        operands = []
+
+
+def page_text(doc: "Document", page: PdfPage) -> tuple[str, list[str]]:
+    """쪽의 글자와, 글자 정보가 없어 못 읽은 글꼴 이름들. (글, 못 읽은 글꼴)"""
+    try:
+        fonts = page_fonts(doc, page)
+    except (PdfError, ValueError):
+        fonts = {}
+
+    chunks: list[bytes] = []
+    for ref in _content_streams(doc, page):
+        try:
+            chunks.append(stream_data(ref, doc))
+        except (PdfError, ValueError):
+            continue
+    if not chunks:
+        return "", []
+
+    lines: list[str] = []
+    line: list[str] = []
+    missing: list[str] = []
+    font: PdfFont | None = None
+
+    def show(raw) -> None:
+        if isinstance(raw, bytes) and font is not None:
+            piece = font.decode(raw)
+            if piece:
+                line.append(piece)
+            elif not font.readable and font.base not in missing:
+                missing.append(font.base or font.name)
+
+    def newline() -> None:
+        text = "".join(line).strip()
+        line.clear()
+        if text:
+            lines.append(text)
+
+    for operands, op in _content_ops(b"\n".join(chunks)):
+        if op == b"Tf" and len(operands) >= 2:
+            font = fonts.get(str(operands[-2]))
+        elif op == b"Tj" and operands:
+            show(operands[-1])
+        elif op == b"'" and operands:
+            newline()
+            show(operands[-1])
+        elif op == b'"' and operands:
+            newline()
+            show(operands[-1])
+        elif op == b"TJ" and operands and isinstance(operands[-1], list):
+            for item in operands[-1]:
+                if isinstance(item, bytes):
+                    show(item)
+                elif isinstance(item, (int, float)) and -item >= _SPACE_GAP:
+                    line.append(" ")
+        elif op in (b"Td", b"TD", b"T*", b"Tm", b"BT", b"ET"):
+            newline()
+    newline()
+    return "\n".join(lines), missing
+
+
+def _content_streams(doc: "Document", page: PdfPage) -> list[Stream]:
+    """쪽의 내용 스트림들. 여러 개로 쪼개 둔 파일이 흔하다."""
+    body = doc.get(page.data.get("Contents"))
+    found = []
+    for item in (body if isinstance(body, list) else [body]):
+        value = doc.get(item)
+        if isinstance(value, Stream):
+            found.append(value)
+    return found
+
+
+@dataclass
+class TextResult:
+    pages: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)   # 못 읽은 글꼴 이름
+
+    @property
+    def text(self) -> str:
+        return "\n\n".join(self.pages)
+
+    @property
+    def empty_pages(self) -> list[int]:
+        return [i + 1 for i, body in enumerate(self.pages) if not body.strip()]
+
+
+def read_text(doc: "Document", *, pages: list[int] | None = None) -> TextResult:
+    """PDF 에서 글자를 꺼낸다. pages 는 1부터 센 쪽 번호."""
+    result = TextResult()
+    all_pages = doc.pages()
+    picked = pages or list(range(1, len(all_pages) + 1))
+    for number in picked:
+        if not 1 <= number <= len(all_pages):
+            continue
+        body, missing = page_text(doc, all_pages[number - 1])
+        result.pages.append(body)
+        for name in missing:
+            if name not in result.missing:
+                result.missing.append(name)
+    return result

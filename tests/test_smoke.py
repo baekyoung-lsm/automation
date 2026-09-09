@@ -219,6 +219,12 @@ class SmokeTest(unittest.TestCase):
         찍음 = self.run_cli("file", "pdfnum", 합본, "--skip", "1", "-o", 번호)
         self.assertIn("아래 가운데", 찍음)
         self.assertIn("3쪽", self.run_cli("file", "pdfcut", 번호))
+        # 쪽 번호는 글자로 찍혔으므로 다시 꺼내 읽을 수 있어야 한다
+        꺼냄 = self.run_cli("file", "pdftext", 번호)
+        self.assertIn("1 / 2", 꺼냄)
+        # 그림만 든 쪽은 «글자가 없는 쪽» 으로 알린다 (스캔본 안내)
+        그림만 = self.run_cli("file", "pdftext", 묶음, expect=1)
+        self.assertIn("글자가 없는 쪽", 그림만)
 
         pdf폴더 = Path(self.path("피디에프"))
         pdf폴더.mkdir(exist_ok=True)

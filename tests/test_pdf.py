@@ -479,6 +479,101 @@ class PdfPagesTest(unittest.TestCase):
             pdf.open_pdf(path)
 
 
+def text_pdf(path: Path, objects: dict) -> Path:
+    """객체 사전을 그대로 담은 작은 PDF. 글자 꺼내기 시험용이다."""
+    out = bytearray(b"%PDF-1.4\n")
+    places = {}
+    for number in sorted(objects):
+        places[number] = len(out)
+        out += b"%d 0 obj\n" % number + objects[number] + b"\nendobj\n"
+    start = len(out)
+    top = max(objects) + 1
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % top
+    for number in range(1, top):
+        out += (b"%010d 00000 n \n" % places[number]) if number in places \
+            else b"0000000000 65535 f \n"
+    out += (b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
+            % (top, start))
+    path.write_bytes(bytes(out))
+    return path
+
+
+def _stream_obj(body: bytes) -> bytes:
+    return b"<< /Length %d >>\nstream\n%s\nendstream" % (len(body), body)
+
+
+class TextExtractTest(unittest.TestCase):
+    """PDF 는 «글자» 가 아니라 «글꼴의 몇 번 글리프» 를 적어 둔 형식이다."""
+
+    CMAP = (b"/CIDInit /ProcSet findresource begin begincmap\n"
+            b"2 beginbfchar\n<0003> <D55C>\n<0004> <AE00>\nendbfchar\n"
+            b"1 beginbfrange\n<0010> <0012> <0041>\nendbfrange\nendcmap end")
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, content: bytes, font: bytes, *, cmap: bytes = b"") -> Path:
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                b"/Resources << /Font << /F1 6 0 R >> >> /Contents 4 0 R >>"),
+            4: _stream_obj(content),
+            6: font,
+        }
+        if cmap:
+            objects[5] = _stream_obj(cmap)
+        return text_pdf(self.root / "글.pdf", objects)
+
+    def test_tounicode_maps_codes_to_hangul(self):
+        path = self.make(b"BT /F1 12 Tf 72 720 Td <00030004> Tj ET",
+                         b"<< /Type /Font /Subtype /Type0 /BaseFont /Nanum "
+                         b"/ToUnicode 5 0 R >>", cmap=self.CMAP)
+        found = pdf.read_text(pdf.open_pdf(path))
+        self.assertEqual(found.text, "한글")
+        self.assertEqual(found.missing, [])
+
+    def test_ranges_and_wide_gaps(self):
+        # bfrange 로 이어진 코드와, TJ 의 큰 벌림은 빈칸으로 본다
+        path = self.make(b"BT /F1 12 Tf [<0010> -300 <0011 0012>] TJ ET",
+                         b"<< /Type /Font /Subtype /Type0 /BaseFont /Nanum "
+                         b"/ToUnicode 5 0 R >>", cmap=self.CMAP)
+        self.assertEqual(pdf.read_text(pdf.open_pdf(path)).text, "A BC")
+
+    def test_simple_font_without_tounicode_uses_its_encoding(self):
+        path = self.make(b"BT /F1 12 Tf 72 720 Td (Hello) Tj "
+                         b"0 -20 Td (world) Tj ET",
+                         b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv "
+                         b"/Encoding /WinAnsiEncoding >>")
+        self.assertEqual(pdf.read_text(pdf.open_pdf(path)).text, "Hello\nworld")
+
+    def test_composite_font_without_tounicode_is_reported(self):
+        # 글리프 번호를 글자로 지어내면 뒤죽박죽이 된다 - 빼고 알린다
+        path = self.make(b"BT /F1 12 Tf 72 720 Td <00030004> Tj ET",
+                         b"<< /Type /Font /Subtype /Type0 /BaseFont /NanumGothic "
+                         b"/Encoding /Identity-H >>")
+        found = pdf.read_text(pdf.open_pdf(path))
+        self.assertEqual(found.text, "")
+        self.assertEqual(found.missing, ["NanumGothic"])
+        self.assertEqual(found.empty_pages, [1])
+
+    def test_inline_image_does_not_derail_the_reader(self):
+        path = self.make(b"BT /F1 12 Tf (A) Tj ET\n"
+                         b"BI /W 2 /H 2 ID \x00\xff(Tj EI\n"
+                         b"BT /F1 12 Tf (B) Tj ET",
+                         b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv "
+                         b"/Encoding /WinAnsiEncoding >>")
+        self.assertEqual(pdf.read_text(pdf.open_pdf(path)).text, "A\nB")
+
+    def test_page_pick(self):
+        path = self.make(b"BT /F1 12 Tf (A) Tj ET",
+                         b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv >>")
+        self.assertEqual(pdf.read_text(pdf.open_pdf(path), pages=[9]).pages, [])
+
+
 class PageNumbersTest(unittest.TestCase):
     def test_ranges(self):
         self.assertEqual(pdf.page_numbers("1-3,7", 10), [1, 2, 3, 7])

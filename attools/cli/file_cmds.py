@@ -7,7 +7,7 @@ from pathlib import Path
 from .. import files
 from ..code import devkit
 from ..hangul import is_decomposed
-from .common import _pad, _p, _confirm, _grid, _cut, _may_write
+from .common import _pad, _p, _confirm, _dump, _grid, _cut, _may_write
 
 
 DRY = "[미리보기]"
@@ -215,6 +215,56 @@ def pdf_where() -> dict:
     from .. import pdf
 
     return pdf.STAMP_WHERE
+
+
+def cmd_file_pdftext(a) -> int:
+    """PDF 에서 글자를 꺼낸다. 찾기·붙여넣기용이다."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        wanted = pdf.page_numbers(a.pages, total) if a.pages else None
+        found = pdf.read_text(doc, pages=wanted)
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    body = found.text.strip()
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(body + "\n" if body else "", encoding="utf-8")
+        _p(f"{path.name}  {len(found.pages)}쪽  ->  {out}")
+    else:
+        _p(f"{path.name}  {len(found.pages)}쪽")
+        if body:
+            _dump(body, hint="-o 로 파일에 저장하세요")
+
+    # 못 꺼낸 자리를 조용히 넘기지 않는다. 빈 쪽을 그냥 두면 «이 PDF 에는
+    # 글이 없구나» 로 잘못 읽게 된다
+    if found.missing:
+        _p(f"\n글자 정보(ToUnicode)가 없는 글꼴 {len(found.missing)}개: "
+           f"{', '.join(found.missing[:5])}")
+        _p("  그 글꼴로 찍힌 부분은 빼고 꺼냈습니다. 번호를 글자로 지어내면 "
+           "뒤죽박죽이 되어서입니다.")
+    empty = found.empty_pages
+    if empty:
+        _p(f"\n글자가 없는 쪽 {len(empty)}개: "
+           f"{', '.join(str(n) for n in empty[:10])}"
+           + (" ..." if len(empty) > 10 else ""))
+        if not found.missing:
+            _p("  스캔한 그림만 든 쪽일 수 있습니다. 그림 속 글자는 읽지 "
+               "못합니다.")
+    if not body:
+        return 1
+    return 0
 
 
 def cmd_file_pdfcut(a) -> int:
@@ -1575,6 +1625,18 @@ def add_commands(sub) -> None:
                   "    at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf\n"
                   "    at file pdfcut 모음.pdf --each --apply")
     cut.set_defaults(func=cmd_file_pdfcut)
+
+    txt = fp.add_parser("pdftext", help="PDF 에서 글자 꺼내기 (찾기·붙여넣기)")
+    txt.add_argument("file", metavar="파일.pdf")
+    txt.add_argument("--pages", metavar="쪽", help="예: 1-3,7 또는 5- 또는 -3")
+    txt.add_argument("-o", "--out", metavar="파일.txt")
+    txt.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    txt.epilog = ("예: at file pdftext 계약서.pdf\n"
+                  "    at file pdftext 공문.pdf --pages 1-2 -o 공문.txt\n"
+                  "글꼴에 글자 정보(ToUnicode)가 없으면 그 부분은 빼고 꺼냅니다. "
+                  "스캔한 그림 속 글자는 읽지 못합니다.")
+    txt.set_defaults(func=cmd_file_pdftext)
 
     num = fp.add_parser("pdfnum", help="PDF 에 쪽 번호 찍기 (합본 계약서·제출본)")
     num.add_argument("file", metavar="파일.pdf")

@@ -172,7 +172,14 @@ class _Parser(argparse.ArgumentParser):
 
     명령이 이백 개가 넘어서 «invalid choice» 한 줄에 이름 쉰 개가 딸려 나온다.
     사람이 읽을 수 있는 것은 «혹시 이것인가요» 쪽이다.
+
+    예시(epilog)는 줄을 그대로 둔다. argparse 기본값은 한 문단으로 이어 붙여
+    서, 명령 예 서너 줄이 한 덩어리가 되어 어디까지가 한 줄인지 알 수 없다.
     """
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
+        super().__init__(*args, **kwargs)
 
     def error(self, message: str):
         import difflib
