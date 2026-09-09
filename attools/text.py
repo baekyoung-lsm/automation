@@ -363,8 +363,19 @@ def undo(journal: Path) -> tuple[int, list[str]]:
         if not backup.is_file():
             errors.append(f"백업 없음: {backup}")
             continue
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(backup, path)
+        if path.is_dir():
+            # copy2 는 폴더를 주면 그 안에 넣는다 - 되돌린 척하고 엉뚱한
+            # 자리에 파일이 하나 생긴다
+            errors.append(f"되돌리지 못함: {path} (같은 이름의 폴더가 있습니다)")
+            continue
+        # 한 파일에서 터져도 나머지는 되돌린다. 통째로 멎으면 반만 돌아간
+        # 상태로 남는데, 무엇이 돌아갔는지도 알 수 없다
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(backup, path)
+        except OSError as exc:
+            errors.append(f"되돌리지 못함: {path} ({exc})")
+            continue
         restored += 1
     return restored, errors
 

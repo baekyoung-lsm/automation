@@ -116,6 +116,24 @@ class TextTest(unittest.TestCase):
         self.assertEqual((restored, errors), (1, []))
         self.assertEqual(target.read_text(encoding="utf-8"), "before")
 
+    def test_one_bad_file_does_not_stop_the_undo(self):
+        # 통째로 멎으면 반만 돌아간 채로 남는데, 무엇이 돌아갔는지도 모른다
+        first = self.make("a.txt", "before")
+        second = self.make("b.txt", "before")
+        journal = self.root / "j" / "journal.jsonl"
+        pattern = text.build_pattern("before", regex=False, ignore_case=False,
+                                     whole_word=False)
+        changes = text.plan_replace(self.files(glob=["a.txt", "b.txt"]),
+                                    pattern, "after")
+        text.apply_changes(changes, journal=journal)
+
+        second.unlink()
+        second.mkdir()          # 파일 자리에 폴더가 있으면 되돌릴 수 없다
+        restored, errors = text.undo(journal)
+        self.assertEqual(restored, 1)
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(first.read_text(encoding="utf-8"), "before")
+
     def test_apply_recodes_to_utf8(self):
         target = self.make("a.txt", "한글", encoding="cp949")
         changes = text.plan_encoding(self.files())
