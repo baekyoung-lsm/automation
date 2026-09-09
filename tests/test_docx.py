@@ -285,6 +285,30 @@ class ControlCharTest(unittest.TestCase):
         self.assertEqual(parts[1], ("표", [["머리글", "값"]]))
 
 
+class WrongFormatTest(unittest.TestCase):
+    """같은 zip 이라도 알맹이를 보면 무엇인지 알 수 있다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, inner: str) -> Path:
+        path = self.root / "받은문서.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr(inner, "<x/>")
+        return path
+
+    def test_slides_and_sheets_are_named(self):
+        for inner, hint in (("ppt/slides/slide1.xml", "from-pptx"),
+                            ("xl/workbook.xml", "at sheet peek"),
+                            ("Contents/section0.xml", "from-hwpx")):
+            with self.assertRaises(docx.DocxError) as caught:
+                docx.read_document(self.make(inner))
+            self.assertIn(hint, str(caught.exception), inner)
+
+
 class LockedDocxTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

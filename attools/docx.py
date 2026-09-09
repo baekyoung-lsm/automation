@@ -192,6 +192,17 @@ def read_document(path: Path) -> list[tuple[str, object]]:
                 if any(n.startswith("EncryptedPackage") for n in names):
                     raise DocxError("암호가 걸린 워드 문서입니다. 워드에서 암호를 "
                                     "풀고 저장한 뒤에 다시 해 보세요.")
+                # 같은 zip 이라도 알맹이를 보면 무엇인지 알 수 있다. 이름을
+                # 알려 주는 편이 «워드가 아니다» 보다 쓸모 있다
+                for mark, tell in (
+                        ("ppt/", "슬라이드(pptx)입니다. 글은 at doc from-pptx, "
+                                 "표는 at sheet from-pptx 로 여세요."),
+                        ("xl/", "엑셀 파일입니다. at sheet peek 로 여세요."),
+                        ("Contents/section", "한글 문서(hwpx)입니다. 글은 "
+                                             "at doc from-hwpx, 표는 "
+                                             "at sheet from-hwpx 로 여세요.")):
+                    if any(n.startswith(mark) for n in names):
+                        raise DocxError(tell)
                 raise DocxError("워드 문서가 아닙니다 (word/document.xml 이 없습니다). "
                                 "구버전 .doc 은 읽지 못합니다.")
             with z.open("word/document.xml") as stream:

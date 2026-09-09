@@ -10,6 +10,19 @@ from ..docs import fromhtml, mdkit
 from .common import _cut, _p, _grid, MD_SUFFIXES, _may_write
 
 
+# 마크다운 자리에 문서 파일을 주는 일이 흔하다. 그대로 읽으면 zip 을 글자로
+# 읽어 «문제 없습니다» 가 나온다 - 무엇으로 옮겨야 하는지 알려 준다.
+DOC_HINTS = {
+    ".docx": "워드 문서입니다. at doc from-docx 로 마크다운으로 옮긴 뒤 보세요.",
+    ".hwpx": "한글 문서입니다. at doc from-hwpx 로 옮긴 뒤 보세요.",
+    ".pptx": "슬라이드입니다. at doc from-pptx 로 옮긴 뒤 보세요.",
+    ".pdf": "PDF 입니다. at file pdftext 로 글자를 꺼낸 뒤 보세요.",
+    ".xlsx": "엑셀 파일입니다. at sheet peek 로 봅니다.",
+    ".csv": "표 파일입니다. at sheet peek 로 봅니다.",
+    ".eml": "메일입니다. at file eml 로 봅니다.",
+}
+
+
 def _md_files(paths, *, extra: tuple[str, ...] = ()) -> list[Path]:
     kinds = set(MD_SUFFIXES) | set(extra)
     out: list[Path] = []
@@ -20,6 +33,10 @@ def _md_files(paths, *, extra: tuple[str, ...] = ()) -> list[Path]:
                     if q.suffix.lower() in kinds
                     and not any(d in q.parts for d in files.IGNORE_DIRS)]
         elif p.is_file():
+            hint = DOC_HINTS.get(p.suffix.lower())
+            if hint and p.suffix.lower() not in kinds:
+                _p(f"{p.name}: {hint}")
+                continue
             out.append(p)
     return out
 
