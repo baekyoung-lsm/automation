@@ -1209,6 +1209,33 @@ def placeholders(template: str) -> list[str]:
     return out
 
 
+def plain_number_fields(template: str, table: Table, *, floor: int = 1000) -> list[str]:
+    """서식 없이 쓴 큰 숫자 열. 돈이 «1250000» 으로 나가는 자리를 찾는다.
+
+    사람이 «1,250,000» 으로 적어 둔 칸도 표에서는 숫자로 읽힌다. 그대로 넣으면
+    자릿점 없이 나가는데, 안내문이 나간 뒤에야 알게 된다.
+    """
+    bare = set()
+    for m in PLACEHOLDER.finditer(template):
+        key = m.group(1)
+        if not key:
+            continue
+        name, _sep, spec = key.partition(":")
+        if spec.strip():
+            continue
+        bare.add(name.strip())
+
+    out = []
+    for name in table.headers:
+        if name not in bare:
+            continue
+        numbers = [v for v in table.column(name)
+                   if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        if numbers and max(numbers) >= floor:
+            out.append(name)
+    return out
+
+
 def render(template: str, values: dict[str, object], *,
            missing: set[str] | None = None) -> str:
     """{열이름} 자리를 값으로 바꾼다. {{ 와 }} 는 중괄호 자체를 뜻한다."""

@@ -488,6 +488,16 @@ class SheetTest(unittest.TestCase):
         self.assertEqual(out, "홍길동 님 영업 007 {그대로} ")
         self.assertEqual(missing, {"없는열"})
 
+    def test_plain_number_fields_are_pointed_out(self):
+        # «1,250,000» 으로 적은 칸도 표에서는 숫자다. 그대로 넣으면 자릿점 없이
+        # 나가는데, 안내문이 나간 뒤에야 알게 된다
+        table = sheet.Table(["이름", "금액", "층"],
+                            [["홍길동", 1250000, 3], ["김철수", 980000, 5]])
+        found = sheet.plain_number_fields("{이름} 님 {금액}원 {층}층", table)
+        self.assertEqual(found, ["금액"])
+        # 서식을 이미 준 자리는 알리지 않는다
+        self.assertEqual(sheet.plain_number_fields("{금액:,}원", table), [])
+
     def test_render_falls_back_on_bad_format_spec(self):
         self.assertEqual(sheet.render("{이름:03d}", {"이름": "홍길동"}), "홍길동")
 

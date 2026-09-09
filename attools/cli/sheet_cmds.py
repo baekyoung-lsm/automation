@@ -1923,6 +1923,13 @@ def cmd_sheet_fill(a) -> int:
             return 1
         _p("")
 
+    # 돈이 «1250000» 으로 나가는 자리를 미리 알려 준다 (표준 출력으로 낼
+    # 때는 글 자체를 파이프로 넘기는 자리라 알림을 섞지 않는다)
+    plain = sheet.plain_number_fields(template, t)
+    if plain and not a.stdout:
+        _p(f"숫자로 읽힌 열을 그대로 넣었습니다: {', '.join(plain)}"
+           f"  ->  {{{plain[0]}:,}} 로 쓰면 1,250,000 처럼 자릿점이 들어갑니다.")
+
     if a.single or a.stdout:
         joined = ("\n" + a.separator + "\n").join(r.text for r in results)
         if a.stdout:
@@ -1987,6 +1994,13 @@ def cmd_sheet_mail(a) -> int:
             _p("  그래도 진행하려면 --force 를 붙이세요. 빈칸으로 채웁니다.")
             return 1
         _p("")
+
+    # 돈이 «1250000» 으로 나가는 자리를 미리 알려 준다. 안내문이 나간 뒤에
+    # 알면 늦다
+    plain = sheet.plain_number_fields(template, t)
+    if plain:
+        _p(f"숫자로 읽힌 열을 그대로 넣었습니다: {', '.join(plain)}"
+           f"  ->  {{{plain[0]}:,}} 로 쓰면 1,250,000 처럼 자릿점이 들어갑니다.")
 
     good = [d for d in drafts if d.ok]
     bad = [d for d in drafts if not d.ok]
