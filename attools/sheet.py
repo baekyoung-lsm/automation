@@ -199,6 +199,11 @@ def sniff_delimiter(text: str, *, suffix: str = "") -> str:
                                                  delimiter=mark)]
         if not counts or max(counts) < 2:
             continue
+        # 머리글 줄이 안 나뉘면 구분자가 아니라 값 안에 든 글자다. 한 열짜리
+        # 파일의 «가;나;다» 를 세 칸으로 쪼개고 머리글 너비에 맞춰 잘라내면
+        # 뒤가 통째로 사라지는데, 표는 열리므로 틀린 줄도 모른다
+        if counts[0] < 2:
+            continue
         # 줄마다 칸 수가 같아야 진짜 구분자다. 같은 점수면 앞의 것(쉼표)을 둔다
         score = max(counts) if len(set(counts)) == 1 else 1
         if score > best_score:

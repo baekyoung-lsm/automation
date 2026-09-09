@@ -136,6 +136,19 @@ class XlsxTest(unittest.TestCase):
         path.write_text("이름\n홍길동\n김철수\n", encoding="utf-8")
         self.assertEqual(sheet.load(path).headers, ["이름"])
 
+    def test_semicolon_inside_values_is_not_a_delimiter(self):
+        # 한 열짜리 메모 파일. 값 안의 «;» 를 구분자로 보면 세 칸으로 쪼갠 뒤
+        # 머리글 너비에 맞춰 잘라, 뒤의 «나;다» 가 조용히 사라진다
+        path = self.root / "메모.csv"
+        path.write_text("메모\n가;나;다\n라;마;바\n", encoding="utf-8")
+        table = sheet.load(path)
+        self.assertEqual(table.headers, ["메모"])
+        self.assertEqual(table.rows, [["가;나;다"], ["라;마;바"]])
+
+    def test_delimiter_must_split_the_header_row(self):
+        text = "이름,메모\n홍길동,가;나;다\n김철수,라;마;바\n"
+        self.assertEqual(sheet.sniff_delimiter(text), ",")
+
     def test_mac_1904_workbook_dates(self):
         """옛 맥 엑셀 파일. 기준일을 모르면 모든 날짜가 4년 앞당겨진다."""
         import zipfile
