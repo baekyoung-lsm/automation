@@ -3615,6 +3615,77 @@ def work_days(table: Table, *, start: str, end: str, date: str | None = None,
     return days, Table(headers, rows, source=table.source, sheet=table.sheet)
 
 
+# 야간근로(근로기준법 제56조 제3항)는 22시부터 다음 날 06시까지다.
+NIGHT_FROM = 22 * 60
+NIGHT_TO = 6 * 60
+DAY_LIMIT_HOURS = 8.0        # 하루 이 시간을 넘으면 연장근로
+OVER_EXTRA = 0.5             # 연장 가산분 (통상임금의 50%)
+NIGHT_EXTRA_RATE = 0.5       # 야간 가산분
+
+
+@dataclass
+class DayPay:
+    line: int
+    worked: float = 0.0      # 실근무 시간
+    overtime: float = 0.0    # 하루 8시간을 넘긴 시간
+    night: float = 0.0       # 22~06 사이에 있던 시간
+    base: int = 0            # 실근무 x 시급
+    over_extra: int = 0      # 연장 가산분
+    night_extra: int = 0     # 야간 가산분
+
+    @property
+    def total(self) -> int:
+        return self.base + self.over_extra + self.night_extra
+
+
+def night_minutes(start_min: int, end_min: int) -> int:
+    """자정부터 잰 분 구간이 밤(22~06)과 겹치는 시간.
+
+    end_min 은 자정을 넘겼으면 1440 보다 클 수 있다.
+    """
+    # 서로 겹치지 않는 밤 구간: 첫날 00~06, 그다음부터 22~다음 날 06
+    windows = [(0, NIGHT_TO)]
+    for offset in (0, 1440, 2880):
+        windows.append((offset + NIGHT_FROM, offset + 1440 + NIGHT_TO))
+    return sum(max(0, min(end_min, finish) - max(start_min, begin))
+               for begin, finish in windows)
+
+
+def day_pay(days: list, *, hourly: int, limit: float = DAY_LIMIT_HOURS) -> list:
+    """하루치 근무에서 임금과 가산분을 센다.
+
+    연장은 «하루 8시간 초과» 로만 센다. 주 40시간을 넘긴 시간도 연장이지만,
+    표만 봐서는 소정근로시간을 알 수 없어 여기서는 세지 않는다.
+    야간은 22~06 사이에 자리에 있던 시간이다. 언제 쉬었는지는 표에 없으므로
+    실근무 시간을 넘지 않게만 자른다 - 그래도 어림값이다.
+    """
+    from datetime import datetime as _dt
+
+    if hourly <= 0:
+        raise SheetError("시급은 0보다 커야 합니다.")
+
+    out: list[DayPay] = []
+    for day in days:
+        pay = DayPay(line=day.line)
+        if day.problem or day.start is None or day.end is None:
+            out.append(pay)
+            continue
+        begin = day.start.hour * 60 + day.start.minute
+        finish = day.end.hour * 60 + day.end.minute
+        if finish <= begin:
+            finish += 1440
+        pay.worked = round(day.worked / 60, 2)
+        pay.overtime = round(max(0.0, pay.worked - limit), 2)
+        # 휴게가 밤에 걸치면 «야간 시간 > 실근무» 라는 이상한 값이 나온다.
+        # 언제 쉬었는지는 모르니 실근무를 넘지 않게 잘라서 센다.
+        pay.night = round(min(night_minutes(begin, finish) / 60, pay.worked), 2)
+        pay.base = int(pay.worked * hourly)
+        pay.over_extra = int(pay.overtime * hourly * OVER_EXTRA)
+        pay.night_extra = int(pay.night * hourly * NIGHT_EXTRA_RATE)
+        out.append(pay)
+    return out
+
+
 def work_weeks(days: list) -> list:
     """주(월요일 시작)별 실근무 시간 합계. 날짜를 읽은 날만 센다."""
     from datetime import date as _date

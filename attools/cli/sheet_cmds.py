@@ -6,7 +6,7 @@ import re
 import sys
 from pathlib import Path
 
-from .. import files, hangul, sheet, text
+from .. import files, hangul, life, sheet, text
 from ..code import devkit, jsonkit
 from ..docs import mdkit, report
 from ..write import names
@@ -816,6 +816,21 @@ def cmd_sheet_worktime(a) -> int:
     unread = [d for d in days if d.problem and d.problem != "빈 칸"]
     blank = [d for d in days if d.problem == "빈 칸"]
 
+    pays: list = []
+    if a.hourly:
+        try:
+            hourly = int(life.parse_amount(a.hourly))
+            pays = sheet.day_pay(days, hourly=hourly, limit=a.daily)
+        except (ValueError, sheet.SheetError) as e:
+            _p(str(e))
+            return 1
+        table = sheet.Table(
+            list(table.headers) + ["기본임금", "연장가산", "야간가산", "일당"],
+            [row + [p.base or None, p.over_extra or None, p.night_extra or None,
+                    p.total or None]
+             for row, p in zip(table.rows, pays)],
+            source=table.source, sheet=table.sheet)
+
     code = _sheet_result(a, table, f"{a.start} · {a.end} -> 근무 시간")
 
     if good:
@@ -853,7 +868,21 @@ def cmd_sheet_worktime(a) -> int:
            "뺀 것입니다. 실제로 쉰 시간이 다르면 --rest 로 분을 주세요.")
     else:
         _p(f"휴게를 하루 {a.rest}분으로 놓고 뺐습니다.")
-    _p("야간·휴일 가산은 셈하지 않습니다. 시간만 셉니다.")
+    if pays:
+        total = sum(p.total for p in pays)
+        over = sum(p.over_extra for p in pays)
+        night = sum(p.night_extra for p in pays)
+        _p(f"\n시급 {hourly:,}원  ·  임금 합계 {total:,}원 "
+           f"(연장 가산 {over:,}원, 야간 가산 {night:,}원)")
+        _p(f"연장은 «하루 {a.daily:g}시간 초과» 로만 셌습니다. 주 40시간을 넘긴 "
+           "시간도 연장이지만 표만 봐서는 소정근로시간을 알 수 없습니다.")
+        _p("야간은 22~06 사이에 자리에 있던 시간입니다. 언제 쉬었는지는 표에 "
+           "없어서 실근무를 넘지 않게만 잘랐습니다 - 어림값입니다.")
+        _p("휴일근로와 주휴수당은 세지 않았습니다(at life weekly). "
+           "5인 미만 사업장은 연장·야간 가산 규정이 적용되지 않습니다.")
+    else:
+        _p("야간·휴일 가산은 셈하지 않습니다. 시간만 셉니다. "
+           "(--hourly 시급 을 주면 임금도 셉니다)")
     return code
 
 
@@ -2974,6 +3003,8 @@ def add_commands(sub) -> None:
     wt = sheet_out(common(sh.add_parser(
         "worktime", help="출근·퇴근 열에서 근무 시간 세기 (근태 취합)")))
     wt.add_argument("file")
+    wt.add_argument("--hourly", metavar="시급",
+                    help="주면 기본임금·연장가산·야간가산·일당 열을 붙인다")
     wt.add_argument("--start", required=True, metavar="열", help="출근 시각 열")
     wt.add_argument("--end", required=True, metavar="열", help="퇴근 시각 열")
     wt.add_argument("--date", metavar="열", help="날짜 열 (주별 합계에 쓴다)")

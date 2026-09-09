@@ -469,6 +469,11 @@ class SmokeTest(unittest.TestCase):
                           "--end", "퇴근", "--date", "날짜")
         self.assertIn("실근무", 시간)
         self.assertIn("근로기준법", 시간)
+        임금 = self.run_cli("sheet", "worktime", str(근태), "--start", "출근",
+                          "--end", "퇴근", "--date", "날짜", "--hourly", "10030")
+        self.assertIn("임금 합계", 임금)
+        self.assertIn("일당", 임금)
+        self.assertIn("5인 미만", 임금)
 
         나이 = self.run_cli("sheet", "age", str(나이표), "-c", "생년월일",
                           "--group", "--sex", "--on", "2026-03-01")

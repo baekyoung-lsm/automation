@@ -2948,3 +2948,46 @@ class LabelsTest(unittest.TestCase):
         texts, _missing = sheet.label_texts(table)
         self.assertEqual(texts, [["사람"]])       # 빈 줄이 라벨을 밀어내지 않게
 
+class DayPayTest(unittest.TestCase):
+    """근태 표에서 하루 임금. 조용히 틀리면 남의 급여가 는다."""
+
+    def days(self, rows):
+        table = sheet.Table(headers=["출근", "퇴근"], rows=rows)
+        return sheet.work_days(table, start="출근", end="퇴근")[0]
+
+    def test_night_window(self):
+        self.assertEqual(sheet.night_minutes(9 * 60, 19 * 60), 0)
+        self.assertEqual(sheet.night_minutes(13 * 60, 23 * 60), 60)
+        self.assertEqual(sheet.night_minutes(22 * 60, 30 * 60), 480)
+        self.assertEqual(sheet.night_minutes(20 * 60, 26 * 60), 240)
+        self.assertEqual(sheet.night_minutes(0, 24 * 60), 480)   # 00~06 과 22~24
+
+    def test_plain_day(self):
+        pay = sheet.day_pay(self.days([["09:00", "18:00"]]), hourly=10000)[0]
+        self.assertEqual((pay.worked, pay.overtime, pay.night), (8.0, 0.0, 0.0))
+        self.assertEqual((pay.base, pay.total), (80000, 80000))
+
+    def test_overtime_is_half_extra(self):
+        pay = sheet.day_pay(self.days([["09:00", "19:30"]]), hourly=10000)[0]
+        self.assertEqual((pay.worked, pay.overtime), (9.5, 1.5))
+        self.assertEqual(pay.over_extra, 7500)          # 1.5시간 x 50%
+        self.assertEqual(pay.total, 95000 + 7500)
+
+    def test_night_extra(self):
+        pay = sheet.day_pay(self.days([["13:00", "23:00"]]), hourly=10000)[0]
+        self.assertEqual(pay.night, 1.0)
+        self.assertEqual(pay.night_extra, 5000)
+
+    def test_night_never_exceeds_worked_hours(self):
+        # 22~06 은 여덟 시간이지만 휴게 한 시간을 빼면 실근무는 일곱 시간이다
+        pay = sheet.day_pay(self.days([["22:00", "06:00"]]), hourly=10000)[0]
+        self.assertEqual((pay.worked, pay.night), (7.0, 7.0))
+
+    def test_unreadable_row_is_zero(self):
+        pay = sheet.day_pay(self.days([["", ""]]), hourly=10000)[0]
+        self.assertEqual(pay.total, 0)
+
+    def test_bad_wage(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.day_pay(self.days([["09:00", "18:00"]]), hourly=0)
+
