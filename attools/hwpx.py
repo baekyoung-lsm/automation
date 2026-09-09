@@ -59,12 +59,32 @@ def _cell_text(cell: ET.Element) -> str:
     return joined or _text_of(cell)
 
 
+def _col_span(cell: ET.Element) -> int:
+    """가로로 몇 칸을 차지하나. 못 읽으면 1.
+
+    한 칸으로 세면 병합한 머리글이 있는 표에서 열이 밀려 뒤 열 값이 사라진다.
+    판마다 적는 자리가 달라 이름만 보고 찾는다.
+    """
+    for node in cell.iter():
+        if _tag(node) != "cellSpan":
+            continue
+        for key, value in node.attrib.items():
+            if key.rsplit("}", 1)[-1].lower() == "colspan" and value.isdigit():
+                return max(1, int(value))
+    return 1
+
+
 def _table_rows(table: ET.Element) -> list[list[str]]:
     rows: list[list[str]] = []
     for tr in table.iter():
         if _tag(tr) != "tr":
             continue
-        cells = [_cell_text(tc) for tc in tr if _tag(tc) == "tc"]
+        cells: list[str] = []
+        for tc in tr:
+            if _tag(tc) != "tc":
+                continue
+            cells.append(_cell_text(tc))
+            cells += [""] * (_col_span(tc) - 1)
         if cells:
             rows.append(cells)
     return rows

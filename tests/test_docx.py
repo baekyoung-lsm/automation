@@ -265,3 +265,38 @@ class ForeignDocxTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class MergedCellTest(unittest.TestCase):
+    """가로로 병합한 칸. 한 칸으로 세면 뒤 열 값이 통째로 사라진다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, body: str) -> Path:
+        import zipfile
+
+        W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        path = self.root / "표.docx"
+        document = (f'<?xml version="1.0"?><w:document xmlns:w="{W}"><w:body>'
+                    + body + "</w:body></w:document>")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("word/document.xml", document)
+        return path
+
+    def test_grid_span_keeps_columns_lined_up(self):
+        path = self.make(
+            "<w:tbl>"
+            '<w:tr><w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr>'
+            "<w:p><w:r><w:t>합친 머리</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>금액</w:t></w:r></w:p></w:tc></w:tr>"
+            "<w:tr><w:tc><w:p><w:r><w:t>영업</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>교통비</w:t></w:r></w:p></w:tc>"
+            "<w:tc><w:p><w:r><w:t>1000</w:t></w:r></w:p></w:tc></w:tr>"
+            "</w:tbl>")
+        rows = docx.read_document(path)[0][1]
+        self.assertEqual(rows[0], ["합친 머리", "", "금액"])
+        self.assertEqual(rows[1], ["영업", "교통비", "1000"])
+

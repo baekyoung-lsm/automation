@@ -134,13 +134,21 @@ def _is_list(paragraph: ET.Element) -> bool:
 
 
 def _table_rows(table: ET.Element) -> list[list[str]]:
-    """표의 칸 글자. 칸 안이 내용 컨트롤이나 표로 한 겹 더 싸여 있어도 읽는다."""
+    """표의 칸 글자. 칸 안이 내용 컨트롤이나 표로 한 겹 더 싸여 있어도 읽는다.
+
+    가로로 병합한 칸(gridSpan)은 그 수만큼 자리를 채운다. 한 칸으로 세면
+    병합한 머리글이 있는 표에서 열이 밀려, 뒤 열의 값이 통째로 사라진다.
+    """
     rows = []
     for tr in table.findall(f"{W}tr"):
         cells = []
         for tc in tr.findall(f"{W}tc"):
             parts = [_run_text(p).strip() for p in tc.iter(f"{W}p")]
             cells.append(" ".join(x for x in parts if x))
+            span = tc.find(f"{W}tcPr/{W}gridSpan")
+            width = span.get(f"{W}val") if span is not None else None
+            if (width or "").isdigit():
+                cells += [""] * (int(width) - 1)
         rows.append(cells)
     return rows
 

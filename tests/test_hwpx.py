@@ -185,3 +185,28 @@ class HwpxLineBreakTest(unittest.TestCase):
             "<hp:t>뒤</hp:t></hp:run></hp:p>")
         self.assertEqual(hwpx.read_text(path), "앞\n줄\n가\n뒤")
 
+class HwpxMergedCellTest(unittest.TestCase):
+    """가로로 병합한 칸(cellSpan). 열이 밀리면 뒤 열 값이 사라진다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_col_span_fills_the_gap(self):
+        path = self.root / "표.hwpx"
+        section = (
+            '<?xml version="1.0"?><hs:sec '
+            'xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" '
+            'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+            "<hp:p><hp:run><hp:tbl><hp:tr>"
+            '<hp:tc><hp:cellSpan colSpan="2" rowSpan="1"/><hp:subList><hp:p>'
+            "<hp:run><hp:t>합친 머리</hp:t></hp:run></hp:p></hp:subList></hp:tc>"
+            "<hp:tc><hp:subList><hp:p><hp:run><hp:t>금액</hp:t></hp:run></hp:p>"
+            "</hp:subList></hp:tc></hp:tr></hp:tbl></hp:run></hp:p></hs:sec>")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", hwpx.MIMETYPE)
+            z.writestr("Contents/section0.xml", section)
+        self.assertEqual(hwpx.tables(path), [[["합친 머리", "", "금액"]]])
+
