@@ -111,8 +111,8 @@ def cmd_file_docs(a) -> int:
     _p("속성만 읽었습니다. 문서 내용은 열지 않았습니다. "
        "(내용은 at doc from-docx, at sheet from-docx)")
     if any(m.kind == "PDF" for m in metas):
-        _p("PDF 는 속성과 쪽 수만 봅니다. 본문 글자는 꺼내지 않습니다 - "
-           "글꼴에 따라 조용히 틀린 글자가 나오기 때문입니다.")
+        _p("PDF 는 여기서 속성과 쪽 수만 봅니다. 본문 글자는 "
+           "at file pdftext 로 꺼냅니다.")
     scans = [m for m in metas if m.kind == "PDF" and m.text_pages == 0]
     if scans:
         _p(f"글꼴이 하나도 없는 PDF {len(scans):,}개 - 스캔본으로 보입니다"
