@@ -35,11 +35,20 @@ def _sections(z: zipfile.ZipFile) -> list[str]:
 
 
 def _text_of(node: ET.Element) -> str:
-    """이 조각 안의 글자를 모은다. <t> 안의 글자만 센다."""
+    """이 조각 안의 글자를 모은다. <t> 안의 글자와 줄바꿈·탭만 센다.
+
+    한 문단 안에서 줄을 바꾼 자리(<lineBreak/>)를 버리면 두 줄이 한 줄로
+    붙는다. 원고나 주소처럼 줄이 뜻을 가지는 글에서 조용히 달라진다.
+    """
     out: list[str] = []
     for child in node.iter():
-        if _tag(child) == "t":
+        tag = _tag(child)
+        if tag == "t":
             out.append("".join(child.itertext()))
+        elif tag == "lineBreak":
+            out.append("\n")
+        elif tag == "tab":
+            out.append("\t")
     return "".join(out).strip()
 
 
@@ -117,6 +126,12 @@ def _walk_around_tables(node: ET.Element, parts: list) -> None:
                 continue
             if name == "t":
                 buffer.append("".join(child.itertext()))
+                continue
+            if name == "lineBreak":
+                buffer.append("\n")
+                continue
+            if name == "tab":
+                buffer.append("\t")
                 continue
             walk(child)
 

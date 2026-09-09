@@ -146,3 +146,42 @@ class HwpxTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class HwpxLineBreakTest(unittest.TestCase):
+    """문단 안에서 줄을 바꾼 자리와 탭. 버리면 두 줄이 한 줄이 된다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, body: str) -> Path:
+        path = self.root / "문서.hwpx"
+        section = ('<?xml version="1.0"?><hs:sec '
+                   'xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" '
+                   'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+                   + body + "</hs:sec>")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("mimetype", hwpx.MIMETYPE)
+            z.writestr("Contents/section0.xml", section)
+        return path
+
+    def test_line_break_becomes_a_newline(self):
+        path = self.make("<hp:p><hp:run><hp:t>서울시</hp:t><hp:lineBreak/>"
+                         "<hp:t>중구</hp:t></hp:run></hp:p>")
+        self.assertEqual(hwpx.read_text(path), "서울시\n중구")
+
+    def test_tab_is_kept(self):
+        path = self.make("<hp:p><hp:run><hp:t>이름</hp:t><hp:tab/>"
+                         "<hp:t>금액</hp:t></hp:run></hp:p>")
+        self.assertEqual(hwpx.read_text(path), "이름\t금액")
+
+    def test_line_break_around_a_table(self):
+        path = self.make(
+            "<hp:p><hp:run><hp:t>앞</hp:t><hp:lineBreak/><hp:t>줄</hp:t>"
+            "<hp:tbl><hp:tr><hp:tc><hp:subList><hp:p><hp:run><hp:t>가</hp:t>"
+            "</hp:run></hp:p></hp:subList></hp:tc></hp:tr></hp:tbl>"
+            "<hp:t>뒤</hp:t></hp:run></hp:p>")
+        self.assertEqual(hwpx.read_text(path), "앞\n줄\n가\n뒤")
+
