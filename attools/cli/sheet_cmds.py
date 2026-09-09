@@ -1052,7 +1052,7 @@ def cmd_sheet_from_card(a) -> int:
     table = sheet.read_vcards(body) if card == "vcf" else sheet.read_ics(body)
     what = "연락처" if card == "vcf" else "일정"
     if not table.rows:
-        _p(f"{what}를 찾지 못했습니다. "
+        _p(f"{hangul.josa(what, '을/를')} 찾지 못했습니다. "
            f"({'BEGIN:VCARD' if card == 'vcf' else 'BEGIN:VEVENT'} 가 있는 "
            "파일이어야 합니다)")
         return 1

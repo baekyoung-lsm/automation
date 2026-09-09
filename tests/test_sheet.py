@@ -209,6 +209,45 @@ class XlsxTest(unittest.TestCase):
         self.assertEqual(xlsx.read_sheet(path)[0][0], "a & b <c>")
 
 
+class CsvNotTextTest(unittest.TestCase):
+    """csv 로 이름만 바꾼 파일. 역추적 대신 무엇인지 짚어야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_zip_renamed_to_csv(self):
+        # 빈 zip 은 PK\x05\x06 으로 시작해 글자로도 읽힌다 - 표 한 장이 나와
+        # «열렸으니 맞겠지» 하게 되므로 알맹이를 보고 막는다
+        path = self.root / "이름만.csv"
+        with zipfile.ZipFile(path, "w"):
+            pass
+        with self.assertRaises(sheet.SheetError) as caught:
+            sheet.load(path)
+        self.assertIn("zip", str(caught.exception))
+
+    def test_old_office_file_renamed_to_csv(self):
+        path = self.root / "옛것.csv"
+        path.write_bytes(sheet.OLE_MAGIC + b"\x00" * 32)
+        with self.assertRaises(sheet.SheetError):
+            sheet.load(path)
+
+    def test_binary_junk(self):
+        path = self.root / "널.csv"
+        path.write_bytes(b"\x00\x01\x02\xff\xfe")
+        with self.assertRaises(sheet.SheetError) as caught:
+            sheet.load(path)
+        self.assertIn("utf-8", str(caught.exception))
+
+    def test_utf16_without_bom_does_not_crash_the_sniffer(self):
+        # utf-16 은 BOM 이 없으면 UnicodeDecodeError 가 아닌 UnicodeError 다
+        path = self.root / "utf16.csv"
+        path.write_bytes("이름,부서\n홍길동,영업\n".encode("utf-16-le"))
+        self.assertIsInstance(sheet.sniff_encoding(path), str)
+
+
 class BrokenXlsxTest(unittest.TestCase):
     """열지 못하는 파일. 파이썬 역추적 대신 무엇을 해야 하는지 알려야 한다."""
 

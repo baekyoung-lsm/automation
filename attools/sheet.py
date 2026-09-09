@@ -170,11 +170,49 @@ def sniff_encoding(path: Path) -> str:
     for enc in ENCODINGS:
         try:
             head.decode(enc)
-        except UnicodeDecodeError:
+        # utf-16 은 BOM 이 없으면 UnicodeDecodeError 가 아니라 UnicodeError 를
+        # 낸다. 좁게 잡으면 그 한 줄에서 통째로 터진다
+        except UnicodeError:
             continue
         # cp949 로도 읽히지만 utf-8 이 맞는 경우가 있어 순서를 지킨다
         return enc
     return "utf-8"
+
+
+# 빈 zip 은 PK\x05\x06 으로 시작한다. PK\x03\x04 만 보면 그냥 지나간다
+ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def read_csv_text(path: Path) -> str:
+    """csv 를 글자로 읽는다. 글자가 아니면 무엇인지 짚어 준다.
+
+    엑셀·한글 파일을 이름만 .csv 로 바꿔 두거나, 우리가 모르는 인코딩으로
+    저장한 파일이 온다. 그대로 두면 UnicodeDecodeError 역추적만 뜬다.
+    """
+    path = Path(path)
+    try:
+        head = path.read_bytes()[:8]
+    except OSError as exc:
+        raise SheetError(str(exc)) from None
+
+    # 알맹이가 zip·OLE 이면 글자로 읽히더라도 표가 아니다. 읽히는 대로 두면
+    # 깨진 글자가 표 한 장으로 나와 «열렸으니 맞겠지» 하게 된다
+    if head.startswith(ZIP_MAGIC):
+        raise SheetError(f"csv 가 아닙니다: {path.name} (알맹이가 zip 입니다 - "
+                         "엑셀·워드·한글 파일을 csv 로 이름만 바꾼 것은 "
+                         "아닌지 확인하세요)")
+    if head.startswith(OLE_MAGIC):
+        raise SheetError(f"csv 가 아닙니다: {path.name} (옛 엑셀·한글 파일로 "
+                         "보입니다 - 그 프로그램에서 열어 csv 나 xlsx 로 "
+                         "저장하세요)")
+    try:
+        return path.read_text(encoding=sniff_encoding(path))
+    except UnicodeError:
+        raise SheetError(f"글자로 읽지 못했습니다: {path.name} "
+                         f"({', '.join(ENCODINGS)} 로 열리지 않습니다)") from None
+    except OSError as exc:
+        raise SheetError(str(exc)) from None
 
 
 CSV_DELIMITERS = (",", ";", "\t", "|")
@@ -225,8 +263,7 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
         except xlsx.XlsxError as exc:
             raise SheetError(str(exc)) from None
     elif suffix in CSV_SUFFIXES or not suffix:
-        encoding = sniff_encoding(path)
-        text = path.read_text(encoding=encoding)
+        text = read_csv_text(path)
         delimiter = sniff_delimiter(text, suffix=suffix)
         grid = [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)]
         if not raw:
@@ -3472,8 +3509,7 @@ def parse_cell(spec: str) -> CellSpec:
 
 def _csv_cells(path: Path, refs: list[str]) -> dict[str, object]:
     """csv 를 칸 주소로 읽는다. 엑셀에서 열었을 때와 같은 자리여야 한다."""
-    encoding = sniff_encoding(path)
-    text = path.read_text(encoding=encoding)
+    text = read_csv_text(path)
     delimiter = sniff_delimiter(text, suffix=path.suffix.lower())
     grid = [list(r) for r in csv.reader(io.StringIO(text), delimiter=delimiter)]
     found: dict[str, object] = {}
