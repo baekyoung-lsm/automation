@@ -405,6 +405,22 @@ class Formula:
         return "=" + self.body
 
 
+CELL_LIMIT = 32767          # 엑셀 한 칸에 들어가는 글자 수 한도
+
+
+def clip_cell(text: str) -> str:
+    """한 칸 한도를 넘는 글을 자르고 잘랐다고 적는다.
+
+    한도를 넘겨 쓰면 엑셀이 «파일이 손상됐다» 며 복구 창을 띄우고 제 마음대로
+    자른다. 그럴 바에는 우리가 자르고 얼마나 잘랐는지 칸 안에 적어 둔다 -
+    말없이 자르면 나중에 그 칸을 믿게 된다.
+    """
+    if len(text) <= CELL_LIMIT:
+        return text
+    mark = f"…(엑셀 한 칸 한도로 잘림, 원래 {len(text):,}자)"
+    return text[:CELL_LIMIT - len(mark)] + mark
+
+
 def _cell_xml(ref: str, value, style: int) -> str:
     if isinstance(value, Formula):
         body = f'<c r="{ref}" s="{style}"><f>{_esc(value.body)}</f>'
@@ -430,7 +446,8 @@ def _cell_xml(ref: str, value, style: int) -> str:
     if isinstance(value, (int, float)):
         return f'<c r="{ref}" s="{style}"><v>{value!r}</v></c>'
     return (f'<c r="{ref}" s="{style}" t="inlineStr">'
-            f"<is><t xml:space=\"preserve\">{_esc(str(value))}</t></is></c>")
+            f"<is><t xml:space=\"preserve\">{_esc(clip_cell(str(value)))}"
+            "</t></is></c>")
 
 
 def _sheet_xml(rows: list[list], *, header: bool, freeze: bool) -> str:

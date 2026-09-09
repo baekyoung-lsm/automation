@@ -248,6 +248,27 @@ class CsvNotTextTest(unittest.TestCase):
         self.assertIsInstance(sheet.sniff_encoding(path), str)
 
 
+class LongCellTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_over_the_limit_is_clipped_and_says_so(self):
+        # 한도를 넘겨 쓰면 엑셀이 «손상됐다» 며 제 마음대로 자른다.
+        # 그럴 바에는 우리가 자르고 얼마나 잘랐는지 칸에 적어 둔다
+        path = self.root / "긴글.xlsx"
+        xlsx.write_sheets(path, {"시트": [["글"], ["x" * 40000]]})
+        value = xlsx.read_sheet(path)[1][0]
+        self.assertEqual(len(value), xlsx.CELL_LIMIT)
+        self.assertIn("40,000자", value)
+
+    def test_under_the_limit_is_untouched(self):
+        body = "가" * 100
+        self.assertEqual(xlsx.clip_cell(body), body)
+
+
 class BrokenXlsxTest(unittest.TestCase):
     """열지 못하는 파일. 파이썬 역추적 대신 무엇을 해야 하는지 알려야 한다."""
 
