@@ -515,12 +515,23 @@ def cmd_sheet_audit(a) -> int:
     name = Path(a.file).name + (f"[{t.sheet}]" if t.sheet else "")
     _p(f"{name}  {rep.rows:,}행 x {rep.columns}열")
 
+    # 머리글 이야기는 «어느 열» 이 아니라 표 전체에 대한 것이고, 고치는 법까지
+    # 들어 있어 잘리면 쓸모가 없다. 표 밖에 온전히 적는다.
+    heads = [n for n in rep.notes if n.kind == "머리글"]
+    others = [n for n in rep.notes if n.kind != "머리글"]
+
     if not rep.notes:
         _p("\n볼 만한 곳이 없습니다.")
     else:
         _p(f"\n볼 만한 곳 {len(rep.notes)}가지")
+    if heads:
+        _p("\n머리글")
+        for note in heads:
+            _p(f"  {note.detail}")
+    if others:
+        _p("")
         _grid(["무엇", "열", "내용"],
-              [[n.kind, n.column or "-", _cut(n.detail, 52)] for n in rep.notes],
+              [[n.kind, n.column or "-", _cut(n.detail, 52)] for n in others],
               limit=56)
 
     _p("\n본 것: " + " · ".join(rep.looked))
