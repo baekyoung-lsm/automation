@@ -638,6 +638,13 @@ class SheetTest(unittest.TestCase):
         self.assertEqual(found["type"].rows, [4])
         self.assertEqual(found["oneof"].rows, [4])
 
+    def test_checked_formats_say_so(self):
+        # «123-45-67890» 은 꼴이 맞는데 검증번호가 안 맞아 걸린다. 그냥
+        # «형식이어야 함» 이라고만 하면 왜 걸렸는지 알 수 없다
+        checked = sheet.parse_rule("format", "사업자번호=사업자번호").describe()
+        self.assertIn("검증번호", checked)
+        self.assertNotIn("검증번호", sheet.parse_rule("format", "메일=이메일").describe())
+
     def test_validate_blank_only_caught_by_required(self):
         # 빈 칸을 규칙마다 다시 잡으면 같은 행이 여러 번 나와 시끄럽다
         t = sheet.Table(["a"], [[None]])

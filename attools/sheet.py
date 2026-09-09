@@ -4050,7 +4050,11 @@ class Rule:
             "required": f"{self.column}: 빈 칸이 없어야 함",
             "unique": f"{self.column}: 값이 겹치지 않아야 함",
             "type": f"{self.column}: {self.argument} 여야 함",
-            "format": f"{self.column}: {self.argument} 형식이어야 함",
+            # 꼴만 보는 형식과 검증번호까지 보는 형식을 갈라 적는다. «123-45-67890»
+            # 처럼 꼴은 맞는데 걸리면 왜 걸렸는지 알 수 없다
+            "format": (f"{self.column}: {self.argument} 형식이어야 함"
+                       + (" (검증번호까지 봅니다)"
+                          if self.argument in FORMAT_VERIFY else "")),
             "match": f"{self.column}: {self.argument} 에 맞아야 함",
             "range": f"{self.column}: {self.argument} 범위 안이어야 함",
             "oneof": f"{self.column}: {self.argument} 중 하나여야 함",
