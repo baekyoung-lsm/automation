@@ -3263,6 +3263,27 @@ class DayPayTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.day_pay(self.days([["09:00", "18:00"]]), hourly=0)
 
+class AuditExportTest(unittest.TestCase):
+    """내보낼 때 걸리는 값. 파일을 만든 뒤에 알면 늦다."""
+
+    def kinds(self, table):
+        return [(n.kind, n.detail) for n in sheet.audit(table).notes]
+
+    def test_control_characters_are_pointed_out(self):
+        table = sheet.Table(["메모"], [["가\x07나"], ["보통 값"]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "내보낼 때")
+        self.assertIn("제어 문자", detail)
+
+    def test_over_long_cells_are_pointed_out(self):
+        table = sheet.Table(["메모"], [["x" * (xlsx.CELL_LIMIT + 1)]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "내보낼 때")
+        self.assertIn("한 칸 한도", detail)
+
+    def test_ordinary_table_says_nothing(self):
+        table = sheet.Table(["메모"], [["보통 값"], ["또 다른 값"]])
+        self.assertEqual([d for k, d in self.kinds(table) if k == "내보낼 때"], [])
+
+
 class AuditHeaderTest(unittest.TestCase):
     """머리글 자체의 문제. 첫 행이 머리글이 아닌 파일이 실무에 아주 많다."""
 

@@ -2093,6 +2093,8 @@ AUDIT_UNIQUE_CAP = 2000      # 이보다 다양한 열에서는 표기 흔들림
 # 엑셀은 = + - @ 로 시작하는 «글자» 를 수식으로 읽는다. 남이 보낸 표를 그대로
 # 열면 그 칸이 실행되므로(CSV 주입) 고치지는 않고 어디인지 알려 준다.
 FORMULA_START = ("=", "+", "-", "@", "\t=", "\r=")
+# XML 이 담지 못하는 제어 문자. 내보낼 때 빠지므로 미리 알린다
+CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 @dataclass
@@ -2203,7 +2205,8 @@ def audit(table: Table) -> AuditReport:
     report = AuditReport(len(table.rows), table.width)
     report.looked = ["머리글", "빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
                      "빈 행", "숫자 열의 드문 값", "개인정보로 보이는 열",
-                     "표기 흔들림", "엑셀이 수식으로 읽을 칸"]
+                     "표기 흔들림", "엑셀이 수식으로 읽을 칸",
+                     "내보낼 때 걸릴 값"]
     report.notes += _header_notes(table)
     if not table.rows:
         report.skipped.append("행이 없어 아무것도 보지 못했습니다.")
@@ -2273,6 +2276,21 @@ def audit(table: Table) -> AuditReport:
                 f"= + - @ 로 시작하는 글자 {len(risky):,}개 "
                 f"(예: {_cut_text(str(risky[0]))}) · 엑셀에서 열면 수식으로 "
                 "실행될 수 있습니다"))
+
+        # 내보낼 때 걸리는 값. 여기서 못 보면 파일을 만든 뒤에 알게 된다
+        dirty = [v for v in texts if CONTROL_CHARS.search(v)]
+        if dirty:
+            report.notes.append(AuditNote(
+                "내보낼 때", name,
+                f"제어 문자가 든 값 {len(dirty):,}개 · 엑셀·워드로 낼 때 "
+                "빼고 씁니다 (XML 이 담지 못하는 글자입니다)"))
+        long_cells = [v for v in texts if len(v) > xlsx.CELL_LIMIT]
+        if long_cells:
+            report.notes.append(AuditNote(
+                "내보낼 때", name,
+                f"엑셀 한 칸 한도({xlsx.CELL_LIMIT:,}자)를 넘는 값 "
+                f"{len(long_cells):,}개 · 가장 긴 것 {max(map(len, long_cells)):,}자 "
+                "(xlsx 로 내면 잘립니다)"))
 
         # 값이 다 달라도 표기 흔들림은 본다. 거래처 목록이 딱 그런 모양이다.
         unique = len(set(texts))
