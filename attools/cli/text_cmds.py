@@ -442,6 +442,9 @@ def cmd_text_diff(a) -> int:
     if {"워드 문단", "한글 문단"} & {old_kind, new_kind}:
         _p("  워드·한글 문서는 문단 글자만 견줍니다. "
            "서식·그림·머리글·각주의 차이는 안 보입니다.")
+    if str(old_kind).startswith("PDF") or str(new_kind).startswith("PDF"):
+        _p("  PDF 는 글꼴에 글자 정보가 있는 부분만 견줍니다. 줄 나눔은 글자를 "
+           "찍은 자리로 어림한 것이라 실제 줄과 다를 수 있습니다.")
 
     shown = report.edits[:a.limit]
     for e in shown:

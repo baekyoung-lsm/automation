@@ -777,7 +777,7 @@ CI 에 넣을 수 있다.
 | `at text trim [경로]` | 줄 끝 공백 제거, 파일 끝 개행 보정, 탭 → 공백 |
 | `at text extract <정규식> <파일…>` | 정규식으로 뽑아 표로 만든다 (로그 → csv) |
 | `at text lines <파일>` | 줄 단위 정리·대조 — 중복 제거, 정렬, 빈도, 두 파일 비교 |
-| `at text diff <이전> <이후>` | 두 글을 줄·문장·문단 단위로 대조 (고친 낱말까지 표시). 워드 문서(.docx)도 견준다 |
+| `at text diff <이전> <이후>` | 두 글을 줄·문장·문단 단위로 대조 (고친 낱말까지 표시). 워드(.docx)·한글(.hwpx)·PDF 도 견준다 |
 | `at text typo <경로…>` | 흔한 한글 표기 오류를 찾는다 (몇일→며칠, 갈께→갈게, 워크샵→워크숍) |
 | `at text wrap <경로…>` | 긴 줄을 폭에 맞춰 접는다. 한글을 두 칸으로 센다 |
 | `at text repeat <경로…>` | 똑같이 반복되는 문장 찾기 (복붙 흔적·중복 설명) |
@@ -800,6 +800,7 @@ at text lines 작년명단.txt --compare 올해명단.txt      # 빠진 사람·
 at text lines 로그.txt --count 10                      # 많이 나온 줄 상위 10개
 at text diff 계약서_1차.md 계약서_2차.md               # 줄 단위, 바뀐 낱말만 강조
 at text diff 계약서_v1.docx 계약서_v2.docx --unit 문단   # 워드 두 판을 견주기
+at text diff 원본.pdf 수정본.pdf --unit 문단             # PDF 두 판을 견주기
 at text diff 원고_초고.md 원고_퇴고.md --unit 문장 --full
 at text repeat 원고/ --same-file                       # 한 파일 안의 중복 설명
 at text repeat 계약서/ -g '*.md'                       # 문서들 사이의 복붙 흔적
