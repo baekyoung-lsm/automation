@@ -219,11 +219,25 @@ class TodoTest(unittest.TestCase):
                "// XXX: 임시\n"
                " * HACK - 나중에 지울 것\n"
                "- TODO: 마크다운 목록\n")
-        found = todo.scan_text(src, "a.py")
+        # 여러 말의 주석 기호가 섞인 자료라 파이썬으로 보지 않는다
+        found = todo.scan_text(src, "메모.txt")
         self.assertEqual([t.marker for t in found],
                          ["TODO", "FIXME", "XXX", "HACK", "TODO"])
         self.assertEqual(found[0].owner, "홍길동")
         self.assertEqual(found[0].text, "캐시 붙이기")
+
+    def test_python_strings_are_not_comments(self):
+        # 파이썬은 tokenize 로 주석과 글자열을 확실히 가른다. 시험 자료 안의
+        # «# TODO» 까지 세면 할 일 목록이 남의 자료로 가득 찬다
+        src = ('src = "# TODO 캐시 붙이기"\n'
+               'doc = """\n# FIXME 여러 줄\n"""\n'
+               "# TODO 진짜 할 일\n")
+        found = todo.scan_text(src, "a.py")
+        self.assertEqual([t.text for t in found], ["진짜 할 일"])
+
+    def test_broken_python_falls_back_to_line_rules(self):
+        src = "def x(:\n# TODO 깨진 소스에서도 본다\n"
+        self.assertEqual([t.marker for t in todo.scan_text(src, "a.py")], ["TODO"])
 
     def test_ignores_markers_inside_strings(self):
         src = ('_p("TODO 가 없습니다")\n'

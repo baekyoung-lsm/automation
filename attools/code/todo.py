@@ -58,10 +58,33 @@ class Todo:
         return SEVERITY.get(self.marker, 9)
 
 
+def python_comment_lines(content: str) -> set[int] | None:
+    """파이썬 소스에서 주석이 있는 줄 번호. 읽지 못하면 None.
+
+    글자열 안의 «# TODO» 까지 세면 시험 자료가 할 일 목록에 올라온다.
+    파이썬은 tokenize 로 주석과 글자열을 확실히 가를 수 있다.
+    """
+    import io
+    import tokenize
+
+    lines: set[int] = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(content).readline):
+            if token.type == tokenize.COMMENT:
+                lines.add(token.start[0])
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        return None       # 깨진 소스면 줄 단위 규칙으로 돌아간다
+    return lines
+
+
 def scan_text(content: str, path: str, *, markers: list[str] | None = None) -> list[Todo]:
     wanted = set(markers or MARKERS)
     out: list[Todo] = []
+    comments = (python_comment_lines(content)
+                if path.endswith(".py") else None)
     for lineno, raw in enumerate(content.splitlines(), 1):
+        if comments is not None and lineno not in comments:
+            continue
         if len(raw) > 2000:
             continue
         m = MARKER_RE.search(raw)
