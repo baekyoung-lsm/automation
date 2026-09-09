@@ -424,6 +424,69 @@ class PickTest(unittest.TestCase):
         self.assertEqual(len(text.unique_picked(text.pick(body))), 2)
 
 
+class PdfSearchTest(unittest.TestCase):
+    """받은 문서가 PDF 인 일이 많다. 찾기에서 빠지면 «없네» 로 잘못 읽는다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self) -> Path:
+        content = b"BT /F1 12 Tf 72 720 Td (contract) Tj 0 -20 Td (clause) Tj ET"
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                b"/Resources << /Font << /F1 6 0 R >> >> /Contents 4 0 R >>"),
+            4: b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+            6: (b"<< /Type /Font /Subtype /TrueType /BaseFont /Helv "
+                b"/Encoding /WinAnsiEncoding >>"),
+        }
+        out = bytearray(b"%PDF-1.4\n")
+        places = {}
+        for number in sorted(objects):
+            places[number] = len(out)
+            out += b"%d 0 obj\n" % number + objects[number] + b"\nendobj\n"
+        start = len(out)
+        top = max(objects) + 1
+        out += b"xref\n0 %d\n0000000000 65535 f \n" % top
+        for number in range(1, top):
+            out += (b"%010d 00000 n \n" % places[number]) if number in places \
+                else b"0000000000 65535 f \n"
+        out += (b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n"
+                % (top, start))
+        path = self.root / "계약서.pdf"
+        path.write_bytes(bytes(out))
+        return path
+
+    def test_pdf_text_is_searchable(self):
+        path = self.make()
+        body, kind = text.read_words_or_text(path)
+        self.assertIn("clause", body)
+        self.assertTrue(kind.startswith("PDF"))
+
+    def test_find_in_files_reads_pdf_when_asked(self):
+        path = self.make()
+        pattern = text.build_pattern("clause", regex=False, ignore_case=False,
+                                     whole_word=False)
+        found = text.find_in_files([path], pattern, documents=True)
+        self.assertEqual([f.path for f in found], [path])
+        # 안 켜면 목록에서부터 빠진다 - 켤지 말지는 부르는 쪽이 정한다
+        self.assertEqual(list(text.iter_files([self.root])), [])
+        self.assertEqual(list(text.iter_files([self.root], documents=True)), [path])
+
+    def test_broken_pdf_does_not_stop_the_search(self):
+        bad = self.root / "깨진.pdf"
+        bad.write_bytes(b"%PDF-1.4\n" + "망가짐".encode("utf-8"))
+        good = self.make()
+        pattern = text.build_pattern("clause", regex=False, ignore_case=False,
+                                     whole_word=False)
+        found = text.find_in_files([bad, good], pattern, documents=True)
+        self.assertEqual([f.path for f in found], [good])
+
+
 class ReadWordsOrTextTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

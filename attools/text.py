@@ -20,7 +20,7 @@ def backup_dir() -> Path:
 ENCODINGS = ("utf-8", "cp949", "euc-kr", "utf-16")
 BOM_UTF8 = b"\xef\xbb\xbf"
 # 글자를 꺼낼 수 있는 문서. 찾기에서만 쓴다 - 고치지는 못한다.
-DOCUMENT_SUFFIXES = {".docx", ".hwpx"}
+DOCUMENT_SUFFIXES = {".docx", ".hwpx", ".pdf"}
 
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz", ".xz",
@@ -223,6 +223,22 @@ def read_words_or_text(path: Path) -> tuple[str, str]:
     """
     path = Path(path)
     suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        from . import pdf as pdfkit
+
+        try:
+            doc = pdfkit.open_pdf(path)
+            found = pdfkit.read_text(doc)
+        except pdfkit.PdfError as exc:
+            # 부르는 쪽은 이미 TextError 를 받고 있다. 새 예외를 흘리면
+            # 파일 하나 때문에 찾기 전체가 멎는다
+            raise TextError(str(exc)) from None
+        kind = "PDF 글자"
+        if found.missing:
+            # 못 읽은 글꼴이 있으면 그 사실을 부르는 쪽이 밝힐 수 있게 한다.
+            # 조용히 짧은 글을 돌려주면 «그 조항이 없네» 로 잘못 읽는다
+            kind = f"PDF 글자(못 읽은 글꼴 {len(found.missing)}개)"
+        return found.text, kind
     if suffix == ".hwpx":
         return hwpx.read_text(path, separator="\n\n"), "한글 문단"
     if suffix in DOCUMENT_SUFFIXES:

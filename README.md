@@ -636,7 +636,7 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보므로 판이 달라도 읽는다.
 문단 안에서 줄을 바꾼 자리(`lineBreak`)와 탭도 그대로 살린다 — 버리면 두 줄이 한 줄로 붙어
 주소나 원고가 조용히 달라진다.
-`at text find --docx` 는 한글 문서 안도 함께 찾는다.
+`at text find --docx` 는 한글 문서 안도 함께 찾는다(PDF 도 같다).
 
 표에서 **가로로 병합한 칸**(`gridSpan`, 한글은 `cellSpan`)은 그 수만큼 자리를 채운다 —
 한 칸으로 세면 «합친 머리글» 이 있는 표에서 열이 밀려 **뒤 열의 값이 통째로 사라진다**.
@@ -660,6 +660,9 @@ XML 의 이름 공간 접두사는 붙잡지 않고 태그의 뒷이름만 보�
 `at text find --docx` 도 같은 방법으로 워드 문서 안을 찾고, `at text diff` 는 워드 두 판을
 문단 단위로 견준다(서식·그림·머리글의 차이는 안 보이므로 그렇다고 함께 적는다). 줄 번호는 문단 번호이고,
 **워드 문서는 `at text replace` 로 고치지 못한다** (찾기 전용이라 기본은 꺼져 있다).
+`--docx` 는 **PDF 도** 함께 본다 — 받은 계약서·공문이 PDF 인 일이 많아서다. 글꼴에 글자 정보가
+없는 부분은 빠지므로, 그런 문서가 걸리면 그 사실을 함께 적는다(`at file pdftext` 로 무엇이
+빠졌는지 본다).
 
 `at dev cert` 는 서버 인증서가 **언제 끝나는지**와 **어떤 이름으로 쓸 수 있는지**(SAN)를 본다.
 만료됐거나 `--warn` 일 안에 끝나면 1 로 끝내므로 cron·CI 에 걸어 둘 수 있다. 파이썬 기본 검증을
@@ -767,7 +770,7 @@ CI 에 넣을 수 있다.
 | --- | --- |
 | `at text pick <경로…>` | 이메일·전화·사업자번호·금액·날짜·주소를 뽑아 표로 (정규식 없이) |
 | `at text kbd <글>` | 한/영 자판을 잘못 눌러 깨진 글 되살리기 (`dkssud` → `안녕`, 그 반대도) |
-| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만, `--docx` 워드·한글(hwpx) 문서 안까지 |
+| `at text find <찾을것> [경로]` | 찾기만 한다 (고치지 않음). `-C` 문맥 줄, `--count` 파일별 건수, `--files` 파일 이름만, `--docx` 워드·한글(hwpx)·PDF 안까지 |
 | `at text replace <찾을것> <바꿀것> [경로]` | 여러 파일에서 찾아 바꾸기. `-e` 정규식, `-i` 대소문자 무시, `-w` 단어 단위 |
 | `at text encoding [경로]` | cp949·euc-kr 로 저장된 파일을 utf-8 로 통일 |
 | `at text eol [경로]` | 줄바꿈을 LF 또는 CRLF 로 통일 |
@@ -785,7 +788,7 @@ at text kbd dkssudgktpdy                                     # -> 안녕하세�
 at text count 자소서.txt --limit-chars 1000                # 넘으면 exit 1
 at text count 원고/ -g '*.md'                              # 원고지 매수까지
 at text find old.example.com src/ -C 1                        # 어디 있는지만 (고치지 않음)
-at text find 홍길동 계약서/ --docx      # 워드·한글 문서 안까지 (찾기만 한다)
+at text find 홍길동 계약서/ --docx      # 워드·한글·PDF 안까지 (찾기만 한다)
 at text replace old.example.com api.example.com src/          # 미리보기 (차이까지)
 at text replace old.example.com api.example.com src/ --apply
 at text replace -e '(\d+)\.(\d+)\.(\d+)' 'v\1.\2' -g '*.md' --apply

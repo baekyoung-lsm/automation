@@ -53,7 +53,7 @@ def _text_report(a, changes, headline: str) -> int:
 
 
 def _docx_hint(a, targets, found=None) -> None:
-    """워드 문서를 봤는지 안 봤는지 분명히 말한다.
+    """워드·한글·PDF 를 봤는지 안 봤는지 분명히 말한다.
 
     안 보고 조용히 넘기면 «찾았는데 없다» 가 되고, 보고 말 안 하면
     at text replace 로 고칠 수 있는 줄 알게 된다. 둘 다 알려 준다.
@@ -62,7 +62,7 @@ def _docx_hint(a, targets, found=None) -> None:
         left = [p for p in (_text_targets(a, documents=True) or [])
                 if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
         if left:
-            _p(f"\n워드·한글 문서 {len(left)}개는 보지 않았습니다. "
+            _p(f"\n워드·한글·PDF 문서 {len(left)}개는 보지 않았습니다. "
                "--docx 를 붙이면 글자를 꺼내 함께 찾습니다.")
         return
     words = [p for p in targets if p.suffix.lower() in text.DOCUMENT_SUFFIXES]
@@ -71,8 +71,11 @@ def _docx_hint(a, targets, found=None) -> None:
     hit_words = [f for f in (found or [])
                  if f.path.suffix.lower() in text.DOCUMENT_SUFFIXES]
     if hit_words:
-        _p("\n워드·한글 문서의 줄 번호는 문단 번호입니다. "
+        _p("\n워드·한글·PDF 의 줄 번호는 문단 번호입니다. "
            "그 문서들은 at text replace 로 고치지 못합니다.")
+        if any(f.path.suffix.lower() == ".pdf" for f in hit_words):
+            _p("PDF 는 글꼴에 글자 정보가 없으면 그 부분이 빠집니다 "
+               "(at file pdftext 로 무엇이 빠졌는지 봅니다).")
 
 
 def cmd_text_find(a) -> int:
@@ -173,6 +176,9 @@ def cmd_text_count(a) -> int:
     if any(c.kind in ("워드 문단", "한글 문단") for c in good):
         _p("워드·한글 문서는 문단 글자만 셉니다 (머리글·바닥글·표 밖 글상자는 "
            "빠집니다).")
+    if any(str(c.kind).startswith("PDF") for c in good):
+        _p("PDF 는 글꼴에 글자 정보(ToUnicode)가 있는 부분만 셉니다 "
+           "(스캔한 그림 속 글자는 못 셉니다).")
     _p("원고지는 200자를 한 장으로 셈한 것입니다.")
     return 0
 
@@ -691,8 +697,8 @@ def add_commands(sub) -> None:
     fp.add_argument("-e", "--regex", action="store_true", help="정규식으로")
     fp.add_argument("-i", "--ignore-case", action="store_true")
     fp.add_argument("-w", "--word", action="store_true", help="단어 단위로만")
-    fp.add_argument("--docx", action="store_true",
-                    help="워드·한글(hwpx) 문서에서도 글자를 꺼내 찾는다 "
+    fp.add_argument("--docx", "--documents", action="store_true",
+                    help="워드·한글(hwpx)·PDF 에서도 글자를 꺼내 찾는다 "
                          "(줄 번호는 문단 번호)")
     fp.add_argument("-C", "--context", type=int, default=0, metavar="줄",
                     help="앞뒤 문맥 줄 수")
