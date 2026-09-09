@@ -406,6 +406,8 @@ class Formula:
 
 
 CELL_LIMIT = 32767          # 엑셀 한 칸에 들어가는 글자 수 한도
+MAX_ROWS = 1_048_576        # 엑셀 한 장의 행 한도
+MAX_COLUMNS = 16_384        # 엑셀 한 장의 열 한도 (XFD)
 
 
 def clip_cell(text: str) -> str:
@@ -503,6 +505,20 @@ def write_sheets(path: Path, sheets: dict[str, list[list]], *,
     path = Path(path)          # 글자로 준 경로도 받는다
     if not sheets:
         raise XlsxError("저장할 시트가 없습니다.")
+
+    # 엑셀이 못 여는 파일을 만들어 주는 것보다 여기서 그만두는 편이 낫다.
+    # 넘겨 쓰면 «파일이 손상됐다» 만 뜨고 무엇이 문제인지 알 수 없다.
+    for name, rows in sheets.items():
+        if len(rows) > MAX_ROWS:
+            raise XlsxError(
+                f"엑셀 한 장에 담을 수 있는 행은 {MAX_ROWS:,}행입니다 "
+                f"(«{name}»: {len(rows):,}행). at sheet split 으로 나눠 "
+                "저장하거나 csv 로 저장하세요.")
+        width = max((len(r) for r in rows), default=0)
+        if width > MAX_COLUMNS:
+            raise XlsxError(
+                f"엑셀 한 장에 담을 수 있는 열은 {MAX_COLUMNS:,}열입니다 "
+                f"(«{name}»: {width:,}열). 열을 줄이거나 csv 로 저장하세요.")
 
     names = list(sheets)
     overrides = "\n".join(

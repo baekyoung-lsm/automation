@@ -264,6 +264,19 @@ class LongCellTest(unittest.TestCase):
         self.assertEqual(len(value), xlsx.CELL_LIMIT)
         self.assertIn("40,000자", value)
 
+    def test_too_many_rows_is_refused_before_writing(self):
+        # 엑셀이 못 여는 파일을 만들어 주는 것보다 여기서 그만두는 편이 낫다
+        path = self.root / "많음.xlsx"
+        with self.assertRaises(xlsx.XlsxError) as caught:
+            xlsx.write_sheets(path, {"시트": [[1]] * (xlsx.MAX_ROWS + 1)})
+        self.assertIn("at sheet split", str(caught.exception))
+        self.assertFalse(path.exists())
+
+    def test_too_many_columns_is_refused(self):
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.write_sheets(self.root / "넓음.xlsx",
+                              {"시트": [list(range(xlsx.MAX_COLUMNS + 1))]})
+
     def test_under_the_limit_is_untouched(self):
         body = "가" * 100
         self.assertEqual(xlsx.clip_cell(body), body)
