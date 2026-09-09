@@ -385,6 +385,27 @@ class HouseRulesTest(unittest.TestCase):
                 + sorted((root / "tests").glob("*.py"))
                 + [root / "README.md", root / "CLAUDE.md"])
 
+    def test_grid_limit_is_never_a_row_count(self):
+        """_grid 의 limit 은 칸 글자 수다. 행 수를 넘기면 이름이 잘린다."""
+        import re
+
+        root = Path(__file__).resolve().parents[1]
+        bad = []
+        for path in sorted((root / "attools" / "cli").glob("*.py")):
+            body = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"_grid\((?:[^()]|\([^()]*\))*\)", body,
+                                     re.S):
+                call = match.group(0)
+                found = re.search(r"limit=(a\.\w+|\d+)", call)
+                if not found:
+                    continue
+                value = found.group(1)
+                if value.isdigit() and int(value) < 10:
+                    bad.append(f"{path.name}: limit={value} (너무 작다)")
+                elif value in ("a.limit", "a.rows", "a.top", "a.count"):
+                    bad.append(f"{path.name}: limit={value} (행 수처럼 보인다)")
+        self.assertEqual(bad, [])
+
     def test_no_emoji_anywhere(self):
         bad = []
         for path in self.sources():

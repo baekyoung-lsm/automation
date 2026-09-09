@@ -72,7 +72,7 @@ def _save_table(a, table) -> int:
 
 
 def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
-               limit: int = 40, keep_last: bool = False) -> None:
+               max_rows: int = 40, keep_last: bool = False) -> None:
     """열이 많은 표를 화면에 맞게 잘라 찍는다.
 
     30,000행짜리 표를 뒤집으면 열이 30,000개다. 그대로 찍으면 한 줄이 45만
@@ -88,11 +88,11 @@ def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
         return [sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}"
                 for v in picked]
 
-    _grid(shown, [cells(r) for r in rows[:limit]])
+    _grid(shown, [cells(r) for r in rows[:max_rows]])
     if hidden > 0:
         _p(f"  ... 열 {hidden:,}개 더 (-o 로 저장하면 다 담깁니다)")
-    if len(rows) > limit:
-        _p(f"  ... 행 {len(rows) - limit:,}개 더")
+    if len(rows) > max_rows:
+        _p(f"  ... 행 {len(rows) - max_rows:,}개 더")
 
 
 def _sheet_result(a, table, headline: str) -> int:
@@ -1443,7 +1443,7 @@ def cmd_sheet_pivot(a) -> int:
     # 아무것도 못 읽는다. 화면에는 앞쪽만 보이고 파일에는 다 담는다.
     # 맨 끝 합계 열은 자르더라도 남긴다. 교차표에서 제일 많이 보는 칸이다
     _wide_grid(result.headers, result.rows, cols=a.cols_shown,
-               limit=a.rows_shown, keep_last=result.headers[-1] == "합계")
+               max_rows=a.rows_shown, keep_last=result.headers[-1] == "합계")
     _p(f"\n{len(result.rows)}개 그룹")
     if a.out:
         if not _may_write(a, Path(a.out)):
@@ -1488,7 +1488,7 @@ def cmd_sheet_transpose(a) -> int:
         _p(str(e))
         return 1
 
-    _wide_grid(result.headers, result.rows, cols=a.cols_shown, limit=a.limit)
+    _wide_grid(result.headers, result.rows, cols=a.cols_shown, max_rows=a.limit)
     _p(f"\n{len(t.rows):,}행 x {t.width}열 -> {len(result.rows):,}행 x "
        f"{result.width}열")
     _p(f"첫 열({t.headers[0]})의 값이 새 머리글이 됩니다.")

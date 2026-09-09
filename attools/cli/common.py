@@ -92,7 +92,12 @@ def _dump(text: str, *, hint: str = "") -> None:
 
 
 def _grid(headers: list[str], rows: list[list[str]], *, limit: int = 24) -> None:
-    """터미널에 표를 정렬해 찍는다."""
+    """터미널에 표를 정렬해 찍는다.
+
+    limit 은 «행 수» 가 아니라 «칸 하나의 글자 수» 다. 행을 줄이려면 부르는
+    쪽에서 rows 를 잘라서 준다. 한 번 헷갈려 파일 이름이 다섯 글자로 잘린
+    적이 있어 적어 둔다.
+    """
     cells = [[_cut(h, limit) for h in headers]] + [[_cut(c, limit) for c in r] for r in rows]
     widths = [max(_width(row[i]) for row in cells if i < len(row))
               for i in range(len(headers))]
