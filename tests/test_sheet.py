@@ -1395,6 +1395,29 @@ class MarkdownTableTest(unittest.TestCase):
             shutil.rmtree(root, ignore_errors=True)
 
 
+class HeaderRowCountingTest(unittest.TestCase):
+    """머리글 줄 번호는 사람이 엑셀에서 읽은 그 번호여야 한다."""
+
+    GRID = [["2026년 3월 지출", None, None],
+            [None, None, None],
+            ["일자", "항목", "금액"],
+            ["2026-03-01", "식대", 12000]]
+
+    def test_blank_rows_do_not_shift_the_number(self):
+        # 빈 줄을 먼저 버리고 세면 엑셀의 «3행» 이 여기서는 2행이 된다
+        table = sheet.table_from_grid(self.GRID, header_row=2)
+        self.assertEqual(table.headers, ["일자", "항목", "금액"])
+        self.assertEqual(table.rows, [["2026-03-01", "식대", 12000]])
+
+    def test_blank_header_row_falls_to_the_next_line(self):
+        table = sheet.table_from_grid(self.GRID, header_row=1)
+        self.assertEqual(table.headers, ["일자", "항목", "금액"])
+
+    def test_default_skips_leading_blank_rows(self):
+        table = sheet.table_from_grid([[None], ["이름"], ["홍길동"]])
+        self.assertEqual(table.headers, ["이름"])
+
+
 class TableFromGridTest(unittest.TestCase):
     """붙여넣은 격자에도 파일과 같은 규칙을 쓴다."""
 

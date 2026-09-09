@@ -342,14 +342,24 @@ def table_from_grid(grid: list[list], *, header_row: int = 0, source: str = "",
     파일에서 읽든 붙여넣은 글에서 만들든 같은 규칙을 써야 열 개수와 이름이
     어긋나지 않는다.
     """
-    grid = [row for row in grid if any(c not in (None, "") for c in row)]
-    if not grid:
+    def filled(row) -> bool:
+        return any(c not in (None, "") for c in row)
+
+    if not any(filled(row) for row in grid):
         raise SheetError(f"내용이 없습니다: {label}")
     if header_row >= len(grid):
         raise SheetError(f"헤더 행 번호가 범위를 넘습니다: {header_row + 1}")
 
-    names = [to_text(c).strip() for c in grid[header_row]]
-    body = grid[header_row + 1:]
+    # 머리글 줄은 «파일에 있는 그대로» 센다. 빈 줄을 먼저 버리고 세면 사람이
+    # 엑셀에서 읽은 «4행» 과 어긋난다. 그 자리가 빈 줄이면 다음 줄로 내려간다
+    index = header_row
+    while index < len(grid) and not filled(grid[index]):
+        index += 1
+    if index >= len(grid):
+        raise SheetError(f"내용이 없습니다: {label}")
+
+    names = [to_text(c).strip() for c in grid[index]]
+    body = [row for row in grid[index + 1:] if filled(row)]
     # 머리글보다 긴 행이 있으면 그만큼 열을 늘린다. 잘라 버리면 값이 조용히
     # 사라진다 - 머리글 칸을 하나 지운 파일이나 따옴표를 빠뜨린 csv 에서
     # 흔하다. 값이 든 자리까지만 늘려 끝의 빈 칸(«1,2,»)으로 열이 생기는 것은
@@ -2187,7 +2197,8 @@ def misread_header(table: Table) -> list[str]:
               if str(name).strip() and not AUTO_HEADER_RE.fullmatch(str(name))]
     if len(table.headers) >= 3 and len(filled) == 1:
         out.append("이름이 붙은 열이 하나뿐입니다. 표 위에 제목 줄이 있는 "
-                   "파일일 수 있습니다 (--header-row 2 로 다시 읽어 보세요)")
+                   "파일일 수 있습니다 (--header-row 2 처럼 머리글 줄 번호를 "
+                   "주고 다시 읽어 보세요)")
     # 머리글이 죄다 숫자·날짜면 그것도 자료다
     if filled and all(parse_number(one) is not None or parse_date(one) is not None
                       for one in filled):

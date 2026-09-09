@@ -1270,6 +1270,11 @@ def cmd_sheet_forms(a) -> int:
     if len(report.checks) > a.limit:
         _p(f"... {len(report.checks) - a.limit:,}개 더")
 
+    # 기준 자체가 제목 줄이면 견주는 일 자체가 헛일이다. 그 사실을 먼저 짚는다
+    standard = sheet.Table(list(report.standard), [])
+    for note in sheet.misread_header(standard):
+        _p(f"\n{note}")
+
     odd = report.odd
     _p(f"\n서식이 다른 파일 {len(odd):,}개")
     if odd:
@@ -2620,7 +2625,7 @@ def add_commands(sub) -> None:
     def common(parser):
         parser.add_argument("--sheet", help="xlsx 시트 이름")
         parser.add_argument("--header-row", type=int, default=1, metavar="행",
-                            help="헤더가 있는 행 번호 (기본 1)")
+                            help="헤더가 있는 행 번호 (기본 1, 엑셀에서 본 그 번호)")
         return parser
 
     pk = common(sh.add_parser("peek", help="열 구성·타입·결측 훑어보기"))
