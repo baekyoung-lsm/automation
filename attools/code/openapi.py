@@ -146,11 +146,19 @@ def load(data) -> Spec:
             if isinstance(request, dict) and request:
                 endpoint.body_required = bool(request.get("required"))
                 for media in (request.get("content") or {}).values():
-                    schema = _resolve(data, (media or {}).get("schema") or {})
+                    media = _resolve(data, media) or {}
+                    schema = _resolve(data, media.get("schema") or {})
                     props = schema.get("properties") if isinstance(schema, dict) else None
                     if isinstance(props, dict):
                         endpoint.body_fields = list(props)
                         endpoint.body_schema = _deep(data, schema)
+                        break
+                    # 스키마 없이 example 만 적어 둔 문서도 흔하다
+                    shown = _media_example(data, media)
+                    if shown is not None:
+                        endpoint.body_schema = {"example": shown}
+                        if isinstance(shown, dict):
+                            endpoint.body_fields = list(shown)
                         break
 
             endpoint.responses = [str(code) for code in (body.get("responses") or {})]

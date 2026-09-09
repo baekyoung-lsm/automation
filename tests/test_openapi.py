@@ -207,6 +207,18 @@ class MediaExampleTest(unittest.TestCase):
         },
     }
 
+    def test_request_body_example_is_used(self):
+        spec = openapi.load({
+            "openapi": "3.0.0", "info": {"title": "t", "version": "1"},
+            "paths": {"/a": {"post": {
+                "requestBody": {"content": {"application/json": {
+                    "example": {"name": "홍길동", "qty": 2}}}},
+                "responses": {"201": {"description": "d"}}}}}})
+        endpoint = spec.endpoints[0]
+        self.assertEqual(endpoint.body_fields, ["name", "qty"])
+        self.assertEqual(openapi.example(endpoint.body_schema),
+                         {"name": "홍길동", "qty": 2})
+
     def test_media_example_is_used(self):
         spec = openapi.load(self.SPEC)
         by_path = {e.path: e for e in spec.endpoints}
