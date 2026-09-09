@@ -77,6 +77,7 @@ attools/
   xlsx.py           의존성 없는 xlsx 리더/라이터
   docx.py           의존성 없는 docx 리더·라이터 (문단·제목·표)
   hwpx.py           의존성 없는 hwpx(한글) 리더 (문단·표. 옛 .hwp 는 못 읽는다)
+  pptx.py           의존성 없는 pptx(슬라이드) 리더 (글자·표·발표자 노트)
   pdf.py            의존성 없는 PDF (속성·쪽 수 읽기, 이미지 묶어 만들기)
   keys.py keytui.py keyhtml.py   단축키 데이터·터미널 화면·HTML 내보내기
   life.py           금액·D-day·정산·대출·단위·공휴일·세금·시차
