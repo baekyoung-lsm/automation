@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .. import files
+from .. import files, hangul
 from ..code import devkit
 from ..hangul import is_decomposed
 from .common import _pad, _p, _confirm, _dump, _grid, _cut, _may_write
@@ -215,6 +215,89 @@ def pdf_where() -> dict:
     from .. import pdf
 
     return pdf.STAMP_WHERE
+
+
+def cmd_file_eml(a) -> int:
+    """받은 메일 파일(.eml)의 머리글·본문·첨부를 본다. 보내지는 않는다."""
+    from .. import eml
+
+    root = Path(a.path)
+    if not root.exists():
+        _p(f"경로가 없습니다: {root}")
+        return 1
+    targets = eml.collect(root)
+    if not targets:
+        _p(f".eml 파일이 없습니다: {root}")
+        _p("  아웃룩의 .msg 는 형식이 달라 읽지 못합니다 - 메일 앱에서 "
+           "«다른 이름으로 저장»으로 .eml 을 만드세요.")
+        return 1
+
+    keep = bool(a.save)
+    mails, broken = [], []
+    for path in targets:
+        try:
+            mails.append(eml.read_mail(path, keep_data=keep))
+        except eml.EmlError as e:
+            broken.append([path.name, _cut(str(e), 40)])
+
+    if mails:
+        _grid(["파일", "보낸 사람", "제목", "받은 시각", "첨부"],
+              [[_cut(m.path.name, 24), _cut(m.sender, 24), _cut(m.subject, 30),
+                m.when, str(len(m.attachments)) if m.attachments else ""]
+               for m in mails[:a.limit]], limit=30)
+        if len(mails) > a.limit:
+            _p(f"  ... {len(mails) - a.limit:,}개 더")
+    if broken:
+        _p(f"\n읽지 못한 파일 {len(broken)}개")
+        _grid(["파일", "까닭"], broken[:a.limit], limit=40)
+
+    if a.body:
+        for m in mails[:a.limit]:
+            _p(f"\n[{m.path.name}] {m.subject}")
+            if m.html_only:
+                _p("  글자 본문이 없고 HTML 만 있습니다 "
+                   "(at doc from-html 로 옮겨 보세요).")
+            _dump(m.body.strip() or "(본문 없음)")
+
+    attached = [(m, at) for m in mails for at in m.attachments]
+    if not a.save:
+        if attached:
+            _p(f"\n첨부 {len(attached)}개. --save 폴더 로 꺼낼 수 있습니다.")
+        _p("메일은 읽기만 합니다. 보내지 않습니다.")
+        return 0 if mails else 1
+
+    where = Path(a.save)
+    if not attached:
+        _p("\n꺼낼 첨부가 없습니다.")
+        return 1
+    _p(f"\n첨부 {len(attached)}개  ->  {where}/")
+    if not a.apply:
+        for m, item in attached[:a.limit]:
+            _p(f"  [미리보기] {item.name}  {files.human_size(item.size)}"
+               f"  ({m.path.name})")
+        if len(attached) > a.limit:
+            _p(f"  ... {len(attached) - a.limit:,}개 더")
+        _p("\n실제로 꺼내려면 --apply 를 붙이세요.")
+        return 0
+
+    where.mkdir(parents=True, exist_ok=True)
+    made = 0
+    for m, item in attached:
+        # 메일에 적힌 이름을 그대로 쓰면 «../» 나 긴 이름이 섞여 온다
+        target = files.unique_path(where / hangul.sanitize_filename(item.name))
+        try:
+            target.write_bytes(item.data)
+        except OSError as e:
+            _p(f"  못 만듦: {item.name} ({e})")
+            continue
+        made += 1
+        if made <= a.limit:
+            _p(f"  {target.name}  {files.human_size(item.size)}")
+    if made > a.limit:
+        _p(f"  ... {made - a.limit:,}개 더")
+    _p(f"\n{made}개를 꺼냈습니다: {where}/")
+    _p("같은 이름이 있으면 «(1)» 을 붙였습니다. 원본 메일은 건드리지 않습니다.")
+    return 0
 
 
 def _pdftext_folder(a, root: Path) -> int:
@@ -1675,6 +1758,18 @@ def add_commands(sub) -> None:
                   "    at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf\n"
                   "    at file pdfcut 모음.pdf --each --apply")
     cut.set_defaults(func=cmd_file_pdfcut)
+
+    em = fp.add_parser("eml", help="받은 메일(.eml) 훑기·첨부 꺼내기")
+    em.add_argument("path", metavar="파일 또는 폴더")
+    em.add_argument("--body", action="store_true", help="본문도 보여 준다")
+    em.add_argument("--save", metavar="폴더", help="첨부를 이 폴더에 꺼낸다")
+    em.add_argument("--apply", action="store_true", help="실제로 꺼낸다")
+    em.add_argument("--limit", type=int, default=20, metavar="개")
+    em.epilog = ("예: at file eml 받은메일/\n"
+                 "    at file eml 받은메일/ --save 첨부/ --apply\n"
+                 "    at file eml 안내.eml --body\n"
+                 "아웃룩의 .msg 는 읽지 못합니다 - 메일 앱에서 .eml 로 저장하세요.")
+    em.set_defaults(func=cmd_file_eml)
 
     txt = fp.add_parser("pdftext", help="PDF 에서 글자 꺼내기 (찾기·붙여넣기)")
     txt.add_argument("file", metavar="파일.pdf 또는 폴더")

@@ -235,6 +235,28 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("못 연 파일 1개", 한꺼번에)
         self.assertTrue(Path(self.path("꺼낸글", "번호.txt")).is_file())
 
+        # 받은 메일(.eml) 훑기와 첨부 꺼내기
+        from email.message import EmailMessage
+
+        메일함 = Path(self.path("받은메일"))
+        메일함.mkdir(exist_ok=True)
+        쪽지 = EmailMessage()
+        쪽지["From"] = "홍길동 <hong@example.com>"
+        쪽지["Subject"] = "정산 자료"
+        쪽지.set_content("확인 부탁드립니다.")
+        쪽지.add_attachment("이름,금액\n홍길동,1000\n".encode("utf-8"),
+                          maintype="text", subtype="csv",
+                          filename="../정산 내역.csv")
+        (메일함 / "받은.eml").write_bytes(쪽지.as_bytes())
+        훑음 = self.run_cli("file", "eml", str(메일함))
+        self.assertIn("정산 자료", 훑음)
+        꺼냄 = self.run_cli("file", "eml", str(메일함),
+                          "--save", self.path("첨부"), "--apply")
+        self.assertIn("1개를 꺼냈습니다", 꺼냄)
+        # 메일에 적힌 «../» 이름으로 폴더 밖에 쓰면 안 된다
+        self.assertFalse(Path(self.path("정산 내역.csv")).exists())
+        self.assertEqual(len(list(Path(self.path("첨부")).iterdir())), 1)
+
         pdf폴더 = Path(self.path("피디에프"))
         pdf폴더.mkdir(exist_ok=True)
         self.run_cli("file", "pdf", str(사진), "-o", str(pdf폴더 / "이름.pdf"),
