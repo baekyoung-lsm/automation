@@ -3,6 +3,7 @@
 import shutil
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 import sys
@@ -206,6 +207,51 @@ class XlsxTest(unittest.TestCase):
         path = self.root / "x.xlsx"
         xlsx.write_sheets(path, {"s": [["a & b <c>", "탭\t유지"]]})
         self.assertEqual(xlsx.read_sheet(path)[0][0], "a & b <c>")
+
+
+class BrokenXlsxTest(unittest.TestCase):
+    """열지 못하는 파일. 파이썬 역추적 대신 무엇을 해야 하는지 알려야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_password_protected_workbook(self):
+        # 암호 건 엑셀도 zip 은 zip 이고 알맹이가 EncryptedPackage 하나뿐이다
+        path = self.root / "암호.xlsx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("EncryptedPackage", b"\x00" * 20)
+            z.writestr("[Content_Types].xml", "<Types/>")
+        with self.assertRaises(xlsx.XlsxError) as caught:
+            xlsx.sheet_names(path)
+        self.assertIn("암호", str(caught.exception))
+
+    def test_ole_container_names_both_causes(self):
+        # 옛 .xls 와 암호 건 xlsx 는 겉모습이 같다 - 한쪽으로 단정하지 않는다
+        path = self.root / "옛것.xlsx"
+        path.write_bytes(xlsx.OLE_MAGIC + b"\x00" * 64)
+        with self.assertRaises(xlsx.XlsxError) as caught:
+            xlsx.read_sheet(path)
+        message = str(caught.exception)
+        self.assertIn("암호", message)
+        self.assertIn(".xls", message)
+
+    def test_missing_part_is_not_a_traceback(self):
+        path = self.root / "조각없음.xlsx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("[Content_Types].xml", "<Types/>")
+        with self.assertRaises(xlsx.XlsxError) as caught:
+            xlsx.sheet_names(path)
+        self.assertIn("xl/workbook.xml", str(caught.exception))
+
+    def test_broken_xml_part(self):
+        path = self.root / "깨진.xlsx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("xl/workbook.xml", "<workbook><sheets>")
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.sheet_names(path)
 
 
 class SheetTest(unittest.TestCase):

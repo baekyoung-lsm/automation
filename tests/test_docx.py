@@ -266,6 +266,23 @@ class ForeignDocxTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+class LockedDocxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_password_protected_document(self):
+        # 암호 건 워드도 zip 이다. «워드 문서가 아니다» 로 알리면 엉뚱한 데를 본다
+        path = self.root / "암호.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("EncryptedPackage", b"\x00" * 20)
+        with self.assertRaises(docx.DocxError) as caught:
+            docx.read_document(path)
+        self.assertIn("암호", str(caught.exception))
+
+
 class MergedCellTest(unittest.TestCase):
     """가로로 병합한 칸. 한 칸으로 세면 뒤 열 값이 통째로 사라진다."""
 

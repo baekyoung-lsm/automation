@@ -176,7 +176,13 @@ def read_document(path: Path) -> list[tuple[str, object]]:
     path = Path(path)
     try:
         with zipfile.ZipFile(path) as z:
-            if "word/document.xml" not in z.namelist():
+            names = z.namelist()
+            if "word/document.xml" not in names:
+                # 암호 건 워드도 zip 은 zip 인데 알맹이가 EncryptedPackage 뿐이다.
+                # «워드 문서가 아니다» 로 알리면 엉뚱한 데를 고치게 된다
+                if any(n.startswith("EncryptedPackage") for n in names):
+                    raise DocxError("암호가 걸린 워드 문서입니다. 워드에서 암호를 "
+                                    "풀고 저장한 뒤에 다시 해 보세요.")
                 raise DocxError("워드 문서가 아닙니다 (word/document.xml 이 없습니다). "
                                 "구버전 .doc 은 읽지 못합니다.")
             with z.open("word/document.xml") as stream:

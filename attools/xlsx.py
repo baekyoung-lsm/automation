@@ -72,6 +72,9 @@ def safe_sheet_name(name: str) -> str:
     return cleaned[:31]
 
 
+OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
 def _open(path: Path) -> zipfile.ZipFile:
     """xlsx 를 연다. zip 이 아니면 사람 말로 알린다.
 
@@ -81,6 +84,19 @@ def _open(path: Path) -> zipfile.ZipFile:
     try:
         return zipfile.ZipFile(path)
     except zipfile.BadZipFile:
+        head = b""
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(8)
+        except OSError:
+            pass
+        # 옛 .xls 와 암호 걸린 xlsx 는 둘 다 OLE 통(D0 CF 11 E0)이라 겉만 보고는
+        # 가를 수 없다. 한쪽으로 단정하면 엉뚱한 데를 고치게 된다.
+        if head.startswith(OLE_MAGIC):
+            raise XlsxError(
+                f"엑셀이 읽는 zip 이 아닙니다: {Path(path).name} "
+                "(암호가 걸린 엑셀이거나 옛 .xls 입니다. 엑셀에서 열어 암호를 "
+                "풀거나 «다른 이름으로 저장»으로 xlsx 로 바꿔 주세요)") from None
         raise XlsxError(
             f"엑셀 파일이 아닙니다: {Path(path).name} "
             "(xlsx 는 zip 인데 그렇지 않습니다. 옛 .xls 라면 엑셀에서 "
@@ -89,9 +105,32 @@ def _open(path: Path) -> zipfile.ZipFile:
         raise XlsxError(f"열지 못했습니다: {exc}") from None
 
 
+def _part(z: zipfile.ZipFile, name: str) -> ET.Element:
+    """xlsx 안의 xml 조각 하나. 없거나 깨졌으면 사람 말로 알린다.
+
+    암호 건 엑셀은 zip 은 zip 인데 알맹이가 EncryptedPackage 하나뿐이다.
+    그대로 두면 «xl/workbook.xml 이 없다» 는 파이썬 역추적만 뜬다.
+    """
+    try:
+        raw = z.read(name)
+    except KeyError:
+        if any(n.startswith("EncryptedPackage") for n in z.namelist()):
+            raise XlsxError("암호가 걸린 엑셀입니다. 엑셀에서 암호를 풀고 "
+                            "저장한 뒤에 다시 해 보세요.") from None
+        raise XlsxError(f"엑셀 파일이 온전하지 않습니다 (없는 조각: {name}). "
+                        "다른 프로그램에서 만든 파일이면 엑셀로 열어 다시 "
+                        "저장해 보세요.") from None
+    except OSError as exc:
+        raise XlsxError(f"열지 못했습니다: {exc}") from None
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError as exc:
+        raise XlsxError(f"엑셀 파일이 깨졌습니다 ({name}: {exc}).") from None
+
+
 def sheet_names(path: Path) -> list[str]:
     with _open(path) as z:
-        wb = ET.fromstring(z.read("xl/workbook.xml"))
+        wb = _part(z, "xl/workbook.xml")
         return [s.get("name", "") for s in wb.findall("m:sheets/m:sheet", NS)]
 
 
@@ -142,8 +181,8 @@ def _shared_strings(z: zipfile.ZipFile) -> list[str]:
 
 
 def _sheet_part(z: zipfile.ZipFile, name: str | None) -> str:
-    wb = ET.fromstring(z.read("xl/workbook.xml"))
-    rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+    wb = _part(z, "xl/workbook.xml")
+    rels = _part(z, "xl/_rels/workbook.xml.rels")
     targets = {r.get("Id"): r.get("Target", "") for r in rels}
 
     sheets = wb.findall("m:sheets/m:sheet", NS)

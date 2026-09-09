@@ -171,6 +171,10 @@ def read_document(path: Path) -> list[tuple[str, object]]:
     with _open(path) as z:
         sections = _sections(z)
         if not sections:
+            # 암호 건 문서도 zip 은 zip 이다. 알맹이 이름으로 가른다
+            if any(n.startswith("EncryptedPackage") for n in z.namelist()):
+                raise HwpxError("암호가 걸린 문서입니다. 한글에서 암호를 풀고 "
+                                "저장한 뒤에 다시 해 보세요.")
             raise HwpxError("본문을 찾지 못했습니다 (Contents/section0.xml 이 "
                             "없습니다). 한글 문서(hwpx)가 맞는지 확인하세요.")
         for name in sections:

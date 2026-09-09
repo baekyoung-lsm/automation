@@ -147,6 +147,22 @@ class HwpxTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+class LockedHwpxTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_password_protected_document(self):
+        path = self.root / "암호.hwpx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("EncryptedPackage", b"\x00" * 20)
+        with self.assertRaises(hwpx.HwpxError) as caught:
+            hwpx.read_document(path)
+        self.assertIn("암호", str(caught.exception))
+
+
 class HwpxLineBreakTest(unittest.TestCase):
     """문단 안에서 줄을 바꾼 자리와 탭. 버리면 두 줄이 한 줄이 된다."""
 
