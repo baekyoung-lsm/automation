@@ -2703,7 +2703,12 @@ def sql_value(value: object, dialect: str) -> str:
         return "'" + value.strftime("%Y-%m-%d %H:%M:%S") + "'"
     if isinstance(value, date):
         return "'" + value.strftime("%Y-%m-%d") + "'"
-    return "'" + to_text(value).replace("'", "''") + "'"
+    body = to_text(value)
+    # MySQL 은 역슬래시를 이스케이프 문자로 본다. 그대로 두면 «\ 끝» 이
+    # « 끝» 이 되어 조용히 값이 달라진다 (표준 SQL 은 글자 그대로다).
+    if dialect == "mysql":
+        body = body.replace("\\", "\\\\")
+    return "'" + body.replace("'", "''") + "'"
 
 
 def _sql_column_type(values: list, dialect: str) -> str:

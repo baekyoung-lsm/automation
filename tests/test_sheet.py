@@ -2039,6 +2039,13 @@ class ToSqlTest(unittest.TestCase):
         body = sheet.to_sql(self.table(), "users", dialect="mysql")
         self.assertIn("INSERT INTO `users` (`사번`", body)
 
+    def test_mysql_doubles_backslashes(self):
+        # MySQL 은 역슬래시를 이스케이프 문자로 본다. 그대로 두면 조용히
+        # 값이 달라진다. 표준 SQL 쪽은 글자 그대로 둔다
+        table = sheet.Table(["메모"], [["경로 C:\\새 폴더"]])
+        self.assertIn("C:\\\\새 폴더", sheet.to_sql(table, "t", dialect="mysql"))
+        self.assertIn("C:\\새 폴더", sheet.to_sql(table, "t", dialect="sqlite"))
+
     def test_postgres_writes_true_and_false(self):
         body = sheet.to_sql(self.table(), "users", dialect="postgres")
         self.assertIn("TRUE", body)

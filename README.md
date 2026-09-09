@@ -514,7 +514,9 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 `to-sql` 은 빈 칸을 **NULL** 로 넣는다. `''`(빈 글자)로 넣으면 «값이 없음» 과 «빈 글자» 가
 섞여 나중에 `IS NULL` 로 못 찾는다. 따옴표와 참거짓 표기는 `--dialect` 에 맞춰 바뀐다
-(sqlite·postgres 는 `"`, mysql 은 백틱). `--create` 로 CREATE TABLE 초안도 낼 수 있지만
+(sqlite·postgres 는 `"`, mysql 은 백틱). mysql 로 낼 때는 **역슬래시도 두 번 적는다** —
+mysql 은 역슬래시를 이스케이프 문자로 보기 때문에 그대로 두면 `C:\새 폴더` 가 조용히
+달라진다. `--create` 로 CREATE TABLE 초안도 낼 수 있지만
 **타입은 값에서 짐작한 것**이라 그렇다고 주석에 적어 둔다 — 모르고 그대로 돌리면 나중에 더
 고생한다.
 
