@@ -1614,6 +1614,27 @@ class LifeAppTest(UiCase):
 class LifeHourlyTest(UiCase):
     """시급 화면. 셈한 방법을 화면에서도 밝히는지까지 본다."""
 
+    def test_weekly_holiday_pay(self):
+        _, data = self.post("/api/life/weekly",
+                            {"wkhourly": "10000", "wkhours": "20"})
+        rows = {row[0]: row[1] for row in data["rows"]}
+        self.assertTrue(data["eligible"])
+        self.assertEqual(rows["주휴수당"], "40,000원")
+        self.assertEqual(rows["일한 시간 임금"], "200,000원")
+        self.assertIn("(20시간 ÷ 40) × 8", data["formula"])   # 검산할 수 있게
+        self.assertIn("at life weekly", data["command"])
+
+    def test_weekly_under_fifteen_hours(self):
+        _, data = self.post("/api/life/weekly",
+                            {"wkhourly": "10000", "wkhours": "10"})
+        self.assertFalse(data["eligible"])
+        self.assertEqual([row[0] for row in data["rows"]], ["일한 시간 임금"])
+
+    def test_weekly_needs_a_wage(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/life/weekly", {"wkhourly": "얼마", "wkhours": "20"})
+        self.assertEqual(ctx.exception.code, 400)
+
     def test_rates_follow_the_law(self):
         _, data = self.post("/api/life/hourly", {"hmonthly": "2090000"})
         rows = {row[0]: row[1] for row in data["rows"]}

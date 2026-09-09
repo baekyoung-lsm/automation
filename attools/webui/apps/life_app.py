@@ -254,6 +254,33 @@ def rent(payload: dict) -> dict:
                     "시기에 따라 달라 여기서 정하지 않습니다."}
 
 
+def weekly(payload: dict) -> dict:
+    """주휴수당. 계산식을 그대로 돌려줘서 사람이 검산할 수 있게 한다."""
+    try:
+        hourly_won = int(life.parse_amount(form.text(payload, "wkhourly")))
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+    hours = form.number(payload, "wkhours", 40, low=0, high=168)
+    try:
+        week = life.weekly_holiday_pay(hourly_won, float(hours))
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    rows = [["일한 시간 임금", f"{week.work_pay:,}원"]]
+    if week.eligible:
+        rows += [["주휴수당", f"{week.holiday_pay:,}원"],
+                 ["주급 합계", f"{week.weekly_total:,}원"],
+                 ["한 달 어림", f"{week.monthly:,}원"]]
+    formula = (f"({week.weekly_hours:g}시간 ÷ {life.WEEKLY_FULL_HOURS}) × "
+               f"{life.WEEKLY_PAID_HOURS} × {hourly_won:,}원 = "
+               f"{week.holiday_pay:,}원 ({week.paid_hours:g}시간분)")
+    return {"rows": rows, "eligible": week.eligible, "formula": formula,
+            "capped": week.weekly_hours > life.WEEKLY_FULL_HOURS,
+            "least": life.WEEKLY_MIN_HOURS,
+            "command": form.command("life", "weekly", hourly_won,
+                                    "--hours", f"{float(hours):g}")}
+
+
 def hourly(payload: dict) -> dict:
     """통상시급과 연장·야간·휴일 가산 수당."""
     try:
@@ -434,6 +461,7 @@ BODY = """
   <button data-tab="rent" aria-selected="false">전월세</button>
   <button data-tab="worktime" aria-selected="false">근무 시간</button>
   <button data-tab="hourly" aria-selected="false">시급·수당</button>
+  <button data-tab="weekly" aria-selected="false">주휴수당</button>
   <button data-tab="annual" aria-selected="false">연차</button>
   <button data-tab="severance" aria-selected="false">퇴직금</button>
   <button data-tab="won" aria-selected="false">금액 한글</button>
@@ -600,6 +628,24 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-hourly">계산</button></div>
   </div>
   <div id="hourly-out"></div>
+</section>
+
+<section class="card" data-panel="weekly" hidden>
+  <h2>주휴수당</h2>
+  <p class="note">1주 소정근로시간이 <b>15시간 이상</b>이면 주휴수당이 붙습니다
+     (근로기준법 제55조·시행령 제30조). <code>(1주 소정근로시간 ÷ 40) × 8 × 시급</code>
+     이고, 40시간을 넘겨 일해도 주휴는 8시간분까지입니다. <b>계산식을 그대로
+     보여 드리니</b> 숫자가 이상하면 어디가 틀렸는지 바로 보입니다.
+     1주 소정근로일을 «개근» 해야 나오므로 결근한 주에는 없습니다.</p>
+  <div class="row">
+    <div style="flex:1 1 10rem"><label for="wkhourly">시급</label>
+      <input type="text" id="wkhourly" placeholder="10030" spellcheck="false"></div>
+    <div style="flex:0 1 10rem"><label for="wkhours">1주 소정근로시간</label>
+      <input type="text" id="wkhours" value="40" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-weekly">계산</button></div>
+  </div>
+  <div id="weeklymsg"></div>
+  <div id="weekly-out"></div>
 </section>
 
 <section class="card" data-panel="annual" hidden>
@@ -802,6 +848,23 @@ BODY = """
     }, function (d) { table2("rent-out", d); });
   });
 
+  $("btn-weekly").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/life/weekly",
+        { wkhourly: $("wkhourly").value, wkhours: $("wkhours").value });
+      $("weekly-out").innerHTML =
+        AT.table(["무엇", "얼마"], d.rows, [null, "num"]) +
+        (d.eligible
+          ? '<p class="note">계산식: ' + AT.esc(d.formula) +
+            (d.capped ? " · 40시간을 넘겨도 주휴는 8시간분까지입니다." : "") + "</p>"
+          : "") + AT.command(d.command);
+      AT.message($("weeklymsg"), d.eligible
+        ? "1주 소정근로일을 개근해야 나옵니다."
+        : "1주 소정근로시간이 " + d.least + "시간 미만이라 주휴수당이 없습니다.",
+        d.eligible ? "ok" : "bad");
+    } catch (e) { AT.message($("weeklymsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-hourly").addEventListener("click", function () {
     run("hourly-out", "/api/life/hourly", {
       hmonthly: $("hmonthly").value, hhours: $("hhours").value,
@@ -850,7 +913,8 @@ def make() -> App:
                  "annual": annual, "severance": severance,
                  "tax": tax, "won": won, "workday": workday,
                  "holidays": holidays, "saving": saving, "rent": rent,
-                 "worktime": worktime, "hourly": hourly},
+                 "worktime": worktime, "hourly": hourly,
+                 "weekly": weekly},
         aliases=("일상", "계산", "계산기"),
         section="그 밖",
     )
