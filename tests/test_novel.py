@@ -301,6 +301,30 @@ class PaceTest(unittest.TestCase):
         self.assertEqual(p.finish_day(date(2026, 9, 1)), date(2026, 9, 1))
 
 
+class NotTextTest(unittest.TestCase):
+    """원고 자리에 문서·표 파일을 주는 일. 바이트를 글자로 세면 안 된다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_documents_are_left_out_with_a_hint(self):
+        word = self.root / "원고.docx"
+        word.write_bytes(b"PK\x03\x04")
+        plain = self.root / "1화.md"
+        plain.write_text("본문", encoding="utf-8")
+        self.assertTrue(manuscript.not_text_hint(word))
+        self.assertEqual(manuscript.collect([word, plain]), [plain])
+
+    def test_text_files_are_untouched(self):
+        plain = self.root / "1화.txt"
+        plain.write_text("본문", encoding="utf-8")
+        self.assertEqual(manuscript.not_text_hint(plain), "")
+        self.assertEqual(manuscript.collect([plain]), [plain])
+
+
 class NicknameSuffixTest(unittest.TestCase):
     """«민준이» 는 «민준» 과 한 사람이다. 따로 세면 둘 다 후보에서 빠진다."""
 

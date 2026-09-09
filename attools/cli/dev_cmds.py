@@ -24,6 +24,12 @@ def _read_log_lines(sources: list[str]) -> list[str] | None:
         if not path.is_file():
             _p(f"파일이 없습니다: {path}")
             return None
+        # 로그 자리에 문서·표 파일을 주면 zip 바이트를 줄로 세어 «88줄» 이
+        # 나온다. 읽은 척하지 않고 무엇으로 열면 되는지 알린다
+        hint = manuscript.not_text_hint(path)
+        if hint:
+            _p(f"{path.name}: {hint}")
+            return None
         lines += manuscript.read_text(path).splitlines()
     return lines
 
@@ -1325,16 +1331,9 @@ def cmd_dev_timeline(a) -> int:
 
 
 def cmd_dev_log(a) -> int:
-    lines: list[str] = []
-    for source in a.files:
-        if source == "-":
-            lines += sys.stdin.read().splitlines()
-            continue
-        path = Path(source)
-        if not path.is_file():
-            _p(f"파일이 없습니다: {path}")
-            return 1
-        lines += manuscript.read_text(path).splitlines()
+    lines = _read_log_lines(a.files)
+    if lines is None:
+        return 1
 
     if not lines:
         _p("읽을 내용이 없습니다.")

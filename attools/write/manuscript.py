@@ -109,15 +109,37 @@ def analyze(path: Path, text: str | None = None) -> Stats:
     return st
 
 
+# 글이 아니라 문서·표 파일을 준 자리. 그대로 읽으면 zip 바이트가 글자로 세어져
+# «6매» 같은 숫자가 나온다 - 읽은 척하는 것이 제일 나쁘다.
+NOT_TEXT = {
+    ".docx": "워드 문서입니다. at doc from-docx 로 옮긴 뒤 보세요.",
+    ".hwpx": "한글 문서입니다. at doc from-hwpx 로 옮긴 뒤 보세요.",
+    ".pptx": "슬라이드입니다. at doc from-pptx 로 옮긴 뒤 보세요.",
+    ".pdf": "PDF 입니다. at file pdftext 로 글자를 꺼낸 뒤 보세요.",
+    ".xlsx": "엑셀 파일입니다. at sheet peek 로 봅니다.",
+    ".zip": "압축 파일입니다. at file unzip 으로 먼저 푸세요.",
+    ".eml": "메일입니다. at file eml 로 봅니다.",
+}
+
+
+def not_text_hint(path) -> str:
+    """글로 읽으면 안 되는 파일이면 무엇으로 열면 되는지. 아니면 빈 글자."""
+    return NOT_TEXT.get(Path(path).suffix.lower(), "")
+
+
 def collect(paths: list[Path]) -> list[Path]:
-    """디렉터리는 텍스트 파일만 재귀 수집, 파일은 그대로."""
+    """디렉터리는 텍스트 파일만 재귀 수집, 파일은 그대로.
+
+    문서·표 파일을 그대로 주면 뺀다 - 바이트를 글자로 세면 분량이 엉뚱하게
+    나오고, 고치는 명령에서는 원본이 글자로 덮여 사라진다.
+    """
     out: list[Path] = []
     for p in paths:
         if p.is_dir():
             out.extend(sorted(q for q in p.rglob("*")
                               if q.is_file() and q.suffix.lower() in TEXT_SUFFIXES
                               and SNAPSHOT_DIR not in q.parts))
-        elif p.is_file():
+        elif p.is_file() and not not_text_hint(p):
             out.append(p)
     return out
 

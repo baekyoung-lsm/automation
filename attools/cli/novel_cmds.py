@@ -33,7 +33,7 @@ def _parse_goal(text: str) -> int:
 
 
 def cmd_novel_stats(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -46,6 +46,20 @@ def cmd_novel_stats(a) -> int:
     if len(stats) > 1:
         _print_stats(manuscript.total(stats))
     return 0
+
+
+def _novel_targets(paths) -> list[Path]:
+    """원고 파일들. 글이 아닌 파일을 줬으면 무엇으로 열면 되는지 알린다.
+
+    바이트를 글자로 세면 분량이 엉뚱하게 나오고, 고치는 명령에서는 원본이
+    글자로 덮여 사라진다. 조용히 빼면 «왜 안 세지» 가 된다.
+    """
+    given = [Path(one) for one in paths]
+    for path in given:
+        hint = manuscript.not_text_hint(path) if path.is_file() else ""
+        if hint:
+            _p(f"{path.name}: {hint}")
+    return manuscript.collect(given)
 
 
 def cmd_novel_check(a) -> int:
@@ -215,7 +229,7 @@ def cmd_novel_pace(a) -> int:
 
 
 def cmd_novel_outline(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -271,7 +285,7 @@ def cmd_novel_outline(a) -> int:
 def cmd_novel_find(a) -> int:
     import re as _re
 
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -313,7 +327,7 @@ def cmd_novel_find(a) -> int:
 
 
 def cmd_novel_timeline(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -360,7 +374,7 @@ def cmd_novel_timeline(a) -> int:
 
 
 def cmd_novel_style(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -405,7 +419,7 @@ def cmd_novel_style(a) -> int:
 
 
 def cmd_novel_export(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     # 내보낸 파일이 원고 디렉터리 안에 있으면 다음 실행에서 원고로 다시 잡힌다.
     # 형식을 바꿔 가며 내보내면 투고본.txt 가 투고본.html 의 원고가 되는 식이다.
     if a.out:
@@ -479,7 +493,7 @@ def cmd_novel_export(a) -> int:
 
 
 def cmd_novel_cast(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -524,7 +538,7 @@ def cmd_novel_cast(a) -> int:
 
 
 def cmd_novel_tidy(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -564,7 +578,7 @@ def cmd_novel_tidy(a) -> int:
 
 def cmd_novel_rename(a) -> int:
     """인물 이름을 바꾸면서 뒤에 붙은 조사도 새 이름에 맞춘다."""
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -617,7 +631,7 @@ def cmd_novel_rename(a) -> int:
 
 def cmd_novel_punct(a) -> int:
     """문장 부호를 점검하고, 고칠 수 있는 것만 고친다."""
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -681,7 +695,7 @@ def cmd_novel_punct(a) -> int:
 
 
 def cmd_novel_quote(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -767,7 +781,7 @@ def cmd_novel_split(a) -> int:
 
 
 def cmd_novel_say(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -820,7 +834,7 @@ def cmd_novel_say(a) -> int:
 
 
 def cmd_novel_notes(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -869,7 +883,7 @@ def cmd_novel_notes(a) -> int:
 
 
 def cmd_novel_dialogue(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -921,7 +935,7 @@ def cmd_novel_dialogue(a) -> int:
 
 
 def cmd_novel_wordlist(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1
@@ -1005,7 +1019,7 @@ def _where(marks: list[tuple[int, Path]], line: int) -> str:
 
 
 def cmd_novel_names(a) -> int:
-    targets = manuscript.collect([Path(p) for p in a.paths])
+    targets = _novel_targets(a.paths)
     if not targets:
         _p("텍스트 파일을 찾지 못했습니다.")
         return 1

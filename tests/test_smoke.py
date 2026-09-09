@@ -718,6 +718,10 @@ class SmokeTest(unittest.TestCase):
                           "--since", "2026-09-01 10:00", "-o", self.path("자른.log"))
         self.assertIn("줄 중", 자름)
         self.assertTrue(Path(self.path("자른.log")).is_file())
+        # 로그 자리에 엑셀을 주면 zip 바이트를 줄로 세지 않고 그렇다고 말한다
+        헛것 = self.run_cli("dev", "log", self.path("명단.xlsx"), expect=1)
+        self.assertIn("at sheet peek", 헛것)
+
         접근 = Path(self.path("access.log"))
         접근.write_text(
             '10.0.0.1 - - [01/Sep/2026:10:00:00 +0900] "GET /api/pay HTTP/1.1" 200 12 30ms\n'
