@@ -383,9 +383,26 @@ class NamesTest(unittest.TestCase):
         found = names.extract_speech(self.SPEECH, ["리안", "카일"])
         self.assertEqual([s.speaker for s in found], ["카일", "리안", "카일", ""])
 
-    def test_extract_speech_does_not_cross_lines(self):
-        # 다음 줄의 이름을 화자로 집으면 안 된다
+    def test_speaker_on_the_next_line(self):
+        # «"대사."» 다음 줄에 «카일이 말했다» 만 오는 배치가 한국 소설에 흔하다.
+        # 이름과 말하는 동사가 함께 있는 지문 한 줄까지만 본다
         text = '"대사."\n카일이 다음 줄에서 말했다.\n'
+        found = names.extract_speech(text, ["카일"])[0]
+        self.assertEqual(found.speaker, "카일")
+        self.assertTrue(found.nearby)
+
+    def test_next_line_without_a_speech_verb_is_not_a_speaker(self):
+        # 이름만 지나가는 줄을 화자로 집으면 집계가 통째로 어긋난다
+        text = '"대사."\n카일은 창밖을 보았다.\n'
+        self.assertEqual(names.extract_speech(text, ["카일"])[0].speaker, "")
+
+    def test_two_names_on_the_next_line_stay_unknown(self):
+        text = '"대사."\n리안은 대답하지 않았다. 카일이 말했다.\n'
+        self.assertEqual(
+            names.extract_speech(text, ["리안", "카일"])[0].speaker, "")
+
+    def test_only_one_narration_line_is_looked_at(self):
+        text = '"대사."\n문이 닫혔다.\n카일이 말했다.\n'
         self.assertEqual(names.extract_speech(text, ["카일"])[0].speaker, "")
 
     def test_extract_speech_detects_politeness(self):

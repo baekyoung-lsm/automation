@@ -874,9 +874,14 @@ def cmd_novel_dialogue(a) -> int:
             " ".join(f"{e}{n}" for e, n in p.top_endings) or "-"]
            for p in profiles[:a.limit]], limit=22)
 
+    nearby = sum(1 for s in speeches if s.nearby)
+    if nearby:
+        _p(f"그중 {nearby:,}개는 옆 줄에서 찾았습니다 (이름과 «말했다» 가 함께 "
+           "있는 지문 한 줄까지만 봅니다).")
     if unknown / total > 0.3:
-        _p(f"\n화자를 못 찾은 대사가 {unknown / total:.0%} 입니다. 같은 줄에 이름이 "
-           "없으면 비워 둡니다 - 억지로 채우면 집계가 어긋나서입니다.")
+        _p(f"\n화자를 못 찾은 대사가 {unknown / total:.0%} 입니다. 같은 줄에도 "
+           "옆 줄에도 이름이 없으면 비워 둡니다 - 억지로 채우면 집계가 "
+           "어긋나서입니다.")
 
     if a.samples:
         _p("")

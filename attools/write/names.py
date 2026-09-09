@@ -188,6 +188,11 @@ def dialogue_speakers(text: str, names: list[str], *, window: int = 20) -> Count
 # --------------------------------------------------------------------- 대사
 
 DIALOGUE_RE = re.compile(r"[\"“](.+?)[\"”]|[「『](.+?)[」』]", re.S)
+# 대사 옆 줄에 «민준이 물었다» 만 있는 배치가 한국 소설에 아주 흔하다.
+# 이름만 있는 줄은 안 보고, 말하는 동사가 함께 있는 줄만 화자로 본다.
+SAID_RE = re.compile(
+    "말했다|말한다|말을 이었다|물었다|묻는다|되물었다|대답했다|대답한다|"
+    "외쳤다|소리쳤다|중얼거렸다|속삭였다|덧붙였다|내뱉었다|읊조렸다")
 
 # 존댓말 종결. 대사 끝을 보고 가른다.
 POLITE_END = re.compile(
@@ -204,6 +209,7 @@ class Speech:
     speaker: str
     line: int
     polite: bool
+    nearby: bool = False     # 같은 줄이 아니라 옆 줄에서 찾은 화자인가
 
 
 @dataclass
@@ -249,6 +255,7 @@ def extract_speech(text: str, people: list[str], *, window: int = 40) -> list[Sp
             continue
 
         speaker = ""
+        nearby = False
         if finder:
             line_end = text.find("\n", m.end())
             line_end = len(text) if line_end < 0 else line_end
@@ -261,10 +268,54 @@ def extract_speech(text: str, people: list[str], *, window: int = 40) -> list[Sp
                 speaker = found.group(0)
             elif found := finder.search(head):
                 speaker = found.group(0)
+            else:
+                speaker = _speaker_nearby(text, m, finder, line_start, line_end)
+                nearby = bool(speaker)
 
         out.append(Speech(body, speaker, _line_of(text, m.start()),
-                          bool(POLITE_END.search(body))))
+                          bool(POLITE_END.search(body)), nearby))
     return out
+
+
+def _speaker_nearby(text: str, m: "re.Match", finder: "re.Pattern",
+                    line_start: int, line_end: int) -> str:
+    """대사 바로 옆 줄에서 화자를 찾는다. 못 찾으면 빈 글자.
+
+    «"오늘도 안 올 거야?"» 다음 줄에 «민준이 물었다» 만 오는 배치가 흔하다.
+    이름만 있는 줄은 보지 않는다 - 옆 줄에 다른 인물이 지나가기만 해도
+    그 사람이 말한 것이 되어 인물별 집계가 통째로 어긋난다.
+    """
+    for start, end in _neighbour_lines(text, line_start, line_end):
+        line = text[start:end]
+        if not line.strip() or DIALOGUE_RE.search(line):
+            continue
+        found = {m.group(0) for m in finder.finditer(line)}
+        # 이름이 둘 이상이면 누가 말했는지 알 수 없다 - «리안은 대답하지
+        # 않았다. 카일이 말했다» 에서 아무 쪽이나 집으면 집계가 어긋난다
+        if len(found) == 1 and SAID_RE.search(line):
+            return found.pop()
+        break        # 바로 옆의 지문 한 줄까지만 본다
+    return ""
+
+
+def _neighbour_lines(text: str, line_start: int, line_end: int):
+    """대사 줄의 다음 줄, 그다음 앞줄의 (시작, 끝). 빈 줄은 건너뛴다."""
+    after = line_end + 1
+    while after < len(text):
+        stop = text.find("\n", after)
+        stop = len(text) if stop < 0 else stop
+        if text[after:stop].strip():
+            yield after, stop
+            break
+        after = stop + 1
+
+    before = line_start - 1
+    while before > 0:
+        start = text.rfind("\n", 0, before) + 1
+        if text[start:before].strip():
+            yield start, before
+            break
+        before = start - 1
 
 
 def voice_profiles(speeches: list[Speech]) -> tuple[list[VoiceProfile], int]:
