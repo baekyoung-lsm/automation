@@ -250,6 +250,10 @@ class SmokeTest(unittest.TestCase):
         (메일함 / "받은.eml").write_bytes(쪽지.as_bytes())
         훑음 = self.run_cli("file", "eml", str(메일함))
         self.assertIn("정산 자료", 훑음)
+        목록 = Path(self.path("메일목록.csv"))
+        self.assertIn("1통", self.run_cli("file", "eml", str(메일함),
+                                         "-o", str(목록)))
+        self.assertIn("정산 자료", 목록.read_text(encoding="utf-8-sig"))
         꺼냄 = self.run_cli("file", "eml", str(메일함),
                           "--save", self.path("첨부"), "--apply")
         self.assertIn("1개를 꺼냈습니다", 꺼냄)

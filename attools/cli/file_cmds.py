@@ -259,6 +259,20 @@ def cmd_file_eml(a) -> int:
                    "(at doc from-html 로 옮겨 보세요).")
             _dump(m.body.strip() or "(본문 없음)")
 
+    if a.out:
+        from .. import sheet
+
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        table = sheet.Table(
+            ["파일", "보낸 사람", "받는 사람", "제목", "받은 시각", "첨부 수",
+             "첨부 이름"],
+            [[m.path.name, m.sender, m.to, m.subject, m.when,
+              len(m.attachments), ", ".join(at.name for at in m.attachments)]
+             for m in mails])
+        _p(f"\n저장: {sheet.save(table, out)}  ({len(mails):,}통)")
+
     attached = [(m, at) for m in mails for at in m.attachments]
     if not a.save:
         if attached:
@@ -1763,9 +1777,14 @@ def add_commands(sub) -> None:
     em.add_argument("path", metavar="파일 또는 폴더")
     em.add_argument("--body", action="store_true", help="본문도 보여 준다")
     em.add_argument("--save", metavar="폴더", help="첨부를 이 폴더에 꺼낸다")
+    em.add_argument("-o", "--out", metavar="파일",
+                    help="메일 목록을 표로 저장 (.csv, .xlsx)")
+    em.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
     em.add_argument("--apply", action="store_true", help="실제로 꺼낸다")
     em.add_argument("--limit", type=int, default=20, metavar="개")
     em.epilog = ("예: at file eml 받은메일/\n"
+                 "    at file eml 받은메일/ -o 메일목록.xlsx\n"
                  "    at file eml 받은메일/ --save 첨부/ --apply\n"
                  "    at file eml 안내.eml --body\n"
                  "아웃룩의 .msg 는 읽지 못합니다 - 메일 앱에서 .eml 로 저장하세요.")
