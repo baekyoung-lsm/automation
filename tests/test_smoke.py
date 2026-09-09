@@ -576,7 +576,10 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("부서 오름, 연봉 내림", 섞어)
         self.run_cli("sheet", "sample", csv, "-n", "2", "--seed", "1")
         self.assertIn("빈 칸", self.run_cli("sheet", "filldown", csv, "-c", "부서"))
-        self.assertIn("합계", self.run_cli("sheet", "total", csv, "-c", "연봉"))
+        # 합계 줄은 맨 아래에 붙는다 - 앞쪽만 찍으면 보려던 줄이 안 보인다
+        합 = self.run_cli("sheet", "total", csv, "-c", "연봉", "--rows", "1")
+        self.assertIn("합계", 합)
+        self.assertIn("접었습니다", 합)
         # 집계한 금액은 자릿점을 넣어 보여 준다 (파일에는 숫자 그대로 담는다)
         모음 = self.run_cli("sheet", "pivot", csv, "--rows", "부서",
                           "--values", "연봉")

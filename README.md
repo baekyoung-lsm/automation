@@ -1208,7 +1208,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet sort <파일> --by <열>` | 정렬. 빈 칸은 항상 뒤로 |
 | `at sheet sample <파일> -n 100` | 표본 뽑기 (`--seed` 로 같은 표본 재현) |
 | `at sheet filldown <파일> -c <열>` | 빈 칸을 바로 위 값으로 채운다 (병합 셀을 푼 표 되살리기) |
-| `at sheet total <파일>` | 맨 아래에 합계 줄을 붙인다 (`--kind avg|count`) |
+| `at sheet total <파일>` | 맨 아래에 합계 줄을 붙인다 (`--kind avg\|count`). 화면에서는 가운데를 접고 **합계 줄을 반드시 보여 준다** |
 | `at sheet split <파일> --by <열>` | 부서별·월별로 파일 쪼개기. `--rows 1000` 이면 행 수로 |
 | `at sheet from-json <파일>` | JSON 배열을 표로 (API 응답 → 엑셀) |
 | `at sheet to-json <파일>` | 표를 JSON 배열로 (엑셀 → API) |

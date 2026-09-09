@@ -104,17 +104,25 @@ def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
         _p(f"  ... 행 {len(rows) - max_rows:,}개 더")
 
 
-def _sheet_result(a, table, headline: str) -> int:
+def _sheet_result(a, table, headline: str, *, keep_last: bool = False) -> int:
     _p(f"{headline}  {len(table.rows):,}행 x {table.width}열")
     if not table.rows:
         _p("맞는 행이 없습니다.")
         return 1
 
-    _grid(table.headers,
-          [[sheet.to_text(v) for v in r] for r in table.rows[:a.rows]],
-          limit=a.width)
-    if len(table.rows) > a.rows:
-        _p(f"  ... {len(table.rows) - a.rows:,}행 더")
+    shown = table.rows[:a.rows]
+    hidden = len(table.rows) - len(shown)
+    body = [[sheet.to_text(v) for v in r] for r in shown]
+    # 합계 줄은 맨 아래에 붙는다. 앞쪽만 찍으면 정작 보려던 줄이 안 보인다
+    folded = hidden and keep_last
+    if folded:
+        body.append(["…"] + [""] * (table.width - 1))
+        body.append([sheet.to_text(v) for v in table.rows[-1]])
+        hidden -= 1
+    _grid(table.headers, body, limit=a.width)
+    if hidden:
+        _p(f"  ... 가운데 {hidden:,}행은 접었습니다" if folded
+           else f"  ... {hidden:,}행 더")
 
     if a.out:
         if not _may_write(a, Path(a.out)):
@@ -1791,7 +1799,8 @@ def cmd_sheet_total(a) -> int:
            "숫자를 먼저 정리하세요.")
         return 1
     return _sheet_result(a, result,
-                         f"{sheet.TOTAL_KINDS[a.kind]} 줄 추가 ({', '.join(counted)})")
+                         f"{sheet.TOTAL_KINDS[a.kind]} 줄 추가 ({', '.join(counted)})",
+                         keep_last=True)
 
 
 def cmd_sheet_sample(a) -> int:
