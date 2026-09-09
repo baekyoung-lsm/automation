@@ -597,6 +597,46 @@ def cmd_doc_from_hwpx(a) -> int:
     return 0
 
 
+def cmd_doc_from_pptx(a) -> int:
+    """슬라이드(pptx)를 마크다운으로. 받은 발표자료를 찾거나 옮길 때 쓴다."""
+    from .. import pptx
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+
+    try:
+        slides = pptx.read_slides(path, notes=a.notes)
+    except pptx.PptxError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    if not any(s.blocks for s in slides):
+        _p(f"슬라이드 {len(slides)}장에서 글자를 찾지 못했습니다. "
+           "(그림만 있는 발표자료일 수 있습니다)")
+        return 1
+
+    markdown = pptx.to_markdown(slides, notes=a.notes)
+    if a.out:
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(markdown, encoding="utf-8")
+        _p(f"저장: {out}  (슬라이드 {len(slides)}장, "
+           f"{len(markdown.splitlines()):,}줄)")
+    else:
+        _p(markdown)
+
+    _p("\n슬라이드의 글자와 표만 옮깁니다. 그림·도형 모양·애니메이션은 "
+       "옮기지 않습니다.")
+    if not a.notes:
+        _p("발표자 노트는 --notes 를 붙이면 함께 옮깁니다.")
+    _p("차례는 파일 이름이 아니라 발표 문서에 적힌 차례를 따릅니다.")
+    return 0
+
+
 def cmd_doc_docx(a) -> int:
     from .. import docx
 
@@ -1048,6 +1088,17 @@ def add_commands(sub) -> None:
     dfh.add_argument("--overwrite", action="store_true",
                      help="이미 있는 파일을 덮어쓴다")
     dfh.set_defaults(func=cmd_doc_from_hwpx)
+
+    dfp = dc.add_parser("from-pptx",
+                        help="슬라이드(pptx)를 마크다운으로 (받은 발표자료 열기)")
+    dfp.add_argument("file", metavar="파일")
+    dfp.add_argument("-o", "--out", metavar="파일")
+    dfp.add_argument("--notes", action="store_true", help="발표자 노트도 옮긴다")
+    dfp.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    dfp.epilog = ("예: at doc from-pptx 사업계획.pptx\n"
+                  "    at doc from-pptx 발표.pptx --notes -o 발표.md")
+    dfp.set_defaults(func=cmd_doc_from_pptx)
 
     ddx = dc.add_parser("docx", help="마크다운을 워드 문서로 (보고서 제출용)")
     ddx.add_argument("file", metavar="파일")

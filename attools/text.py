@@ -20,7 +20,7 @@ def backup_dir() -> Path:
 ENCODINGS = ("utf-8", "cp949", "euc-kr", "utf-16")
 BOM_UTF8 = b"\xef\xbb\xbf"
 # 글자를 꺼낼 수 있는 문서. 찾기에서만 쓴다 - 고치지는 못한다.
-DOCUMENT_SUFFIXES = {".docx", ".hwpx", ".pdf"}
+DOCUMENT_SUFFIXES = {".docx", ".hwpx", ".pdf", ".pptx"}
 
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".gz", ".xz",
@@ -239,6 +239,13 @@ def read_words_or_text(path: Path) -> tuple[str, str]:
             # 조용히 짧은 글을 돌려주면 «그 조항이 없네» 로 잘못 읽는다
             kind = f"PDF 글자(못 읽은 글꼴 {len(found.missing)}개)"
         return found.text, kind
+    if suffix == ".pptx":
+        from . import pptx as pptxkit
+
+        try:
+            return pptxkit.read_text(path, separator="\n\n"), "슬라이드 글자"
+        except pptxkit.PptxError as exc:
+            raise TextError(str(exc)) from None
     if suffix == ".hwpx":
         return hwpx.read_text(path, separator="\n\n"), "한글 문단"
     if suffix in DOCUMENT_SUFFIXES:

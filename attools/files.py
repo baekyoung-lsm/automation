@@ -389,6 +389,7 @@ OOXML_KINDS = {".docx": "워드", ".docm": "워드", ".xlsx": "엑셀",
                ".hwpx": "한글"}
 CORE_PART = "docProps/core.xml"
 APP_PART = "docProps/app.xml"
+SLIDE_PART = re.compile(r"^ppt/slides/slide\d+\.xml$", re.IGNORECASE)
 HWPX_PART = "Contents/content.hpf"      # 한글은 여기에 속성을 담는다
 CORE_FIELDS = {                      # core.xml 의 태그 -> 우리 이름
     "title": "title", "subject": "subject", "creator": "author",
@@ -467,6 +468,8 @@ def document_meta(path: Path) -> DocMeta:
             elif CORE_PART in names or APP_PART in names:
                 core = _xml_texts(z.read(CORE_PART)) if CORE_PART in names else {}
                 app = _xml_texts(z.read(APP_PART)) if APP_PART in names else {}
+            elif any(SLIDE_PART.match(n) for n in names):
+                core, app = {}, {}      # 다른 도구가 만든 pptx 는 속성이 없다
             else:
                 meta.error = "문서 속성이 없습니다"
                 return meta
@@ -488,6 +491,10 @@ def document_meta(path: Path) -> DocMeta:
             setattr(meta, field_name, int(value) if value.isdigit() else None)
         else:
             setattr(meta, field_name, value)
+    # 파워포인트가 아닌 도구로 만든 파일에는 app.xml 이 없다. 그때는 슬라이드
+    # 부품을 세어 둔다 - 장 수는 받은 자료를 훑을 때 제일 먼저 보는 값이다
+    if meta.slides is None and path.suffix.lower() == ".pptx":
+        meta.slides = len([n for n in names if SLIDE_PART.match(n)]) or None
     return meta
 
 

@@ -932,6 +932,20 @@ class SmokeTest(unittest.TestCase):
         한글표 = self.run_cli("sheet", "from-hwpx", str(한글문서))
         self.assertIn("인건비", 한글표)
 
+        슬라이드 = Path(self.path("발표.pptx"))
+        P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        with zipfile.ZipFile(슬라이드, "w") as z:
+            z.writestr("ppt/slides/slide1.xml",
+                       f'<?xml version="1.0"?><p:sld xmlns:p="{P}" xmlns:a="{A}">'
+                       "<p:cSld><p:spTree><p:sp><p:txBody>"
+                       "<a:p><a:r><a:t>사업 계획</a:t></a:r></a:p>"
+                       "<a:p><a:r><a:t>매출 30억</a:t></a:r></a:p>"
+                       "</p:txBody></p:sp></p:spTree></p:cSld></p:sld>")
+        슬라이드옮김 = self.run_cli("doc", "from-pptx", str(슬라이드))
+        self.assertIn("## 1. 사업 계획", 슬라이드옮김)
+        self.assertIn("매출 30억", 슬라이드옮김)
+
         되돌린 = self.run_cli("doc", "from-docx", 워드)
         self.assertIn("하나", 되돌린)
         표뽑기 = self.run_cli("sheet", "from-docx", 워드, expect=1)
