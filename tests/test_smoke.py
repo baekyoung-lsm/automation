@@ -965,6 +965,11 @@ class SmokeTest(unittest.TestCase):
         시급 = self.run_cli("life", "hourly", "300만", "--overtime", "10")
         self.assertIn("통상시급", 시급)
         self.assertIn("연장 10시간", 시급)
+        주휴 = self.run_cli("life", "weekly", "10030", "--hours", "20")
+        self.assertIn("주휴수당", 주휴)
+        self.assertIn("계산식", 주휴)
+        self.assertIn("15시간 미만",
+                      self.run_cli("life", "weekly", "10030", "--hours", "10"))
         self.assertIn("월세", self.run_cli("life", "rent", "--deposit", "5억",
                                            "--keep", "1억"))
         self.assertIn("일금", self.run_cli("life", "won", "125만"))

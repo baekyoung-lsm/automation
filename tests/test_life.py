@@ -507,3 +507,38 @@ class HourlyPayTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class WeeklyHolidayPayTest(unittest.TestCase):
+    """주휴수당 (근로기준법 제55조·시행령 제30조)."""
+
+    def test_full_time_gets_eight_hours(self):
+        week = life.weekly_holiday_pay(10000, 40)
+        self.assertEqual((week.paid_hours, week.holiday_pay), (8.0, 80000))
+        self.assertEqual(week.work_pay, 400000)
+        self.assertEqual(week.weekly_total, 480000)
+
+    def test_part_time_is_proportional(self):
+        week = life.weekly_holiday_pay(10000, 20)
+        self.assertEqual((week.paid_hours, week.holiday_pay), (4.0, 40000))
+
+    def test_under_fifteen_hours_gets_none(self):
+        week = life.weekly_holiday_pay(10000, 14)
+        self.assertFalse(week.eligible)
+        self.assertEqual(week.holiday_pay, 0)
+        self.assertEqual(week.work_pay, 140000)     # 일한 임금은 그대로다
+
+    def test_over_forty_hours_is_capped(self):
+        week = life.weekly_holiday_pay(10000, 52)
+        self.assertEqual(week.paid_hours, 8.0)      # 주휴는 8시간분까지
+        self.assertEqual(week.work_pay, 520000)
+
+    def test_month_is_four_point_three_four_five_weeks(self):
+        week = life.weekly_holiday_pay(10000, 40)
+        self.assertEqual(week.monthly, int(480000 * life.WEEKS_IN_MONTH))
+
+    def test_bad_input(self):
+        with self.assertRaises(ValueError):
+            life.weekly_holiday_pay(0, 40)
+        with self.assertRaises(ValueError):
+            life.weekly_holiday_pay(10000, -1)
+

@@ -128,6 +128,42 @@ def cmd_life_unit(a) -> int:
     return 0
 
 
+def cmd_life_weekly(a) -> int:
+    """시급과 1주 소정근로시간으로 주휴수당을 낸다."""
+    try:
+        hourly = int(life.parse_amount(" ".join(a.amount)))
+        week = life.weekly_holiday_pay(hourly, a.hours)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"시급 {hourly:,}원  ·  1주 소정근로 {week.weekly_hours:g}시간")
+    if not week.eligible:
+        _p(f"\n1주 소정근로시간이 {life.WEEKLY_MIN_HOURS}시간 미만이라 "
+           "주휴수당이 없습니다 (근로기준법 제18조 제3항).")
+        _p(f"일한 시간에 대한 임금만 {week.work_pay:,}원입니다.")
+        return 0
+
+    _grid(["무엇", "얼마"],
+          [["일한 시간 임금", f"{week.work_pay:,}원"],
+           ["주휴수당", f"{week.holiday_pay:,}원"],
+           ["주급 합계", f"{week.weekly_total:,}원"],
+           ["한 달 어림", f"{week.monthly:,}원"]])
+
+    _p(f"\n계산식: ({week.weekly_hours:g}시간 ÷ {life.WEEKLY_FULL_HOURS}) × "
+       f"{life.WEEKLY_PAID_HOURS} × {hourly:,}원 = {week.holiday_pay:,}원 "
+       f"({week.paid_hours:g}시간분)")
+    if week.weekly_hours > life.WEEKLY_FULL_HOURS:
+        _p(f"{life.WEEKLY_FULL_HOURS}시간을 넘겨 일해도 주휴는 "
+           f"{life.WEEKLY_PAID_HOURS}시간분까지만 셉니다.")
+    _p("근로기준법 제55조·시행령 제30조. 1주 소정근로일을 «개근» 해야 나오므로 "
+       "결근한 주에는 없습니다.")
+    _p(f"한 달 어림은 한 달을 {life.WEEKS_IN_MONTH}주로 환산한 값입니다 "
+       "(365÷12÷7). 달마다 주 수가 달라 실제 급여와 다를 수 있습니다.")
+    _p("연장·야간·휴일 가산은 여기 없습니다 (at life hourly 로 봅니다).")
+    return 0
+
+
 def cmd_life_hourly(a) -> int:
     """월 통상임금에서 통상시급과 연장·야간·휴일 가산 수당을 낸다."""
     try:
@@ -620,6 +656,14 @@ def add_commands(sub) -> None:
     ln.add_argument("--table", type=int, default=0, metavar="회차",
                     help="상환표 출력 (-1 이면 전체)")
     ln.set_defaults(func=cmd_life_loan)
+
+    wk = lp.add_parser("weekly", help="주휴수당 - 시급과 1주 소정근로시간으로")
+    wk.add_argument("amount", nargs="+", metavar="시급", help="예: 10030, 1만")
+    wk.add_argument("--hours", type=float, default=40.0, metavar="시간",
+                    help="1주 소정근로시간 (기본 40)")
+    wk.epilog = ("예: at life weekly 10030 --hours 20\n"
+                 "    at life weekly 12000            # 주 40시간")
+    wk.set_defaults(func=cmd_life_weekly)
 
     hr = lp.add_parser("hourly",
                        help="통상시급과 연장·야간·휴일 가산 수당 (근로기준법 제56조)")

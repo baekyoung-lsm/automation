@@ -934,6 +934,54 @@ HOLIDAY_RATE = 1.5           # 휴일근로 8시간까지
 HOLIDAY_OVER_RATE = 2.0      # 휴일근로 8시간을 넘는 시간
 
 
+# 주휴수당 (근로기준법 제55조, 시행령 제30조).
+# 1주 소정근로시간이 15시간 미만이면 주휴일을 주지 않아도 된다.
+WEEKLY_MIN_HOURS = 15
+WEEKLY_FULL_HOURS = 40       # 이 시간을 넘겨도 주휴는 8시간분까지만 센다
+WEEKLY_PAID_HOURS = 8        # 주 40시간 일하는 사람의 주휴 시간
+WEEKS_IN_MONTH = 4.345       # 한 달 환산 (365 / 12 / 7). 어림값이다
+
+
+@dataclass
+class WeeklyPay:
+    hourly: int              # 시급
+    weekly_hours: float      # 1주 소정근로시간
+    paid_hours: float        # 주휴로 치는 시간
+    holiday_pay: int         # 주휴수당
+    work_pay: int            # 일한 시간에 대한 임금
+    eligible: bool           # 주휴 대상인가 (주 15시간 이상)
+
+    @property
+    def weekly_total(self) -> int:
+        return self.work_pay + self.holiday_pay
+
+    @property
+    def monthly(self) -> int:
+        """한 달 어림값. 주 수를 4.345 로 환산한 것이다."""
+        return int(self.weekly_total * WEEKS_IN_MONTH)
+
+
+def weekly_holiday_pay(hourly: int, weekly_hours: float) -> WeeklyPay:
+    """주휴수당을 센다. 계산식을 그대로 보여 줄 수 있게 조각도 함께 돌려준다.
+
+    (1주 소정근로시간 / 40) x 8 x 시급 이고, 40시간을 넘겨 일해도 주휴는
+    8시간분까지다. 1주 소정근로시간이 15시간 미만이면 주휴가 없다.
+    개근이 조건이라 결근한 주에는 나오지 않는다 - 그건 여기서 알 수 없다.
+    """
+    if hourly <= 0:
+        raise ValueError("시급은 0보다 커야 합니다.")
+    if weekly_hours < 0:
+        raise ValueError("1주 소정근로시간은 0보다 작을 수 없습니다.")
+
+    eligible = weekly_hours >= WEEKLY_MIN_HOURS
+    counted = min(weekly_hours, WEEKLY_FULL_HOURS)
+    paid = (counted / WEEKLY_FULL_HOURS) * WEEKLY_PAID_HOURS if eligible else 0.0
+    return WeeklyPay(hourly=hourly, weekly_hours=weekly_hours,
+                     paid_hours=round(paid, 2),
+                     holiday_pay=int(paid * hourly),
+                     work_pay=int(weekly_hours * hourly), eligible=eligible)
+
+
 @dataclass
 class HourlyPay:
     monthly: int             # 월 통상임금
