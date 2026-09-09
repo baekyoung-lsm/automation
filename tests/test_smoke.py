@@ -577,7 +577,10 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("sheet", "sample", csv, "-n", "2", "--seed", "1")
         self.assertIn("빈 칸", self.run_cli("sheet", "filldown", csv, "-c", "부서"))
         self.assertIn("합계", self.run_cli("sheet", "total", csv, "-c", "연봉"))
-        self.run_cli("sheet", "pivot", csv, "--rows", "부서", "--values", "연봉")
+        # 집계한 금액은 자릿점을 넣어 보여 준다 (파일에는 숫자 그대로 담는다)
+        모음 = self.run_cli("sheet", "pivot", csv, "--rows", "부서",
+                          "--values", "연봉")
+        self.assertRegex(모음, r"\d,\d{3}")
         긴표 = self.path("긴표.csv")
         self.assertIn("항목", self.run_cli("sheet", "melt", csv, "--keep", "사번",
                                            "-o", 긴표))

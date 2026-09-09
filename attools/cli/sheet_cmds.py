@@ -72,7 +72,8 @@ def _save_table(a, table) -> int:
 
 
 def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
-               max_rows: int = 40, keep_last: bool = False) -> None:
+               max_rows: int = 40, keep_last: bool = False,
+               commas: bool = False) -> None:
     """열이 많은 표를 화면에 맞게 잘라 찍는다.
 
     30,000행짜리 표를 뒤집으면 열이 30,000개다. 그대로 찍으면 한 줄이 45만
@@ -83,10 +84,18 @@ def _wide_grid(headers: list[str], rows: list[list], *, cols: int = 12,
     shown = headers[:keep] + (headers[-tail:] if tail else [])
     hidden = len(headers) - len(shown)
 
+    def one(value) -> str:
+        if isinstance(value, float):
+            return f"{value:,.2f}"
+        # 집계한 값에만 자릿점을 넣는다. 사번·코드가 든 표에 넣으면 없는
+        # 자리가 생긴 것처럼 보인다
+        if commas and isinstance(value, int) and not isinstance(value, bool):
+            return f"{value:,}"
+        return sheet.to_text(value)
+
     def cells(row):
         picked = list(row[:keep]) + (list(row[-tail:]) if tail else [])
-        return [sheet.to_text(v) if not isinstance(v, float) else f"{v:,.2f}"
-                for v in picked]
+        return [one(v) for v in picked]
 
     _grid(shown, [cells(r) for r in rows[:max_rows]])
     if hidden > 0:
@@ -1498,7 +1507,8 @@ def cmd_sheet_pivot(a) -> int:
     # 아무것도 못 읽는다. 화면에는 앞쪽만 보이고 파일에는 다 담는다.
     # 맨 끝 합계 열은 자르더라도 남긴다. 교차표에서 제일 많이 보는 칸이다
     _wide_grid(result.headers, result.rows, cols=a.cols_shown,
-               max_rows=a.rows_shown, keep_last=result.headers[-1] == "합계")
+               max_rows=a.rows_shown, keep_last=result.headers[-1] == "합계",
+               commas=True)
     _p(f"\n{len(result.rows)}개 그룹")
     if a.out:
         if not _may_write(a, Path(a.out)):
