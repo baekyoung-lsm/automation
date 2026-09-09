@@ -873,10 +873,19 @@ def _xhtml(title: str, body: str) -> str:
             f"<body>\n{body}\n</body>\n</html>\n")
 
 
-def epub_chapter(name: str, body: str, *, indent: bool = False) -> str:
-    """한 화를 XHTML 로. 리더가 XML 파서를 쓰므로 태그를 반드시 닫는다."""
+# XML 이 담지 못하는 제어 문자. EPUB 은 리더가 XML 파서로 읽으므로 하나만
+# 섞여도 그 화가 통째로 안 열린다 - 다른 데서 옮겨 온 원고에 섞여 온다.
+XML_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def xml_escape(text) -> str:
     from html import escape
 
+    return escape(XML_ILLEGAL.sub("", str(text)))
+
+
+def epub_chapter(name: str, body: str, *, indent: bool = False) -> str:
+    """한 화를 XHTML 로. 리더가 XML 파서를 쓰므로 태그를 반드시 닫는다."""
     out = []
     for block in body.split("\n\n"):
         block = block.strip()
@@ -885,9 +894,9 @@ def epub_chapter(name: str, body: str, *, indent: bool = False) -> str:
         if SEPARATOR_ONLY.match(block) or block in ("＊", "*"):
             out.append('<p class="break">＊ ＊ ＊</p>')
             continue
-        text = escape(block).replace("\n", "<br/>\n")
+        text = xml_escape(block).replace("\n", "<br/>\n")
         out.append(f'<p class="indent">{text}</p>' if indent else f"<p>{text}</p>")
-    return _xhtml(escape(name), f"<h2>{escape(name)}</h2>\n" + "\n".join(out))
+    return _xhtml(xml_escape(name), f"<h2>{xml_escape(name)}</h2>\n" + "\n".join(out))
 
 
 def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "",
@@ -900,18 +909,16 @@ def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "
     """
     import uuid
     import zipfile
-    from html import escape
-
     book_title = title or "원고"
     book_id = identifier or f"urn:uuid:{uuid.uuid4()}"
     stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
     names = [f"ch{i:03d}.xhtml" for i in range(1, len(chapters) + 1)]
 
-    cover_body = [f"<h1>{escape(book_title)}</h1>"]
+    cover_body = [f"<h1>{xml_escape(book_title)}</h1>"]
     if author:
-        cover_body.append(f'<p class="author">{escape(author)}</p>')
+        cover_body.append(f'<p class="author">{xml_escape(author)}</p>')
     if note:
-        cover_body.append(f'<p class="author">{escape(note)}</p>')
+        cover_body.append(f'<p class="author">{xml_escape(note)}</p>')
 
     items = "\n".join(
         f'    <item id="ch{i:03d}" href="{name}" media-type="application/xhtml+xml"/>'
@@ -921,10 +928,10 @@ def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "
     opf = f"""<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="bookid">{escape(book_id)}</dc:identifier>
-    <dc:title>{escape(book_title)}</dc:title>
-    <dc:language>{escape(language)}</dc:language>
-    {f"<dc:creator>{escape(author)}</dc:creator>" if author else ""}
+    <dc:identifier id="bookid">{xml_escape(book_id)}</dc:identifier>
+    <dc:title>{xml_escape(book_title)}</dc:title>
+    <dc:language>{xml_escape(language)}</dc:language>
+    {f"<dc:creator>{xml_escape(author)}</dc:creator>" if author else ""}
     <meta property="dcterms:modified">{stamp}</meta>
   </metadata>
   <manifest>
@@ -939,7 +946,7 @@ def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "
   </spine>
 </package>
 """
-    toc = "\n".join(f'      <li><a href="{name}">{escape(chapter[0])}</a></li>'
+    toc = "\n".join(f'      <li><a href="{name}">{xml_escape(chapter[0])}</a></li>'
                     for name, chapter in zip(names, chapters))
     nav = _xhtml("목차",
                  '<nav epub:type="toc" id="toc">\n    <h2>목차</h2>\n'
@@ -959,7 +966,7 @@ def export_epub(chapters: list[tuple[str, str]], dest: "Path", *, title: str = "
         z.writestr("OEBPS/content.opf", opf)
         z.writestr("OEBPS/nav.xhtml", nav)
         z.writestr("OEBPS/style.css", EPUB_CSS)
-        z.writestr("OEBPS/cover.xhtml", _xhtml(escape(book_title),
+        z.writestr("OEBPS/cover.xhtml", _xhtml(xml_escape(book_title),
                                                "\n".join(cover_body)))
         for name, (chapter, body) in zip(names, chapters):
             z.writestr(f"OEBPS/{name}", epub_chapter(chapter, body, indent=indent))

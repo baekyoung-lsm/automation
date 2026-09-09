@@ -546,6 +546,15 @@ class EpubTest(unittest.TestCase):
         self.assertIn('<p class="break">', page)
         self.assertNotIn("<태그>", page)
 
+    def test_control_characters_do_not_break_the_reader(self):
+        # EPUB 은 리더가 XML 파서로 읽는다. 하나만 섞여도 그 화가 안 열린다
+        import xml.etree.ElementTree as ET
+
+        page = manuscript.epub_chapter("제\x01목", "본문\x07 입니다")
+        ET.fromstring(page.split("?>", 1)[1])
+        self.assertIn("제목", page)
+        self.assertIn("본문 입니다", page)
+
     def test_indent_uses_class_not_spaces(self):
         page = manuscript.epub_chapter("제목", "본문", indent=True)
         self.assertIn('class="indent"', page)

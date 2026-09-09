@@ -2612,6 +2612,8 @@ class IcsTest(unittest.TestCase):
     def test_escapes_comma_and_newline(self):
         self.assertEqual(sheet.ics_escape("가, 나; 다"), "가\\, 나\\; 다")
         self.assertEqual(sheet.ics_escape("한\n줄"), "한\\n줄")
+        # 제어 문자는 캘린더 앱마다 다르게 깨진다 - 빼고 적는다
+        self.assertEqual(sheet.ics_escape("메\x07모"), "메모")
 
     def test_folds_long_lines_without_cutting_hangul(self):
         line = "SUMMARY:" + "가" * 60

@@ -3155,9 +3155,17 @@ class Event:
         return self.start_time is None
 
 
+# RFC 5545 가 담지 못하는 제어 문자 (탭은 남긴다)
+ICS_ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def ics_escape(text: str) -> str:
-    """RFC 5545 의 텍스트 escape. 쉼표·세미콜론을 그대로 두면 줄이 갈라진다."""
-    out = text.replace("\\", "\\\\")
+    """RFC 5545 의 텍스트 escape. 쉼표·세미콜론을 그대로 두면 줄이 갈라진다.
+
+    제어 문자는 빼고 적는다 - RFC 가 담지 못하는 글자라 캘린더 앱마다 다르게
+    깨지는데, 어디서 깨졌는지 알기 어렵다.
+    """
+    out = ICS_ILLEGAL.sub("", text).replace("\\", "\\\\")
     for mark in (";", ","):
         out = out.replace(mark, "\\" + mark)
     return out.replace("\r\n", "\\n").replace("\n", "\\n").replace("\r", "\\n")
