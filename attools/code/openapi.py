@@ -161,7 +161,14 @@ def load(data) -> Spec:
                 for media, holder in (response.get("content") or {}).items():
                     if "json" not in str(media):
                         continue
-                    schema = (holder or {}).get("schema")
+                    holder = _resolve(data, holder) or {}
+                    # 미디어 타입에 적은 example·examples 가 스키마보다 먼저다.
+                    # 사람이 손으로 적어 둔 값이라 지어낸 값보다 진짜에 가깝다
+                    shown = _media_example(data, holder)
+                    if shown is not None:
+                        endpoint.response_schemas[str(code)] = {"example": shown}
+                        break
+                    schema = holder.get("schema")
                     if schema:
                         endpoint.response_schemas[str(code)] = _deep(data, schema)
                     break
@@ -273,6 +280,21 @@ EXAMPLE_FORMATS = {
     "byte": "YmFzZTY0",
 }
 EXAMPLE_FIELDS = 40           # 한 객체에서 만들 필드 수 한도
+
+
+def _media_example(data, holder: dict):
+    """content 의 media 항목에 적힌 example / examples 의 첫 값. 없으면 None."""
+    if "example" in holder:
+        return holder["example"]
+    shown = holder.get("examples")
+    if isinstance(shown, dict):
+        for item in shown.values():
+            item = _resolve(data, item)
+            if isinstance(item, dict) and "value" in item:
+                return item["value"]
+    if isinstance(shown, list) and shown:
+        return shown[0]
+    return None
 
 
 def example(schema, *, depth: int = 0):

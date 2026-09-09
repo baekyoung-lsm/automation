@@ -193,6 +193,29 @@ EXAMPLE_SPEC = {
 }
 
 
+class MediaExampleTest(unittest.TestCase):
+    """content 에 example 만 적어 둔 문서가 흔하다. 스키마가 없다고 비면
+    가짜 서버가 «본문 없음» 만 돌려주어 쓸 데가 없다."""
+
+    SPEC = {
+        "openapi": "3.0.0", "info": {"title": "t", "version": "1"},
+        "paths": {
+            "/a": {"get": {"responses": {"200": {"description": "d", "content": {
+                "application/json": {"example": {"id": 1, "name": "홍길동"}}}}}}},
+            "/b": {"get": {"responses": {"200": {"description": "d", "content": {
+                "application/json": {"examples": {"기본": {"value": [1, 2]}}}}}}}},
+        },
+    }
+
+    def test_media_example_is_used(self):
+        spec = openapi.load(self.SPEC)
+        by_path = {e.path: e for e in spec.endpoints}
+        self.assertEqual(openapi.example(by_path["/a"].response_schemas["200"]),
+                         {"id": 1, "name": "홍길동"})
+        self.assertEqual(openapi.example(by_path["/b"].response_schemas["200"]),
+                         [1, 2])
+
+
 class ExampleTest(unittest.TestCase):
     def setUp(self):
         self.spec = openapi.load(EXAMPLE_SPEC)
