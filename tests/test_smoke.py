@@ -1149,6 +1149,20 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("이름이 겹쳐", out)
         self.assertEqual(len(list(나온.glob("*.md"))), 2)
 
+    def test_mail_names_never_overwrite(self):
+        """받는 사람이 같으면 파일 이름도 같아진다 - 덮어쓰면 한 건이 사라진다."""
+        명단 = Path(self.path("같은메일.csv"))
+        명단.write_text("이름,메일\n홍길동,a@b.com\n김철수,a@b.com\n",
+                      encoding="utf-8")
+        틀 = Path(self.path("메일틀.md"))
+        틀.write_text("{이름} 님\n", encoding="utf-8")
+        나온 = Path(self.path("메일함"))
+        out = self.run_cli("sheet", "mail", str(명단), "-t", str(틀),
+                           "--to", "메일", "--subject", "{이름} 님",
+                           "-o", str(나온), "--name", "{받는사람}.eml", "--apply")
+        self.assertIn("이름이 겹쳐", out)
+        self.assertEqual(len(list(나온.glob("*.eml"))), 2)
+
     def test_novel_export_epub(self):
         import zipfile
 

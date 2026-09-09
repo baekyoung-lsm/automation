@@ -1895,6 +1895,30 @@ def cmd_sheet_unbook(a) -> int:
     return 0
 
 
+def _unique_names(labels) -> tuple[list[str], int]:
+    """한 번에 만들 파일 이름들. 겹치면 «(1)» 을 붙인다. (이름들, 붙인 수)
+
+    같은 이름으로 두 번 쓰면 앞 건이 통째로 사라지는데, «2건 만들었습니다»
+    만 보고는 알 수 없다. 미리보기에서도 실제로 붙을 이름을 보여 준다.
+    """
+    used: set[str] = set()
+    out: list[str] = []
+    taken = 0
+    for label in labels:
+        name = hangul.sanitize_filename(label)
+        stem, dot, ext = name.rpartition(".")
+        stem, ext = (stem, dot + ext) if dot else (name, "")
+        candidate, number = name, 1
+        while candidate in used:
+            candidate = f"{stem} ({number}){ext}"
+            number += 1
+        if candidate != name:
+            taken += 1
+        used.add(candidate)
+        out.append(candidate)
+    return out, taken
+
+
 def cmd_sheet_fill(a) -> int:
     t = _load(a)
     if t is None:
@@ -1944,26 +1968,7 @@ def cmd_sheet_fill(a) -> int:
     out_dir = Path(a.out or "채운문서")
     _p(f"{len(results)}건  ·  틀 {template_path.name}  ·  {out_dir}/")
 
-    # 이름이 겹치면 덮어써서 한 건이 통째로 사라진다. 미리보기에서도 실제로
-    # 붙을 이름을 보여 줘야 «두 건인데 파일이 하나» 를 미리 안다
-    used: set[str] = set()
-    taken = 0
-
-    def pick(row) -> str:
-        nonlocal taken
-        name = hangul.sanitize_filename(row.name)
-        stem, dot, ext = name.rpartition(".")
-        stem, ext = (stem, dot + ext) if dot else (name, "")
-        candidate, number = name, 1
-        while candidate in used:
-            candidate = f"{stem} ({number}){ext}"
-            number += 1
-        if candidate != name:
-            taken += 1
-        used.add(candidate)
-        return candidate
-
-    names = [pick(r) for r in results]
+    names, taken = _unique_names([r.name for r in results])
     if a.apply:
         out_dir.mkdir(parents=True, exist_ok=True)
     for r, name in list(zip(results, names))[:a.limit]:
@@ -2062,14 +2067,17 @@ def cmd_sheet_mail(a) -> int:
         return 0
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    made = 0
+    labels = []
     for draft in good:
         values = {"번호": draft.row, "받는사람": draft.to.split(",")[0].strip()}
-        name = sheet.render(a.name or "{번호:03d}_{받는사람}.eml", values)
-        target = out_dir / hangul.sanitize_filename(name)
-        target.write_bytes(sheet.to_eml(draft, sender=a.sender or ""))
-        made += 1
-    _p(f"\n{made:,}건을 만들었습니다: {out_dir}/")
+        labels.append(sheet.render(a.name or "{번호:03d}_{받는사람}.eml", values))
+    names, taken = _unique_names(labels)
+    for draft, name in zip(good, names):
+        (out_dir / name).write_bytes(sheet.to_eml(draft, sender=a.sender or ""))
+    _p(f"\n{len(names):,}건을 만들었습니다: {out_dir}/")
+    if taken:
+        _p(f"이름이 겹쳐 {taken}건에 «(1)» 을 붙였습니다 "
+           "(--name 에 {번호} 를 넣으면 겹치지 않습니다).")
     _p("메일 앱에서 파일을 열면 초안으로 뜹니다. "
        "보내는 것은 사람이 한 번 더 보고 누르는 일이라 여기서 보내지 않습니다.")
     return 0
