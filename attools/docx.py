@@ -39,6 +39,15 @@ SECTION = ('<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
            "</w:sectPr>")
 
 
+# XML 1.0 이 담지 못하는 제어 문자. 그대로 넣으면 워드가 «파일이 손상됐다» 며
+# 열지 못하고, 우리 리더도 못 읽는다. PDF·로그에서 옮겨 온 글에 섞여 온다.
+ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _xml_text(text: str) -> str:
+    return escape(ILLEGAL.sub("", str(text)))
+
+
 def paragraph(text: str = "", *, size: int = 20, bold: bool = False,
               italic: bool = False, center: bool = False, indent: int = 0,
               first_line: bool = False, mono: bool = False,
@@ -60,7 +69,7 @@ def paragraph(text: str = "", *, size: int = 20, bold: bool = False,
                  + ("<w:b/>" if bold else "") + ("<w:i/>" if italic else ""))
     run = (f"<w:r><w:rPr>{run_marks}</w:rPr>"
            + ('<w:br w:type="page"/>' if page_break else "")
-           + f'<w:t xml:space="preserve">{escape(text)}</w:t></w:r>')
+           + f'<w:t xml:space="preserve">{_xml_text(text)}</w:t></w:r>')
     return f"<w:p>{properties}{run}</w:p>"
 
 

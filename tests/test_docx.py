@@ -266,6 +266,25 @@ class ForeignDocxTest(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+class ControlCharTest(unittest.TestCase):
+    """PDF·로그에서 옮겨 온 글에 제어 문자가 섞여 온다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_control_characters_do_not_break_the_file(self):
+        # 그대로 넣으면 워드가 «파일이 손상됐다» 며 열지 못한다
+        path = self.root / "제어.docx"
+        docx.write_document(path, [docx.paragraph("가\x07나\x0b다"),
+                                   docx.table([["머리\x01글", "값"]])])
+        parts = docx.read_document(path)
+        self.assertEqual(parts[0], ("문단", "가나다"))
+        self.assertEqual(parts[1], ("표", [["머리글", "값"]]))
+
+
 class LockedDocxTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

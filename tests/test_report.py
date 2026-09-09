@@ -77,6 +77,15 @@ class StandaloneSvgTest(unittest.TestCase):
         out = report.standalone_svg(self.chart(), title='<나쁜 & 제목>')
         self.assertIn("&lt;나쁜 &amp; 제목&gt;", out)
 
+    def test_control_characters_do_not_break_the_svg(self):
+        # SVG 는 XML 이라 제어 문자 하나에 그림 파일이 통째로 안 열린다
+        import xml.etree.ElementTree as ET
+
+        chart = report.bar_chart([("영\x07업", 100.0)], unit="만원")
+        out = report.standalone_svg(chart, title="제\x01목")
+        ET.fromstring(out.split("?>", 1)[1])
+        self.assertIn("영업", out)
+
     def test_refuses_something_that_is_not_svg(self):
         with self.assertRaises(ValueError):
             report.standalone_svg("<p>그림이 아니다</p>")

@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from html import escape
+from html import escape as _html_escape
+
+# XML 1.0 이 담지 못하는 제어 문자. SVG 는 XML 이라 하나만 섞여도 그림 파일이
+# 통째로 안 열린다 (브라우저의 HTML 은 넘어가지만 .svg 파일은 안 넘어간다).
+ILLEGAL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def escape(text) -> str:
+    return _html_escape(ILLEGAL.sub("", str(text)))
 
 # 값은 dataviz 기준 팔레트에서 가져왔다. 계열이 하나뿐이라 파란색 시퀀셜만 쓴다.
 # 두 모드 모두 명도 대역·채도·대비 검사를 통과한 조합이다.
