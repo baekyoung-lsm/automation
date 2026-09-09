@@ -175,13 +175,18 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
         epoch = _date_epoch(z)
         part = _sheet_part(z, sheet)
 
-        rows: list[list] = []
+        by_row: dict[int, list] = {}
         width = 0
+        line = 0
         # zip 안의 멤버도 반드시 닫는다. 안 닫으면 ResourceWarning 이 뜬다.
         with z.open(part) as stream:
             for _, el in ET.iterparse(stream, events=("end",)):
                 if el.tag != f"{{{NS['m']}}}row":
                     continue
+                # 행 번호(r)를 보고 그 자리에 놓는다. 빈 행은 아예 안 적히는데,
+                # 나온 차례대로 쌓으면 그만큼 밀려 «3행» 이 실제로는 4행이 된다.
+                ref = el.get("r")
+                line = int(ref) if (ref or "").isdigit() else line + 1
                 values: dict[int, object] = {}
                 # 칸 주소(r)를 안 적는 파일이 있다. 그때는 나온 차례가 곧
                 # 열 자리다 - 주소가 없다고 A 열로 몰면 앞 칸이 사라진다.
@@ -196,12 +201,15 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
                 el.clear()
 
                 if not values:
-                    rows.append([])
+                    by_row[line] = []
                     continue
                 top = max(values) + 1
                 width = max(width, top)
-                rows.append([values.get(i) for i in range(top)])
+                by_row[line] = [values.get(i) for i in range(top)]
 
+        if not by_row:
+            return []
+        rows = [by_row.get(i, []) for i in range(1, max(by_row) + 1)]
         return [r + [None] * (width - len(r)) for r in rows]
 
 

@@ -80,6 +80,26 @@ class XlsxTest(unittest.TestCase):
             "<c t='inlineStr'><is><t>2</t></is></c></row>")
         self.assertEqual(xlsx.read_sheet(path), [["가", "나"], ["1", "2"]])
 
+    def test_missing_rows_stay_empty(self):
+        # 빈 행은 파일에 아예 안 적힌다. 나온 차례대로 쌓으면 그만큼 밀려서
+        # «3행» 이라고 알려 준 자리가 엑셀에서는 4행이 된다
+        path = self._bare_xlsx(
+            "<row r='1'><c r='A1' t='inlineStr'><is><t>머리</t></is></c></row>"
+            "<row r='3'><c r='A3' t='inlineStr'><is><t>셋째</t></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["머리"], [None], ["셋째"]])
+
+    def test_rows_out_of_order_are_placed_by_number(self):
+        path = self._bare_xlsx(
+            "<row r='2'><c r='A2' t='inlineStr'><is><t>둘</t></is></c></row>"
+            "<row r='1'><c r='A1' t='inlineStr'><is><t>하나</t></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["하나"], ["둘"]])
+
+    def test_rows_without_a_number_keep_their_order(self):
+        path = self._bare_xlsx(
+            "<row><c t='inlineStr'><is><t>가</t></is></c></row>"
+            "<row><c t='inlineStr'><is><t>나</t></is></c></row>")
+        self.assertEqual(xlsx.read_sheet(path), [["가"], ["나"]])
+
     def test_skipped_columns_stay_empty(self):
         path = self._bare_xlsx(
             "<row><c r='A1' t='inlineStr'><is><t>가</t></is></c>"
