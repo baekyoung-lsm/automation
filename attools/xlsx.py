@@ -6,6 +6,7 @@ xlsx 는 XML 을 담은 zip 이라 표준 라이브러리만으로 다룰 수 �
 
 from __future__ import annotations
 
+import math
 import re
 import zipfile
 from dataclasses import dataclass
@@ -429,6 +430,7 @@ class Formula:
 CELL_LIMIT = 32767          # 엑셀 한 칸에 들어가는 글자 수 한도
 MAX_ROWS = 1_048_576        # 엑셀 한 장의 행 한도
 MAX_COLUMNS = 16_384        # 엑셀 한 장의 열 한도 (XFD)
+MIN_EXCEL_DATE = date(1900, 3, 1)   # 이 앞의 날짜는 엑셀에서 어긋난다
 
 
 def clip_cell(text: str) -> str:
@@ -460,6 +462,16 @@ def _cell_xml(ref: str, value, style: int) -> str:
         return f'<c r="{ref}" s="{style}"/>' if style else ""
     if isinstance(value, bool):
         return f'<c r="{ref}" s="{style}" t="b"><v>{int(value)}</v></c>'
+    if isinstance(value, (datetime, date)):
+        # 엑셀은 1900년 2월 29일(없는 날)을 세는 버릇이 있어 1900-03-01 앞의
+        # 날짜는 하루씩 어긋나고, 1900년 앞은 아예 담지 못한다. 어긋난 날짜를
+        # 그럴듯하게 넣느니 글자로 적어 둔다
+        day = value.date() if isinstance(value, datetime) else value
+        if day < MIN_EXCEL_DATE:
+            shown = value.isoformat(sep=" ") if isinstance(value, datetime) \
+                else value.isoformat()
+            return (f'<c r="{ref}" s="{style}" t="inlineStr">'
+                    f'<is><t xml:space="preserve">{_esc(shown)}</t></is></c>')
     if isinstance(value, datetime):
         serial = (value - EPOCH).total_seconds() / 86400
         return f'<c r="{ref}" s="{STYLE_DATETIME}"><v>{serial:.10f}</v></c>'
@@ -467,6 +479,10 @@ def _cell_xml(ref: str, value, style: int) -> str:
         serial = (datetime(value.year, value.month, value.day) - EPOCH).days
         return f'<c r="{ref}" s="{STYLE_DATE}"><v>{serial}</v></c>'
     if isinstance(value, (int, float)):
+        # nan·inf 를 숫자 칸에 그대로 적으면 엑셀이 «파일이 손상됐다» 고 한다.
+        # 엑셀이 그런 값을 보여 줄 때 쓰는 오류 값으로 적는다
+        if isinstance(value, float) and not math.isfinite(value):
+            return f'<c r="{ref}" s="{style}" t="e"><v>#NUM!</v></c>'
         return f'<c r="{ref}" s="{style}"><v>{value!r}</v></c>'
     return (f'<c r="{ref}" s="{style}" t="inlineStr">'
             f"<is><t xml:space=\"preserve\">{_esc(clip_cell(str(value)))}"

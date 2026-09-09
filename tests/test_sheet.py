@@ -264,6 +264,29 @@ class LongCellTest(unittest.TestCase):
         self.assertEqual(len(value), xlsx.CELL_LIMIT)
         self.assertIn("40,000자", value)
 
+    def test_dates_before_excel_can_hold_are_written_as_text(self):
+        # 엑셀은 없는 날(1900-02-29)을 세는 버릇이 있어 1900-03-01 앞의 날짜는
+        # 하루씩 어긋난다. 어긋난 날짜를 그럴듯하게 넣느니 글자로 적는다
+        from datetime import date, datetime
+
+        path = self.root / "옛날.xlsx"
+        xlsx.write_sheets(path, {"시트": [["날짜"], [date(1890, 1, 1)],
+                                        [datetime(1899, 5, 5, 10, 30)],
+                                        [date(2026, 3, 4)]]})
+        rows = xlsx.read_sheet(path)
+        self.assertEqual(rows[1][0], "1890-01-01")
+        self.assertEqual(rows[2][0], "1899-05-05 10:30:00")
+        self.assertEqual(rows[3][0], date(2026, 3, 4))
+
+    def test_nan_and_inf_become_error_cells(self):
+        # 숫자 칸에 nan 을 그대로 적으면 엑셀이 «파일이 손상됐다» 고 한다
+        path = self.root / "nan.xlsx"
+        xlsx.write_sheets(path, {"시트": [["수"], [float("nan")],
+                                        [float("inf")], [1.5]]})
+        rows = xlsx.read_sheet(path)
+        self.assertEqual([rows[1][0], rows[2][0], rows[3][0]],
+                         ["#NUM!", "#NUM!", 1.5])
+
     def test_sheet_names_never_collide(self):
         # «보고서/1» 과 «보고서_1» 은 금지 문자를 바꾸면 같은 이름이 된다.
         # 같은 이름이 둘이면 엑셀이 파일 자체를 못 연다
