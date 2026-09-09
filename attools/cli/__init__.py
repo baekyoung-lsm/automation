@@ -173,6 +173,43 @@ def cmd_completion(a) -> int:
     return 0
 
 
+# 명령 자리에 파일 이름을 치는 일이 흔하다 (at 지출.xlsx). 그 파일로 할 만한
+# 일을 짚어 준다 - «없는 이름입니다» 만으로는 다음에 뭘 할지 알 수 없다.
+FILE_HINTS = {
+    ".xlsx": ["at sheet peek {}", "at sheet audit {}"],
+    ".xlsm": ["at sheet peek {}", "at sheet audit {}"],
+    ".csv": ["at sheet peek {}", "at sheet audit {}"],
+    ".tsv": ["at sheet peek {}"],
+    ".docx": ["at doc from-docx {}", "at sheet from-docx {}"],
+    ".hwpx": ["at doc from-hwpx {}", "at sheet from-hwpx {}"],
+    ".pptx": ["at doc from-pptx {}", "at sheet from-pptx {}"],
+    ".pdf": ["at file pdftext {}", "at file pdfcut {} --pages 1-3"],
+    ".eml": ["at file eml {}"],
+    ".zip": ["at file unzip {}"],
+    ".json": ["at json schema {}", "at sheet from-json {}"],
+    ".md": ["at doc lint {}", "at doc toc {}"],
+    ".log": ["at dev log {}", "at dev slow {}"],
+    ".ics": ["at sheet from-ics {}"],
+    ".vcf": ["at sheet from-vcard {}"],
+    ".html": ["at doc from-html {}"],
+}
+
+
+def file_hints(given: str) -> list[str]:
+    """준 값이 있는 파일·폴더면 그것으로 할 만한 명령들. 아니면 빈 목록."""
+    from pathlib import Path as _Path
+
+    path = _Path(given)
+    try:
+        if path.is_dir():
+            return [f"at file audit {given}", f"at sheet forms {given}"]
+        if not path.is_file():
+            return []
+    except OSError:
+        return []
+    return [one.format(given) for one in FILE_HINTS.get(path.suffix.lower(), [])]
+
+
 class _Parser(argparse.ArgumentParser):
     """argparse 의 영어 오류를 한국어로 바꾸고, 오타는 비슷한 이름을 짚어 준다.
 
@@ -205,7 +242,12 @@ class _Parser(argparse.ArgumentParser):
             names = re.findall(r"'([^']+)'", raw or "")
             near = difflib.get_close_matches(given, names, n=3, cutoff=0.4)
             lines.append(f"없는 이름입니다: {given}")
-            if near:
+            hints = file_hints(given)
+            if hints:
+                # 명령 자리에 파일 이름을 친 것이다. 사람이 처음 쓸 때 흔하다
+                lines.append("파일을 주셨네요. 이런 명령이 있습니다:")
+                lines += [f"  {one}" for one in hints]
+            elif near:
                 lines.append("혹시 이것인가요: " + ", ".join(near))
             lines.append(f"{self.prog} 를 인자 없이 치면 있는 것을 보여 줍니다.")
         elif required:
@@ -309,6 +351,10 @@ def main(argv: list[str] | None = None) -> int:
         argv, tail = argv[:cut], argv[cut + 1:]
 
     ap = build_parser()
+    # 사람이 처음 치는 말들. argparse 에는 없는 이름이라 «없는 이름입니다» 로
+    # 끝나는데, 그때 정작 보고 싶은 것은 갈래 목록이다
+    if argv and argv[0] in ("help", "도움말", "?", "--도움말"):
+        return _list_groups(ap)
     args = ap.parse_args(argv)
     if tail:
         args.command = tail

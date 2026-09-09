@@ -203,6 +203,45 @@ class CompletionTest(unittest.TestCase):
         self.assertIn("compdef _at_complete at", self.output("zsh"))
 
 
+class FirstTryTest(unittest.TestCase):
+    """사람이 처음 치는 말. «없는 이름입니다» 로 끝나면 다음에 뭘 할지 모른다."""
+
+    def run_at(self, *args) -> tuple[int, str]:
+        from attools import cli
+
+        out = io.StringIO()
+        code = 0
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            try:
+                code = cli.main(list(args))
+            except SystemExit as stop:
+                code = int(stop.code or 0)
+        return code, out.getvalue()
+
+    def test_help_word_lists_the_groups(self):
+        # 인자 없이 친 것과 같은 목록이다 (종료 코드도 같게 1)
+        for word in ("help", "도움말", "?"):
+            code, out = self.run_at(word)
+            self.assertEqual(code, 1, word)
+            self.assertIn("갈래", out)
+
+    def test_a_file_name_gets_commands_for_that_file(self):
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        table = root / "명단.csv"
+        table.write_text("이름\n홍길동\n", encoding="utf-8")
+        _code, out = self.run_at(str(table))
+        self.assertIn("at sheet peek", out)
+
+        _code, out = self.run_at(str(root))
+        self.assertIn("at file audit", out)
+
+    def test_a_typo_still_gets_near_names(self):
+        _code, out = self.run_at("sheet", "clen")
+        self.assertIn("clean", out)
+
+
 class InputErrorTest(unittest.TestCase):
     """파일 하나를 받는 명령에 디렉터리를 주면 한국어로 알려야 한다."""
 
