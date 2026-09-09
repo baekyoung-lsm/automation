@@ -2087,6 +2087,22 @@ class DocAppTest(UiCase):
         self.assertEqual(saved.parent, path.parent)
         self.assertTrue(saved.read_text(encoding="utf-8").startswith("첫 문단"))
 
+    def test_from_docx_reads_slides_too(self):
+        import zipfile as _zip
+
+        P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+        A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+        path = self.work / "발표.pptx"
+        with _zip.ZipFile(path, "w") as z:
+            z.writestr("ppt/slides/slide1.xml",
+                       f'<?xml version="1.0"?><p:sld xmlns:p="{P}" xmlns:a="{A}">'
+                       "<p:cSld><p:spTree><p:sp><p:txBody>"
+                       "<a:p><a:r><a:t>사업 계획</a:t></a:r></a:p>"
+                       "</p:txBody></p:sp></p:spTree></p:cSld></p:sld>")
+        _, data = self.post("/api/doc/from_docx", {"docx_path": str(path)})
+        self.assertIn("## 1. 사업 계획", data["text"])
+        self.assertIn("at doc from-pptx", data["command"])
+
     def test_from_docx_refuses_other_formats(self):
         other = self.work / "메모.md"
         other.write_text("# 가", encoding="utf-8")
