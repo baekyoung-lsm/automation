@@ -272,6 +272,18 @@ class InputErrorTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("디렉터리입니다", out.getvalue())
 
+    def test_a_document_in_a_text_slot_says_how_to_open_it(self):
+        import tempfile
+
+        root = Path(tempfile.mkdtemp())
+        word = root / "원고.docx"
+        word.write_bytes(b"PK\x03\x04")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = self.cli.main(["novel", "check", str(word)])
+        self.assertEqual(code, 1)
+        self.assertIn("from-docx", out.getvalue())
+
     def test_missing_file(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):

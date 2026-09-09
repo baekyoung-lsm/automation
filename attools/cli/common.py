@@ -37,6 +37,11 @@ def _read_input(target: str) -> str:
         raise InputError(f"파일 하나를 주세요. 디렉터리입니다: {path}")
     if not path.is_file():
         raise InputError(f"파일이 없습니다: {path}")
+    # 글이 아닌 파일을 글로 읽으면 zip 바이트가 글자로 세어진다. 읽은 척하지
+    # 않고 무엇으로 열면 되는지 알린다
+    hint = manuscript.not_text_hint(path)
+    if hint:
+        raise InputError(f"{path.name}: {hint}")
     return manuscript.read_text(path)
 
 
