@@ -100,6 +100,19 @@ class FindCommandTest(unittest.TestCase):
         _, out = self.run_find("unzip")
         self.assertIn("at file unzip", out)
 
+    def test_words_people_actually_type(self):
+        """사람이 치는 말과 도움말의 말이 다른 자리는 짝을 지어 둔다."""
+        for word, expected in (("급여", "at life hourly"),
+                               ("월급", "at life weekly"),
+                               ("알바", "at life weekly"),
+                               ("통계", "at sheet pivot"),
+                               ("차트", "at sheet chart"),
+                               ("담당자", "at git owners"),
+                               ("압축", "at file archive")):
+            with self.subTest(word=word):
+                _code, out = self.run_find(word)
+                self.assertIn(expected, out)
+
     def test_spacing_does_not_matter(self):
         # 도움말에는 «글자 수», 사람은 «글자수» 라고 친다
         _, out = self.run_find("글자수")
