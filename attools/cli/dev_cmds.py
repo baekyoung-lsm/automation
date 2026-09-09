@@ -1401,6 +1401,13 @@ def cmd_dev_log(a) -> int:
     groups = logkit.group_messages(entries, levels=levels or logkit.SEVERE, top=a.top)
     if not groups:
         _p("묶을 메시지가 없습니다.")
+        # 레벨을 안 적는 접근 로그는 여기서 더 볼 것이 없다. 볼 것이 있는
+        # 명령으로 보내 준다 - «없습니다» 로 끝나면 다음에 뭘 할지 모른다
+        codes, _by_path = logkit.statuses(entries)
+        if not counts and codes:
+            _p(f"레벨이 안 적힌 접근 로그로 보입니다 (상태 코드가 "
+               f"{sum(codes.values()):,}줄에 있습니다). 상태 코드 분포와 응답 "
+               f"시간은 at dev slow 로 보세요.")
         return 0
 
     label = "/".join(sorted(levels)) if levels else "심각한 것"

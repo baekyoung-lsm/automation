@@ -662,6 +662,17 @@ class SmokeTest(unittest.TestCase):
                           "--since", "2026-09-01 10:00", "-o", self.path("자른.log"))
         self.assertIn("줄 중", 자름)
         self.assertTrue(Path(self.path("자른.log")).is_file())
+        접근 = Path(self.path("access.log"))
+        접근.write_text(
+            '10.0.0.1 - - [01/Sep/2026:10:00:00 +0900] "GET /api/pay HTTP/1.1" 200 12 30ms\n'
+            '10.0.0.2 - - [01/Sep/2026:10:00:01 +0900] "GET /api/pay HTTP/1.1" 500 12 900ms\n',
+            encoding="utf-8")
+        느림 = self.run_cli("dev", "slow", str(접근))
+        self.assertIn("상태 코드", 느림)
+        self.assertIn("5xx", 느림)
+        # 레벨이 없는 접근 로그는 log 에서 볼 것이 없다 - 갈 곳을 알려 준다
+        self.assertIn("at dev slow", self.run_cli("dev", "log", str(접근)))
+
         웹로그 = Path(self.path("web.log"))
         웹로그.write_text("2026-09-01 10:00:02 INFO GET /pay 500\n",
                         encoding="utf-8")
