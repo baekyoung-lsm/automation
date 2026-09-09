@@ -110,6 +110,14 @@ class PptxTest(unittest.TestCase):
         self.assertIn("매출 30억", body)
         self.assertEqual(kind, "슬라이드 글자")
 
+    def test_tables_go_to_the_sheet_side(self):
+        from attools import sheet
+
+        tables = sheet.tables_from_pptx(self.simple())
+        self.assertEqual(len(tables), 1)
+        self.assertEqual(tables[0].headers, ["팀", "인원"])
+        self.assertEqual(tables[0].rows, [["영업", 5]])
+
     def test_slide_count_without_app_xml(self):
         # 파워포인트가 아닌 도구로 만든 파일에는 docProps/app.xml 이 없다
         meta = files.document_meta(self.simple())

@@ -3572,6 +3572,21 @@ def tables_from_hwpx(path: Path) -> list[Table]:
     return _tables_from_parts(parts, path)
 
 
+def tables_from_pptx(path: Path) -> list[Table]:
+    """슬라이드(pptx) 안의 표를 보이는 차례대로 꺼낸다."""
+    from . import pptx as pptxkit
+
+    path = Path(path)
+    try:
+        slides = pptxkit.read_slides(path)
+    except pptxkit.PptxError as exc:
+        raise SheetError(str(exc)) from None
+    parts: list = []
+    for slide in slides:
+        parts += [(kind, body) for kind, body in slide.blocks if kind == "표"]
+    return _tables_from_parts(parts, path)
+
+
 # ------------------------------------------------------------- 양식 취합
 
 @dataclass

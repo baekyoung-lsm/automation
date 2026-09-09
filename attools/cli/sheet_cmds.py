@@ -1093,8 +1093,10 @@ def cmd_sheet_from_docx(a) -> int:
     if not path.is_file():
         _p(f"파일이 없습니다: {path}")
         return 1
-    hangul_doc = getattr(a, "kind", "docx") == "hwpx"
-    read = sheet.tables_from_hwpx if hangul_doc else sheet.tables_from_docx
+    kind = getattr(a, "kind", "docx")
+    hangul_doc = kind == "hwpx"
+    read = {"hwpx": sheet.tables_from_hwpx,
+            "pptx": sheet.tables_from_pptx}.get(kind, sheet.tables_from_docx)
     try:
         tables = read(path)
     except sheet.SheetError as e:
@@ -1102,7 +1104,8 @@ def cmd_sheet_from_docx(a) -> int:
         return 1
 
     if not tables:
-        opener = "at doc from-hwpx" if hangul_doc else "at doc from-docx"
+        opener = {"hwpx": "at doc from-hwpx",
+                  "pptx": "at doc from-pptx"}.get(kind, "at doc from-docx")
         _p(f"표가 없습니다. (글만 있는 문서라면 {opener} 로 옮기세요)")
         return 1
 
@@ -2813,6 +2816,20 @@ def add_commands(sub) -> None:
     fhx.add_argument("--rows", type=int, default=10, metavar="개")
     fhx.add_argument("--width", type=int, default=20, metavar="칸")
     fhx.set_defaults(func=cmd_sheet_from_docx, kind="hwpx")
+
+    fpx = sh.add_parser("from-pptx", help="슬라이드(pptx) 안의 표를 엑셀·csv 로")
+    fpx.add_argument("file", metavar="파일")
+    fpx.add_argument("--table", type=int, dest="number", metavar="번호",
+                     help="그 표 하나만 (없으면 전부)")
+    fpx.add_argument("-o", "--out", metavar="파일",
+                     help="xlsx 면 표마다 시트로 나눠 담는다")
+    fpx.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    fpx.add_argument("--rows", type=int, default=10, metavar="개")
+    fpx.add_argument("--width", type=int, default=20, metavar="칸")
+    fpx.epilog = ("예: at sheet from-pptx 실적발표.pptx\n"
+                  "    at sheet from-pptx 실적발표.pptx --table 2 -o 실적.xlsx")
+    fpx.set_defaults(func=cmd_sheet_from_docx, kind="pptx")
 
     fm2 = common(sh.add_parser(
         "forms", help="받은 파일들의 열 구성 견주기 (합치기 전 서식 점검)"))
