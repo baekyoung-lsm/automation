@@ -321,6 +321,17 @@ class SheetTest(unittest.TestCase):
         self.assertIsNone(sheet.parse_date("2024-13-05"))
         self.assertIsNone(sheet.parse_date("010-1234-5678"))
 
+    def test_korean_date_forms(self):
+        # 공문서·일정표에 흔한 꼴. 글자로 두면 그 열만 정렬도 집계도 안 된다
+        from datetime import date
+
+        for text in ("2024년 1월 5일", "2024년1월5일", "24년 1월 5일",
+                     "2024-1-5(금)", "2024.01.05 (금)", "2024-01-05금"):
+            self.assertEqual(sheet.parse_date(text), date(2024, 1, 5), text)
+        # 해를 모르는 날짜는 지어내지 않는다
+        self.assertIsNone(sheet.parse_date("3월 4일"))
+        self.assertIsNone(sheet.parse_date("2024년 13월 5일"))
+
     def test_load_cp949_and_parse(self):
         from datetime import date
 

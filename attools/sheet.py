@@ -32,7 +32,16 @@ DATE_PATTERNS = [
     (re.compile(r"^(\d{4})(\d{2})(\d{2})$"), (1, 2, 3)),
     (re.compile(r"^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$"), (3, 1, 2)),
     (re.compile(r"^(\d{2})[-./](\d{1,2})[-./](\d{1,2})$"), (1, 2, 3)),
+    # 한글로 적은 날짜. 공문서·기안문·일정표에 «2026년 3월 4일» 이 흔하다
+    (re.compile(r"^(\d{4})년(\d{1,2})월(\d{1,2})일?$"), (1, 2, 3)),
+    (re.compile(r"^(\d{2})년(\d{1,2})월(\d{1,2})일?$"), (1, 2, 3)),
 ]
+
+# 날짜 뒤에 붙는 요일. «2026-03-04(수)», «2026.3.4 수» 처럼 적는 표가 많다.
+# 요일은 날짜에서 다시 구할 수 있으므로 떼고 본다 - 붙어 있다고 글자로 두면
+# 그 열만 정렬도 집계도 안 된다.
+WEEKDAY_TAIL_RE = re.compile(
+    r"(?:[(\[（][^)\]）]{0,4}[)\]）]|[월화수목금토일])$")
 
 
 class SheetError(Exception):
@@ -106,7 +115,7 @@ def parse_number(text: str) -> float | int | None:
 
 
 def parse_date(text: str) -> date | None:
-    s = text.strip().replace(" ", "")
+    s = WEEKDAY_TAIL_RE.sub("", text.strip().replace(" ", ""))
     for pattern, (y, m, d) in DATE_PATTERNS:
         match = pattern.match(s)
         if not match:
