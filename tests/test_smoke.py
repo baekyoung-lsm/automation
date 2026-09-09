@@ -1167,6 +1167,23 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("이름이 겹쳐", out)
         self.assertEqual(len(list(나온.glob("*.md"))), 2)
 
+    def test_folder_output_does_not_replace_what_is_there(self):
+        """앞서 만들어 고쳐 둔 초안을 말없이 지우면 사라진 줄 모른다."""
+        명단 = Path(self.path("초안명단.csv"))
+        명단.write_text("이름,메일\n홍길동,a@b.com\n", encoding="utf-8")
+        틀 = Path(self.path("초안틀.md"))
+        틀.write_text("{이름} 님\n", encoding="utf-8")
+        나온 = Path(self.path("초안함"))
+        self.run_cli("sheet", "mail", str(명단), "-t", str(틀), "--to", "메일",
+                     "--subject", "{이름} 님", "-o", str(나온), "--apply")
+        만든 = next(나온.glob("*.eml"))
+        만든.write_text("사람이 고친 초안", encoding="utf-8")
+        out = self.run_cli("sheet", "mail", str(명단), "-t", str(틀), "--to", "메일",
+                           "--subject", "{이름} 님", "-o", str(나온), "--apply",
+                           expect=1)
+        self.assertIn("이미 있는 파일", out)
+        self.assertEqual(만든.read_text(encoding="utf-8"), "사람이 고친 초안")
+
     def test_mail_names_never_overwrite(self):
         """받는 사람이 같으면 파일 이름도 같아진다 - 덮어쓰면 한 건이 사라진다."""
         명단 = Path(self.path("같은메일.csv"))

@@ -1897,6 +1897,23 @@ def cmd_sheet_unbook(a) -> int:
     return 0
 
 
+def _folder_clear(a, out_dir, names) -> bool:
+    """폴더에 낼 때 이미 있는 파일을 말없이 덮지 않는다.
+
+    고쳐 둔 초안이나 앞서 만든 문서를 지우고도 «몇 건 만들었습니다» 만 뜨면
+    사라진 줄 모른다. doc split 과 같은 규칙으로 막고 무엇을 하면 되는지 적는다.
+    """
+    if getattr(a, "overwrite", False):
+        return True
+    exists = [name for name in names if (out_dir / name).exists()]
+    if not exists:
+        return True
+    _p(f"\n이미 있는 파일 {len(exists)}개가 있어 아무것도 쓰지 않았습니다: "
+       f"{', '.join(exists[:3])}" + (" ..." if len(exists) > 3 else ""))
+    _p("  --overwrite 로 덮어쓰거나 -o 로 다른 폴더를 주세요.")
+    return False
+
+
 def _unique_names(labels) -> tuple[list[str], int]:
     """한 번에 만들 파일 이름들. 겹치면 «(1)» 을 붙인다. (이름들, 붙인 수)
 
@@ -1972,6 +1989,8 @@ def cmd_sheet_fill(a) -> int:
 
     names, taken = _unique_names([r.name for r in results])
     if a.apply:
+        if not _folder_clear(a, out_dir, names):
+            return 1
         out_dir.mkdir(parents=True, exist_ok=True)
     for r, name in list(zip(results, names))[:a.limit]:
         if not a.apply:
@@ -2068,12 +2087,14 @@ def cmd_sheet_mail(a) -> int:
         _p("-" * 40)
         return 0
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     labels = []
     for draft in good:
         values = {"번호": draft.row, "받는사람": draft.to.split(",")[0].strip()}
         labels.append(sheet.render(a.name or "{번호:03d}_{받는사람}.eml", values))
     names, taken = _unique_names(labels)
+    if not _folder_clear(a, out_dir, names):
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
     for draft, name in zip(good, names):
         (out_dir / name).write_bytes(sheet.to_eml(draft, sender=a.sender or ""))
     _p(f"\n{len(names):,}건을 만들었습니다: {out_dir}/")
@@ -3153,6 +3174,8 @@ def add_commands(sub) -> None:
     ml.add_argument("--name", metavar="틀",
                     help="파일명 틀 (기본 '{번호:03d}_{받는사람}.eml')")
     ml.add_argument("-o", "--out", metavar="디렉터리")
+    ml.add_argument("--overwrite", action="store_true",
+                    help="폴더에 이미 있는 같은 이름 파일을 덮어쓴다")
     ml.add_argument("--force", action="store_true",
                     help="없는 자리표시자를 빈칸으로 두고 진행")
     ml.add_argument("--limit", type=int, default=10, metavar="개")
