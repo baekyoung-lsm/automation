@@ -296,9 +296,20 @@ def table_from_grid(grid: list[list], *, header_row: int = 0, source: str = "",
     if header_row >= len(grid):
         raise SheetError(f"헤더 행 번호가 범위를 넘습니다: {header_row + 1}")
 
-    headers = _dedupe_headers([to_text(c).strip() for c in grid[header_row]])
+    names = [to_text(c).strip() for c in grid[header_row]]
+    body = grid[header_row + 1:]
+    # 머리글보다 긴 행이 있으면 그만큼 열을 늘린다. 잘라 버리면 값이 조용히
+    # 사라진다 - 머리글 칸을 하나 지운 파일이나 따옴표를 빠뜨린 csv 에서
+    # 흔하다. 값이 든 자리까지만 늘려 끝의 빈 칸(«1,2,»)으로 열이 생기는 것은
+    # 막고, 늘어난 열 이름은 «열N» 으로 둬 눈에 보이게 한다
+    extra = 0
+    for row in body:
+        for i in range(len(names), len(row)):
+            if row[i] not in (None, ""):
+                extra = max(extra, i + 1 - len(names))
+    headers = _dedupe_headers(names + [""] * extra)
     width = len(headers)
-    rows = [(list(r) + [None] * width)[:width] for r in grid[header_row + 1:]]
+    rows = [(list(r) + [None] * width)[:width] for r in body]
     return Table(headers, rows, source=source, sheet=sheet_name)
 
 

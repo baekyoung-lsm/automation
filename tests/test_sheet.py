@@ -136,6 +136,21 @@ class XlsxTest(unittest.TestCase):
         path.write_text("이름\n홍길동\n김철수\n", encoding="utf-8")
         self.assertEqual(sheet.load(path).headers, ["이름"])
 
+    def test_row_longer_than_header_keeps_its_value(self):
+        # 머리글 칸을 하나 지운 파일. 머리글 너비로 자르면 «비고» 가 사라진다
+        path = self.root / "긴행.csv"
+        path.write_text("이름,금액\n홍길동,1000,비고\n", encoding="utf-8")
+        table = sheet.load(path)
+        self.assertEqual(table.headers, ["이름", "금액", "열3"])
+        self.assertEqual(table.rows, [["홍길동", 1000, "비고"]])
+
+    def test_trailing_delimiter_does_not_add_a_column(self):
+        path = self.root / "끝쉼표.csv"
+        path.write_text("가,나\n1,2,\n", encoding="utf-8")
+        table = sheet.load(path)
+        self.assertEqual(table.headers, ["가", "나"])
+        self.assertEqual(table.rows, [[1, 2]])
+
     def test_semicolon_inside_values_is_not_a_delimiter(self):
         # 한 열짜리 메모 파일. 값 안의 «;» 를 구분자로 보면 세 칸으로 쪼갠 뒤
         # 머리글 너비에 맞춰 잘라, 뒤의 «나;다» 가 조용히 사라진다
