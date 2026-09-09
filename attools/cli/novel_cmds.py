@@ -994,7 +994,7 @@ def cmd_novel_names(a) -> int:
 
     speakers = names.dialogue_speakers(body, known)
     _p(f"이름 후보 {len(found)}개  (파일 {len(targets)}개)")
-    _grid(["이름", "등장", "붙은 조사", "대사 뒤"],
+    _grid(["이름", "등장", "붙은 조사", "화자"],
           [[n.text, f"{n.count}회",
             " ".join(f"{p}{c}" for p, c in n.particles.most_common(4)),
             f"{speakers[n.text]}회" if speakers.get(n.text) else "-"]

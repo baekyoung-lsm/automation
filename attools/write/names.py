@@ -172,16 +172,19 @@ def check_josa(text: str, names: list[str]) -> list[JosaError]:
     return errors
 
 
-def dialogue_speakers(text: str, names: list[str], *, window: int = 20) -> Counter:
-    """대사 뒤쪽에 붙어 나오는 이름을 세어 화자 분포를 어림한다."""
+def dialogue_speakers(text: str, names: list[str], *, window: int = 40) -> Counter:
+    """인물별 화자 횟수. extract_speech 와 같은 규칙으로 센다.
+
+    예전에는 대사 뒤 스무 글자를 그냥 훑었다. 줄을 넘어가 다음 문단의 이름을
+    집기도 해서, 같은 원고인데 novel names 와 novel dialogue 가 서로 다른
+    사람을 화자로 냈다 - 그러면 어느 쪽을 믿어야 할지 알 수 없다.
+    """
     counts: Counter = Counter()
     if not names:
         return counts
-    pattern = re.compile("|".join(sorted(map(re.escape, names), key=len, reverse=True)))
-    for m in re.finditer(r"[\"“「『](.+?)[\"”」』]", text, re.S):
-        tail = text[m.end(): m.end() + window]
-        if found := pattern.search(tail):
-            counts[found.group(0)] += 1
+    for speech in extract_speech(text, names, window=window):
+        if speech.speaker:
+            counts[speech.speaker] += 1
     return counts
 
 
@@ -190,6 +193,7 @@ def dialogue_speakers(text: str, names: list[str], *, window: int = 20) -> Count
 DIALOGUE_RE = re.compile(r"[\"“](.+?)[\"”]|[「『](.+?)[」』]", re.S)
 # 대사 옆 줄에 «민준이 물었다» 만 있는 배치가 한국 소설에 아주 흔하다.
 # 이름만 있는 줄은 안 보고, 말하는 동사가 함께 있는 줄만 화자로 본다.
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 SAID_RE = re.compile(
     "말했다|말한다|말을 이었다|물었다|묻는다|되물었다|대답했다|대답한다|"
     "외쳤다|소리쳤다|중얼거렸다|속삭였다|덧붙였다|내뱉었다|읊조렸다")
@@ -285,27 +289,33 @@ def _speaker_nearby(text: str, m: "re.Match", finder: "re.Pattern",
     이름만 있는 줄은 보지 않는다 - 옆 줄에 다른 인물이 지나가기만 해도
     그 사람이 말한 것이 되어 인물별 집계가 통째로 어긋난다.
     """
-    for start, end in _neighbour_lines(text, line_start, line_end):
+    for (start, end), after in _neighbour_lines(text, line_start, line_end):
         line = text[start:end]
         if not line.strip() or DIALOGUE_RE.search(line):
             continue
-        found = {m.group(0) for m in finder.finditer(line)}
-        # 이름이 둘 이상이면 누가 말했는지 알 수 없다 - «리안은 대답하지
-        # 않았다. 카일이 말했다» 에서 아무 쪽이나 집으면 집계가 어긋난다
-        if len(found) == 1 and SAID_RE.search(line):
+        # 그 줄 전체가 아니라 대사에 붙은 문장 하나만 본다. 다음 줄이면 첫
+        # 문장, 앞 줄이면 끝 문장이다 - «민준이 물었다. 지수는 고개를 저었다»
+        # 에서 뒤 문장은 남의 반응이지 화자가 아니다
+        pieces = [one for one in SENTENCE_SPLIT.split(line) if one.strip()]
+        if not pieces:
+            continue
+        piece = pieces[0] if after else pieces[-1]
+        found = {m.group(0) for m in finder.finditer(piece)}
+        # 이름이 둘이면 누가 말했는지 알 수 없다. 아무 쪽이나 집으면 어긋난다
+        if len(found) == 1 and SAID_RE.search(piece):
             return found.pop()
         break        # 바로 옆의 지문 한 줄까지만 본다
     return ""
 
 
 def _neighbour_lines(text: str, line_start: int, line_end: int):
-    """대사 줄의 다음 줄, 그다음 앞줄의 (시작, 끝). 빈 줄은 건너뛴다."""
+    """대사 줄의 다음 줄과 앞줄을 ((시작, 끝), 다음 줄인가)로. 빈 줄은 건너뛴다."""
     after = line_end + 1
     while after < len(text):
         stop = text.find("\n", after)
         stop = len(text) if stop < 0 else stop
         if text[after:stop].strip():
-            yield after, stop
+            yield (after, stop), True
             break
         after = stop + 1
 
@@ -313,7 +323,7 @@ def _neighbour_lines(text: str, line_start: int, line_end: int):
     while before > 0:
         start = text.rfind("\n", 0, before) + 1
         if text[start:before].strip():
-            yield start, before
+            yield (start, before), False
             break
         before = start - 1
 

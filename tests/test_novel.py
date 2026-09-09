@@ -396,10 +396,22 @@ class NamesTest(unittest.TestCase):
         text = '"대사."\n카일은 창밖을 보았다.\n'
         self.assertEqual(names.extract_speech(text, ["카일"])[0].speaker, "")
 
-    def test_two_names_on_the_next_line_stay_unknown(self):
-        text = '"대사."\n리안은 대답하지 않았다. 카일이 말했다.\n'
+    def test_two_names_in_one_sentence_stay_unknown(self):
+        text = '"대사."\n리안과 카일이 함께 말했다.\n'
         self.assertEqual(
             names.extract_speech(text, ["리안", "카일"])[0].speaker, "")
+
+    def test_only_the_sentence_next_to_the_quote_counts(self):
+        # 뒤 문장은 남의 반응이지 화자가 아니다
+        text = '"대사."\n카일이 물었다. 리안은 고개를 저었다.\n'
+        self.assertEqual(
+            names.extract_speech(text, ["리안", "카일"])[0].speaker, "카일")
+
+    def test_speakers_count_matches_extract_speech(self):
+        # names 와 dialogue 가 서로 다른 사람을 화자로 내면 안 된다
+        text = '"대사."\n카일이 물었다.\n'
+        counts = names.dialogue_speakers(text, ["카일"])
+        self.assertEqual(counts["카일"], 1)
 
     def test_only_one_narration_line_is_looked_at(self):
         text = '"대사."\n문이 닫혔다.\n카일이 말했다.\n'
