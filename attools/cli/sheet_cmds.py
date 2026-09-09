@@ -169,6 +169,11 @@ def cmd_sheet_peek(a) -> int:
         ])
     _grid(header, body, limit=a.width)
 
+    # 머리글을 잘못 읽었을 때가 여기서 제일 잘 보인다. 그대로 지나가면 뒤의
+    # 집계가 한 건씩 어긋난 채 나온다
+    for note in sheet.misread_header(t):
+        _p(f"\n  {note}")
+
     if a.stats:
         _p("\n요약")
         rows = []

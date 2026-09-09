@@ -3058,6 +3058,14 @@ class AuditHeaderTest(unittest.TestCase):
         detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")
         self.assertIn("숫자나 날짜", detail)
 
+    def test_misread_header_is_reusable_outside_audit(self):
+        # peek 도 같은 판단을 쓴다. 여기서 갈리면 두 명령이 다른 말을 한다
+        table = sheet.Table(["2026년 3월 지출", "열2", "열3"],
+                            [["부서", "항목", "금액"]])
+        self.assertTrue(sheet.misread_header(table))
+        self.assertEqual(sheet.misread_header(
+            sheet.Table(["부서", "항목", "금액"], [["영업", "교통비", 1000]])), [])
+
     def test_repeated_headers(self):
         table = sheet.Table(["이름", "이름_2", "금액"], [["가", "나", 1]])
         detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")

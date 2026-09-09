@@ -2078,20 +2078,30 @@ def _header_notes(table: Table) -> list:
             "머리글", "", f"같은 이름이 여러 번 있어 {', '.join(twin[:5])} 로 "
                           "구분해 붙였습니다"))
 
+    notes += [AuditNote("머리글", "", one) for one in misread_header(table)]
+    return notes
+
+
+def misread_header(table: Table) -> list[str]:
+    """머리글이 아닌 행을 머리글로 읽은 것 같으면 그 까닭을 돌려준다.
+
+    표 위에 제목 줄이 한두 줄 있는 파일이 실무에 아주 많다. 모르고 읽으면 열
+    이름이 «열2» 가 되고 첫 행 자료는 머리글 자리로 사라진다 - 그대로 집계하면
+    한 건이 통째로 빠진 채 표는 멀쩡히 나온다.
+    """
+    out = []
     # 첫 행에 진짜 이름이 하나뿐이면 «제목 줄» 을 머리글로 읽은 것일 때가 많다
     filled = [str(name).strip() for name in table.headers
               if str(name).strip() and not AUTO_HEADER_RE.fullmatch(str(name))]
     if len(table.headers) >= 3 and len(filled) == 1:
-        notes.append(AuditNote(
-            "머리글", "", "이름이 붙은 열이 하나뿐입니다. 표 위에 제목 줄이 있는 "
-                          "파일일 수 있습니다 (--header-row 2 로 다시 읽어 보세요)"))
+        out.append("이름이 붙은 열이 하나뿐입니다. 표 위에 제목 줄이 있는 "
+                   "파일일 수 있습니다 (--header-row 2 로 다시 읽어 보세요)")
     # 머리글이 죄다 숫자·날짜면 그것도 자료다
     if filled and all(parse_number(one) is not None or parse_date(one) is not None
                       for one in filled):
-        notes.append(AuditNote(
-            "머리글", "", "머리글이 전부 숫자나 날짜입니다. 첫 행이 자료일 수 "
-                          "있습니다 (--header-row 로 맞추거나 이름을 붙이세요)"))
-    return notes
+        out.append("머리글이 전부 숫자나 날짜입니다. 첫 행이 자료일 수 "
+                   "있습니다 (--header-row 로 맞추거나 이름을 붙이세요)")
+    return out
 
 
 def audit(table: Table) -> AuditReport:
