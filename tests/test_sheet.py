@@ -313,6 +313,14 @@ class SheetTest(unittest.TestCase):
         self.assertIsNone(sheet.parse_number("1234567890123456789"))
         self.assertIsNone(sheet.parse_number("abc"))
 
+    def test_commas_must_group_by_three(self):
+        # «1,2,3» 은 번호를 나열한 것이다. 123 으로 바꾸면 없는 값이 생긴다
+        self.assertIsNone(sheet.parse_number("1,2,3"))
+        self.assertIsNone(sheet.parse_number("3,4"))
+        self.assertIsNone(sheet.parse_number("1,23,456"))
+        self.assertEqual(sheet.parse_number("1,000,000"), 1000000)
+        self.assertEqual(sheet.parse_number("12,345.67"), 12345.67)
+
     def test_parse_date_formats(self):
         from datetime import date
 

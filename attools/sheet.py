@@ -25,6 +25,7 @@ ENCODINGS = ("utf-8-sig", "utf-8", "cp949", "euc-kr", "utf-16")
 
 FULLWIDTH_SPACE = "　"
 NUMBER_RE = re.compile(r"^\(?\s*[-+]?[\d,]*\d(?:\.\d+)?\s*\)?$")
+GROUPED_RE = re.compile(r"[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 PERCENT_RE = re.compile(r"^[-+]?[\d,]*\d(?:\.\d+)?\s*%$")
 MONEY_RE = re.compile(r"^[₩$€¥]?\s*\(?\s*[-+]?[\d,]*\d(?:\.\d+)?\s*\)?\s*(?:원|KRW|USD)?$")
 DATE_PATTERNS = [
@@ -94,7 +95,12 @@ def parse_number(text: str) -> float | int | None:
         return None
 
     negative = s.startswith("(") and s.endswith(")")
-    s = s.strip("()").replace(",", "").strip()
+    s = s.strip("()").strip()
+    # 쉼표는 세 자리마다 끊을 때만 천 단위 구분이다. «1,2,3» 은 번호를 나열한
+    # 것이라 123 으로 바꾸면 없는 값이 생긴다
+    if "," in s and not GROUPED_RE.fullmatch(s):
+        return None
+    s = s.replace(",", "")
     if not s or not re.fullmatch(r"[-+]?\d+(\.\d+)?", s):
         return None
 
