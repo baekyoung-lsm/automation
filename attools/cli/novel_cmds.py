@@ -421,6 +421,9 @@ def cmd_novel_export(a) -> int:
         _p("\n저장하려면 -o 로 출력 파일을 지정하세요.")
         return 0
 
+    if not _may_write(a, Path(a.out)):
+        return 1
+
     if a.format == "docx":
         dest = manuscript.export_docx(chapters, Path(a.out), title=a.title,
                                       author=a.author, note=note, indent=a.indent)

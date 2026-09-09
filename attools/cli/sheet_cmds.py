@@ -916,6 +916,8 @@ def cmd_sheet_to_sql(a) -> int:
 
     if a.out:
         out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(body, encoding="utf-8")
         _p(f"저장: {out}  ({len(t.rows):,}행, {a.dialect})")
@@ -2133,6 +2135,8 @@ def cmd_sheet_chart(a) -> int:
     if out.suffix.lower() != ".svg":
         _p(f"\nSVG 로만 낼 수 있습니다: {out.suffix or '확장자 없음'}")
         return 1
+    if not _may_write(a, out):
+        return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(svg, encoding="utf-8")
     _p(f"\n저장: {out}")
@@ -2263,6 +2267,8 @@ def cmd_sheet_report(a) -> int:
                        note="attools 로 만든 보고서입니다.")
 
     out = Path(a.out or f"{source.stem}-보고서.html")
+    if not _may_write(a, out):
+        return 1
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     _p(f"저장: {out}")
@@ -2568,6 +2574,8 @@ def cmd_sheet_to_json(a) -> int:
 
     if a.out:
         target = Path(a.out)
+        if not _may_write(a, target):
+            return 1
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text_out, encoding="utf-8")
         _p(f"{len(records):,}개 객체를 저장: {target}")

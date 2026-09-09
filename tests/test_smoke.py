@@ -1137,6 +1137,24 @@ class SmokeTest(unittest.TestCase):
         with zipfile.ZipFile(out) as z:
             self.assertIn("word/document.xml", z.namelist())
 
+    def test_outputs_do_not_overwrite_silently(self):
+        """-o 로 낼 때 있는 파일을 말없이 덮으면 원본이 사라진다."""
+        soft = Path(self.path("소중한파일"))
+        cases = [
+            ("sheet", "to-json", self.path("명단.csv"), "-o", str(soft) + ".json"),
+            ("sheet", "to-sql", self.path("명단.csv"), "-t", "t",
+             "-o", str(soft) + ".sql"),
+            ("sheet", "report", self.path("명단.csv"), "-o", str(soft) + ".html"),
+        ]
+        for args in cases:
+            target = Path(args[-1])
+            target.write_text("소중한 내용", encoding="utf-8")
+            out = self.run_cli(*args, expect=1)
+            self.assertIn("이미 있는 파일", out)
+            self.assertEqual(target.read_text(encoding="utf-8"), "소중한 내용")
+            self.run_cli(*args, "--overwrite")
+            self.assertNotEqual(target.read_text(encoding="utf-8"), "소중한 내용")
+
     def test_fill_names_never_overwrite(self):
         """이름이 겹치면 덮어써서 한 건이 통째로 사라진다."""
         명단 = Path(self.path("겹친명단.csv"))
