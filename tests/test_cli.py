@@ -123,7 +123,9 @@ class FindCommandTest(unittest.TestCase):
         for word, command in (("압축", "at file archive"),
                               ("맞춤법", "at text typo"),
                               ("연락처", "at sheet vcard"),
-                              ("백업", "at file sync")):
+                              ("백업", "at file sync"),
+                              ("발표자료", "at doc from-pptx"),
+                              ("텍스트", "at file pdftext")):
             _, out = self.run_find(word)
             self.assertIn(command, out, word)
 
