@@ -3638,6 +3638,7 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
 # 근로기준법 제54조: 4시간 일하면 30분, 8시간 일하면 1시간 이상 휴게.
 BREAK_RULES = ((8 * 60, 60), (4 * 60, 30))
 CLOCK_RE = re.compile(r"^(\d{1,2})\s*[:시]\s*(\d{1,2})?")
+AMPM_RE = re.compile(r"오전|오후|\bAM\b|\bPM\b", re.IGNORECASE)
 
 
 @dataclass
@@ -3670,15 +3671,30 @@ def parse_clock(cell: object):
     text = to_text(cell).strip()
     if not text:
         return None
+    # «오전 9시», «오후 6:30», «6 PM». 근태표는 사람이 손으로 적는 칸이라
+    # 이렇게 적힌 것이 흔한데, 못 읽으면 그 날은 통째로 빠진 채 집계된다
+    upper = text.upper()
+    afternoon = "오후" in text or "PM" in upper
+    morning = "오전" in text or "AM" in upper
+    if afternoon or morning:
+        text = AMPM_RE.sub(" ", text).strip()
     if text.replace(".", "", 1).isdigit() and "." in text:
         share = float(text)      # 0.375 처럼 하루의 몫으로 적힌 칸
         if 0 <= share < 1:
             total = round(share * 24 * 60)
             return _time(total // 60 % 24, total % 60)
+    # «오후 6» 처럼 오전·오후가 붙으면 숫자 하나만 있어도 시각이다.
+    # 표시가 없는 맨숫자(«9»)는 시각인지 알 수 없으므로 그대로 둔다
+    if (afternoon or morning) and text.isdigit():
+        text += ":00"
     m = CLOCK_RE.match(text)
     if not m:
         return None
     hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if afternoon and hour < 12:
+        hour += 12
+    elif morning and hour == 12:
+        hour = 0
     if hour == 24 and minute == 0:
         return _time(0, 0)
     if hour > 23 or minute > 59:

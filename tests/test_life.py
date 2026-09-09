@@ -293,6 +293,9 @@ class TimeCalcTest(unittest.TestCase):
         self.assertEqual(life.parse_clock("09:30"), 570)
         self.assertEqual(life.parse_clock("9시 30분"), 570)
         self.assertEqual(life.parse_clock("18시"), 1080)
+        self.assertEqual(life.parse_clock("오후 6시"), 1080)
+        self.assertEqual(life.parse_clock("오전 9"), 540)
+        self.assertEqual(life.parse_clock("오전 12시"), 0)
         with self.assertRaises(life.TimeError):
             life.parse_clock("아침")
         with self.assertRaises(life.TimeError):

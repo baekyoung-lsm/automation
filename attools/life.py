@@ -726,6 +726,8 @@ def formal_amount(value: float, *, unit: str = "원") -> str:
 # ------------------------------------------------------------------ 시간 계산
 
 CLOCK_RE = re.compile(r"^(\d{1,2})\s*[:시]\s*(\d{1,2})?\s*분?$")
+# 사람이 손으로 적는 칸에는 «오후 6시» 가 흔하다. 못 읽으면 그 줄이 빠진다
+AMPM_RE = re.compile(r"오전|오후|\bAM\b|\bPM\b", re.IGNORECASE)
 DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(시간|시|분|h|m)", re.IGNORECASE)
 
 
@@ -734,12 +736,23 @@ class TimeError(Exception):
 
 
 def parse_clock(text: str) -> int:
-    """'09:30', '9시 30분', '18시' 를 자정부터의 분으로."""
+    """'09:30', '9시 30분', '18시', '오후 6시' 를 자정부터의 분으로."""
     body = text.strip()
+    upper = body.upper()
+    afternoon = "오후" in body or "PM" in upper
+    morning = "오전" in body or "AM" in upper
+    if afternoon or morning:
+        body = AMPM_RE.sub(" ", body).strip()
+        if body.isdigit():
+            body += ":00"
     m = CLOCK_RE.match(body)
     if not m:
         raise TimeError(f"시각을 읽지 못했습니다: {text} (예: 09:30)")
     hour, minute = int(m.group(1)), int(m.group(2) or 0)
+    if afternoon and hour < 12:
+        hour += 12
+    elif morning and hour == 12:
+        hour = 0
     if hour > 47 or minute > 59:
         raise TimeError(f"시각 범위를 벗어났습니다: {text}")
     return hour * 60 + minute

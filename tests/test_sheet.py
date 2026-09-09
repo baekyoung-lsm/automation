@@ -2964,6 +2964,19 @@ class WorkTimeTest(unittest.TestCase):
         self.assertIsNone(sheet.parse_clock("25:00"))
         self.assertIsNone(sheet.parse_clock(""))
 
+    def test_am_pm_forms(self):
+        # 근태표는 사람이 손으로 적는 칸이라 «오전 9시» 가 흔하다. 못 읽으면
+        # 그 날이 통째로 빠진 채 집계된다
+        from datetime import time
+
+        self.assertEqual(sheet.parse_clock("오전 9시"), time(9, 0))
+        self.assertEqual(sheet.parse_clock("오후 6:30"), time(18, 30))
+        self.assertEqual(sheet.parse_clock("오후 12시"), time(12, 0))
+        self.assertEqual(sheet.parse_clock("오전 12시"), time(0, 0))
+        self.assertEqual(sheet.parse_clock("6 PM"), time(18, 0))
+        # 표시가 없는 맨숫자는 시각인지 알 수 없다 - 지어내지 않는다
+        self.assertIsNone(sheet.parse_clock("9"))
+
 
 if __name__ == "__main__":
     unittest.main()
