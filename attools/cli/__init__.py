@@ -157,13 +157,64 @@ def cmd_completion(a) -> int:
     return 0
 
 
+def _subparsers(parser: argparse.ArgumentParser):
+    """그 파서에 달린 하위 명령 목록 동작. 없으면 None."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    return None
+
+
+def _list_group(parser: argparse.ArgumentParser, name: str) -> int:
+    """«at sheet» 처럼 하위 명령 없이 부르면 무엇이 있는지 보여 준다.
+
+    argparse 가 내는 사용법은 이름 쉰 개가 한 줄로 이어져 읽을 수가 없다.
+    처음 쓰는 사람이 제일 먼저 치는 것이 그 형태라 표로 보여 준다.
+    """
+    action = _subparsers(parser)
+    helps = {choice.dest: (choice.help or "")
+             for choice in getattr(action, "_choices_actions", [])}
+    rows = [[f"at {name} {key}", _cut(helps.get(key, ""), 60)]
+            for key in (action.choices if action else {})]
+    _p(f"at {name} 에는 명령이 {len(rows)}개 있습니다.")
+    _grid(["명령", "하는 일"], rows, limit=60)
+    _p(f"\n자세한 것은 at {name} <명령> --help 를 보세요. "
+       "찾는 말이 있으면 at find <말> 도 됩니다.")
+    return 1
+
+
+def _list_groups(parser: argparse.ArgumentParser) -> int:
+    """«at» 만 쳤을 때. 갈래와 그 안에 명령이 몇 개인지 보여 준다."""
+    action = _subparsers(parser)
+    helps = {choice.dest: (choice.help or "")
+             for choice in getattr(action, "_choices_actions", [])}
+    rows = []
+    for name, group in (action.choices if action else {}).items():
+        inner = _subparsers(group)
+        count = f"{len(inner.choices):,}개" if inner else "-"
+        rows.append([f"at {name}", count, _cut(helps.get(name, ""), 50)])
+    _p(f"attools {__version__} - 갈래 {len(rows)}개")
+    _grid(["갈래", "명령", "하는 일"], rows, limit=50)
+    _p("\n갈래를 치면 그 안의 명령이 나옵니다 (예: at sheet). "
+       "찾는 말이 있으면 at find <말>.")
+    return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="at", description="파일 / 텍스트 / JSON / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 자동화 도구")
     ap.add_argument("-V", "--version", action="version", version=f"attools {__version__}")
-    sub = ap.add_subparsers(dest="group", required=True)
+    sub = ap.add_subparsers(dest="group", required=False)
     for module in GROUP_MODULES:
         module.add_commands(sub)
+
+    # 하위 명령 없이 «at sheet» 만 쳤을 때 목록을 보여 준다
+    for name, parser in sub.choices.items():
+        action = _subparsers(parser)
+        if action is None:
+            continue
+        action.required = False
+        parser.set_defaults(func=lambda a, p=parser, n=name: _list_group(p, n))
 
     fd = sub.add_parser("find", help="명령 찾기 - 하는 일로 검색")
     fd.add_argument("words", nargs="*", metavar="말")
@@ -173,6 +224,8 @@ def build_parser() -> argparse.ArgumentParser:
     cp = sub.add_parser("completion", help="셸 자동완성 스크립트 출력")
     cp.add_argument("shell", nargs="?", default="bash", choices=["bash", "zsh"])
     cp.set_defaults(func=cmd_completion)
+
+    ap.set_defaults(func=lambda a, p=ap: _list_groups(p))
     return ap
 
 

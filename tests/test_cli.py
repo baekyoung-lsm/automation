@@ -297,6 +297,44 @@ class KoreanHelpTest(unittest.TestCase):
         self.assertEqual(bad, [], f"한국어가 아닌 옵션 설명: {bad}")
 
 
+class GroupListingTest(unittest.TestCase):
+    """하위 명령 없이 부르면 argparse 사용법 대신 목록을 보여 준다."""
+
+    def run_at(self, *argv):
+        import contextlib
+        import io
+
+        from attools import cli
+
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            code = cli.main(list(argv))
+        return code, buffer.getvalue()
+
+    def test_bare_at_lists_groups(self):
+        code, out = self.run_at()
+        self.assertEqual(code, 1)          # 명령을 덜 준 것이므로 0 은 아니다
+        self.assertIn("갈래", out)
+        self.assertIn("at sheet", out)
+        self.assertIn("at find", out)
+
+    def test_bare_group_lists_its_commands(self):
+        code, out = self.run_at("sheet")
+        self.assertEqual(code, 1)
+        self.assertIn("at sheet peek", out)
+        self.assertIn("--help", out)
+
+    def test_every_group_lists_something(self):
+        from attools import cli
+
+        for name, parser in cli.build_parser()._subparsers._group_actions[0].choices.items():
+            if cli._subparsers(parser) is None:
+                continue                   # keys·ui 처럼 하위 명령이 없는 것
+            with self.subTest(group=name):
+                _code, out = self.run_at(name)
+                self.assertIn(f"at {name} ", out)
+
+
 class DumpTest(unittest.TestCase):
     """긴 결과를 화면에 쏟지 않는지. 관(|)으로 넘길 때는 다 나와야 한다."""
 
