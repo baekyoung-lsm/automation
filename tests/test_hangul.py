@@ -22,6 +22,14 @@ class HangulTest(unittest.TestCase):
         self.assertEqual(hangul.sanitize_filename("CON.txt"), "_CON.txt")
         self.assertEqual(hangul.sanitize_filename("a b.md", space="underscore"), "a_b.md")
 
+    def test_long_names_are_clipped_to_the_byte_limit(self):
+        # 한글은 한 자에 3바이트다. 여든 자 남짓이면 파일 이름 한도를 넘어
+        # OSError 가 나고 그 자리에서 멎는다
+        got = hangul.sanitize_filename("가" * 200 + ".md")
+        self.assertLessEqual(len(got.encode("utf-8")), hangul.NAME_BYTES)
+        self.assertTrue(got.endswith(".md"))
+        self.assertTrue(got.startswith("가가가"))
+
     def test_josa(self):
         self.assertEqual(hangul.josa("책", "이/가"), "책이")
         self.assertEqual(hangul.josa("노트", "이/가"), "노트가")

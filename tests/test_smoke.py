@@ -1137,6 +1137,18 @@ class SmokeTest(unittest.TestCase):
         with zipfile.ZipFile(out) as z:
             self.assertIn("word/document.xml", z.namelist())
 
+    def test_fill_names_never_overwrite(self):
+        """이름이 겹치면 덮어써서 한 건이 통째로 사라진다."""
+        명단 = Path(self.path("겹친명단.csv"))
+        명단.write_text("이름,값\n홍길동,1\n홍길동,2\n", encoding="utf-8")
+        틀 = Path(self.path("짧은틀.md"))
+        틀.write_text("{이름} 님 {값}\n", encoding="utf-8")
+        나온 = Path(self.path("채운것"))
+        out = self.run_cli("sheet", "fill", str(명단), "-t", str(틀),
+                           "-o", str(나온), "--name", "{이름}.md", "--apply")
+        self.assertIn("이름이 겹쳐", out)
+        self.assertEqual(len(list(나온.glob("*.md"))), 2)
+
     def test_novel_export_epub(self):
         import zipfile
 

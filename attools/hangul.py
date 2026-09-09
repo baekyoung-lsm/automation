@@ -38,6 +38,9 @@ def to_nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
+NAME_BYTES = 255            # 파일 이름 하나의 바이트 한도
+
+
 def sanitize_filename(name: str, *, space: str = "keep", lower_ext: bool = True) -> str:
     """파일명을 안전하게 다듬는다. 확장자는 보존한다.
 
@@ -73,8 +76,28 @@ def sanitize_filename(name: str, *, space: str = "keep", lower_ext: bool = True)
     if stem.upper() in WIN_RESERVED:
         stem = f"_{stem}"
 
+    # 파일 이름 하나는 대개 255바이트까지다. 한글은 한 자에 3바이트라 여든
+    # 자 남짓이면 넘는다 - 넘겨 쓰면 OSError 가 나고 그 자리에서 멎는다
+    room = NAME_BYTES - (len(ext.encode("utf-8")) + 1 if ext else 0) - int(dotfile)
+    stem = _clip_bytes(stem, room)
+
     out = f"{stem}.{ext}" if ext else stem
     return f".{out}" if dotfile else out
+
+
+def _clip_bytes(text: str, limit: int) -> str:
+    """UTF-8 바이트 수로 자른다. 글자 가운데서 자르지 않는다."""
+    if len(text.encode("utf-8")) <= limit:
+        return text
+    out: list[str] = []
+    size = 0
+    for ch in text:
+        width = len(ch.encode("utf-8"))
+        if size + width > limit:
+            break
+        out.append(ch)
+        size += width
+    return "".join(out).strip(" .-_") or "untitled"
 
 
 def hangul_ratio(text: str) -> float:

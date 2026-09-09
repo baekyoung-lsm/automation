@@ -1943,20 +1943,44 @@ def cmd_sheet_fill(a) -> int:
 
     out_dir = Path(a.out or "채운문서")
     _p(f"{len(results)}건  ·  틀 {template_path.name}  ·  {out_dir}/")
-    for r in results[:a.limit]:
-        name = hangul.sanitize_filename(r.name)
+
+    # 이름이 겹치면 덮어써서 한 건이 통째로 사라진다. 미리보기에서도 실제로
+    # 붙을 이름을 보여 줘야 «두 건인데 파일이 하나» 를 미리 안다
+    used: set[str] = set()
+    taken = 0
+
+    def pick(row) -> str:
+        nonlocal taken
+        name = hangul.sanitize_filename(row.name)
+        stem, dot, ext = name.rpartition(".")
+        stem, ext = (stem, dot + ext) if dot else (name, "")
+        candidate, number = name, 1
+        while candidate in used:
+            candidate = f"{stem} ({number}){ext}"
+            number += 1
+        if candidate != name:
+            taken += 1
+        used.add(candidate)
+        return candidate
+
+    names = [pick(r) for r in results]
+    if a.apply:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    for r, name in list(zip(results, names))[:a.limit]:
         if not a.apply:
             _p(f"  [미리보기] {name}")
             continue
-        out_dir.mkdir(parents=True, exist_ok=True)
         (out_dir / name).write_text(r.text, encoding="utf-8")
         _p(f"  {name}")
     if len(results) > a.limit and not a.apply:
         _p(f"  ... {len(results) - a.limit}건 더")
     elif a.apply and len(results) > a.limit:
-        for r in results[a.limit:]:
-            (out_dir / hangul.sanitize_filename(r.name)).write_text(r.text, encoding="utf-8")
+        for r, name in list(zip(results, names))[a.limit:]:
+            (out_dir / name).write_text(r.text, encoding="utf-8")
         _p(f"  ... 그 밖에 {len(results) - a.limit}건")
+    if taken:
+        _p(f"\n이름이 겹쳐 {taken}건에 «(1)» 을 붙였습니다. "
+           "--name 에 {번호} 나 {사번} 을 넣으면 겹치지 않습니다.")
 
     if not a.apply:
         _p(f"\n첫 건 미리보기\n{'-' * 40}")
