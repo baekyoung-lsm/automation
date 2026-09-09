@@ -51,7 +51,9 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 <!-- /toc -->
 
 파일을 옮기거나 이름을 바꾸는 명령은 **기본이 미리보기**다. `--apply` 를 붙여야 실제로 실행되고,
-실행 내역은 `~/.attools/journal/` 에 남아 `at file undo` 로 통째로 되돌릴 수 있다.
+실행 내역은 `~/.attools/journal/` 에 남아 `at file undo` 로 통째로 되돌릴 수 있다. 되돌린 뒤에는
+**옮겨 갔던 자리에 남은 빈 폴더**(`문서/`, `이미지/`)도 지운다 — 비어 있을 때만 지우므로 뭔가
+들어 있는 폴더는 그대로 둔다.
 
 ## file — 파일 정리
 
@@ -84,7 +86,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file image [경로]` | 이미지 크기·비율·용량 훑기 (png·jpg·gif·bmp·webp) |
 | `at file route [경로] --rules <json>` | 내 규칙대로 폴더에 나눠 담는다 (이름 패턴 → 폴더) |
 | `at file flatten [경로]` | 하위 폴더의 파일을 한 곳으로 모은다 (`organize` 의 반대) |
-| `at file undo [저널]` | 직전 organize/fixname 을 되돌린다 |
+| `at file undo [저널]` | 직전 organize/fixname 을 되돌린다. 옮겨 갔던 자리에 남은 빈 폴더도 지운다 |
 
 ```bash
 at file organize ~/Downloads --by ext-date --min-age 7 -v   # 미리보기

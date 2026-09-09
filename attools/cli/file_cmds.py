@@ -915,6 +915,22 @@ def cmd_file_undo(a) -> int:
     _p(f"{restored}개를 되돌렸습니다.")
     for e in errors:
         _p(f"  건너뜀: {e}")
+
+    # 옮겨 갔던 자리에 빈 폴더가 남으면 되돌리기가 안 끝난 것처럼 보인다
+    try:
+        moves = files.read_journal(journal)
+    except (OSError, ValueError):
+        moves = []
+    if moves and not errors:
+        import os
+
+        try:
+            stop = Path(os.path.commonpath([m.src for m in moves])).parent
+        except ValueError:
+            stop = None
+        gone = files.prune_empty_dirs([Path(m.dst).parent for m in moves], stop=stop)
+        if gone:
+            _p(f"빈 폴더 {gone}개를 지웠습니다.")
     return 0 if not errors else 1
 
 

@@ -1114,6 +1114,41 @@ class FolderAuditTest(unittest.TestCase):
         self.assertEqual(set(self.kinds()), {"구성", "큰 파일"})
 
 
+class PruneEmptyDirsTest(unittest.TestCase):
+    """되돌린 뒤 남는 빈 폴더. 남아 있으면 되돌리기가 안 끝난 것처럼 보인다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_empty_folders_go_away(self):
+        (self.root / "문서" / "안쪽").mkdir(parents=True)
+        gone = files.prune_empty_dirs([self.root / "문서" / "안쪽"], stop=self.root)
+        self.assertEqual(gone, 2)
+        self.assertFalse((self.root / "문서").exists())
+
+    def test_folder_with_a_file_stays(self):
+        (self.root / "문서").mkdir()
+        (self.root / "문서" / "남은.txt").write_text("x", encoding="utf-8")
+        self.assertEqual(files.prune_empty_dirs([self.root / "문서"], stop=self.root), 0)
+        self.assertTrue((self.root / "문서").is_dir())
+
+    def test_stop_is_never_removed(self):
+        gone = files.prune_empty_dirs([self.root], stop=self.root)
+        self.assertEqual(gone, 0)
+        self.assertTrue(self.root.is_dir())
+
+    def test_journal_can_be_read_back(self):
+        moves = [files.Move(str(self.root / "가.txt"), str(self.root / "문서" / "가.txt"))]
+        (self.root / "가.txt").write_text("x", encoding="utf-8")
+        journal = files.apply_moves(moves, journal=self.root / "기록.jsonl")
+        read = files.read_journal(journal)
+        self.assertEqual([m.dst for m in read],
+                         [str(self.root / "문서" / "가.txt")])
+
+
 class UndoInputTest(unittest.TestCase):
     """되돌리기에 엉뚱한 것을 줬을 때. 역추적 대신 사람 말이어야 한다."""
 

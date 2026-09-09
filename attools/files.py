@@ -143,6 +143,18 @@ def apply_moves(moves: list[Move], *, journal: Path | None = None) -> Path | Non
     return journal
 
 
+def read_journal(journal: Path) -> list[Move]:
+    """저널에 적힌 옮김들. 되돌린 뒤 뒷정리에도 쓴다."""
+    lines = Path(journal).read_text(encoding="utf-8").splitlines()
+    out = []
+    for line in lines:
+        if not line.strip():
+            continue
+        entry = json.loads(line)
+        out.append(Move(entry["src"], entry["dst"]))
+    return out
+
+
 def undo(journal: Path) -> tuple[int, list[str]]:
     """저널을 역순으로 되돌린다. (복구 개수, 실패 메시지)"""
     entries = [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -156,9 +168,48 @@ def undo(journal: Path) -> tuple[int, list[str]]:
             errors.append(f"원래 자리에 이미 파일이 있음: {src}")
             continue
         src.parent.mkdir(parents=True, exist_ok=True)
-        dst.replace(src)
+        try:
+            dst.replace(src)
+        except OSError:
+            # 다른 파티션으로 옮겼던 것은 replace 가 안 된다 (옮길 때도
+            # shutil.move 를 썼다). 여기서 터지면 되돌리기가 통째로 멎는다
+            try:
+                shutil.move(str(dst), str(src))
+            except OSError as exc:
+                errors.append(f"되돌리지 못함: {dst} ({exc})")
+                continue
         restored += 1
     return restored, errors
+
+
+def prune_empty_dirs(paths, *, stop: Path | None = None) -> int:
+    """옮겨 간 자리에 남은 빈 폴더를 지운다. (지운 개수)
+
+    되돌린 뒤에 «문서/», «이미지/» 가 빈 채로 남으면 되돌리기가 안 끝난 것처럼
+    보인다. 비어 있을 때만, stop 아래에서만 지운다 - 파일이 하나라도 남아 있는
+    폴더는 건드리지 않는다.
+    """
+    removed = 0
+    stop = Path(stop).resolve() if stop else None
+    for path in {Path(one).resolve() for one in paths}:
+        here = path
+        while here.is_dir():
+            if stop is not None and (here == stop or stop not in here.parents):
+                break
+            try:
+                next(here.iterdir())
+                break                 # 아직 뭔가 들어 있다
+            except StopIteration:
+                pass
+            except OSError:
+                break
+            try:
+                here.rmdir()
+            except OSError:
+                break
+            removed += 1
+            here = here.parent
+    return removed
 
 
 def file_hash(path: Path, *, chunk: int = 1 << 20, limit: int | None = None) -> str:
