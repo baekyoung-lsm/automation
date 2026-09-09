@@ -617,6 +617,60 @@ def num_make(payload: dict) -> dict:
     return _num_result(payload, path, total, template, skip, where, out)
 
 
+def _text_command(payload: dict, path, out=None) -> str:
+    args: list[object] = ["file", "pdftext", path]
+    pages = form.text(payload, "textpages")
+    if pages:
+        args += ["--pages", pages]
+    return form.command(*args, *(["-o", out] if out else []))
+
+
+def _pdf_text(payload: dict):
+    """PDF 에서 글자를 꺼낸다. (파일, 결과)"""
+    from ... import pdf
+
+    path = form.existing_file(payload, "textfile", max_bytes=0)
+    spec = form.text(payload, "textpages")
+    try:
+        doc = pdf.open_pdf(path)
+        wanted = pdf.page_numbers(spec, len(doc.pages())) if spec else None
+        return path, pdf.read_text(doc, pages=wanted)
+    except (pdf.PdfError, OSError, ValueError) as exc:
+        raise UiError(str(exc)) from None
+
+
+def _text_result(payload: dict, path, found, made=None) -> dict:
+    body = found.text.strip()
+    lines = body.splitlines()
+    return {"rows": [[f"{i + 1}쪽", f"{len(one.strip()):,}자"]
+                     for i, one in enumerate(found.pages)][:200],
+            "count": len(found.pages),
+            "chars": len(body),
+            "preview": "\n".join(lines[:40]),
+            "more": max(len(lines) - 40, 0),
+            "missing": found.missing[:5],
+            "empty": found.empty_pages[:10],
+            "saved": str(made) if made else "",
+            "command": _text_command(payload, path, made)}
+
+
+def text_preview(payload: dict) -> dict:
+    path, found = _pdf_text(payload)
+    return _text_result(payload, path, found)
+
+
+def text_save(payload: dict) -> dict:
+    """원본 옆에 «이름.txt» 를 만든다. 원본은 건드리지 않는다."""
+    path, found = _pdf_text(payload)
+    out = files.unique_path(path.with_suffix(".txt"))
+    body = found.text.strip()
+    try:
+        out.write_text(body + "\n" if body else "", encoding="utf-8")
+    except OSError as exc:
+        raise UiError(str(exc)) from None
+    return _text_result(payload, path, found, out)
+
+
 def _join_plan(payload: dict):
     """폴더 안의 PDF 를 이름 순으로. 스캔은 대개 그 차례가 맞다."""
     from ... import pdf
@@ -1011,6 +1065,28 @@ BODY = """
   </div>
   <div id="nummsg"></div>
   <div id="numout"></div>
+</section>
+
+<section class="card">
+  <h2>PDF 글자 꺼내기</h2>
+  <p class="note">계약서·공문 PDF 에서 <b>글자만</b> 꺼냅니다. 찾기·붙여넣기용입니다.
+     PDF 는 «글자» 가 아니라 «어느 글꼴의 몇 번 글리프» 를 적어 둔 형식이라,
+     글꼴에 글자 정보(ToUnicode)가 없으면 <b>그 부분은 빼고</b> 어느 글꼴이
+     그랬는지 알려 줍니다 — 아무 글자로나 바꾸면 뒤죽박죽이 되어 더 나쁩니다.
+     <b>스캔한 그림 속 글자는 읽지 못합니다.</b>
+     <b>원본은 그대로 두고</b> 옆에 «이름.txt» 를 만듭니다.</p>
+  <div class="row">
+    <div style="flex:3 1 16rem"><label for="textfile">PDF 파일</label>
+      <input type="text" id="textfile" data-browse="file" spellcheck="false"></div>
+    <div style="flex:0 1 10rem"><label for="textpages">쪽 (비우면 전부)</label>
+      <input type="text" id="textpages" placeholder="1-3,7" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-text">글자 보기</button>
+    <button id="btn-text-save" disabled>txt 로 저장</button>
+  </div>
+  <div id="textmsg"></div>
+  <div id="textout"></div>
 </section>
 
 <section class="card">
@@ -1439,6 +1515,41 @@ BODY = """
   $("btn-num").addEventListener("click", function () { runNum(false); });
   $("btn-num-save").addEventListener("click", function () { runNum(true); });
 
+  function textValues() {
+    return { textfile: $("textfile").value, textpages: $("textpages").value };
+  }
+
+  async function runText(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/text_save"
+                                   : "/api/files/text_preview", textValues());
+      var body = "<pre class='diff'>" + AT.esc(d.preview || "(글자가 없습니다)") +
+                 "</pre>" +
+                 (d.more ? "<p class='note'>... " + d.more +
+                           "줄 더 (txt 로 저장해서 보세요)</p>" : "") +
+                 AT.table(["쪽", "글자 수"], d.rows) + AT.command(d.command);
+      $("textout").innerHTML = body;
+      AT.remember("files", "textfile", $("textfile").value);
+      AT.message($("textmsg"), "<b>" + d.count + "쪽</b> · 글자 " + d.chars +
+        (d.missing.length
+          ? " · 글자 정보가 없는 글꼴 " + d.missing.length + "개(" +
+            AT.esc(d.missing.join(", ")) + ")는 빼고 꺼냈습니다"
+          : "") +
+        (d.empty.length
+          ? " · 글자가 없는 쪽: " + d.empty.join(", ") + " (스캔본일 수 있습니다)"
+          : "") +
+        (d.saved ? " · 저장했습니다: <b>" + AT.esc(d.saved) + "</b>"
+                 : " · 아직 저장하지 않았습니다."), d.chars ? "ok" : "bad");
+      $("btn-text-save").disabled = !!save || d.chars === 0;
+    } catch (e) {
+      AT.message($("textmsg"), AT.esc(e.message), "bad");
+      $("btn-text-save").disabled = true;
+    }
+  }
+
+  $("btn-text").addEventListener("click", function () { runText(false); });
+  $("btn-text-save").addEventListener("click", function () { runText(true); });
+
   function joinValues() { return { joinroot: $("joinroot").value }; }
 
   function drawJoin(d) {
@@ -1609,6 +1720,7 @@ def make() -> App:
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "cut_preview": cut_preview, "cut_make": cut_make,
                  "num_preview": num_preview, "num_make": num_make,
+                 "text_preview": text_preview, "text_save": text_save,
                  "join_preview": join_preview, "join_make": join_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,

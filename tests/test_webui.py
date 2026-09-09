@@ -374,6 +374,12 @@ class WebUiTest(UiCase):
         _, data = self.post("/api/files/cut_preview",
                             {"cutfile": str(source), "cutpages": "2"})
         self.assertEqual(data["count"], 1)
+        # 그림만 든 PDF 라 글자는 없다. 없는 것을 있다고 하지 않는다
+        _, text_out = self.post("/api/files/text_preview",
+                                {"textfile": str(source), "textpages": ""})
+        self.assertEqual(text_out["chars"], 0)
+        self.assertEqual(text_out["empty"], [1, 2])
+        self.assertEqual(len(list(source.parent.glob("*.txt"))), 0)
         self.assertIn("at file pdfcut", data["command"])
         self.assertEqual(len(list(source.parent.glob("*(쪽뽑음)*.pdf"))), 0)
 
@@ -2897,6 +2903,12 @@ class CommandHintTest(UiCase):
         shutil.copy(source, folder / "2.pdf")
         _, joined = self.post("/api/files/join_preview", {"joinroot": str(folder)})
         self.accepts(joined["command"])
+
+    def test_files_pdftext_command(self):
+        source = self._two_page_pdf("글꺼내기")
+        _, data = self.post("/api/files/text_preview",
+                            {"textfile": str(source), "textpages": "1"})
+        self.accepts(data["command"])
 
     def test_files_scrub_command(self):
         import zipfile
