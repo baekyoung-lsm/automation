@@ -2920,6 +2920,31 @@ class CommandHintTest(UiCase):
         _, joined = self.post("/api/files/join_preview", {"joinroot": str(folder)})
         self.accepts(joined["command"])
 
+    def test_files_eml_command(self):
+        from email.message import EmailMessage
+
+        메일함 = self.work / "받은메일"
+        메일함.mkdir(exist_ok=True)
+        쪽지 = EmailMessage()
+        쪽지["From"] = "홍길동 <hong@example.com>"
+        쪽지["Subject"] = "정산 자료"
+        쪽지.set_content("확인 부탁드립니다.")
+        쪽지.add_attachment(b"x,y\n1,2\n", maintype="text", subtype="csv",
+                           filename="../정산.csv")
+        (메일함 / "받은.eml").write_bytes(쪽지.as_bytes())
+
+        _, data = self.post("/api/files/eml_preview", {"emlroot": str(메일함)})
+        self.accepts(data["command"])
+        self.assertEqual(data["count"], 1)
+
+        나온 = self.work / "첨부"
+        _, saved = self.post("/api/files/eml_save",
+                             {"emlroot": str(메일함), "emlout": str(나온)})
+        self.accepts(saved["command"])
+        self.assertEqual(len(saved["made"]), 1)
+        # 메일에 적힌 «../» 이름으로 폴더 밖에 쓰면 안 된다
+        self.assertFalse((self.work / "정산.csv").exists())
+
     def test_files_pdftext_command(self):
         source = self._two_page_pdf("글꺼내기")
         _, data = self.post("/api/files/text_preview",

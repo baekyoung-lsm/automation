@@ -617,6 +617,73 @@ def num_make(payload: dict) -> dict:
     return _num_result(payload, path, total, template, skip, where, out)
 
 
+def _eml_command(payload: dict, root, out=None) -> str:
+    args: list[object] = ["file", "eml", root]
+    if out:
+        args += ["--save", out, "--apply"]
+    return form.command(*args)
+
+
+def _eml_mails(payload: dict):
+    """폴더(또는 파일 하나)의 메일을 읽는다. (경로, 메일들, 못 읽은 것)"""
+    from ... import eml
+
+    root = form.existing_path(payload, "emlroot")
+    mails, broken = [], []
+    for path in eml.collect(root):
+        try:
+            mails.append(eml.read_mail(path, keep_data=form.flag(payload, "save")))
+        except eml.EmlError as exc:
+            broken.append([path.name, str(exc)])
+    if not mails and not broken:
+        raise UiError(f".eml 파일이 없습니다: {root} "
+                      "(아웃룩의 .msg 는 형식이 달라 읽지 못합니다)")
+    return root, mails, broken
+
+
+def eml_preview(payload: dict) -> dict:
+    root, mails, broken = _eml_mails(payload)
+    attached = [item for mail in mails for item in mail.attachments]
+    return {"rows": [[m.path.name, m.sender, m.subject, m.when,
+                      ", ".join(a.name for a in m.attachments)]
+                     for m in mails[:200]],
+            "count": len(mails), "attached": len(attached),
+            "broken": broken, "made": [],
+            "command": _eml_command(payload, root)}
+
+
+def eml_save(payload: dict) -> dict:
+    """첨부를 폴더에 꺼낸다. 원본 메일은 건드리지 않는다."""
+    from ... import hangul
+
+    payload = dict(payload, save=True)
+    root, mails, broken = _eml_mails(payload)
+    raw = form.text(payload, "emlout")
+    if not raw:
+        raise UiError("첨부를 꺼낼 폴더를 적어 주세요.")
+    where = Path(raw).expanduser()
+    if where.exists() and not where.is_dir():
+        raise UiError(f"폴더가 아닙니다: {where}")
+    where.mkdir(parents=True, exist_ok=True)
+    made: list[str] = []
+    for mail in mails:
+        for item in mail.attachments:
+            # 메일에 적힌 이름을 그대로 쓰면 «../» 나 아주 긴 이름이 섞여 온다
+            target = files.unique_path(
+                where / hangul.sanitize_filename(item.name))
+            try:
+                target.write_bytes(item.data)
+            except OSError as exc:
+                broken.append([item.name, str(exc)])
+                continue
+            made.append(str(target))
+    out = eml_preview(payload)
+    out["made"] = made
+    out["broken"] = broken
+    out["command"] = _eml_command(payload, root, where)
+    return out
+
+
 def _text_command(payload: dict, path, out=None) -> str:
     args: list[object] = ["file", "pdftext", path]
     pages = form.text(payload, "textpages")
@@ -1068,6 +1135,27 @@ BODY = """
 </section>
 
 <section class="card">
+  <h2>받은 메일 훑기 · 첨부 꺼내기</h2>
+  <p class="note">메일을 내려받거나 전달받으면 <b>.eml</b> 로 옵니다. 보낸 사람·제목·
+     받은 시각·첨부를 표로 보고, 첨부를 폴더에 꺼냅니다. <b>읽기만 합니다 — 보내지
+     않습니다.</b> 첨부 이름은 메일에 적힌 값이라 «../» 같은 것이 섞여 오므로 파일
+     이름으로 쓸 수 있게 다듬고, 같은 이름은 «(1)» 을 붙입니다.
+     아웃룩의 <b>.msg 는 읽지 못합니다</b> - 메일 앱에서 .eml 로 저장하세요.</p>
+  <div class="row">
+    <div style="flex:3 1 16rem"><label for="emlroot">메일 파일 또는 폴더</label>
+      <input type="text" id="emlroot" data-browse="dir" spellcheck="false"></div>
+    <div style="flex:2 1 12rem"><label for="emlout">첨부를 꺼낼 폴더</label>
+      <input type="text" id="emlout" data-browse="dir" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-eml">메일 보기</button>
+    <button id="btn-eml-save" disabled>첨부 꺼내기</button>
+  </div>
+  <div id="emlmsg"></div>
+  <div id="emlout-box"></div>
+</section>
+
+<section class="card">
   <h2>PDF 글자 꺼내기</h2>
   <p class="note">계약서·공문 PDF 에서 <b>글자만</b> 꺼냅니다. 찾기·붙여넣기용입니다.
      PDF 는 «글자» 가 아니라 «어느 글꼴의 몇 번 글리프» 를 적어 둔 형식이라,
@@ -1515,6 +1603,33 @@ BODY = """
   $("btn-num").addEventListener("click", function () { runNum(false); });
   $("btn-num-save").addEventListener("click", function () { runNum(true); });
 
+  function emlValues() {
+    return { emlroot: $("emlroot").value, emlout: $("emlout").value };
+  }
+
+  async function runEml(save) {
+    try {
+      const d = await AT.call(save ? "/api/files/eml_save"
+                                   : "/api/files/eml_preview", emlValues());
+      $("emlout-box").innerHTML =
+        AT.table(["파일", "보낸 사람", "제목", "받은 시각", "첨부"], d.rows) +
+        (d.broken.length
+          ? "<h2>읽지 못한 파일</h2>" + AT.table(["파일", "까닭"], d.broken)
+          : "") + AT.command(d.command);
+      AT.remember("files", "emlroot", $("emlroot").value);
+      AT.message($("emlmsg"), "<b>" + d.count + "통</b> · 첨부 " + d.attached +
+        "개" + (d.made.length ? " · <b>" + d.made.length + "개</b>를 꺼냈습니다"
+                              : " · 아직 꺼내지 않았습니다."), "ok");
+      $("btn-eml-save").disabled = !!save || d.attached === 0;
+    } catch (e) {
+      AT.message($("emlmsg"), AT.esc(e.message), "bad");
+      $("btn-eml-save").disabled = true;
+    }
+  }
+
+  $("btn-eml").addEventListener("click", function () { runEml(false); });
+  $("btn-eml-save").addEventListener("click", function () { runEml(true); });
+
   function textValues() {
     return { textfile: $("textfile").value, textpages: $("textpages").value };
   }
@@ -1720,6 +1835,7 @@ def make() -> App:
                  "pdf_preview": pdf_preview, "pdf_make": pdf_make,
                  "cut_preview": cut_preview, "cut_make": cut_make,
                  "num_preview": num_preview, "num_make": num_make,
+                 "eml_preview": eml_preview, "eml_save": eml_save,
                  "text_preview": text_preview, "text_save": text_save,
                  "join_preview": join_preview, "join_make": join_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
