@@ -27,6 +27,29 @@ class DbkitTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root, ignore_errors=True)
 
+    def test_links_and_indexes_are_read(self):
+        # 처음 보는 DB 에서는 표끼리 어떻게 이어지는지가 먼저 궁금하다
+        conn = sqlite3.connect(self.path)
+        conn.execute("CREATE TABLE 주문(id INTEGER PRIMARY KEY, "
+                     "사번 INTEGER REFERENCES 사원(사번), 금액 INTEGER)")
+        conn.execute("CREATE UNIQUE INDEX 주문_사번 ON 주문(사번, 금액)")
+        conn.commit()
+        conn.close()
+
+        with dbkit.connect(self.path) as conn:
+            links = dbkit.links(conn, "주문")
+            marks = dbkit.indexes(conn, "주문")
+        self.assertEqual([(one.column, one.table, one.target) for one in links],
+                         [("사번", "사원", "사번")])
+        found = {one.name: one for one in marks}
+        self.assertIn("주문_사번", found)
+        self.assertEqual(found["주문_사번"].columns, ["사번", "금액"])
+        self.assertTrue(found["주문_사번"].unique)
+
+    def test_tables_without_links_say_nothing(self):
+        with dbkit.connect(self.path) as conn:
+            self.assertEqual(dbkit.links(conn, "사원"), [])
+
     def test_header_check_beats_extension(self):
         fake = self.root / "가짜.db"
         fake.write_text("이건 데이터베이스가 아니다", encoding="utf-8")

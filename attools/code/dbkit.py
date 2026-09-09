@@ -78,6 +78,48 @@ def columns(conn: sqlite3.Connection, table: str) -> list[Column]:
                    bool(r[5])) for r in rows]
 
 
+@dataclass
+class Link:
+    column: str            # 이 표의 열
+    table: str             # 가리키는 표
+    target: str            # 가리키는 열
+
+
+@dataclass
+class Index:
+    name: str
+    columns: list
+    unique: bool
+
+
+def links(conn: sqlite3.Connection, table: str) -> list[Link]:
+    """이 표가 가리키는 다른 표(외래 키). 처음 보는 DB 에서 제일 먼저 볼 것이다."""
+    try:
+        rows = conn.execute(f'PRAGMA foreign_key_list("{table}")').fetchall()
+    except sqlite3.DatabaseError:
+        return []
+    return [Link(column=r[3] or "", table=r[2] or "", target=r[4] or "")
+            for r in rows]
+
+
+def indexes(conn: sqlite3.Connection, table: str) -> list[Index]:
+    """이 표에 걸린 인덱스와 그 열들."""
+    try:
+        rows = conn.execute(f'PRAGMA index_list("{table}")').fetchall()
+    except sqlite3.DatabaseError:
+        return []
+    out = []
+    for row in rows:
+        name = row[1]
+        try:
+            parts = conn.execute(f'PRAGMA index_info("{name}")').fetchall()
+        except sqlite3.DatabaseError:
+            parts = []
+        out.append(Index(name=name, columns=[p[2] for p in parts if p[2]],
+                         unique=bool(row[2])))
+    return out
+
+
 def looks_like_write(sql: str) -> bool:
     """읽기 전용으로 열지만, 무엇이 막혔는지 미리 알려 주려고 본다."""
     head = sql.strip().lstrip("(").split(None, 1)

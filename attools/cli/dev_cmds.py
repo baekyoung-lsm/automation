@@ -272,9 +272,22 @@ def cmd_dev_db(a) -> int:
         elif a.table:
             cols = dbkit.columns(conn, a.table)
             _p(f"{a.table}  열 {len(cols)}개")
-            _grid(["열", "타입", "빈칸", "기본값", "키"],
+            # 외래 키가 있으면 그 열에 «-> 표.열» 을 적는다. 처음 보는 DB 에서
+            # 표끼리 어떻게 이어지는지가 열 이름보다 먼저 궁금하다
+            link_by_column = {one.column: one for one in dbkit.links(conn, a.table)}
+            _grid(["열", "타입", "빈칸", "기본값", "키", "가리키는 곳"],
                   [[c.name, c.type or "-", "안 됨" if c.notnull else "됨",
-                    c.default or "-", "PK" if c.pk else ""] for c in cols])
+                    c.default or "-", "PK" if c.pk else "",
+                    (f"-> {link_by_column[c.name].table}."
+                     f"{link_by_column[c.name].target}")
+                    if c.name in link_by_column else ""] for c in cols])
+            marks = dbkit.indexes(conn, a.table)
+            if marks:
+                _p("인덱스  " + " · ".join(
+                    f"{one.name}({', '.join(one.columns)})"
+                    + (" 유일" if one.unique else "") for one in marks[:6]))
+                if len(marks) > 6:
+                    _p(f"  ... {len(marks) - 6}개 더")
             headers, rows, more = dbkit.sample(conn, a.table, limit=a.limit)
             _p(f"\n앞에서 {len(rows)}행")
         else:
