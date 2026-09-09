@@ -185,7 +185,7 @@ def cmd_text_count(a) -> int:
 
 def cmd_text_pick(a) -> int:
     """글에서 이메일·전화·금액 같은 것을 뽑는다. 정규식을 몰라도 되게."""
-    targets = _text_targets(a)
+    targets = _text_targets(a, documents=a.docx)
     if targets is None:
         return 1
     if not targets:
@@ -196,8 +196,11 @@ def cmd_text_pick(a) -> int:
     found: list = []
     for path in targets:
         try:
-            body, _encoding = text.read_text_any(path)
-        except (text.TextError, OSError):
+            if a.docx and path.suffix.lower() in text.DOCUMENT_SUFFIXES:
+                body, _kind = text.read_words_or_text(path)
+            else:
+                body, _encoding = text.read_text_any(path)
+        except (text.TextError, docx.DocxError, hwpx.HwpxError, OSError):
             continue
         try:
             found += text.pick(body, kinds, source=str(path))
@@ -677,6 +680,8 @@ def add_commands(sub) -> None:
     pk.add_argument("--hidden", action="store_true")
     pk.add_argument("--only", metavar="종류",
                     help="쉼표로. 예: --only 이메일,전화 (기본 전부)")
+    pk.add_argument("--docx", "--documents", action="store_true",
+                    help="워드·한글(hwpx)·PDF 에서도 글자를 꺼내 뽑는다")
     pk.add_argument("--unique", action="store_true", help="같은 값은 한 번만")
     pk.add_argument("-o", "--out", metavar="파일", help="표로 저장 (.csv, .xlsx)")
     pk.add_argument("--overwrite", action="store_true",

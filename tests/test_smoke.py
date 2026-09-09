@@ -336,6 +336,15 @@ class SmokeTest(unittest.TestCase):
     def test_text_group(self):
         self.assertIn("안녕하세요", self.run_cli("text", "kbd", "dkssudgktpdy"))
         self.assertIn("날짜", self.run_cli("text", "pick", self.path("원고")))
+        # 받은 워드·한글·PDF 안의 값도 --docx 로 함께 뽑는다
+        from attools import docx as docxkit
+
+        받은 = Path(self.path("받은문서"))
+        받은.mkdir(exist_ok=True)
+        docxkit.write_document(받은 / "명세.docx", [
+            docxkit.paragraph("담당 hong@example.com 010-1234-5678")])
+        self.assertIn("이메일",
+                      self.run_cli("text", "pick", str(받은), "--docx"))
         셈 = self.run_cli("text", "count", self.path("원고"))
         self.assertIn("원고지", 셈)
         넘침 = self.run_cli("text", "count", self.path("원고"),
