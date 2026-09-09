@@ -789,6 +789,36 @@ class CertTest(unittest.TestCase):
         self.assertIsNone(info.not_after)
 
 
+class StatusTest(unittest.TestCase):
+    """접근 로그의 상태 코드. 아무 세 자리 숫자나 세면 크기가 상태로 둔갑한다."""
+
+    LINES = [
+        '10.0.0.1 - - [04/Mar/2026:09:00:00 +0900] "GET /api/orders HTTP/1.1" 200 1234 12ms',
+        '10.0.0.2 - - [04/Mar/2026:09:00:01 +0900] "GET /api/orders/77 HTTP/1.1" 500 512 900ms',
+        '10.0.0.3 - - [04/Mar/2026:09:00:02 +0900] "POST /api/orders HTTP/1.1" 404 88 30ms',
+        "2026-03-04 09:00:03 INFO 결제 완료 status=201 tx=99887",
+        "2026-03-04 09:00:04 ERROR db timeout after 5000ms",
+    ]
+
+    def test_status_is_read_from_known_places_only(self):
+        self.assertEqual(logkit.status_of(self.LINES[0]), 200)
+        self.assertEqual(logkit.status_of(self.LINES[3]), 201)
+        self.assertIsNone(logkit.status_of(self.LINES[4]))
+
+    def test_response_size_is_not_a_status(self):
+        # 1234 는 응답 크기다. 502 로 보이는 포트 번호도 마찬가지다
+        line = 'x - - [04/Mar/2026:09:00:00 +0900] "GET / HTTP/1.1" 200 502'
+        self.assertEqual(logkit.status_of(line), 200)
+
+    def test_counts_and_routes(self):
+        codes, by_path = logkit.statuses(logkit.parse(self.LINES))
+        self.assertEqual(codes[200], 1)
+        self.assertEqual(codes[500], 1)
+        self.assertEqual(sum(codes.values()), 4)
+        worst = by_path[0]
+        self.assertEqual(worst.bad, 1)      # 실패가 많은 경로가 앞에 온다
+
+
 class WeaveTest(unittest.TestCase):
     def entries(self, *lines):
         return logkit.parse(list(lines))

@@ -308,6 +308,68 @@ def route_of(line: str) -> str:
     return ""
 
 
+# HTTP 상태 코드. 접근 로그에서 «몇 번이 몇 건인지» 는 응답 시간만큼 자주 본다.
+# 맨 세 자리 숫자(크기·포트·아이디)를 상태로 세지 않도록 자리를 한정한다.
+STATUS_PATTERNS = (
+    # nginx·아파치 combined: "GET /path HTTP/1.1" 200 1234
+    re.compile(r'"[^"]*HTTP/[\d.]+"\s+(\d{3})(?!\d)'),
+    re.compile(r"\bstatus(?:_code)?\s*[=:]\s*(\d{3})(?!\d)", re.IGNORECASE),
+    re.compile(r"\bHTTP/[\d.]+\s+(\d{3})(?!\d)"),
+)
+
+
+def status_of(line: str) -> int | None:
+    """한 줄에서 HTTP 상태 코드. 못 찾으면 None.
+
+    확실한 자리(요청 줄 뒤, status= 뒤)에서만 읽는다. 아무 세 자리 숫자나
+    세면 응답 크기나 포트가 «상태 502» 로 둔갑한다.
+    """
+    for pattern in STATUS_PATTERNS:
+        m = pattern.search(line)
+        if not m:
+            continue
+        code = int(m.group(1))
+        if 100 <= code <= 599:
+            return code
+    return None
+
+
+@dataclass
+class RouteStatus:
+    route: str
+    counts: Counter = field(default_factory=Counter)
+
+    @property
+    def total(self) -> int:
+        return sum(self.counts.values())
+
+    def group(self, first: int) -> int:
+        """4 를 주면 4xx 건수."""
+        return sum(n for code, n in self.counts.items() if code // 100 == first)
+
+    @property
+    def bad(self) -> int:
+        return self.group(4) + self.group(5)
+
+
+def statuses(entries: list["Entry"]) -> tuple[Counter, list[RouteStatus]]:
+    """상태 코드 분포와 경로별 상태. (전체 분포, 경로별)
+
+    경로를 못 찾은 줄도 «(경로 없음)» 으로 함께 센다 - 빼면 합이 안 맞는다.
+    """
+    overall: Counter = Counter()
+    by_path: dict[str, RouteStatus] = {}
+    for e in entries:
+        code = status_of(e.raw)
+        if code is None:
+            continue
+        overall[code] += 1
+        key = route_of(e.raw) or "(경로 없음)"
+        by_path.setdefault(key, RouteStatus(key)).counts[code] += 1
+    ordered = sorted(by_path.values(), key=lambda s: (-s.bad, -s.total, s.route))
+    return overall, ordered
+
+
 def timings(entries: list["Entry"], *,
             pattern: "re.Pattern | None" = None) -> list[Timed]:
     """응답 시간이 적힌 줄만 골라낸다. pattern 을 주면 그 첫 그룹을 ms 로 본다."""

@@ -197,6 +197,19 @@ def cmd_dev_slow(a) -> int:
         for t in worst:
             _p(f"  {t.ms:>9,.0f}ms  {t.entry.line}행  {_cut(t.entry.raw.strip(), 70)}")
 
+    codes, by_path = logkit.statuses(entries)
+    if codes:
+        # 접근 로그에서 «몇 번이 몇 건인지» 는 응답 시간만큼 자주 본다
+        head = "  ".join(f"{code} {count:,}" for code, count in sorted(codes.items()))
+        _p(f"\n상태 코드 ({sum(codes.values()):,}줄)  {head}")
+        bad = [one for one in by_path if one.bad][:a.top]
+        if bad:
+            _grid(["경로", "건수", "4xx", "5xx"],
+                  [[one.route, f"{one.total:,}",
+                    f"{one.group(4):,}" if one.group(4) else "",
+                    f"{one.group(5):,}" if one.group(5) else ""] for one in bad],
+                  limit=40)
+
     if rate < 0.5 and not pattern:
         _p(f"\n시간을 읽은 줄이 절반이 안 됩니다({rate:.0%}). 형식이 다르면 "
            "--pattern 으로 알려 주세요. 못 읽은 줄은 통계에 들어가지 않았습니다.")

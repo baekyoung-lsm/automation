@@ -269,7 +269,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev ports [이름\|번호]` | 지금 열려 있는 포트 전부 (프로세스·PID와 함께) |
 | `at dev bench -- <명령>` | 명령을 여러 번 돌려 실행 시간을 재고 두 방식을 비교 |
 | `at dev log <파일…>` | 레벨 집계, 시간대 분포, 급증 구간, 반복되는 에러 묶기. `--since/--until` 로 시간대만 잘라 `-o` 로 저장 |
-| `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청 |
+| `at dev slow <파일…>` | 로그의 응답 시간 - 경로별 p50/p95/최대와 가장 느린 요청, 상태 코드 분포와 4xx·5xx 가 많은 경로 |
 | `at dev timeline <파일…>` | 여러 로그를 시각 순으로 한 줄기로 (어느 서비스가 먼저 터졌나) |
 | `at dev retry -- <명령>` | 성공할 때까지 다시 돌린다. 기다리는 시간을 배로 늘린다 |
 | `at dev db <파일>` | sqlite 파일 훑기 - 표 목록, 열 구성, 조회 (읽기 전용) |
@@ -324,6 +324,7 @@ at dev timeline web.log app.log -l ERROR --grep order=1
 kubectl logs pod | at dev log -
 at dev slow app.log --over 500          # 500ms 넘는 요청 비율까지
 at dev slow app.log --sort total        # 총 소요 시간이 큰 경로부터
+at dev slow access.log                  # 상태 코드 분포와 5xx 가 많은 경로까지
 at dev slow app.log --pattern 'took=(\d+)'
 at dev fake -c 이름 -c 연락처=전화 -c 금액=금액:1000:9000 -n 200 -o 시험자료.xlsx
 at dev fake -c 이름 -c 가입일=날짜:365 --seed 7        # 씨앗을 주면 같은 자료가 다시
@@ -394,6 +395,11 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 
 백분위는 보간하지 않고 실제 값 중에서 고른다. 값이 몇 개 없을 때 보간하면 로그에 없는
 숫자를 지어내게 된다.
+
+**상태 코드 분포**와 4xx·5xx 가 많은 경로도 함께 낸다 — 접근 로그에서 «몇 번이 몇 건인지» 는
+응답 시간만큼 자주 보는 것이다. 상태는 요청 줄 뒤(`"GET / HTTP/1.1" 200 …`)나 `status=` 뒤
+처럼 **확실한 자리에서만** 읽는다. 아무 세 자리 숫자나 세면 응답 크기나 포트가 «502» 로
+둔갑한다.
 
 `at dev http` 는 4xx·5xx 도 **결과로** 보여 준다. 오류 응답의 본문에 원인이 적혀 있는 일이
 많은데, 예외로 끊으면 그걸 못 본다(종료 코드로는 실패를 알린다). 응답이 JSON 이면 한글을
