@@ -2991,3 +2991,42 @@ class DayPayTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.day_pay(self.days([["09:00", "18:00"]]), hourly=0)
 
+class AuditHeaderTest(unittest.TestCase):
+    """머리글 자체의 문제. 첫 행이 머리글이 아닌 파일이 실무에 아주 많다."""
+
+    def kinds(self, table):
+        return [(n.kind, n.detail) for n in sheet.audit(table).notes]
+
+    def test_title_row_above_the_table(self):
+        # 파일에서 읽으면 빈 이름이 «열2» 로 붙는다. 그 흔적으로 알아본다
+        table = sheet.Table(["2026년 3월 지출", "열2", "열3"],
+                            [["부서", "항목", "금액"], ["영업", "교통비", 1000]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")
+        self.assertIn("열2", detail)
+        self.assertIn("--header-row 2", detail)
+
+    def test_numeric_headers(self):
+        table = sheet.Table(["1", "2", "3"], [["가", "나", "다"]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")
+        self.assertIn("숫자나 날짜", detail)
+
+    def test_repeated_headers(self):
+        table = sheet.Table(["이름", "이름_2", "금액"], [["가", "나", 1]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")
+        self.assertIn("이름_2", detail)
+
+    def test_dirty_header_names(self):
+        table = sheet.Table([" 부서 ", "금액"], [["영업", 1]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "머리글")
+        self.assertIn("빈칸", detail)
+
+    def test_blank_rows_are_counted(self):
+        table = sheet.Table(["가", "나"], [["1", "2"], [None, None], ["3", "4"]])
+        detail = " ".join(d for k, d in self.kinds(table) if k == "빈 행")
+        self.assertIn("1개", detail)
+
+    def test_clean_table_says_nothing(self):
+        table = sheet.Table(["부서", "금액"], [["영업", 1000], ["개발", 2000]])
+        self.assertEqual([k for k, _d in self.kinds(table) if k in ("머리글", "빈 행")],
+                         [])
+

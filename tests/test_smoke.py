@@ -423,6 +423,17 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("열", 넓게)
         self.assertIn("합계", 넓게)
 
+        # 표 위에 제목 줄이 한 줄 있는 파일. 실무에서 제일 흔한 어긋남이다
+        제목줄 = self.path("제목줄.xlsx")
+        xlsx.write_sheets(Path(제목줄), {"지출": [
+            ["2026년 3월 지출 내역", None, None],
+            ["부서", "항목", "금액"],
+            ["영업1팀", "교통비", 12000]]})
+        훑음 = self.run_cli("sheet", "audit", 제목줄)
+        self.assertIn("--header-row 2", 훑음)
+        self.assertIn("볼 만한 곳이 없습니다",
+                      self.run_cli("sheet", "audit", 제목줄, "--header-row", "2"))
+
         전표 = Path(self.path("전표.csv"))
         전표.write_text("전표번호,제출일\n1001,2026-03-05\n1002,2026-03-06\n"
                       "1004,2026-03-09\n", encoding="utf-8")

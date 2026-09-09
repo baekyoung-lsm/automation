@@ -2016,6 +2016,68 @@ def _cut_text(text: str, limit: int = 24) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+AUTO_HEADER_RE = re.compile(r"열\d+")          # 이름이 비어 있어 우리가 붙인 것
+SUFFIX_HEADER_RE = re.compile(r"(.+)_(\d+)")   # 겹친 이름에 붙인 꼬리
+
+
+def _header_notes(table: Table) -> list:
+    """머리글 자체의 문제. 첫 행이 머리글이 아닌 파일이 실무에 아주 많다."""
+    notes = []
+    blank = [i + 1 for i, name in enumerate(table.headers) if not str(name).strip()]
+    if blank:
+        notes.append(AuditNote(
+            "머리글", "", f"이름이 빈 열 {len(blank)}개 "
+                          f"({', '.join(str(i) + '번째' for i in blank[:5])})"))
+
+    seen: dict[str, int] = {}
+    for name in table.headers:
+        key = str(name).strip()
+        if key:
+            seen[key] = seen.get(key, 0) + 1
+    twice = [name for name, count in seen.items() if count > 1]
+    if twice:
+        notes.append(AuditNote(
+            "머리글", "", f"같은 이름이 여러 번: {', '.join(twice[:5])} "
+                          "(열을 고를 때 어느 것인지 알 수 없습니다)"))
+
+    dirty = [name for name in table.headers
+             if str(name) != str(name).strip() or "\n" in str(name)]
+    if dirty:
+        notes.append(AuditNote(
+            "머리글", "", f"앞뒤 빈칸이나 줄바꿈이 든 이름 {len(dirty)}개 "
+                          "(at sheet rename 으로 정리)"))
+
+    # 파일에서 읽을 때 빈 이름은 «열2», 겹친 이름은 «이름_2» 로 붙는다.
+    # 그 흔적으로 원래 머리글이 어땠는지 알 수 있다.
+    auto = [name for name in table.headers if AUTO_HEADER_RE.fullmatch(str(name))]
+    if auto:
+        notes.append(AuditNote(
+            "머리글", "", f"이름이 없어 {', '.join(auto[:5])} 로 붙인 열 "
+                          f"{len(auto)}개"))
+    names = {str(name) for name in table.headers}
+    twin = [name for name in table.headers
+            if (m := SUFFIX_HEADER_RE.fullmatch(str(name))) and m.group(1) in names]
+    if twin:
+        notes.append(AuditNote(
+            "머리글", "", f"같은 이름이 여러 번 있어 {', '.join(twin[:5])} 로 "
+                          "구분해 붙였습니다"))
+
+    # 첫 행에 진짜 이름이 하나뿐이면 «제목 줄» 을 머리글로 읽은 것일 때가 많다
+    filled = [str(name).strip() for name in table.headers
+              if str(name).strip() and not AUTO_HEADER_RE.fullmatch(str(name))]
+    if len(table.headers) >= 3 and len(filled) == 1:
+        notes.append(AuditNote(
+            "머리글", "", "이름이 붙은 열이 하나뿐입니다. 표 위에 제목 줄이 있는 "
+                          "파일일 수 있습니다 (--header-row 2 로 다시 읽어 보세요)"))
+    # 머리글이 죄다 숫자·날짜면 그것도 자료다
+    if filled and all(parse_number(one) is not None or parse_date(one) is not None
+                      for one in filled):
+        notes.append(AuditNote(
+            "머리글", "", "머리글이 전부 숫자나 날짜입니다. 첫 행이 자료일 수 "
+                          "있습니다 (--header-row 로 맞추거나 이름을 붙이세요)"))
+    return notes
+
+
 def audit(table: Table) -> AuditReport:
     """받은 표를 한 번에 훑는다. 고치지 않고 «볼 만한 곳» 만 모은다.
 
@@ -2023,12 +2085,18 @@ def audit(table: Table) -> AuditReport:
     무엇을 못 봤는지를 함께 적는다 - «문제 없음» 이 «다 봤다» 로 읽히면 안 된다.
     """
     report = AuditReport(len(table.rows), table.width)
-    report.looked = ["빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
-                     "숫자 열의 드문 값", "개인정보로 보이는 열", "표기 흔들림",
-                     "엑셀이 수식으로 읽을 칸"]
+    report.looked = ["머리글", "빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
+                     "빈 행", "숫자 열의 드문 값", "개인정보로 보이는 열",
+                     "표기 흔들림", "엑셀이 수식으로 읽을 칸"]
+    report.notes += _header_notes(table)
     if not table.rows:
         report.skipped.append("행이 없어 아무것도 보지 못했습니다.")
         return report
+
+    blank_rows = sum(1 for row in table.rows if all(_is_blank(v) for v in row))
+    if blank_rows:
+        report.notes.append(AuditNote(
+            "빈 행", "", f"통째로 빈 행 {blank_rows:,}개 (at sheet clean 으로 정리)"))
 
     for col in profile(table):
         share = col.missing / len(table.rows)
