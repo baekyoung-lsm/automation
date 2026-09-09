@@ -225,6 +225,15 @@ class SmokeTest(unittest.TestCase):
         # 그림만 든 쪽은 «글자가 없는 쪽» 으로 알린다 (스캔본 안내)
         그림만 = self.run_cli("file", "pdftext", 묶음, expect=1)
         self.assertIn("글자가 없는 쪽", 그림만)
+        # 폴더를 주면 한꺼번에. 못 연 파일도 표에 남긴다
+        모음 = Path(self.path("피디에프모음"))
+        모음.mkdir(exist_ok=True)
+        shutil.copy(번호, 모음 / "번호.pdf")
+        (모음 / "깨진.pdf").write_text("이건 PDF 가 아니다", encoding="utf-8")
+        한꺼번에 = self.run_cli("file", "pdftext", str(모음),
+                             "-o", self.path("꺼낸글"), expect=1)
+        self.assertIn("못 연 파일 1개", 한꺼번에)
+        self.assertTrue(Path(self.path("꺼낸글", "번호.txt")).is_file())
 
         pdf폴더 = Path(self.path("피디에프"))
         pdf폴더.mkdir(exist_ok=True)

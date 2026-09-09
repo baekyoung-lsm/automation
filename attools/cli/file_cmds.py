@@ -217,11 +217,61 @@ def pdf_where() -> dict:
     return pdf.STAMP_WHERE
 
 
+def _pdftext_folder(a, root: Path) -> int:
+    """폴더 안의 PDF 를 한꺼번에. 받은 계약서 스무 개를 훑는 자리다."""
+    from .. import pdf
+
+    targets = sorted(p for p in root.iterdir()
+                     if p.is_file() and p.suffix.lower() == ".pdf")
+    if not targets:
+        _p(f"PDF 가 없습니다: {root}")
+        return 1
+
+    where = Path(a.out) if a.out else None
+    if where:
+        where.mkdir(parents=True, exist_ok=True)
+
+    rows, made, broken = [], 0, 0
+    for target in targets:
+        try:
+            doc = pdf.open_pdf(target)
+            total = len(doc.pages())
+            wanted = pdf.page_numbers(a.pages, total) if a.pages else None
+            found = pdf.read_text(doc, pages=wanted)
+        except (pdf.PdfError, OSError, ValueError) as e:
+            # 못 연 파일을 조용히 빼면 «스무 개 중 열여덟 개» 인 줄 모른다
+            rows.append([target.name, "-", "-", _cut(str(e), 40)])
+            broken += 1
+            continue
+        body = found.text.strip()
+        note = ""
+        if found.missing:
+            note = f"글꼴 {len(found.missing)}개 못 읽음"
+        elif not body:
+            note = "글자 없음 (스캔본?)"
+        if where and body:
+            out = files.unique_path(where / f"{target.stem}.txt")
+            out.write_text(body + "\n", encoding="utf-8")
+            made += 1
+        rows.append([target.name, f"{len(found.pages)}쪽",
+                     f"{len(body):,}자", note])
+
+    _grid(["파일", "쪽", "글자", "본 것"], rows, limit=40)
+    _p(f"\nPDF {len(targets)}개" + (f"  ·  못 연 파일 {broken}개" if broken else ""))
+    if where:
+        _p(f"글자가 있는 {made}개를 저장했습니다: {where}/")
+    else:
+        _p("-o 로 폴더를 주면 파일마다 «이름.txt» 로 저장합니다.")
+    return 1 if broken else 0
+
+
 def cmd_file_pdftext(a) -> int:
     """PDF 에서 글자를 꺼낸다. 찾기·붙여넣기용이다."""
     from .. import pdf
 
     path = Path(a.file)
+    if path.is_dir():
+        return _pdftext_folder(a, path)
     if not path.is_file():
         _p(f"파일이 없습니다: {path}")
         return 1
@@ -1627,13 +1677,15 @@ def add_commands(sub) -> None:
     cut.set_defaults(func=cmd_file_pdfcut)
 
     txt = fp.add_parser("pdftext", help="PDF 에서 글자 꺼내기 (찾기·붙여넣기)")
-    txt.add_argument("file", metavar="파일.pdf")
+    txt.add_argument("file", metavar="파일.pdf 또는 폴더")
     txt.add_argument("--pages", metavar="쪽", help="예: 1-3,7 또는 5- 또는 -3")
-    txt.add_argument("-o", "--out", metavar="파일.txt")
+    txt.add_argument("-o", "--out", metavar="파일.txt",
+                     help="폴더를 주면 파일마다 «이름.txt» 로 저장한다")
     txt.add_argument("--overwrite", action="store_true",
                      help="이미 있는 파일을 덮어쓴다")
     txt.epilog = ("예: at file pdftext 계약서.pdf\n"
                   "    at file pdftext 공문.pdf --pages 1-2 -o 공문.txt\n"
+                  "    at file pdftext 받은계약서/ -o 글자/\n"
                   "글꼴에 글자 정보(ToUnicode)가 없으면 그 부분은 빼고 꺼냅니다. "
                   "스캔한 그림 속 글자는 읽지 못합니다.")
     txt.set_defaults(func=cmd_file_pdftext)
