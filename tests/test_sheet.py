@@ -264,6 +264,19 @@ class LongCellTest(unittest.TestCase):
         self.assertEqual(len(value), xlsx.CELL_LIMIT)
         self.assertIn("40,000자", value)
 
+    def test_sheet_names_never_collide(self):
+        # «보고서/1» 과 «보고서_1» 은 금지 문자를 바꾸면 같은 이름이 된다.
+        # 같은 이름이 둘이면 엑셀이 파일 자체를 못 연다
+        path = self.root / "겹침.xlsx"
+        xlsx.write_sheets(path, {"보고서/1": [["a"]], "보고서_1": [["b"]],
+                                 "보고서:1": [["c"]]})
+        names = xlsx.sheet_names(path)
+        self.assertEqual(len(set(names)), 3)
+        # 31자에서 잘려 같아지는 이름도 갈라 준다
+        long_names = xlsx.unique_sheet_names(["가" * 40 + "A", "가" * 40 + "B"])
+        self.assertNotEqual(long_names[0], long_names[1])
+        self.assertTrue(all(len(n) <= 31 for n in long_names))
+
     def test_too_many_rows_is_refused_before_writing(self):
         # 엑셀이 못 여는 파일을 만들어 주는 것보다 여기서 그만두는 편이 낫다
         path = self.root / "많음.xlsx"

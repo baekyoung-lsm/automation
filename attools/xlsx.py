@@ -72,6 +72,27 @@ def safe_sheet_name(name: str) -> str:
     return cleaned[:31]
 
 
+def unique_sheet_names(names) -> list[str]:
+    """시트 이름을 엑셀이 받는 꼴로 고치고, 겹치면 번호를 붙인다.
+
+    «보고서/1» 과 «보고서_1» 은 금지 문자를 바꾸고 나면 같은 이름이 되고,
+    긴 이름은 31자에서 잘려 같아진다. 같은 이름이 둘이면 엑셀이 파일 자체를
+    열지 못한다 - «손상됐다» 만 뜨고 까닭은 알 수 없다.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        base = safe_sheet_name(name)
+        candidate, number = base, 2
+        while candidate.lower() in seen:      # 엑셀은 대소문자를 가리지 않는다
+            tail = f"_{number}"
+            candidate = base[:31 - len(tail)] + tail
+            number += 1
+        seen.add(candidate.lower())
+        out.append(candidate)
+    return out
+
+
 OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 
 
@@ -526,9 +547,10 @@ def write_sheets(path: Path, sheets: dict[str, list[list]], *,
         f'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         for i in range(1, len(names) + 1))
 
+    titles = unique_sheet_names(names)
     wb_sheets = "".join(
-        f'<sheet name="{_esc(safe_sheet_name(n))}" sheetId="{i}" r:id="rId{i}"/>'
-        for i, n in enumerate(names, 1))
+        f'<sheet name="{_esc(n)}" sheetId="{i}" r:id="rId{i}"/>'
+        for i, n in enumerate(titles, 1))
     workbook = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
                 f'<workbook xmlns="{NS["m"]}" xmlns:r="{NS["r"]}">'
                 f"<sheets>{wb_sheets}</sheets></workbook>")
