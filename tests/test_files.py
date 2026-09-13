@@ -1049,6 +1049,60 @@ class RenameByMapTest(unittest.TestCase):
         self.assertTrue((self.root / "가.pdf").exists())
 
 
+class WalkTroubleTest(unittest.TestCase):
+    """못 들어간 폴더를 조용히 빼지 않는지. 빼면 «다 봤다» 로 읽힌다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        for path in self.root.rglob("*"):
+            if path.is_dir():
+                path.chmod(0o755)
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_missing_folder_is_reported(self):
+        seen = []
+        got = list(files.iter_targets(self.root / "없는곳", recursive=True,
+                                      include_hidden=False,
+                                      on_error=lambda where, exc: seen.append(exc)))
+        self.assertEqual(got, [])
+        self.assertEqual(len(seen), 1)
+
+    def test_missing_folder_is_reported_without_recursion(self):
+        seen = []
+        list(files.iter_targets(self.root / "없는곳", recursive=False,
+                                include_hidden=False,
+                                on_error=lambda where, exc: seen.append(exc)))
+        self.assertEqual(len(seen), 1)
+
+    def test_no_callback_stays_quiet(self):
+        """예전처럼 부르는 쪽이 묻지 않으면 조용히 넘어간다."""
+        self.assertEqual(list(files.iter_targets(self.root / "없는곳",
+                                                 recursive=True,
+                                                 include_hidden=False)), [])
+
+    def test_blocked_folder_is_named(self):
+        if os.geteuid() == 0:
+            self.skipTest("root 는 권한을 검사받지 않는다")
+        (self.root / "보통.txt").write_text("가", encoding="utf-8")
+        막힌곳 = self.root / "막힌곳"
+        막힌곳.mkdir()
+        (막힌곳 / "안쪽.txt").write_text("나", encoding="utf-8")
+        막힌곳.chmod(0o000)
+
+        found = files.sweep([self.root])
+        self.assertEqual(found.files, 1)
+        self.assertTrue(any("막힌곳" in line for line in found.skipped),
+                        found.skipped)
+
+    def test_reason_is_korean(self):
+        self.assertEqual(files.why_os(PermissionError(13, "Permission denied")),
+                         "권한 없음")
+        # 모르는 것은 지어내지 않고 원문을 그대로 둔다
+        self.assertEqual(files.why_os(OSError(9999, "Weird thing")), "Weird thing")
+
+
 class SweepTest(unittest.TestCase):
     """여러 폴더 한꺼번에 훑기. 쓰임새를 무엇으로 갈랐는지까지 본다."""
 

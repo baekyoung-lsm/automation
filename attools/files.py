@@ -80,18 +80,69 @@ def unique_path(dst: Path, taken: set[Path] | None = None) -> Path:
     raise RuntimeError(f"이름 충돌을 해소하지 못했습니다: {dst}")
 
 
+# 운영체제가 내는 까닭은 영어이고 로캘에 따라 달라진다. 흔한 것만 우리 말로
+# 적고, 모르는 것은 원문을 그대로 둔다 - 지어내지 않는다.
+OS_REASONS = {
+    13: "권한 없음",          # EACCES
+    1: "권한 없음",           # EPERM
+    2: "없어졌음",            # ENOENT
+    20: "폴더가 아님",        # ENOTDIR
+    21: "폴더임",             # EISDIR
+    28: "저장 공간 부족",     # ENOSPC
+    36: "이름이 너무 김",     # ENAMETOOLONG
+    40: "링크가 돌고 있음",   # ELOOP
+}
+
+
+def why_os(exc: OSError) -> str:
+    """OSError 를 한 마디로. 모르는 것은 원래 문구를 준다."""
+    return OS_REASONS.get(exc.errno) or exc.strerror or str(exc)
+
+
 def iter_targets(root: Path, *, recursive: bool, include_hidden: bool,
-                 min_age_days: float = 0.0):
-    walker = root.rglob("*") if recursive else root.glob("*")
+                 min_age_days: float = 0.0, on_error=None):
+    """root 아래의 파일들. 못 들어간 폴더는 on_error(폴더, 오류) 로 알린다.
+
+    rglob 은 권한이 없는 폴더를 조용히 건너뛴다. 그러면 «파일 3개» 가 나오고
+    사람은 그것이 전부라고 믿는다. 무엇을 못 봤는지 말할 수 있어야 해서
+    os.walk 로 바꿨다. on_error 를 주지 않으면 예전처럼 조용히 넘어간다.
+    """
+    import os
+
+    root = Path(root)
     cutoff = time.time() - min_age_days * 86400
-    for p in walker:
-        if not p.is_file() or p.is_symlink():
-            continue
-        if not include_hidden and any(part.startswith(".") for part in p.relative_to(root).parts):
-            continue
-        if min_age_days and p.stat().st_mtime > cutoff:
-            continue
-        yield p
+
+    def trouble(exc: OSError) -> None:
+        if on_error is not None:
+            on_error(Path(getattr(exc, "filename", None) or root), exc)
+
+    if recursive:
+        walker = os.walk(root, onerror=trouble)      # 심볼릭 링크는 따라가지 않는다
+    else:
+        try:
+            names = [e.name for e in os.scandir(root)]
+        except OSError as exc:
+            trouble(exc)
+            return
+        walker = [(str(root), [], names)]
+
+    for base, dirs, names in walker:
+        here = Path(base)
+        if not include_hidden:
+            dirs[:] = [one for one in dirs if not one.startswith(".")]
+        for name in sorted(names):
+            if not include_hidden and name.startswith("."):
+                continue
+            path = here / name
+            try:
+                if path.is_symlink() or not path.is_file():
+                    continue
+                if min_age_days and path.stat().st_mtime > cutoff:
+                    continue
+            except OSError as exc:
+                trouble(exc)
+                continue
+            yield path
 
 
 def plan_organize(root: Path, *, by: str = "ext", recursive: bool = False,
@@ -754,8 +805,15 @@ def audit_folder(root: Path, *, recursive: bool = True,
     else:
         report.skipped.append("내용이 같은 파일은 보지 않았습니다 (--no-dupes)")
 
-    targets = sorted(iter_targets(root, recursive=recursive,
-                                  include_hidden=include_hidden))
+    blocked: list[str] = []
+    targets = sorted(iter_targets(
+        root, recursive=recursive, include_hidden=include_hidden,
+        on_error=lambda where, exc: blocked.append(str(where))))
+    if blocked:
+        # 못 들어간 폴더를 조용히 빼면 «다 봤다» 로 읽힌다
+        report.skipped.append(
+            f"들어가 보지 못한 폴더 {len(blocked)}곳 (권한): "
+            + ", ".join(blocked[:3]) + (" ..." if len(blocked) > 3 else ""))
     report.files = len(targets)
     if not targets:
         report.skipped.append("파일이 없어 아무것도 보지 못했습니다.")
@@ -976,15 +1034,21 @@ def sweep(roots, *, recursive: bool = True, include_hidden: bool = False,
     found = Sweep(roots=kept, missing=missing, skipped=notes)
     buckets: dict[str, SweepGroup] = {}
 
+    blocked: list[str] = []
+
+    def cannot(where: Path, exc: OSError) -> None:
+        if len(blocked) < 5:
+            blocked.append(f"{where} ({why_os(exc)})")
+
     for root in kept:
         seen = 0
         for path in iter_targets(root, recursive=recursive,
                                  include_hidden=include_hidden,
-                                 min_age_days=min_age_days):
+                                 min_age_days=min_age_days, on_error=cannot):
             try:
                 info = path.stat()
             except OSError as exc:
-                found.skipped.append(f"{path} - 읽지 못했습니다 ({exc.strerror})")
+                found.skipped.append(f"{path} - 읽지 못했습니다 ({why_os(exc)})")
                 continue
             purpose, why = purpose_of(path)
             group = buckets.get(purpose)
@@ -994,6 +1058,10 @@ def sweep(roots, *, recursive: bool = True, include_hidden: bool = False,
                                          info.st_mtime, purpose, why))
             seen += 1
         found.counts[str(root)] = seen
+
+    if blocked:
+        found.skipped.append(f"들어가 보지 못한 폴더 {len(blocked)}곳: "
+                             + ", ".join(blocked))
 
     for group in buckets.values():
         group.files.sort(key=lambda f: (-f.size, str(f.path)))

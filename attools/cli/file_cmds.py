@@ -52,9 +52,11 @@ def cmd_file_organize(a) -> int:
 def _here(path: Path) -> str:
     """지금 폴더 아래면 짧게 적는다. 긴 절대 경로가 줄을 다 잡아먹는다."""
     try:
-        return str(path.relative_to(Path.cwd()))
+        short = str(path.relative_to(Path.cwd()))
     except ValueError:
         return str(path)
+    # 뿌리(/)에서 부르면 «tmp/…» 처럼 슬래시만 떨어져 더 헷갈린다
+    return short if len(short) < len(str(path)) - 1 else str(path)
 
 
 def cmd_file_sweep(a) -> int:
@@ -69,8 +71,6 @@ def cmd_file_sweep(a) -> int:
                         include_hidden=a.hidden, min_age_days=a.min_age)
     for path in found.missing:
         _p(f"없는 폴더라 보지 못했습니다: {path}")
-    for line in found.skipped:
-        _p(f"  {line}")
     if not found.roots:
         return 1
 
@@ -78,6 +78,9 @@ def cmd_file_sweep(a) -> int:
        f"· {files.human_size(found.total)}")
     for root in found.roots:
         _p(f"  {_here(root)}  파일 {found.counts.get(str(root), 0):,}개")
+    # 못 본 것은 숫자 바로 아래에 둔다. 그 숫자가 전부가 아니라는 뜻이다
+    for line in found.skipped:
+        _p(f"  못 본 것 - {line}")
 
     if not found.files:
         _p("\n파일이 없습니다.")

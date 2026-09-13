@@ -242,6 +242,37 @@ class FirstTryTest(unittest.TestCase):
         self.assertIn("clean", out)
 
 
+class OsErrorTest(unittest.TestCase):
+    """권한·디스크 오류가 역추적으로 튀지 않아야 한다. 어느 명령에서든 난다."""
+
+    def run_raising(self, exc):
+        from unittest import mock
+
+        from attools import cli
+        from attools.cli import file_cmds
+
+        out = io.StringIO()
+        with mock.patch.object(file_cmds, "cmd_file_audit",
+                               side_effect=exc):
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = cli.main(["file", "audit", "."])
+        return code, out.getvalue()
+
+    def test_permission_error_is_korean(self):
+        code, out = self.run_raising(
+            PermissionError(13, "Permission denied", "/어딘가/막힌곳"))
+        self.assertEqual(code, 1)
+        self.assertIn("권한이 없어 열지 못했습니다", out)
+        self.assertIn("/어딘가/막힌곳", out)
+        self.assertNotIn("Traceback", out)
+
+    def test_other_os_error_is_korean(self):
+        code, out = self.run_raising(OSError(28, "No space left", "/어딘가/파일"))
+        self.assertEqual(code, 1)
+        self.assertIn("저장 공간 부족", out)
+        self.assertNotIn("Traceback", out)
+
+
 class InputErrorTest(unittest.TestCase):
     """파일 하나를 받는 명령에 디렉터리를 주면 한국어로 알려야 한다."""
 

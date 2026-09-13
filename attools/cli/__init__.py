@@ -366,6 +366,21 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except BrokenPipeError:
         return 0
+    except PermissionError as exc:
+        # 권한 없는 폴더를 주면 어느 명령에서든 날 수 있다. 역추적 대신
+        # 무엇이 막혔는지 한 줄로 말한다.
+        _p(f"권한이 없어 열지 못했습니다: {exc.filename or ''}".rstrip(": "))
+        _p("  파일·폴더의 권한을 보거나, 그 폴더를 빼고 다시 해 보세요.")
+        return 1
+    except OSError as exc:
+        # 디스크가 찼거나, 이름이 너무 길거나, 링크가 끊긴 자리. 여기까지
+        # 올라온 것은 우리가 미처 감싸지 못한 곳이지만, 사용자에게 역추적을
+        # 보여 줄 이유는 없다.
+        from .. import files as _files
+
+        _p(f"파일을 다루지 못했습니다: {_files.why_os(exc)}"
+           + (f" ({exc.filename})" if exc.filename else ""))
+        return 1
 
 
 if __name__ == "__main__":
