@@ -1292,6 +1292,13 @@ def cmd_sheet_forms(a) -> int:
     for note in sheet.misread_header(standard):
         _p(f"\n{note}")
 
+    wrong_head = [c for c in report.checks if c.notes]
+    if wrong_head:
+        _p(f"\n머리글을 잘못 읽은 것 같은 파일 {len(wrong_head)}개")
+        for check in wrong_head[:a.limit]:
+            _p(f"  {check.path.name}  {check.notes[0]}")
+        _p("  이 파일들은 열이 다른 것이 아니라 «읽기 시작한 줄» 이 다릅니다.")
+
     odd = report.odd
     _p(f"\n서식이 다른 파일 {len(odd):,}개")
     if odd:

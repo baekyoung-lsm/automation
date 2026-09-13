@@ -280,6 +280,14 @@ def sniff_delimiter(text: str, *, suffix: str = "") -> str:
     return best
 
 
+def _has_rows(grid: list[list], header_row: int = 0) -> bool:
+    """머리글 말고 자료가 한 줄이라도 있는가."""
+    filled = [row for row in grid
+              if any(c is not None and (not isinstance(c, str) or c.strip())
+                     for c in row)]
+    return len(filled) > header_row + 1
+
+
 def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
          raw: bool = False) -> Table:
     path = Path(path)
@@ -289,8 +297,18 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
         # xlsx 쪽 오류도 SheetError 로 바꿔 낸다. 시트 이름을 잘못 적는 일은
         # 흔한데, 그때 파이썬 역추적이 뜨면 무엇을 고쳐야 할지 알 수 없다.
         try:
+            names = xlsx.sheet_names(path)
+            used_sheet = sheet or (names or [""])[0]
             grid = xlsx.read_sheet(path, sheet)
-            used_sheet = sheet or (xlsx.sheet_names(path) or [""])[0]
+            if sheet is None and len(names) > 1 and not _has_rows(grid, header_row):
+                # 첫 시트가 «안내»·«표지» 인 파일이 흔하다. 그것을 자료로 읽으면
+                # 그 파일은 통째로 0행이 되어 말없이 빠진다. 자료가 든 첫 시트를
+                # 대신 본다 - 어느 시트를 봤는지는 표(table.sheet)에 남는다.
+                for name in names[1:]:
+                    other = xlsx.read_sheet(path, name)
+                    if _has_rows(other, header_row):
+                        grid, used_sheet = other, name
+                        break
         except xlsx.XlsxError as exc:
             raise SheetError(str(exc)) from None
     elif suffix in CSV_SUFFIXES or not suffix:
@@ -362,7 +380,10 @@ def table_from_grid(grid: list[list], *, header_row: int = 0, source: str = "",
     어긋나지 않는다.
     """
     def filled(row) -> bool:
-        return any(c not in (None, "") for c in row)
+        # 공백 한 칸만 든 칸은 빈 칸이다. 엑셀에서 지운다고 스페이스를 넣어
+        # 둔 자리가 흔한데, 그것을 자료로 세면 빈 행이 그대로 따라온다.
+        return any(c is not None and (not isinstance(c, str) or c.strip())
+                   for c in row)
 
     if not any(filled(row) for row in grid):
         raise SheetError(f"내용이 없습니다: {label}")
@@ -828,6 +849,29 @@ def validate(table: Table, *, key: str | None = None, required: list[str] | None
 
 # ---------------------------------------------------------------------- 병합
 
+# 표 맨 아래에 붙는 합계 줄. 합치거나 집계할 때 자료로 섞이면 값이 두 배가
+# 되는데, 표는 멀쩡히 만들어져서 아무도 눈치채지 못한다.
+TOTAL_WORDS = {"합계", "총계", "소계", "계", "총합", "합", "누계",
+               "total", "sum", "subtotal", "grand total"}
+
+
+def total_rows(table: Table) -> list[int]:
+    """합계로 보이는 행의 번호(머리글이 1행)."""
+    out = []
+    for number, row in enumerate(table.rows, 2):
+        first = ""
+        for cell in row:
+            text = to_text(cell).strip()
+            if text:
+                first = text
+                break
+        if not first:
+            continue
+        if re.sub(r"[\s:·]", "", first).lower() in TOTAL_WORDS:
+            out.append(number)
+    return out
+
+
 def merge(tables: list[Table], *, add_source: bool = True,
           strict: bool = False) -> tuple[Table, list[str]]:
     """여러 표를 세로로 붙인다. 열 이름 기준으로 맞추고, 없는 열은 빈칸."""
@@ -847,6 +891,13 @@ def merge(tables: list[Table], *, add_source: bool = True,
         if missing or extra:
             name = Path(t.source).name or "표"
             warnings.append(f"{name}: 없는 열 {missing or '-'} / 첫 표에 없는 열 {extra or '-'}")
+    for t in tables:
+        totals = total_rows(t)
+        if totals:
+            name = Path(t.source).name or "표"
+            where = ", ".join(f"{n}행" for n in totals[:5])
+            warnings.append(f"{name}: 합계로 보이는 행 {len(totals)}개가 "
+                            f"자료에 섞여 있습니다 ({where}). 합치면 두 번 셉니다.")
     if strict and warnings:
         raise SheetError("열 구성이 다릅니다:\n  " + "\n  ".join(warnings))
 
@@ -2311,7 +2362,7 @@ def audit(table: Table) -> AuditReport:
     """
     report = AuditReport(len(table.rows), table.width)
     report.looked = ["머리글", "빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
-                     "빈 행", "숫자 열의 드문 값", "개인정보로 보이는 열",
+                     "빈 행", "합계 줄", "숫자 열의 드문 값", "개인정보로 보이는 열",
                      "표기 흔들림", "엑셀이 수식으로 읽을 칸",
                      "내보낼 때 걸릴 값"]
     report.notes += _header_notes(table)
@@ -2323,6 +2374,13 @@ def audit(table: Table) -> AuditReport:
     if blank_rows:
         report.notes.append(AuditNote(
             "빈 행", "", f"통째로 빈 행 {blank_rows:,}개 (at sheet clean 으로 정리)"))
+
+    totals = total_rows(table)
+    if totals:
+        where = ", ".join(f"{n}행" for n in totals[:5])
+        report.notes.append(AuditNote(
+            "합계 줄", "", f"합계로 보이는 행 {len(totals):,}개 ({where}). "
+                           "집계·합치기 전에 빼세요 - 두 번 세게 됩니다"))
 
     for col in profile(table):
         share = col.missing / len(table.rows)
@@ -3777,6 +3835,7 @@ class FormCheck:
     missing: list = field(default_factory=list)     # 기준에 있는데 없는 열
     extra: list = field(default_factory=list)       # 기준에 없는데 있는 열
     reordered: bool = False                         # 열은 같은데 순서가 다르다
+    notes: list = field(default_factory=list)       # 머리글을 잘못 읽은 것 같다
 
     @property
     def same(self) -> bool:
@@ -3795,6 +3854,30 @@ class FormReport:
         return [c for c in self.checks if not c.same]
 
 
+def _looks_like_data(table: Table) -> bool:
+    """표다운 표인가. «안내»·«표지» 시트를 자료로 보지 않기 위해서다."""
+    return bool(table.rows) and len([h for h in table.headers if to_text(h).strip()]) >= 2
+
+
+def _data_sheet(path: Path, first: Table, *, header_row: int = 0) -> Table:
+    """엑셀에서 자료가 든 첫 시트를 고른다. 없으면 원래 것을 그대로 준다.
+
+    남이 보낸 파일은 첫 시트가 «안내»·«표지» 인 일이 흔하다. 그것을 자료로
+    보면 뒤따르는 판단이 전부 어긋난다. 어느 시트를 봤는지는 표에 적힌다.
+    """
+    if Path(path).suffix.lower() not in XLSX_SUFFIXES:
+        return first
+    try:
+        for info in describe_sheets(path, header_row=header_row):
+            if info.error or info.name == first.sheet:
+                continue
+            if info.rows and len([h for h in info.headers if to_text(h).strip()]) >= 2:
+                return load(path, sheet=info.name, header_row=header_row)
+    except (SheetError, OSError):
+        return first
+    return first
+
+
 def compare_forms(paths: list[Path], *, sheet: str | None = None,
                   header_row: int = 0) -> FormReport:
     """여러 파일의 열 구성을 견준다. 가장 흔한 구성을 기준으로 삼는다.
@@ -3810,6 +3893,8 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
         check = FormCheck(path=path)
         try:
             table = load(path, sheet=sheet, header_row=header_row)
+            if sheet is None and not _looks_like_data(table):
+                table = _data_sheet(path, table, header_row=header_row)
         except (SheetError, OSError, UnicodeDecodeError) as exc:
             check.error = str(exc)
             report.checks.append(check)
@@ -3817,15 +3902,26 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
         check.sheet = table.sheet
         check.headers = [to_text(h).strip() for h in table.headers]
         check.rows = len(table.rows)
+        # 머리글 줄을 잘못 잡은 파일은 «열 다름» 이 아니라 «읽는 법이 다름» 이다
+        check.notes = misread_header(table)
         report.checks.append(check)
 
-    shapes = Counter(tuple(c.headers) for c in report.checks
-                     if not c.error and c.headers)
+    shapes: dict[tuple, list] = {}
+    for check in report.checks:
+        if check.error or not check.headers:
+            continue
+        shapes.setdefault(tuple(check.headers), []).append(check)
     if not shapes:
         return report
-    standard, count = shapes.most_common(1)[0]
+
+    # 자료가 한 줄도 없는 시트(«안내», 표지)를 기준으로 삼으면 멀쩡한 파일이
+    # 전부 «열 다름» 이 된다. 자료가 있는 구성 중에서 고른다.
+    filled = {k: v for k, v in shapes.items() if any(c.rows for c in v)}
+    standard, members = max(
+        (filled or shapes).items(),
+        key=lambda kv: (len(kv[1]), sum(c.rows for c in kv[1]), len(kv[0])))
     report.standard = list(standard)
-    report.common = count
+    report.common = len(members)
 
     want = set(standard)
     for check in report.checks:

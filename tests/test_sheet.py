@@ -820,6 +820,35 @@ class SheetTest(unittest.TestCase):
         step2, _ = sheet.add_column(step1, "c", "b + 1")
         self.assertEqual(step2.rows[0], [12, 6.0, 7.0])
 
+    def test_total_rows_are_spotted(self):
+        t = sheet.Table(["구분", "금액"],
+                        [["영업1팀", 100], ["영업2팀", 200], ["합계", 300]])
+        self.assertEqual(sheet.total_rows(t), [4])
+        self.assertEqual(sheet.total_rows(
+            sheet.Table(["구분"], [["소 계"], ["Total"], ["홍길동"]])), [2, 3])
+
+    def test_total_word_inside_a_name_is_not_a_total(self):
+        """«합계» 로 시작하는 이름까지 합계 줄로 보면 멀쩡한 행을 뺀다."""
+        t = sheet.Table(["이름"], [["합계산업"], ["계약직"], ["총계정원장"]])
+        self.assertEqual(sheet.total_rows(t), [])
+
+    def test_merge_warns_about_total_rows(self):
+        one = sheet.Table(["구분", "금액"], [["가", 1], ["합계", 1]], source="가.csv")
+        two = sheet.Table(["구분", "금액"], [["나", 2]], source="나.csv")
+        _, warnings = sheet.merge([one, two])
+        self.assertTrue(any("합계로 보이는 행" in w for w in warnings), warnings)
+
+    def test_audit_spots_total_rows(self):
+        t = sheet.Table(["구분", "금액"], [["가", 1], ["나", 2], ["합계", 3]])
+        kinds = [note.kind for note in sheet.audit(t).notes]
+        self.assertIn("합계 줄", kinds)
+
+    def test_whitespace_only_row_is_blank(self):
+        """엑셀에서 지운다고 스페이스를 넣어 둔 자리가 흔하다."""
+        grid = [["이름", "금액"], ["홍길동", 100], [" ", "  "]]
+        table = sheet.table_from_grid(grid)
+        self.assertEqual(len(table.rows), 1)
+
     def test_dedupe_keep_first_and_last(self):
         t = sheet.Table(["k", "v"], [["1", "가"], ["1", "나"], ["2", "다"]])
         first, info = sheet.dedupe(t, ["k"], keep="first")
