@@ -102,8 +102,23 @@ def normalize(text: str) -> str:
 
 # ------------------------------------------------------------------ 데이터
 
+def read_data() -> str:
+    """딸려 오는 단축키 데이터를 읽는다.
+
+    한 파일로 묶어 배포하면(.pyz) data/ 가 zip 안에 들어가 Path 로는 열리지
+    않는다. 그때는 패키지 자원으로 읽는다. 폴더로 두고 쓸 때는 그대로 파일을
+    읽으므로 시험에서 DATA_FILE 을 바꿔 끼우는 것도 그대로 된다.
+    """
+    if DATA_FILE.is_file():
+        return DATA_FILE.read_text(encoding="utf-8")
+    from importlib.resources import files as _files
+
+    return (_files("attools") / "data" / "shortcuts.json").read_text(
+        encoding="utf-8")
+
+
 def load_groups() -> tuple[list[Group], dict]:
-    raw = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    raw = json.loads(read_data())
     groups = {g["id"]: g for g in raw["groups"]}
 
     if user_data_path().is_file():

@@ -38,6 +38,7 @@ git clone <repo> && cd automation
 ./at --help                 # 그대로 실행
 ln -s "$PWD/at" ~/.local/bin/at   # 또는 PATH 에 링크
 pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
+python3 build.py            # 한 파일(dist/at.pyz)로 묶어 나눠 주기
 ```
 
 <!-- toc -->
@@ -53,6 +54,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 - [life — 일상 계산](#life--일상-계산)
 - [novel — 소설 집필](#novel--소설-집필)
 - [ui — 브라우저 화면](#ui--브라우저-화면)
+- [한 파일로 묶어 나눠 주기](#한-파일로-묶어-나눠-주기)
 - [테스트](#테스트)
 
 <!-- /toc -->
@@ -1872,6 +1874,29 @@ CLI 와 같은 규칙을 지킨다. **미리보기를 먼저 보여주고**, 「
 기능마다 화면을 하나씩 둔다. 껍데기(색·표·어두운 모드)는 `attools/webui/assets.py`
 한 곳에만 있고, 화면은 `attools/webui/apps/` 아래 파일 하나가 하나다.
 런처는 갈래(파일과 표 / 글 / 개발 / 그 밖)로 묶어 보여준다.
+
+## 한 파일로 묶어 나눠 주기
+
+`python3 build.py` 를 돌리면 저장소 전체가 **한 파일**(`dist/at.pyz`, 550KB 남짓)로
+묶인다. 받는 쪽에 필요한 것은 **파이썬 3.10 이상뿐**이다 — 따로 깔 것도, 인터넷도
+필요 없다. `zipapp` 은 표준 라이브러리라 이것 때문에 의존성이 늘지 않는다.
+
+```bash
+python3 build.py                      # dist/at.pyz + sha256 을 찍는다
+python3 dist/at.pyz file sweep ~/다운로드
+python3 dist/at.pyz ui                 # 브라우저 화면도 그대로 된다
+```
+
+묶은 뒤에는 그 파일로 실제 명령을 한 번 돌려 본다(`build.py` 가 스스로 한다).
+**폴더로 두고 쓸 때는 되는데 묶으면 깨지는 자리**가 있기 때문이다 — `data/` 를
+파일 경로로 읽던 곳이 그랬다. 같은 것을 `tests/test_build.py` 가 매번 확인한다.
+
+나눠 줄 때는 `build.py` 가 찍어 주는 sha256 을 같이 알려 주면 받는 쪽이
+`at file hash` 로 맞춰 볼 수 있다.
+
+받는 쪽이 파이썬조차 없어야 한다면(윈도우 `.exe`, 맥 `.app`) PyInstaller 같은
+**외부 도구**가 필요하고, 서명 없는 실행 파일은 SmartScreen·Gatekeeper 경고와
+백신 오탐이 따라온다. 이 저장소는 그 길을 택하지 않았다.
 
 ## 테스트
 
