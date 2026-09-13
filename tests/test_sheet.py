@@ -820,6 +820,34 @@ class SheetTest(unittest.TestCase):
         step2, _ = sheet.add_column(step1, "c", "b + 1")
         self.assertEqual(step2.rows[0], [12, 6.0, 7.0])
 
+    def test_pivot_reads_numbers_written_as_text(self):
+        """엑셀에서 «1,350,000» 은 글자다. 버리면 합계가 조용히 적어진다."""
+        t = sheet.Table(["부서", "금액"],
+                        [["가", "1,350,000"], ["가", "870000원"], ["나", 100]])
+        out = sheet.pivot(t, rows=["부서"], values="금액", agg="sum")
+        self.assertEqual(out.rows[0], ["가", 2220000])
+
+    def test_pivot_reports_values_it_could_not_read(self):
+        t = sheet.Table(["부서", "금액"], [["가", 100], ["가", "이백"]])
+        skipped = []
+        out = sheet.pivot(t, rows=["부서"], values="금액", agg="sum",
+                          skipped=skipped)
+        self.assertEqual(out.rows[0], ["가", 100])
+        self.assertEqual(skipped, [3])          # 머리글이 1행
+
+    def test_pivot_min_max_does_not_blow_up_on_mixed_values(self):
+        """숫자와 글자가 섞이면 파이썬은 견주다 터진다. 역추적을 보여 줄 일이 아니다."""
+        t = sheet.Table(["부서", "금액"], [["가", 100], ["가", "이백"]])
+        for agg in ("min", "max"):
+            out = sheet.pivot(t, rows=["부서"], values="금액", agg=agg)
+            self.assertEqual(len(out.rows), 1)
+
+    def test_pivot_blank_values_are_not_counted_as_unreadable(self):
+        t = sheet.Table(["부서", "금액"], [["가", 100], ["가", ""], ["가", None]])
+        skipped = []
+        sheet.pivot(t, rows=["부서"], values="금액", agg="sum", skipped=skipped)
+        self.assertEqual(skipped, [])
+
     def test_total_rows_are_spotted(self):
         t = sheet.Table(["구분", "금액"],
                         [["영업1팀", 100], ["영업2팀", 200], ["합계", 300]])

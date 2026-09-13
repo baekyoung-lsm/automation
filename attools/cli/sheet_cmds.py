@@ -1512,8 +1512,10 @@ def cmd_sheet_pivot(a) -> int:
     t = _load(a)
     if t is None:
         return 1
+    skipped: list[int] = []
     try:
-        result = sheet.pivot(t, rows=a.rows, values=a.values, agg=a.agg, cols=a.cols)
+        result = sheet.pivot(t, rows=a.rows, values=a.values, agg=a.agg,
+                             cols=a.cols, skipped=skipped)
     except sheet.SheetError as e:
         _p(str(e))
         return 1
@@ -1525,6 +1527,14 @@ def cmd_sheet_pivot(a) -> int:
                max_rows=a.rows_shown, keep_last=result.headers[-1] == "합계",
                commas=True)
     _p(f"\n{len(result.rows)}개 그룹")
+    if skipped:
+        # 조용히 빼면 합계가 적게 나오는데 표는 멀쩡히 만들어진다
+        where = ", ".join(f"{n}행" for n in skipped[:5])
+        _p(f"{hangul.josa(a.values, '을/를')} 숫자로 못 읽어 뺀 칸 "
+           f"{len(skipped):,}개 ({where}"
+           + (" ..." if len(skipped) > 5 else "") + ")")
+        _p("  합계가 그만큼 적습니다. at sheet clean 으로 숫자를 정리한 뒤 "
+           "다시 세 보세요.")
     if a.out:
         if not _may_write(a, Path(a.out)):
             return 1
@@ -2945,9 +2955,13 @@ def add_commands(sub) -> None:
 
     pv = common(sh.add_parser("pivot", help="그룹별 집계·교차표"))
     pv.add_argument("file")
-    pv.add_argument("--rows", action="append", required=True, metavar="열")
-    pv.add_argument("--cols", metavar="열", help="교차표 열 기준")
-    pv.add_argument("--values", metavar="열", help="집계할 값 (없으면 건수)")
+    # 홑수로 치는 사람이 많은데, --row 는 --rows-shown 과 겹쳐 argparse 가
+    # «ambiguous option» 을 낸다. 홑수 이름을 아예 붙여 둔다.
+    pv.add_argument("--rows", "--row", action="append", required=True,
+                    metavar="열", help="묶을 기준 열 (여러 번 쓸 수 있다)")
+    pv.add_argument("--cols", "--col", metavar="열", help="교차표 열 기준")
+    pv.add_argument("--values", "--value", metavar="열",
+                    help="집계할 값 (없으면 건수)")
     pv.add_argument("--agg", default="sum", choices=list(sheet.AGGS))
     pv.add_argument("--cols-shown", type=int, default=12, metavar="개",
                     help="화면에 보일 열 수 (파일에는 다 담긴다)")

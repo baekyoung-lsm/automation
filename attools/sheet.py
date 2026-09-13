@@ -1031,8 +1031,13 @@ AGGS = {
 
 
 def pivot(table: Table, *, rows: list[str], values: str | None = None,
-          agg: str = "sum", cols: str | None = None) -> Table:
-    """행 기준으로 묶어 집계한다. cols 를 주면 교차표를 만든다."""
+          agg: str = "sum", cols: str | None = None,
+          skipped: list | None = None) -> Table:
+    """행 기준으로 묶어 집계한다. cols 를 주면 교차표를 만든다.
+
+    skipped 에 리스트를 주면 «값이 있는데 숫자로 못 읽어 빼놓은 행» 의 번호를
+    담아 준다. 조용히 빼면 합계가 적게 나오는데 표는 멀쩡히 만들어진다.
+    """
     if agg not in AGGS:
         raise SheetError(f"알 수 없는 집계: {agg} ({', '.join(AGGS)})")
 
@@ -1043,7 +1048,7 @@ def pivot(table: Table, *, rows: list[str], values: str | None = None,
     buckets: dict[tuple, dict[str, list]] = defaultdict(lambda: defaultdict(list))
     col_keys: list[str] = []
 
-    for row in table.rows:
+    for line_no, row in enumerate(table.rows, 2):       # 머리글이 1행
         rkey = tuple(to_text(row[i]) if i < len(row) else "" for i in row_idx)
         ckey = (to_text(row[col_idx]) or "(빈칸)") if col_idx is not None else "값"
         if ckey not in col_keys:
@@ -1053,11 +1058,22 @@ def pivot(table: Table, *, rows: list[str], values: str | None = None,
             buckets[rkey][ckey].append(1)
             continue
         v = row[val_idx] if val_idx < len(row) else None
-        if isinstance(v, bool) or v is None:
+        if isinstance(v, bool) or v is None or to_text(v).strip() == "":
             continue
-        if agg in ("sum", "avg") and not isinstance(v, (int, float)):
+        # 엑셀에서 «1,350,000» 이나 «870000원» 은 글자로 들어온다. 그것을
+        # 버리면 합계가 조용히 적어진다 - 읽을 수 있으면 읽는다.
+        if isinstance(v, (int, float)):
+            number = v
+        else:
+            number = parse_number(to_text(v))
+        if agg in ("sum", "avg"):
+            if number is None:
+                if skipped is not None:
+                    skipped.append(line_no)
+                continue
+            buckets[rkey][ckey].append(number)
             continue
-        buckets[rkey][ckey].append(v)
+        buckets[rkey][ckey].append(number if number is not None else to_text(v))
 
     col_keys.sort()
     headers = list(rows) + col_keys + (["합계"] if col_idx is not None else [])
@@ -1066,6 +1082,10 @@ def pivot(table: Table, *, rows: list[str], values: str | None = None,
         cells = []
         for ck in col_keys:
             vs = buckets[rkey][ck]
+            if vs and agg in ("min", "max") and not all(
+                    isinstance(v, (int, float)) for v in vs):
+                # 숫자와 글자가 섞이면 파이썬은 견주다 터진다. 글자로 본다
+                vs = [to_text(v) for v in vs]
             cells.append(AGGS[agg](vs) if vs else None)
         line = list(rkey) + cells
         if col_idx is not None:
