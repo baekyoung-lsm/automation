@@ -29,6 +29,9 @@ ENTRY = "from attools.cli import main\nraise SystemExit(main())\n"
 SKIP = {"__pycache__", ".pytest_cache", ".mypy_cache"}
 MIN_PYTHON = (3, 10)
 
+# 윈도우에서 더블클릭으로 쓰는 사람에게는 .pyz 하나로는 모자란다. 같이 낸다.
+WINDOWS_FILES = ("at.bat", "업데이트.bat")
+
 
 def stage(target: Path) -> None:
     """묶을 것만 임시 폴더에 모은다. 캐시는 빼고 data/ 는 넣는다."""
@@ -51,6 +54,19 @@ def build(out: Path, *, compress: bool = True) -> Path:
                               interpreter="/usr/bin/env python3")
     out.chmod(0o755)
     return out
+
+
+def copy_windows(out: Path) -> list[Path]:
+    """.bat 을 .pyz 옆에 둔다. 두 파일을 같이 줘야 더블클릭으로 쓴다."""
+    made = []
+    for name in WINDOWS_FILES:
+        source = HERE / name
+        if not source.is_file():
+            continue
+        target = out.parent / name
+        shutil.copy2(source, target)
+        made.append(target)
+    return made
 
 
 def digest(path: Path) -> str:
@@ -89,12 +105,18 @@ def main() -> int:
     out = build(Path(a.out).expanduser(), compress=not a.no_compress)
     if not a.no_check:
         smoke(out)
+    helpers = copy_windows(out)
 
     size = out.stat().st_size
     print(f"{out}  {size / 1024:.0f} KiB")
     print(f"sha256  {digest(out)}")
+    for path in helpers:
+        print(f"{path}")
     print("받는 쪽에서는 이렇게 씁니다")
     print(f"  python3 {out.name} file sweep ~/다운로드")
+    if helpers:
+        print("  윈도우: at.bat 을 같은 폴더에 두고 더블클릭 "
+              "(폴더를 끌어다 놓아도 됩니다)")
     print("  (파이썬 3.10 이상만 있으면 됩니다. 따로 깔 것은 없습니다)")
     return 0
 

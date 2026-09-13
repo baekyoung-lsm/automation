@@ -31,6 +31,7 @@ xml.etree 로 직접 읽고 쓴다(`attools/xlsx.py`). 새 의존성이 필요�
 ```
 at                  실행 스크립트
 build.py            한 파일(.pyz)로 묶기 - 나눠 주기용. 표준 zipapp 만 쓴다
+at.bat 업데이트.bat  윈도우에서 더블클릭·끌어놓기로 쓰는 자리 (CRLF·UTF-8 로 둔다)
 attools/
   cli/              argparse 배선과 명령 핸들러 (여기만 사용자에게 보이는 문구)
     __init__.py     build_parser 와 main. 그룹 모듈을 불러 붙인다

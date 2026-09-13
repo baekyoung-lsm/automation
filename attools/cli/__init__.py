@@ -202,7 +202,8 @@ def file_hints(given: str) -> list[str]:
     path = _Path(given)
     try:
         if path.is_dir():
-            return [f"at file audit {given}", f"at sheet forms {given}"]
+            return [f"at file sweep {given}", f"at file audit {given}",
+                    f"at sheet forms {given}"]
         if not path.is_file():
             return []
     except OSError:

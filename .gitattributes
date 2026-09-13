@@ -1,0 +1,2 @@
+# 윈도우 배치 파일은 CRLF 로 둔다. LF 로 바뀌면 cmd 가 줄을 잘못 읽는 일이 있다.
+*.bat text eol=crlf

@@ -67,6 +67,34 @@ class BuildTest(unittest.TestCase):
     def test_help_is_korean(self):
         self.assertIn("옮기기", self.run_pyz("file", expect=1))
 
+    def test_module_entry_runs(self):
+        """at.bat 이 소스 폴더에서 부르는 길. 여기서 막히면 .bat 도 막힌다."""
+        done = subprocess.run([sys.executable, "-m", "attools.cli", "--version"],
+                              capture_output=True, text=True, cwd=str(ROOT),
+                              timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("attools", done.stdout)
+
+    def test_windows_helpers_ship_next_to_the_archive(self):
+        made = build.copy_windows(self.pyz)
+        self.assertEqual([p.name for p in made], list(build.WINDOWS_FILES))
+        for path in made:
+            self.assertTrue(path.is_file(), path)
+
+    def test_bat_files_are_utf8_and_crlf(self):
+        """cp949 로 저장되거나 LF 로 바뀌면 윈도우에서 글자가 깨지거나 줄이 밀린다."""
+        for name in build.WINDOWS_FILES:
+            raw = (ROOT / name).read_bytes()
+            text = raw.decode("utf-8")          # cp949 로 저장되면 여기서 터진다
+            self.assertIn("chcp 65001", text, name)
+            self.assertEqual(raw.count(b"\n"), raw.count(b"\r\n"), name)
+
+    def test_bat_knows_both_ways_to_run(self):
+        """소스 폴더 옆에 둘 때와 .pyz 옆에 둘 때가 다르다. 둘 다 있어야 한다."""
+        text = (ROOT / "at.bat").read_text(encoding="utf-8")
+        self.assertIn("attools.cli", text)
+        self.assertIn("at.pyz", text)
+
 
 if __name__ == "__main__":
     unittest.main()
