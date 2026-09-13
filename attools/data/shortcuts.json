@@ -314,7 +314,7 @@
           "cat": "삽입",
           "freq": 4,
           "keys": {
-            "hwp": "Ctrl+K",
+            "hwp": "Ctrl+K,H",
             "word": "Ctrl+K",
             "gdocs": "Ctrl+K"
           }
@@ -394,7 +394,7 @@
           "cat": "이동",
           "freq": 3,
           "keys": {
-            "hwp": "Ctrl+Home",
+            "hwp": "Ctrl+Page Up",
             "word": "Ctrl+Home",
             "gdocs": "Ctrl+Home"
           }
@@ -404,7 +404,7 @@
           "cat": "이동",
           "freq": 3,
           "keys": {
-            "hwp": "Ctrl+End",
+            "hwp": "Ctrl+Page Down",
             "word": "Ctrl+End",
             "gdocs": "Ctrl+End"
           }
@@ -454,7 +454,7 @@
           "cat": "서식",
           "freq": 4,
           "keys": {
-            "hwp": null,
+            "hwp": "Alt+Shift+C",
             "word": "Ctrl+Space",
             "gdocs": "Ctrl+\\"
           }
@@ -474,7 +474,7 @@
           "cat": "서식",
           "freq": 4,
           "keys": {
-            "hwp": null,
+            "hwp": "Alt+C",
             "word": "Ctrl+Shift+C",
             "gdocs": null
           }
@@ -484,7 +484,7 @@
           "cat": "서식",
           "freq": 4,
           "keys": {
-            "hwp": null,
+            "hwp": "F3→Alt+C",
             "word": "Ctrl+Shift+V",
             "gdocs": null
           }
@@ -504,7 +504,7 @@
           "cat": "서식",
           "freq": 4,
           "keys": {
-            "hwp": null,
+            "hwp": "Ctrl+Shift+Delete",
             "word": null,
             "gdocs": "Ctrl+Shift+8"
           }
@@ -514,7 +514,7 @@
           "cat": "서식",
           "freq": 4,
           "keys": {
-            "hwp": null,
+            "hwp": "Ctrl+Shift+Insert",
             "word": null,
             "gdocs": "Ctrl+Shift+7"
           }
