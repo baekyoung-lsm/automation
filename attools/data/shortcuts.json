@@ -225,7 +225,7 @@
           "freq": 4,
           "keys": {
             "hwp": "Alt+T",
-            "word": null,
+            "word": "없음",
             "gdocs": "없음"
           }
         },
@@ -305,7 +305,7 @@
           "freq": 5,
           "keys": {
             "hwp": "Ctrl+N,T",
-            "word": null,
+            "word": "없음",
             "gdocs": "없음"
           }
         },
@@ -345,7 +345,7 @@
           "freq": 4,
           "keys": {
             "hwp": "Ctrl+F10",
-            "word": null,
+            "word": "없음",
             "gdocs": "없음"
           }
         },
@@ -385,7 +385,7 @@
           "freq": 3,
           "keys": {
             "hwp": "F7",
-            "word": null,
+            "word": "없음",
             "gdocs": "없음"
           }
         },
@@ -465,7 +465,7 @@
           "freq": 3,
           "keys": {
             "hwp": "없음",
-            "word": null,
+            "word": "없음",
             "gdocs": "Alt+Shift+5"
           }
         },
@@ -545,7 +545,7 @@
           "freq": 3,
           "keys": {
             "hwp": "없음",
-            "word": null,
+            "word": "없음",
             "gdocs": "Ctrl+/"
           }
         }
