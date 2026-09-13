@@ -908,7 +908,7 @@
           "freq": 5,
           "keys": {
             "excel": "Alt+=",
-            "gsheets": null
+            "gsheets": "없음"
           }
         },
         {
@@ -926,7 +926,7 @@
           "freq": 3,
           "keys": {
             "excel": "Ctrl+`",
-            "gsheets": "Ctrl+`"
+            "gsheets": "Ctrl+~"
           }
         },
         {
@@ -989,7 +989,7 @@
           "freq": 5,
           "keys": {
             "excel": "Ctrl+1",
-            "gsheets": null
+            "gsheets": "없음"
           }
         },
         {
@@ -1025,7 +1025,7 @@
           "freq": 5,
           "keys": {
             "excel": "Ctrl+Shift+L",
-            "gsheets": null
+            "gsheets": "없음"
           }
         },
         {
@@ -1034,7 +1034,7 @@
           "freq": 4,
           "keys": {
             "excel": "Ctrl+T",
-            "gsheets": null
+            "gsheets": "Ctrl+Alt+T"
           }
         },
         {
@@ -1061,7 +1061,7 @@
           "freq": 4,
           "keys": {
             "excel": "Ctrl+5",
-            "gsheets": null
+            "gsheets": "Alt+Shift+5"
           }
         },
         {
@@ -1070,7 +1070,7 @@
           "freq": 5,
           "keys": {
             "excel": "Alt → H → M → M",
-            "gsheets": null
+            "gsheets": "없음"
           }
         },
         {
@@ -1079,7 +1079,7 @@
           "freq": 5,
           "keys": {
             "excel": "Alt → W → F → F",
-            "gsheets": null
+            "gsheets": "없음"
           }
         }
       ]
