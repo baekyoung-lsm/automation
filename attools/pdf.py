@@ -1981,8 +1981,17 @@ def _as_png(doc: "Document", stream: Stream, data: bytes,
             width: int, height: int) -> tuple[bytes, str, str]:
     """눌리지 않은 화소를 PNG 로. (자료, 색 이름, 못 한 이유)."""
     get = doc.get
-    bits = int(get(stream.data.get("BitsPerComponent"))
-               or get(stream.data.get("BPC")) or 8)
+    # «or 8» 로 적으면 BitsPerComponent 0 인 망가진 문서를 8비트로 읽어
+    # 그럴듯한 그림을 내게 된다. 없는 것과 0 은 다르다.
+    raw_bits = get(stream.data.get("BitsPerComponent"))
+    if raw_bits is None:
+        raw_bits = get(stream.data.get("BPC"))
+    try:
+        bits = 8 if raw_bits is None else int(raw_bits)
+    except (TypeError, ValueError):
+        return b"", _channels(doc, stream.data.get("ColorSpace")
+                              or stream.data.get("CS"))[1], \
+               f"비트 수를 읽지 못했습니다 ({raw_bits})"
     space = stream.data.get("ColorSpace") or stream.data.get("CS")
     mask = bool(get(stream.data.get("ImageMask")) or get(stream.data.get("IM")))
 

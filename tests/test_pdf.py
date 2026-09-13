@@ -598,6 +598,43 @@ class PdfImageTest(unittest.TestCase):
         self.assertFalse(got[0].ok)
         self.assertIn("CCITTFaxDecode", got[0].why)
 
+    def test_zero_bits_is_not_read_as_eight(self):
+        """«or 8» 로 적으면 0비트 문서를 8비트로 읽어 그럴듯한 그림을 낸다."""
+        got = self.found([image_obj(bytes([1] * 12), width=2, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 0")])
+        self.assertFalse(got[0].ok)
+        self.assertIn("0비트", got[0].why)
+
+    def test_unreadable_bit_depth_is_reported(self):
+        got = self.found([image_obj(bytes([1] * 12), width=2, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent /Eight")])
+        self.assertFalse(got[0].ok)
+        self.assertIn("비트 수를 읽지 못했습니다", got[0].why)
+
+    def test_absurd_size_is_refused(self):
+        got = self.found([image_obj(bytes(12), width=100000, height=100000,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8")])
+        self.assertFalse(got[0].ok)
+
+    def test_form_pointing_at_itself_does_not_loop(self):
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 9 9] "
+                b"/Resources << /XObject << /F 4 0 R >> >> >>"),
+            4: (b"<< /Type /XObject /Subtype /Form /Resources "
+                b"<< /XObject << /F 4 0 R /Im 5 0 R >> >> /Length 0 >>"
+                b"\nstream\n\nendstream"),
+            5: image_obj(bytes([1, 2, 3] * 4), width=2, height=2,
+                         extra=b"/ColorSpace /DeviceRGB /BitsPerComponent 8"),
+        }
+        path = text_pdf(self.root / "고리.pdf", objects)
+        got = pdf.read_images(pdf.open_pdf(path))
+        self.assertEqual([one.name for one in got], ["Im"])
+
     def test_short_data_is_not_padded(self):
         """모자란 것을 채워 내면 그럴듯한 그림이 나오지만 그것은 거짓이다."""
         got = self.found([image_obj(bytes([1, 2, 3]), width=3, height=2,
