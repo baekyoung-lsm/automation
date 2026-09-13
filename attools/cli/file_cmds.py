@@ -49,6 +49,14 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def _here(path: Path) -> str:
+    """지금 폴더 아래면 짧게 적는다. 긴 절대 경로가 줄을 다 잡아먹는다."""
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
 def cmd_file_sweep(a) -> int:
     """여러 폴더를 한꺼번에 훑어 쓰임새별로 묶고, 그대로 정리까지 한다."""
     roots = [Path(one) for one in a.dirs] or files.default_roots()
@@ -69,7 +77,7 @@ def cmd_file_sweep(a) -> int:
     _p(f"훑은 곳 {len(found.roots)}곳 · 파일 {found.files:,}개 "
        f"· {files.human_size(found.total)}")
     for root in found.roots:
-        _p(f"  {root}  파일 {found.counts.get(str(root), 0):,}개")
+        _p(f"  {_here(root)}  파일 {found.counts.get(str(root), 0):,}개")
 
     if not found.files:
         _p("\n파일이 없습니다.")
