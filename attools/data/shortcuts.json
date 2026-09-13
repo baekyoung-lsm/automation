@@ -355,7 +355,7 @@
           "freq": 4,
           "keys": {
             "hwp": "F9",
-            "word": null,
+            "word": "없음",
             "gdocs": "없음"
           }
         },
@@ -505,7 +505,7 @@
           "freq": 4,
           "keys": {
             "hwp": "Ctrl+Shift+Delete",
-            "word": null,
+            "word": "없음",
             "gdocs": "Ctrl+Shift+8"
           }
         },
@@ -515,7 +515,7 @@
           "freq": 4,
           "keys": {
             "hwp": "Ctrl+Shift+Insert",
-            "word": null,
+            "word": "없음",
             "gdocs": "Ctrl+Shift+7"
           }
         },
