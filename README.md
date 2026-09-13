@@ -1632,6 +1632,9 @@ at keys --read 빈칸.csv --apply    # 실제로 넣기
 앱 이름이 틀린 줄은 조용히 버리지 않고 몇 행인지 알려 준다.
 
 단축키는 제품 버전과 설정에 따라 다르다. 출처는 `at keys --list` 에 있다.
+**값은 윈도우(PC) 기준이다** — 맥은 `Ctrl` 자리에 `⌘` 를 쓰고, 맥·ChromeOS 는 아예 다른
+키인 것도 있다(같은 Google 시트라도 «범위를 표로 변환» 이 PC 는 `Ctrl+Alt+T`,
+ChromeOS 는 `Shift+Alt+T` 다). 표 아래에도 그 기준을 적어 둔다.
 
 ## life — 일상 계산
 

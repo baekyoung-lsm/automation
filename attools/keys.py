@@ -23,6 +23,12 @@ def state_path() -> Path:
     return user_dir() / "keys.json"
 
 # 값이 없는 칸은 두 가지다. 이 둘을 구분하지 않으면 "찾아봐야 할 것"을 알 수 없다.
+# 어느 운영체제 기준인지 적어 두지 않으면 맥 사용자가 한참 헤맨다. 같은
+# Google 시트라도 «범위를 표로 변환» 이 PC 는 Ctrl+Alt+T, ChromeOS 는
+# Shift+Alt+T 다.
+PLATFORM = ("윈도우(PC) 기준입니다. 맥은 Ctrl 자리에 ⌘ 를 쓰고, "
+            "맥·ChromeOS 는 아예 다른 키인 것도 있습니다.")
+
 NO_SHORTCUT = "없음"      # 확인했고, 기본 단축키가 없는 기능
 UNKNOWN = None            # 아직 확인하지 못한 칸
 MARK_NONE = "—"

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "직접 고쳐 쓰라고 만든 파일입니다. keys 값이 \"없음\" 이면 확인했고 기본 단축키가 없는 기능, null 이면 아직 확인하지 못한 칸입니다.",
+  "note": "직접 고쳐 쓰라고 만든 파일입니다. keys 값이 \"없음\" 이면 확인했고 기본 단축키가 없는 기능, null 이면 아직 확인하지 못한 칸입니다. 값은 윈도우(PC) 기준입니다.",
   "sources": {
     "한글": "https://help.hancom.com/hoffice/multi/ko_kr/hwp/view/toolbar/shortcut(table).htm",
     "Word · Excel · PowerPoint": "https://support.microsoft.com/ko-kr/office",
@@ -1274,5 +1274,6 @@
         }
       ]
     }
-  ]
+  ],
+  "platform": "윈도우(PC) 기준. 맥·ChromeOS 는 다른 키인 것이 있다."
 }

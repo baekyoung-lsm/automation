@@ -204,6 +204,12 @@ class KeysTest(unittest.TestCase):
         finally:
             self.restore_home(root, previous)
 
+    def test_platform_is_written_down(self):
+        """어느 운영체제 기준인지 적지 않으면 맥 사용자가 한참 헤맨다."""
+        self.assertIn("윈도우", keys.PLATFORM)
+        out = self.run_cli("keys", "취소선", "--no-tui")
+        self.assertIn("윈도우", out)
+
     def test_unknown_group(self):
         with self.assertRaises(keys.KeysError):
             keys.find_group(self.groups, "없는그룹")

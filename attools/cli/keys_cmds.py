@@ -254,6 +254,7 @@ def cmd_keys(a) -> int:
             _p(f"  {_pad(g.id, 8)}{_pad(g.name, 14)}{g.desc}  ({len(g.items)}개)")
         _p(f"\n사용자 파일: {keys.user_data_path()}")
         _p(f"조회 기록:   {keys.state_path()}")
+        _p(f"\n기준: {keys.PLATFORM}")
         _p("\n출처")
         for name, url in sources.items():
             _p(f"  {name}: {url}")
@@ -337,6 +338,7 @@ def cmd_keys(a) -> int:
 
     _p(f"{shown}개  ·  정렬: {keys.SORTS[a.sort]}"
        f"  ·  {keys.MARK_NONE} 기본 단축키 없음  {keys.MARK_UNKNOWN} 확인 못 함")
+    _p(f"  {keys.PLATFORM}")
     if not query:
         _p("터미널에서 그냥 `at keys` 만 치면 탭으로 넘겨 보는 화면이 열립니다.")
     return 0
