@@ -2435,7 +2435,14 @@ def cmd_sheet_dedupe(a) -> int:
     _p(f"{', '.join(a.key)} 기준으로 {how}만 남깁니다")
     _p(f"  {len(t.rows):,}행 -> {info.kept:,}행  ·  지운 행 {info.removed:,}")
     if info.blank_keys:
-        _p(f"  키가 빈 행 {info.blank_keys:,}개는 한 묶음으로 봤습니다.")
+        _p(f"  키가 빈 행 {info.blank_keys:,}개는 그대로 두었습니다 "
+           "(빈 값끼리 같다고 볼 수 없습니다).")
+    if info.unranked:
+        _p(f"  {hangul.josa(a.by, '을/를')} 견줄 수 없던 행 "
+           f"{len(info.unranked):,}개는 "
+           "이기지 못합니다: "
+           + ", ".join(f"{n}행" for n in info.unranked[:5])
+           + (" ..." if len(info.unranked) > 5 else ""))
 
     if info.duplicate_keys:
         _p(f"\n겹친 키 {len(info.duplicate_keys)}개")
@@ -2447,6 +2454,29 @@ def cmd_sheet_dedupe(a) -> int:
     if not info.removed:
         _p("\n중복이 없습니다.")
         return 0
+
+    # 무엇이 빠졌는지 보여 준다. 지운 것을 못 보면 되돌릴 수도 없다
+    _p(f"\n지운 행 {info.removed:,}개")
+    _grid(["행", "대신 남긴 행", "같았던 값", "내용"],
+          [[str(one.number), f"{one.kept}행", _cut(one.key, 20),
+            _cut(" · ".join(sheet.to_text(v) for v in one.row), 40)]
+           for one in info.dropped[:a.limit]], limit=42)
+    if info.removed > a.limit:
+        _p(f"  ... {info.removed - a.limit:,}개 더")
+
+    if a.dropped:
+        out = Path(a.dropped)
+        if not _may_write(a, out):
+            return 1
+        gone = sheet.Table(list(t.headers) + ["대신 남긴 행"],
+                           [list(one.row) + [one.kept] for one in info.dropped],
+                           source=t.source)
+        try:
+            sheet.save(gone, out)
+        except (sheet.SheetError, OSError) as e:
+            _p(f"지운 행을 저장하지 못했습니다: {e}")
+            return 1
+        _p(f"지운 행 저장: {out}")
 
     if a.out:
         if not _may_write(a, Path(a.out)):
@@ -3327,6 +3357,8 @@ def add_commands(sub) -> None:
                     help="이미 있는 파일을 덮어쓴다")
     dd.add_argument("--keep-sheets", action="store_true",
                     help="원본 엑셀의 다른 시트도 그대로 옮긴다")
+    dd.add_argument("--dropped", metavar="파일",
+                    help="지운 행을 따로 저장한다 (.csv, .xlsx)")
     dd.add_argument("--limit", type=int, default=15)
     dd.set_defaults(func=cmd_sheet_dedupe)
 

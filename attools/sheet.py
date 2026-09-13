@@ -1637,20 +1637,78 @@ def join(left: Table, right: Table, *, on: str, right_on: str = "",
 
 
 @dataclass
+class DroppedRow:
+    number: int          # 엑셀 행 번호 (머리글이 1행)
+    row: list
+    kept: int            # 대신 남긴 행 번호
+    key: str             # 무엇이 같아서 묶였나
+
+
+@dataclass
 class DedupeReport:
     kept: int = 0
     removed: int = 0
     duplicate_keys: list[tuple[str, int]] = field(default_factory=list)
     blank_keys: int = 0
+    dropped: list[DroppedRow] = field(default_factory=list)
+    unranked: list[int] = field(default_factory=list)   # 견줄 값이 없던 행
+
+
+def _rank_kind(values) -> str:
+    """한 묶음 안의 값들을 무엇으로 견줄지. 섞여 있으면 글자로 본다.
+
+    열 하나에 숫자와 글자가 섞인 표가 흔하다. 그럴 때 숫자만 견주면 글자가
+    든 행은 늘 지고, 사람은 왜 그 행이 사라졌는지 알 수 없다.
+    """
+    seen = [v for v in values if v is not None and to_text(v).strip() != ""]
+    if not seen:
+        return "없음"
+    if all(isinstance(v, (int, float)) and not isinstance(v, bool)
+           or parse_number(to_text(v)) is not None for v in seen):
+        return "숫자"
+    if all(isinstance(v, (datetime, date)) or parse_date(to_text(v)) is not None
+           for v in seen):
+        return "날짜"
+    return "글자"
+
+
+def _rank_value(value, kind: str):
+    """견줄 수 있는 값. 못 재면 None - 못 재는 값은 절대 이기지 않는다."""
+    if value is None or to_text(value).strip() == "":
+        return None
+    if kind == "숫자":
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            return float(value)
+        number = parse_number(to_text(value))
+        return None if number is None else float(number)
+    if kind == "날짜":
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, date):
+            return datetime(value.year, value.month, value.day).timestamp()
+        when = parse_date(to_text(value))
+        return None if when is None else datetime(
+            when.year, when.month, when.day).timestamp()
+    if kind == "글자":
+        return to_text(value)
+    return None
 
 
 def dedupe(table: Table, keys: list[str], *, keep: str = "first",
            by: str = "") -> tuple[Table, DedupeReport]:
-    """키가 같은 행 중 하나만 남긴다.
+    """키가 같은 행 중 하나만 남긴다. 지운 행은 함께 돌려준다.
 
     keep: first/last 는 나온 순서, max/min 은 by 열의 값 기준.
     완전히 같은 행만 지우는 clean --dedupe 와 다르다. 사번이 같고 나머지가
     다른 행에서 최신 것만 남기는 게 실무에서 필요한 쪽이다.
+
+    두 가지를 조심한다.
+    - 키가 빈 행은 서로 묶지 않는다. 빈 값끼리 한 묶음으로 보면 사번을 아직
+      안 적은 서로 다른 사람 둘이 한 사람이 되어 말없이 사라진다.
+    - by 열이 비었거나 견줄 수 없는 값이면 그 행은 이기지 않는다. «최신 것만
+      남겨라» 라고 했는데 날짜가 빈 행이 남으면 시킨 것과 반대다.
     """
     if keep not in ("first", "last", "max", "min"):
         raise SheetError(f"알 수 없는 방식: {keep} (first, last, max, min)")
@@ -1661,46 +1719,65 @@ def dedupe(table: Table, keys: list[str], *, keep: str = "first",
     order_index = table.index_of(by) if by else None
     report = DedupeReport()
 
-    groups: dict[tuple, list[list]] = {}
-    for row in table.rows:
-        key = tuple(to_text(row[i]) if i < len(row) else "" for i in indexes)
-        if not any(key):
+    def cell(row, at):
+        return row[at] if at is not None and at < len(row) else None
+
+    groups: dict[tuple, list[tuple[int, list]]] = {}
+    order: list[tuple] = []
+    for number, row in enumerate(table.rows, 2):        # 머리글이 1행
+        key = tuple(to_text(cell(row, i)) for i in indexes)
+        if not any(one.strip() for one in key):
             report.blank_keys += 1
-        groups.setdefault(key, []).append(row)
+            key = ("", "빈 키", number)                  # 혼자 있는 묶음
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append((number, row))
 
-    def rank(row: list):
-        cell = row[order_index] if order_index is not None and order_index < len(row) else None
-        if cell is None or cell == "":
-            return (1, 0.0, "")
-        if isinstance(cell, bool):
-            return (0, float(cell), "")
-        if isinstance(cell, (int, float)):
-            return (0, float(cell), "")
-        if isinstance(cell, (datetime, date)):
-            stamp = cell if isinstance(cell, datetime) else datetime(
-                cell.year, cell.month, cell.day)
-            return (0, stamp.timestamp(), "")
-        return (0, 0.0, to_text(cell))
+    picked_rows: list[tuple[int, list]] = []
+    for key in order:
+        members = groups[key]
+        if len(members) == 1:
+            picked_rows.append(members[0])
+            continue
 
-    rows: list[list] = []
-    for key, members in groups.items():
-        if len(members) > 1:
-            report.duplicate_keys.append((" / ".join(key) or "(빈 키)", len(members)))
-            report.removed += len(members) - 1
+        label = " / ".join(one for one in key if isinstance(one, str) and one) or "(빈 키)"
+        report.duplicate_keys.append((label, len(members)))
+        report.removed += len(members) - 1
 
         if keep == "first":
-            picked = members[0]
+            winner = members[0]
         elif keep == "last":
-            picked = members[-1]
-        elif keep == "max":
-            picked = max(members, key=rank)
+            winner = members[-1]
         else:
-            picked = min(members, key=rank)
-        rows.append(picked)
+            kind = _rank_kind([cell(row, order_index) for _, row in members])
+            ranked = [(_rank_value(cell(row, order_index), kind), number, row)
+                      for number, row in members]
+            report.unranked += [number for value, number, _ in ranked
+                                if value is None]
+            usable = [one for one in ranked if one[0] is not None]
+            if not usable:
+                # 하나도 못 재면 순서를 바꾸지 않는다. 아무거나 고르면
+                # 왜 그 행이 남았는지 아무도 설명할 수 없다
+                winner = members[0]
+            elif keep == "max":
+                best = max(usable, key=lambda one: (one[0], -one[1]))
+                winner = (best[1], best[2])
+            else:
+                best = min(usable, key=lambda one: (one[0], one[1]))
+                winner = (best[1], best[2])
 
-    report.kept = len(rows)
+        picked_rows.append(winner)
+        for number, row in members:
+            if number != winner[0]:
+                report.dropped.append(DroppedRow(number, row, winner[0], label))
+
+    picked_rows.sort(key=lambda one: one[0])
+    report.kept = len(picked_rows)
     report.duplicate_keys.sort(key=lambda x: -x[1])
-    return Table(table.headers, rows, source=table.source, sheet=table.sheet), report
+    report.dropped.sort(key=lambda one: one.number)
+    return (Table(table.headers, [row for _, row in picked_rows],
+                  source=table.source, sheet=table.sheet), report)
 
 
 # ------------------------------------------------------------------ 파생 열

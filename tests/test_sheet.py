@@ -857,11 +857,54 @@ class SheetTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.dedupe(t, ["k"], keep="아무거나")
 
-    def test_dedupe_counts_blank_keys(self):
+    def test_dedupe_keeps_blank_key_rows(self):
+        """빈 키끼리 묶으면 서로 다른 사람 둘이 한 사람이 되어 사라진다."""
         t = sheet.Table(["k", "v"], [["", "가"], ["", "나"], ["1", "다"]])
         result, info = sheet.dedupe(t, ["k"])
         self.assertEqual(info.blank_keys, 2)
-        self.assertEqual(len(result.rows), 2)
+        self.assertEqual([r[1] for r in result.rows], ["가", "나", "다"])
+        self.assertEqual(info.removed, 0)
+
+    def test_dedupe_empty_rank_never_wins(self):
+        """«최신 것만 남겨라» 라고 했는데 날짜가 빈 행이 남으면 시킨 것과 반대다."""
+        t = sheet.Table(["사번", "수정일", "비고"],
+                        [["E1", "", "값없음"], ["E1", "2024-03-02", "최신"]])
+        result, info = sheet.dedupe(t, ["사번"], keep="max", by="수정일")
+        self.assertEqual([r[2] for r in result.rows], ["최신"])
+        self.assertEqual(info.unranked, [2])
+
+        oldest, _ = sheet.dedupe(t, ["사번"], keep="min", by="수정일")
+        self.assertEqual([r[2] for r in oldest.rows], ["최신"])
+
+    def test_dedupe_reads_text_dates(self):
+        """엑셀이 아니라 csv 로 오면 날짜가 글자다. 글자로 견주면 «2024.3.2» 가 진다."""
+        t = sheet.Table(["k", "날짜", "v"],
+                        [["1", "2024.3.2", "나중"], ["1", "2024.1.5", "먼저"]])
+        result, _ = sheet.dedupe(t, ["k"], keep="max", by="날짜")
+        self.assertEqual([r[2] for r in result.rows], ["나중"])
+
+    def test_dedupe_gives_back_what_it_removed(self):
+        """지운 것을 못 보면 되돌릴 수도 없다."""
+        t = sheet.Table(["k", "v"], [["1", "가"], ["1", "나"], ["2", "다"]])
+        _, info = sheet.dedupe(t, ["k"])
+        self.assertEqual(len(info.dropped), 1)
+        gone = info.dropped[0]
+        self.assertEqual((gone.number, gone.kept, gone.key), (3, 2, "1"))
+        self.assertEqual(gone.row, ["1", "나"])
+
+    def test_dedupe_all_unrankable_keeps_order(self):
+        """하나도 못 재면 아무거나 고르지 않고 먼저 나온 것을 둔다."""
+        t = sheet.Table(["k", "날짜", "v"], [["1", "", "먼저"], ["1", "", "나중"]])
+        result, info = sheet.dedupe(t, ["k"], keep="max", by="날짜")
+        self.assertEqual([r[2] for r in result.rows], ["먼저"])
+        self.assertEqual(len(info.unranked), 2)
+
+    def test_dedupe_mixed_column_compares_as_text(self):
+        """숫자와 글자가 섞인 열에서 숫자만 견주면 글자 행이 늘 진다."""
+        t = sheet.Table(["k", "값", "v"],
+                        [["1", "10", "숫자"], ["1", "나중", "글자"]])
+        result, _ = sheet.dedupe(t, ["k"], keep="max", by="값")
+        self.assertEqual([r[2] for r in result.rows], ["글자"])
 
     def test_join_left_keeps_unmatched(self):
         left = sheet.Table(["사번", "이름"], [["E1", "홍길동"], ["E3", "이영희"]])
