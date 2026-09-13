@@ -120,6 +120,90 @@ class KeysTest(unittest.TestCase):
         self.assertEqual(sorted(seen), sorted(keys.SORTS))
         self.assertEqual(mode, "freq")
 
+    def run_cli(self, *args, expect: int = 0) -> str:
+        """홈을 임시 폴더로 돌리고 명령을 돌린다."""
+        import contextlib
+        import io
+
+        from attools import cli
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = cli.main(list(args))
+        self.assertEqual(code, expect, f"at {' '.join(args)}\n{out.getvalue()}")
+        return out.getvalue()
+
+    def test_export_and_read_round_trip(self):
+        """빈 칸을 표로 내고, 채워 온 표를 다시 넣는다 (엑셀에서 채우는 길)."""
+        import csv
+
+        root, previous = self.with_home()
+        try:
+            table = root / "빈칸.csv"
+            out = self.run_cli("keys", "--export", str(table), "--gaps")
+            self.assertIn("채울 값", out)
+            rows = list(csv.reader(
+                table.read_text(encoding="utf-8-sig").splitlines()))
+            self.assertEqual(rows[0][:4], ["갈래", "갈래이름", "기능", "앱"])
+            self.assertTrue(rows[1:])
+            # 낸 것은 «확인 못 한 칸» 뿐이다
+            self.assertTrue(all(row[5] == "" for row in rows[1:]))
+
+            target = rows[1]
+            target[6] = "Ctrl+Alt+Shift+Q"
+            with open(table, "w", encoding="utf-8-sig", newline="") as fp:
+                csv.writer(fp).writerows(rows)
+
+            # 미리보기는 아무것도 쓰지 않는다
+            self.run_cli("keys", "--read", str(table))
+            self.assertFalse(keys.user_data_path().exists())
+
+            self.run_cli("keys", "--read", str(table), "--apply")
+            self.assertTrue(keys.user_data_path().is_file())
+            groups, _ = keys.load_groups()
+            group = keys.find_group(groups, target[0])
+            item = next(i for i in group.items if i.name == target[2])
+            self.assertEqual(item.keys[target[3]], "Ctrl+Alt+Shift+Q")
+        finally:
+            self.restore_home(root, previous)
+
+    def test_read_refuses_a_table_without_the_columns(self):
+        root, previous = self.with_home()
+        try:
+            wrong = root / "엉뚱.csv"
+            wrong.write_text("이름,값\n가,나\n", encoding="utf-8")
+            out = self.run_cli("keys", "--read", str(wrong), expect=1)
+            self.assertIn("열이 모자랍니다", out)
+        finally:
+            self.restore_home(root, previous)
+
+    def test_read_names_the_rows_it_could_not_use(self):
+        """조용히 버리면 «넣었겠거니» 하고 넘어간다."""
+        import csv
+
+        root, previous = self.with_home()
+        try:
+            table = root / "표.csv"
+            with open(table, "w", encoding="utf-8-sig", newline="") as fp:
+                writer = csv.writer(fp)
+                writer.writerow(["갈래", "기능", "앱", "채울 값"])
+                writer.writerow(["doc", "새 문서", "없는앱", "Ctrl+Q"])
+            out = self.run_cli("keys", "--read", str(table), expect=1)
+            self.assertIn("없는앱", out)
+        finally:
+            self.restore_home(root, previous)
+
+    def test_export_does_not_overwrite(self):
+        root, previous = self.with_home()
+        try:
+            there = root / "있는것.csv"
+            there.write_text("소중한 자료\n", encoding="utf-8")
+            out = self.run_cli("keys", "--export", str(there), expect=1)
+            self.assertIn("이미 있는 파일", out)
+            self.assertEqual(there.read_text(encoding="utf-8"), "소중한 자료\n")
+        finally:
+            self.restore_home(root, previous)
+
     def test_unknown_group(self):
         with self.assertRaises(keys.KeysError):
             keys.find_group(self.groups, "없는그룹")

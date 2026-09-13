@@ -22,6 +22,123 @@ def _keys_rows(group, items, state) -> tuple[list[str], list[list[str]]]:
     return header, body
 
 
+def _keys_table(groups, *, only_gaps: bool):
+    """채워 넣기 좋은 표. 열 이름은 다시 읽을 때 그대로 쓴다."""
+    rows = []
+    for group in groups:
+        for item in group.items:
+            for app_id in group.app_ids:
+                value = item.keys.get(app_id)
+                if only_gaps and value is not None:
+                    continue
+                rows.append([group.id, group.name, item.name,
+                             app_id, group.app_name(app_id),
+                             "" if value is None else value, ""])
+    return (["갈래", "갈래이름", "기능", "앱", "앱이름", "지금", "채울 값"], rows)
+
+
+def _keys_export(groups, out: str, *, only_gaps: bool, overwrite: bool) -> int:
+    """빈 칸을 표로 낸다. 엑셀에서 채워 와 한꺼번에 넣으려는 것이다."""
+    from .. import sheet
+
+    path = Path(out)
+    if path.exists() and not overwrite:
+        _p(f"이미 있는 파일입니다: {path}")
+        _p("  덮어쓰려면 --overwrite 를, 남겨 두려면 다른 이름을 주세요.")
+        return 1
+
+    headers, rows = _keys_table(groups, only_gaps=only_gaps)
+    if not rows:
+        _p("낼 것이 없습니다." + (" (확인 못 한 칸이 없습니다)" if only_gaps else ""))
+        return 1
+    try:
+        made = sheet.save(sheet.Table(headers, rows), path)
+    except (sheet.SheetError, OSError) as exc:
+        _p(f"저장하지 못했습니다: {exc}")
+        return 1
+
+    _p(f"{len(rows):,}칸을 {made} 에 냈습니다.")
+    _p("  «채울 값» 칸에 적어서 at keys --read <파일> 로 다시 넣으세요.")
+    _p('  기본 단축키가 없는 기능이면 "없음" 이라고 적으면 됩니다.')
+    _p("  확인한 것만 적어 주세요. 빈 칸으로 두면 그대로 «?» 로 남습니다.")
+    return 0
+
+
+def _keys_read(groups, source: str, *, apply: bool) -> int:
+    """채워 온 표를 읽어 사용자 파일에 넣는다. 미리보기가 기본이다."""
+    from .. import sheet
+
+    try:
+        table = sheet.load(Path(source))
+    except (sheet.SheetError, OSError) as exc:
+        _p(f"읽지 못했습니다: {exc}")
+        return 1
+
+    need = ["갈래", "기능", "앱", "채울 값"]
+    missing = [name for name in need if name not in table.headers]
+    if missing:
+        _p(f"열이 모자랍니다: {', '.join(missing)}")
+        _p("  at keys --export 로 낸 표에 «채울 값» 만 적어 주세요.")
+        return 1
+
+    at = {name: table.index_of(name) for name in need}
+    plans, problems = [], []
+    for line, row in enumerate(table.rows, 2):       # 머리글이 1행
+        def cell(name):
+            index = at[name]
+            return sheet.to_text(row[index] if index < len(row) else "").strip()
+
+        value = cell("채울 값")
+        if not value:
+            continue
+        group_name, item_name, app_id = cell("갈래"), cell("기능"), cell("앱")
+        try:
+            group = keys.find_group(groups, group_name)
+        except keys.KeysError as exc:
+            problems.append(f"{line}행: {exc}")
+            continue
+        if app_id not in group.app_ids:
+            problems.append(f"{line}행: «{app_id}» 앱이 {group.name} 그룹에 없습니다")
+            continue
+        if not item_name:
+            problems.append(f"{line}행: 기능 이름이 비었습니다")
+            continue
+        plans.append((group, item_name, app_id, value))
+
+    for line in problems[:10]:
+        _p(f"  {line}")
+    if len(problems) > 10:
+        _p(f"  ... {len(problems) - 10}개 더")
+    if not plans:
+        _p("넣을 것이 없습니다. «채울 값» 칸이 비어 있습니다.")
+        return 1
+
+    _grid(["갈래", "기능", "앱", "넣을 값"],
+          [[g.name, _cut(name, 20), g.app_name(app), value]
+           for g, name, app, value in plans[:20]], limit=24)
+    if len(plans) > 20:
+        _p(f"  ... {len(plans) - 20}개 더")
+
+    if not apply:
+        _p(f"\n{len(plans):,}칸을 넣을 수 있습니다. 실제로 넣으려면 --apply 를 "
+           "붙이세요.")
+        return 0
+
+    saved = 0
+    for group, item_name, app_id, value in plans:
+        try:
+            path, _ = keys.set_shortcut(
+                group, item_name, app_id,
+                None if value in ("없음", "none") else value)
+        except keys.KeysError as exc:
+            _p(f"  {item_name}: {exc}")
+            continue
+        saved += 1
+    _p(f"\n{saved:,}칸을 넣었습니다. 저장: {keys.user_data_path()}")
+    _p("  기본 데이터(attools/data/shortcuts.json)는 건드리지 않았습니다.")
+    return 0 if saved else 1
+
+
 def _keys_set(groups, spec: str) -> int:
     """'doc/표 만들기/word=Alt+N,T' 를 해석해 사용자 파일에 적는다."""
     target, sep, value = spec.partition("=")
@@ -142,6 +259,13 @@ def cmd_keys(a) -> int:
             _p(f"  {name}: {url}")
         return 0
 
+    if a.export:
+        return _keys_export(groups, a.export, only_gaps=a.gaps,
+                            overwrite=a.overwrite)
+
+    if a.read:
+        return _keys_read(groups, a.read, apply=a.apply)
+
     if a.gaps:
         rows = keys.gaps(groups)
         if not rows:
@@ -238,5 +362,14 @@ def add_commands(sub) -> None:
                          "(기본 단축키가 없으면 값에 '없음')")
     ky.add_argument("--fill", action="store_true",
                     help="확인 못 한 칸을 하나씩 물어 채운다")
+    ky.add_argument("--export", metavar="파일",
+                    help="채워 넣을 표로 내보내기 (.csv, .xlsx). "
+                         "--gaps 와 함께 주면 확인 못 한 칸만")
+    ky.add_argument("--read", metavar="파일",
+                    help="채워 온 표를 읽어 넣기 (미리보기가 기본)")
+    ky.add_argument("--apply", action="store_true",
+                    help="--read 로 읽은 것을 실제로 넣는다")
+    ky.add_argument("--overwrite", action="store_true",
+                    help="--export 가 이미 있는 파일을 덮어쓴다")
     ky.add_argument("--no-tui", action="store_true", help="화면 대신 표로 출력")
     ky.set_defaults(func=cmd_keys)
