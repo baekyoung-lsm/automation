@@ -374,7 +374,7 @@
           "cat": "검토",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "없음",
             "word": "Ctrl+Alt+M",
             "gdocs": "Ctrl+Alt+M"
           }
@@ -464,7 +464,7 @@
           "cat": "서식",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "없음",
             "word": null,
             "gdocs": "Alt+Shift+5"
           }
@@ -494,7 +494,7 @@
           "cat": "서식",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "없음",
             "word": "Shift+F3",
             "gdocs": "없음"
           }
@@ -534,7 +534,7 @@
           "cat": "입력",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "없음",
             "word": "Alt+X",
             "gdocs": "없음"
           }
@@ -544,7 +544,7 @@
           "cat": "도움",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "없음",
             "word": null,
             "gdocs": "Ctrl+/"
           }
