@@ -524,7 +524,7 @@
           "cat": "검토",
           "freq": 3,
           "keys": {
-            "hwp": null,
+            "hwp": "Ctrl+Q,I",
             "word": null,
             "gdocs": "Ctrl+Shift+C"
           }
