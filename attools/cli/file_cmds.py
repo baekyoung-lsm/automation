@@ -754,6 +754,65 @@ def cmd_file_pdfcut(a) -> int:
     return 0
 
 
+def cmd_file_pdfstamp(a) -> int:
+    """PDF 에 도장·서명 그림을 얹는다. 인쇄해서 찍고 다시 스캔하지 않으려는 것."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    mark = Path(a.image)
+    if not mark.is_file():
+        _p(f"도장 그림이 없습니다: {mark}")
+        return 1
+
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        image = pdf.read_stamp(mark)
+        wanted = pdf.page_numbers(a.pages, total) if a.pages else None
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    height_mm = a.width * image.height / image.width if image.width else a.width
+    _p(f"{path.name}  {total}쪽")
+    _p(f"  도장: {mark.name}  {image.width}x{image.height}px  ->  "
+       f"{a.width:g}x{height_mm:.0f}mm  ·  {pdf.STAMP_WHERE[a.where]}")
+    if image.alpha:
+        _p("  투명한 자리는 비칩니다 (PNG 의 투명도를 그대로 씁니다).")
+    else:
+        _p("  투명도가 없어 네모째 얹힙니다. 도장은 배경이 없는 PNG 가 낫습니다.")
+    _p(f"  찍을 쪽: {'모든 쪽' if wanted is None else ', '.join(str(n) for n in wanted)}")
+
+    turned = sum(1 for page in doc.pages()
+                 if int(doc.get(page.data.get("Rotate")) or 0) % 360)
+    if turned:
+        _p(f"  돌아가 있는 쪽 {turned}개는 보는 사람 기준으로 맞춰 얹습니다.")
+
+    if not a.out:
+        _p("\n미리보기입니다. 파일로 만들려면 -o 도장본.pdf 를 주세요.")
+        return 0
+
+    out = Path(a.out)
+    if not _may_write(a, out):
+        return 1
+    stamper = pdf.image_stamper(image, pages=wanted, where=a.where,
+                                width_mm=a.width, margin_mm=a.margin)
+    try:
+        result = pdf.join_pdfs([(doc, list(range(1, total + 1)))], out,
+                               catalog_from=doc, stamp=stamper,
+                               stamp_image=image)
+    except (pdf.PdfError, OSError) as e:
+        _p(str(e))
+        return 1
+    _p(f"\n저장: {out}  ({result.pages}쪽, {files.human_size(out.stat().st_size)})")
+    _p("  원본은 그대로 두고 새 파일을 만들었습니다. "
+       "글자와 그림은 눌린 그대로 옮겨 화질이 그대로입니다.")
+    return 0
+
+
 def cmd_file_pdfnum(a) -> int:
     """PDF 에 쪽 번호를 찍는다. 합본 계약서·제출 자료에 쓴다."""
     from .. import pdf
@@ -2122,6 +2181,28 @@ def add_commands(sub) -> None:
                   "그림 한 장으로 들어 있어 용량으로 짐작만 합니다 - 빼기 전에 "
                   "열어 보세요.")
     pbl.set_defaults(func=cmd_file_pdfblank)
+
+    pst = fp.add_parser("pdfstamp", help="PDF 에 도장·서명 그림 얹기")
+    pst.add_argument("file", metavar="파일.pdf")
+    pst.add_argument("--image", required=True, metavar="그림",
+                     help="도장·서명 그림 (png 권장, jpg 도 된다)")
+    pst.add_argument("--pages", metavar="쪽",
+                     help="찍을 쪽. 비우면 모든 쪽 (예: 1 또는 1,3 또는 -2)")
+    pst.add_argument("--where", default="bottom-right",
+                     choices=list(pdf_where()), help="찍을 자리")
+    pst.add_argument("--width", type=float, default=30.0, metavar="mm",
+                     help="도장 가로 크기 (기본 30mm. 세로는 비율대로)")
+    pst.add_argument("--margin", type=float, default=10.0, metavar="mm",
+                     help="가장자리에서 띄울 거리")
+    pst.add_argument("-o", "--out", metavar="파일.pdf")
+    pst.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    pst.epilog = ("예: at file pdfstamp 계약서.pdf --image 도장.png --pages 3\n"
+                  "    at file pdfstamp 계약서.pdf --image 서명.png "
+                  "--where bottom-left -o 날인본.pdf\n"
+                  "배경이 없는 PNG 를 쓰면 투명한 자리가 비칩니다. 원본은 "
+                  "건드리지 않고 새 파일을 만듭니다.")
+    pst.set_defaults(func=cmd_file_pdfstamp)
 
     num = fp.add_parser("pdfnum", help="PDF 에 쪽 번호 찍기 (합본 계약서·제출본)")
     num.add_argument("file", metavar="파일.pdf")

@@ -1189,7 +1189,7 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
               catalog_from: Document | None = None,
               info: dict | None = None,
               metadata: bytes | None = None,
-              stamp=None) -> JoinResult:
+              stamp=None, stamp_image: "StampImage | None" = None) -> JoinResult:
     """문서마다 고른 쪽을 차례대로 이어 붙여 새 PDF 로.
 
     rotate 는 90 의 배수. 원래 돌아가 있던 각도에 더한다 - 스캔한 것이
@@ -1222,7 +1222,13 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
     catalog = copier.reserve(("root", "catalog"))
     info_slot = copier.reserve(("root", "info"))
 
-    stamp_font = copier.reserve(("root", "stampfont")) if stamp else 0
+    # 글자 도장은 글꼴이, 그림 도장은 이미지 객체가 있어야 한다
+    stamp_font = copier.reserve(("root", "stampfont")) \
+        if (stamp and stamp_image is None) else 0
+    stamp_mask = copier.reserve(("root", "stampmask")) \
+        if (stamp_image is not None and stamp_image.alpha) else 0
+    stamp_slot = copier.reserve(("root", "stampimage")) \
+        if stamp_image is not None else 0
     for order, (doc, page, new, _key) in enumerate(chosen, 1):
         data = {k: v for k, v in page.data.items() if k != "Parent"}
         copied = copier.convert(doc, data)
@@ -1234,7 +1240,8 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         if stamp:
             body = stamp(order, page, doc)
             if body:
-                _add_stamp(copier, doc, page, copied, body, stamp_font)
+                _add_stamp(copier, doc, page, copied, body, stamp_font,
+                           image=stamp_slot)
         copier.slots[new - 1] = copied
 
     made_catalog: dict = {"Type": Name("Catalog"), "Pages": Ref(tree)}
@@ -1258,10 +1265,26 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         "Kids": [Ref(new) for _doc, _page, new, _key in chosen],
         "Count": len(chosen),
     }
-    if stamp:
+    if stamp_font:
         copier.slots[stamp_font - 1] = {
             "Type": Name("Font"), "Subtype": Name("Type1"),
             "BaseFont": Name("Helvetica"), "Encoding": Name("WinAnsiEncoding")}
+    if stamp_image is not None:
+        if stamp_mask:
+            copier.slots[stamp_mask - 1] = Stream(
+                {"Type": Name("XObject"), "Subtype": Name("Image"),
+                 "Width": stamp_image.width, "Height": stamp_image.height,
+                 "ColorSpace": Name("DeviceGray"), "BitsPerComponent": 8,
+                 "Filter": Name("FlateDecode")}, stamp_image.alpha)
+        data = {"Type": Name("XObject"), "Subtype": Name("Image"),
+                "Width": stamp_image.width, "Height": stamp_image.height,
+                "ColorSpace": Name(stamp_image.space), "BitsPerComponent": 8,
+                "Filter": Name(stamp_image.filter)}
+        if stamp_mask:
+            # 도장은 대개 배경이 비어 있다. 알파를 SMask 로 넣지 않으면
+            # 하얀 네모가 글자를 덮는다.
+            data["SMask"] = Ref(stamp_mask)
+        copier.slots[stamp_slot - 1] = Stream(data, stamp_image.data)
     copier.slots[catalog - 1] = made_catalog
     if info is None and catalog_from is not None:
         # 문서를 통째로 다시 쓰는 것이므로 제목·만든 날짜 같은 속성도 그대로 둔다
@@ -1284,7 +1307,7 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
 
 
 def _add_stamp(copier: "_Copier", doc: Document, page: PdfPage, copied: dict,
-               body: str, font: int) -> None:
+               body: str, font: int, image: int = 0) -> None:
     """쪽 위에 한 겹 더 얹는다. 원래 내용 스트림은 그대로 두고 뒤에 붙인다."""
     # 자원 사전은 여러 쪽이 함께 쓰기도 한다. 그 자리에 글꼴을 밀어 넣지 않고
     # 이 쪽만의 사전으로 풀어서 넣는다.
@@ -1296,13 +1319,24 @@ def _add_stamp(copier: "_Copier", doc: Document, page: PdfPage, copied: dict,
     name = "ATNUM"
     while name in fonts:                     # 이름이 겹치면 다른 이름을 쓴다
         name += "1"
-    fonts[name] = Ref(font)
-    made["Font"] = fonts
+    if font:
+        fonts[name] = Ref(font)
+        made["Font"] = fonts
+
+    image_name = "ATIMG"
+    if image:
+        holder = doc.get(resources.get("XObject"))
+        holder = copier.convert(doc, dict(holder)) if isinstance(holder, dict) else {}
+        while image_name in holder:
+            image_name += "1"
+        holder[image_name] = Ref(image)
+        made["XObject"] = holder
     copied["Resources"] = made
 
     number = copier.reserve(("stamp", len(copier.slots)))
     copier.slots[number - 1] = Stream(
-        {}, body.replace("/ATNUM", f"/{name}").encode("latin-1"))
+        {}, body.replace("/ATNUM", f"/{name}")
+                .replace("/ATIMG", f"/{image_name}").encode("latin-1"))
     was = copied.get("Contents")
     items = was if isinstance(was, list) else ([] if was is None else [was])
     copied["Contents"] = [*items, Ref(number)]
@@ -2161,3 +2195,150 @@ def page_facts(doc: "Document", *, pages: list[int] | None = None) -> list[PageF
                 facts.unreadable += 1
         out.append(facts)
     return out
+
+
+# ------------------------------------------------------------ 그림 도장 찍기
+#
+# 계약서에 도장을 찍으려고 인쇄해서 찍고 다시 스캔하는 일을 없애려는 것이다.
+# 원래 내용은 건드리지 않고 그림 한 겹을 위에 얹는다.
+
+@dataclass
+class StampImage:
+    """도장으로 얹을 그림. 자료는 이미 눌린 채로 들고 있는다."""
+
+    width: int
+    height: int
+    data: bytes
+    filter: str = "FlateDecode"
+    space: str = "DeviceRGB"
+    alpha: bytes | None = None     # 8비트 투명도 (FlateDecode 로 눌러 둔 것)
+    source: str = ""
+
+
+def read_stamp(path: Path) -> StampImage:
+    """도장 그림을 읽는다. PNG 의 투명도는 살려서 가져온다.
+
+    jpg 는 투명도가 없어 네모가 그대로 얹힌다. 도장은 PNG 로 만드는 편이 낫다.
+    """
+    path = Path(path)
+    raw = path.read_bytes()
+    if not raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        page = read_image(path)                 # jpg 는 눌린 채로 그대로 쓴다
+        return StampImage(page.width, page.height, page.data, page.filter,
+                          page.colorspace, None, str(path))
+
+    header: dict = {}
+    idat = bytearray()
+    palette = b""
+    for kind, body in _png_chunks(raw):
+        if kind == b"IHDR":
+            header = {"width": int.from_bytes(body[0:4], "big"),
+                      "height": int.from_bytes(body[4:8], "big"),
+                      "bits": body[8], "color": body[9], "interlace": body[12]}
+        elif kind == b"PLTE":
+            palette = body
+        elif kind == b"IDAT":
+            idat += body
+        elif kind == b"IEND":
+            break
+    if not header:
+        raise PdfError("PNG 머리말(IHDR)을 찾지 못했습니다")
+    if header["interlace"]:
+        raise PdfError("인터레이스 PNG 는 못 씁니다 (그냥 PNG 로 다시 저장하세요)")
+    if header["bits"] != 8:
+        raise PdfError(f"{header['bits']}비트 PNG 는 못 씁니다 "
+                       "(8비트로 다시 저장하세요)")
+
+    color = header["color"]
+    channels = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}.get(color)
+    if channels is None:
+        raise PdfError(f"모르는 PNG 색 방식입니다: {color}")
+    width, height = header["width"], header["height"]
+    stride = width * channels
+    try:
+        flat = _unfilter(zlib.decompress(bytes(idat)), width, height, stride,
+                         channels)
+    except zlib.error as exc:
+        raise PdfError(f"PNG 를 풀지 못했습니다: {exc}") from None
+
+    body = bytearray()
+    alpha = bytearray()
+    for row in range(height):
+        line = flat[row * stride:(row + 1) * stride]
+        for x in range(width):
+            at = x * channels
+            if color == 3:                       # 팔레트
+                index = line[at] * 3
+                body += palette[index:index + 3] or b"\x00\x00\x00"
+            elif color in (0, 4):                # 회색 (+알파)
+                body.append(line[at])
+            else:                                # RGB (+알파)
+                body += line[at:at + 3]
+            if color == 4:
+                alpha.append(line[at + 1])
+            elif color == 6:
+                alpha.append(line[at + 3])
+
+    space = "DeviceGray" if color in (0, 4) else "DeviceRGB"
+    return StampImage(width, height, zlib.compress(bytes(body), 6),
+                      "FlateDecode", space,
+                      zlib.compress(bytes(alpha), 6) if alpha else None,
+                      str(path))
+
+
+def image_stamp_stream(box: list, rotate: int, *, where: str = "bottom-right",
+                       width: float = 85.0, height: float = 85.0,
+                       margin: float = 12.0, name: str = "ATIMG") -> str:
+    """그림 한 장을 쪽 위에 얹는 내용 스트림. 자리 셈은 쪽 번호와 같은 규칙이다."""
+    if where not in STAMP_WHERE:
+        raise PdfError(f"모르는 자리입니다: {where} ({', '.join(STAMP_WHERE)})")
+
+    x0, y0, x1, y1 = (float(v) for v in (box + [0, 0, 612, 792])[:4])
+    page_w, page_h = abs(x1 - x0), abs(y1 - y0)
+    rotate %= 360
+    shown_w, shown_h = (page_h, page_w) if rotate in (90, 270) else (page_w, page_h)
+
+    if where.endswith("right"):
+        shown_x = shown_w - margin - width
+    elif where.endswith("left"):
+        shown_x = margin
+    else:
+        shown_x = (shown_w - width) / 2
+    shown_y = (shown_h - margin - height) if where.startswith("top") else margin
+
+    # 보는 사람 자리 -> 파일 안의 자리. 돌아간 쪽이면 그림도 같이 돌린다
+    if rotate == 90:
+        matrix = f"0 {width:.2f} {-height:.2f} 0"
+        x, y = page_w - shown_y, shown_x
+    elif rotate == 180:
+        matrix = f"{-width:.2f} 0 0 {-height:.2f}"
+        x, y = page_w - shown_x, page_h - shown_y
+    elif rotate == 270:
+        matrix = f"0 {-width:.2f} {height:.2f} 0"
+        x, y = shown_y, page_h - shown_x
+    else:
+        matrix = f"{width:.2f} 0 0 {height:.2f}"
+        x, y = shown_x, shown_y
+
+    return (f"q {matrix} {min(x0, x1) + x:.2f} {min(y0, y1) + y:.2f} cm "
+            f"/{name} Do Q\n")
+
+
+def image_stamper(image: StampImage, *, pages: list[int] | None = None,
+                  where: str = "bottom-right", width_mm: float = 30.0,
+                  margin_mm: float = 10.0):
+    """어느 쪽에 얼마만 하게 찍을지 정하는 함수를 만든다."""
+    width = width_mm * 72.0 / 25.4
+    height = width * image.height / image.width if image.width else width
+    margin = margin_mm * 72.0 / 25.4
+    wanted = set(pages) if pages else None
+
+    def stamp(index: int, page: "PdfPage", doc: "Document") -> str:
+        if wanted is not None and index not in wanted:
+            return ""
+        box = doc.get(page.data.get("MediaBox")) or [0, 0, 612, 792]
+        box = [float(doc.get(v) or 0) for v in box]
+        turn = doc.get(page.data.get("Rotate")) or 0
+        return image_stamp_stream(box, int(turn), where=where, width=width,
+                                  height=height, margin=margin)
+    return stamp

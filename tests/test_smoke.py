@@ -316,6 +316,18 @@ class SmokeTest(unittest.TestCase):
         _png(하양 / "3.png", True)
         스캔 = self.path("스캔본.pdf")
         self.run_cli("file", "pdf", str(하양), "-o", 스캔)
+        # 도장 그림을 얹고, 그 쪽에서 다시 꺼내 확인한다
+        도장 = Path(self.path("도장.png"))
+        _png(도장, True)
+        미리도장 = self.run_cli("file", "pdfstamp", 스캔, "--image", str(도장),
+                                "--pages", "1")
+        self.assertIn("미리보기", 미리도장)
+        날인 = self.path("날인본.pdf")
+        self.run_cli("file", "pdfstamp", 스캔, "--image", str(도장),
+                     "--pages", "1", "-o", 날인)
+        찍힌것 = self.run_cli("file", "pdfimg", 날인, "--pages", "1")
+        self.assertIn("ATIMG", 찍힌것)
+
         빈쪽 = self.run_cli("file", "pdfblank", 스캔, "--only")
         self.assertIn("백지로 보이는 쪽 1개: 2", 빈쪽)
         # 짚어 준 명령을 실제로 돌려 본다

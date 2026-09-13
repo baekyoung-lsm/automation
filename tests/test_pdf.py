@@ -684,6 +684,126 @@ class PdfImageTest(unittest.TestCase):
         self.assertTrue(got[0].ok, got[0].why)
 
 
+def stamp_png(path: Path, *, color: int = 6, width: int = 4, height: int = 3) -> Path:
+    """도장용 PNG. color 6 은 RGBA, 2 는 RGB, 0 은 회색."""
+    channels = {0: 1, 2: 3, 6: 4}[color]
+    rows = b""
+    for y in range(height):
+        row = b""
+        for x in range(width):
+            body = bytes([200, 30, 30][:channels if channels < 3 else 3])
+            if channels == 1:
+                body = bytes([200])
+            row += body + (bytes([255 if x else 0]) if color == 6 else b"")
+        rows += b"\x00" + row
+
+    def chunk(kind, body):
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, color, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    return path
+
+
+class ImageStampTest(unittest.TestCase):
+    """PDF 에 도장 그림 얹기. 인쇄해 찍고 다시 스캔하지 않으려는 기능이다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_png_alpha_is_kept(self):
+        """도장은 배경이 비어 있다. 알파를 버리면 하얀 네모가 글자를 덮는다."""
+        stamp = pdf.read_stamp(stamp_png(self.root / "도장.png"))
+        self.assertEqual((stamp.width, stamp.height), (4, 3))
+        self.assertEqual(stamp.space, "DeviceRGB")
+        self.assertIsNotNone(stamp.alpha)
+        self.assertEqual(len(zlib.decompress(stamp.alpha)), 12)
+
+    def test_png_without_alpha_has_none(self):
+        stamp = pdf.read_stamp(stamp_png(self.root / "민.png", color=2))
+        self.assertIsNone(stamp.alpha)
+        self.assertEqual(len(zlib.decompress(stamp.data)), 4 * 3 * 3)
+
+    def test_gray_png_stays_gray(self):
+        stamp = pdf.read_stamp(stamp_png(self.root / "회색.png", color=0))
+        self.assertEqual(stamp.space, "DeviceGray")
+        self.assertEqual(len(zlib.decompress(stamp.data)), 4 * 3)
+
+    def test_sixteen_bit_png_is_refused(self):
+        """짐작해 깎아 넣지 않는다. 무엇을 다시 저장하면 되는지 말한다."""
+        def chunk(kind, body):
+            return (struct.pack(">I", len(body)) + kind + body
+                    + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+        path = self.root / "열여섯.png"
+        rows = b"".join(b"\x00" + b"\x00\x01" * 6 for _ in range(3))
+        path.write_bytes(b"\x89PNG\r\n\x1a\n"
+                         + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 3, 16, 2, 0, 0, 0))
+                         + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+        with self.assertRaises(pdf.PdfError) as caught:
+            pdf.read_stamp(path)
+        self.assertIn("8비트", str(caught.exception))
+
+    def corners(self, body: str, box):
+        """내용 스트림의 cm 행렬로 그림 네 귀퉁이가 어디에 놓이는지 센다."""
+        numbers = [float(v) for v in body.split("q ")[1].split(" cm")[0].split()]
+        a, b, c, d, e, f = numbers
+        return [(a * x + c * y + e, b * x + d * y + f)
+                for x, y in ((0, 0), (1, 0), (0, 1), (1, 1))]
+
+    def test_stamp_stays_inside_the_page_when_turned(self):
+        """돌아간 쪽에 그대로 찍으면 종이 밖으로 나간다."""
+        box = [0, 0, 595, 842]
+        for turn in (0, 90, 180, 270):
+            body = pdf.image_stamp_stream(box, turn, width=85, height=85)
+            for x, y in self.corners(body, box):
+                self.assertTrue(0 <= x <= 595, (turn, x))
+                self.assertTrue(0 <= y <= 842, (turn, y))
+
+    def test_unknown_place_is_refused(self):
+        with self.assertRaises(pdf.PdfError):
+            pdf.image_stamp_stream([0, 0, 595, 842], 0, where="가운데")
+
+    def test_stamped_pdf_carries_the_image(self):
+        source = simple_pdf(self.root / "계약서.pdf", pages=2)
+        doc = pdf.open_pdf(source)
+        image = pdf.read_stamp(stamp_png(self.root / "도장.png"))
+        out = self.root / "날인본.pdf"
+        pdf.join_pdfs([(doc, [1, 2])], out, catalog_from=doc,
+                      stamp=pdf.image_stamper(image, pages=[2]),
+                      stamp_image=image)
+
+        made = pdf.open_pdf(out)
+        self.assertEqual(len(made.pages()), 2)
+        first, second = made.pages()
+        # 고른 쪽에만 얹힌다
+        self.assertEqual(pdf.read_images(made, pages=[1]), [])
+        stamped = pdf.read_images(made, pages=[2])
+        self.assertEqual([one.name for one in stamped], ["ATIMG"])
+        self.assertEqual((stamped[0].width, stamped[0].height), (4, 3))
+
+        # 투명도가 SMask 로 따라갔는지
+        resources = made.get(second.data.get("Resources"))
+        holder = made.get(resources.get("XObject"))
+        stream = made.get(holder["ATIMG"])
+        self.assertIn("SMask", stream.data)
+        mask = made.get(stream.data["SMask"])
+        self.assertEqual(str(made.get(mask.data["ColorSpace"])), "DeviceGray")
+
+        # 원래 내용은 그대로 두고 뒤에 한 겹 얹었다
+        parts = [pdf.stream_data(one, made)
+                 for one in pdf._content_streams(made, second)]
+        self.assertGreater(len(parts), 1)
+        self.assertIn(b"Do", parts[-1])
+        self.assertIn(b"BT", parts[0])          # 원래 글자가 살아 있다
+
+
 class PageFactsTest(unittest.TestCase):
     """쪽마다 무엇이 들어 있는지 센다. «백지다» 라고 단정하지는 않는다."""
 
