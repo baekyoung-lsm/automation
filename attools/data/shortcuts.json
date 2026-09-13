@@ -46,7 +46,7 @@
           "keys": {
             "hwp": "Alt+V",
             "word": "F12",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -56,7 +56,7 @@
           "keys": {
             "hwp": "Alt+N",
             "word": "Ctrl+N",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -176,7 +176,7 @@
           "keys": {
             "hwp": "F3",
             "word": "F8",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -216,7 +216,7 @@
           "keys": {
             "hwp": "Alt+L",
             "word": "Ctrl+D",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -226,7 +226,7 @@
           "keys": {
             "hwp": "Alt+T",
             "word": null,
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -236,7 +236,7 @@
           "keys": {
             "hwp": "F6",
             "word": "Ctrl+Shift+S",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -306,7 +306,7 @@
           "keys": {
             "hwp": "Ctrl+N,T",
             "word": null,
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -346,7 +346,7 @@
           "keys": {
             "hwp": "Ctrl+F10",
             "word": null,
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -356,7 +356,7 @@
           "keys": {
             "hwp": "F9",
             "word": null,
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -386,7 +386,7 @@
           "keys": {
             "hwp": "F7",
             "word": null,
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -476,7 +476,7 @@
           "keys": {
             "hwp": "Alt+C",
             "word": "Ctrl+Shift+C",
-            "gdocs": null
+            "gdocs": "Ctrl+Alt+C"
           }
         },
         {
@@ -486,7 +486,7 @@
           "keys": {
             "hwp": "F3→Alt+C",
             "word": "Ctrl+Shift+V",
-            "gdocs": null
+            "gdocs": "Ctrl+Alt+V"
           }
         },
         {
@@ -496,7 +496,7 @@
           "keys": {
             "hwp": null,
             "word": "Shift+F3",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
@@ -536,7 +536,7 @@
           "keys": {
             "hwp": null,
             "word": "Alt+X",
-            "gdocs": null
+            "gdocs": "없음"
           }
         },
         {
