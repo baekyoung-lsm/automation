@@ -107,6 +107,117 @@ def apply(payload: dict) -> dict:
             "command": form.command("file", "undo")}
 
 
+# ------------------------------------------- 여러 폴더 한꺼번에 (쓰임새별)
+
+
+def _sweep(payload: dict) -> files.Sweep:
+    """훑기. 폴더를 비우면 홈 아래 흔한 곳을 본다."""
+    lines = [one.strip() for one in
+             form.raw_text(payload, "folders").splitlines() if one.strip()]
+    roots = [Path(one).expanduser() for one in lines] or files.default_roots()
+    if not roots:
+        raise UiError("훑을 폴더를 적어 주세요. "
+                      "(홈 아래 다운로드·바탕화면·문서·사진을 찾지 못했습니다)")
+    found = files.sweep(roots, recursive=not form.flag(payload, "swflat"),
+                        include_hidden=form.flag(payload, "swhidden"),
+                        min_age_days=form.number(payload, "swage", 0.0,
+                                                 low=0.0, high=36500.0))
+    if not found.roots:
+        raise UiError("적어 주신 폴더가 하나도 없습니다: "
+                      + ", ".join(str(p) for p in found.missing))
+    return found
+
+
+def _sweep_purposes(payload: dict, found: files.Sweep) -> list[str]:
+    """고른 쓰임새. 화면이 보낸 값을 그대로 믿지 않고 훑은 결과와 맞춰 본다."""
+    raw = payload.get("purposes", [])
+    if not isinstance(raw, list):
+        raise UiError("쓰임새 목록이 잘못 왔습니다.")
+    out = []
+    for one in raw:
+        if not isinstance(one, str):
+            raise UiError("쓰임새 목록이 잘못 왔습니다.")
+        if found.group(one) is None:
+            raise UiError(f"«{one}» 은(는) 훑은 결과에 없습니다. 다시 훑어 주세요.")
+        out.append(one)
+    return out
+
+
+def _sweep_command(payload: dict, found: files.Sweep, *,
+                   purposes: list[str] | None = None, dest: Path | None = None,
+                   apply: bool = False) -> str:
+    args: list[object] = ["file", "sweep", *found.roots]
+    for one in purposes or []:
+        args += ["--purpose", one]
+    if dest is not None:
+        args += ["--to", dest]
+    if form.flag(payload, "swflat"):
+        args.append("--no-recursive")
+    if form.flag(payload, "swhidden"):
+        args.append("--hidden")
+    age = form.number(payload, "swage", 0.0, low=0.0, high=36500.0)
+    if age:
+        args += ["--min-age", f"{age:g}"]
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
+def sweep_look(payload: dict) -> dict:
+    found = _sweep(payload)
+    rows = [[g.purpose, f"{g.count:,}", files.human_size(g.size),
+             ", ".join(f.path.name for f in g.files[:3])]
+            for g in found.groups]
+    samples = {g.purpose: [[str(f.path.relative_to(f.root)), f.root.name,
+                            files.human_size(f.size), f.why]
+                           for f in g.files[:12]] for g in found.groups}
+    return {"rows": rows, "purposes": [g.purpose for g in found.groups],
+            "samples": samples,
+            "roots": [[str(r), f"{found.counts.get(str(r), 0):,}"]
+                      for r in found.roots],
+            "files": found.files, "total": files.human_size(found.total),
+            "missing": [str(p) for p in found.missing],
+            "skipped": found.skipped,
+            "command": _sweep_command(payload, found)}
+
+
+def _sweep_moves(payload: dict):
+    found = _sweep(payload)
+    purposes = _sweep_purposes(payload, found)
+    if not purposes:
+        raise UiError("모을 쓰임새를 하나 이상 골라 주세요.")
+    raw = form.text(payload, "swdest")
+    if not raw:
+        raise UiError("모을 폴더를 적어 주세요.")
+    dest = Path(raw).expanduser()
+    if dest.exists() and not dest.is_dir():
+        raise UiError(f"폴더가 아닙니다: {dest}")
+    moves = files.plan_sweep_moves(found, dest, purposes=purposes)
+    return found, purposes, dest, moves
+
+
+def sweep_plan(payload: dict) -> dict:
+    found, purposes, dest, moves = _sweep_moves(payload)
+    if not moves:
+        raise UiError("옮길 파일이 없습니다. (이미 그 폴더 안에 있습니다)")
+    rows = [[Path(mv.src).name, str(Path(mv.dst).parent.name) + "/"]
+            for mv in moves]
+    return {"count": len(moves), "dest": str(dest), "rows": rows,
+            "command": _sweep_command(payload, found, purposes=purposes,
+                                      dest=dest, apply=True)}
+
+
+def sweep_apply(payload: dict) -> dict:
+    """계획을 서버에서 다시 세운다. 화면이 보낸 목록을 그대로 옮기지 않는다."""
+    found, purposes, dest, moves = _sweep_moves(payload)
+    if not moves:
+        raise UiError("옮길 파일이 없습니다. 먼저 미리보기로 확인해 주세요.")
+    journal = files.apply_moves(moves)
+    return {"applied": len(moves), "dest": str(dest),
+            "journal": journal.name if journal else "",
+            "command": form.command("file", "undo")}
+
+
 DUPE_DEST = "_중복"
 
 
@@ -913,6 +1024,52 @@ BODY = """
 <section class="card">
   <h2>계획</h2>
   <div id="plan"><div class="empty">폴더를 넣고 미리보기를 눌러 주세요.</div></div>
+</section>
+
+<section class="card">
+  <h2>여러 폴더 한꺼번에</h2>
+  <p class="note">다운로드·바탕화면·문서처럼 여러 곳에 쌓인 것을 한자리에서 봅니다.
+     확장자만이 아니라 <b>무엇에 쓰는 파일인지</b>로 묶습니다 - 같은 .png 라도
+     스크린샷과 사진은 따로, 받다 만 파일은 따로. 이름을 보고 미루어 짐작한 것도
+     있으니 <b>왜 그렇게 봤는지</b>를 함께 냅니다.</p>
+  <div class="row">
+    <div style="flex:2 1 22rem">
+      <label for="folders">폴더 (한 줄에 하나. 비우면 홈 아래 흔한 폴더)</label>
+      <textarea id="folders" rows="3" spellcheck="false"
+                placeholder="~/다운로드&#10;~/바탕화면"></textarea>
+    </div>
+    <div style="flex:0 1 9rem">
+      <label for="swage">며칠 지난 것만</label>
+      <input type="text" id="swage" placeholder="0" spellcheck="false">
+    </div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="swflat"> 하위 폴더는 빼고</label>
+    <label><input type="checkbox" id="swhidden"> 숨김 파일도</label>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-sweep">훑어보기</button>
+  </div>
+  <div id="swmsg"></div>
+  <div id="swout"></div>
+  <div id="swpick" hidden>
+    <label>모을 쓰임새 (고른 것만 옮깁니다)</label>
+    <div class="checks" id="swpurposes"></div>
+    <div class="row">
+      <div style="flex:2 1 20rem">
+        <label for="swdest">모을 폴더 (없으면 만듭니다)</label>
+        <input type="text" id="swdest" placeholder="예: ~/정리" spellcheck="false">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="btn-sweep-plan">무엇이 옮겨지나</button>
+      <button id="btn-sweep-apply" disabled>이대로 모으기</button>
+      <span class="spacer"></span>
+      <span class="note">되돌리기는 아래 «되돌리기» 에서 함께 보입니다.</span>
+    </div>
+    <div id="swplanmsg"></div>
+    <div id="swplan"></div>
+  </div>
 </section>
 
 <section class="card">
@@ -1752,6 +1909,96 @@ BODY = """
     } catch (e) { AT.message($("cmpmsg"), AT.esc(e.message), "bad"); }
   });
 
+  // ------------------------------------------ 여러 폴더 한꺼번에 (쓰임새별)
+
+  let swSamples = {};
+
+  function sweepValues() {
+    return {
+      folders: $("folders").value, swflat: $("swflat").checked,
+      swhidden: $("swhidden").checked, swage: $("swage").value,
+    };
+  }
+
+  function sweepPicked() {
+    return [].slice.call(
+      document.querySelectorAll("#swpurposes input:checked")).map(
+        function (box) { return box.value; });
+  }
+
+  function drawSamples(purpose) {
+    const rows = swSamples[purpose] || [];
+    if (!rows.length) return "";
+    return "<h2>" + AT.esc(purpose) + "</h2>" +
+      AT.table(["파일", "어느 폴더", "크기", "왜 그렇게 봤나"], rows);
+  }
+
+  $("btn-sweep").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/sweep_look", sweepValues());
+      swSamples = d.samples || {};
+      $("swout").innerHTML =
+        AT.table(["쓰임새", "개수", "크기", "예시"], d.rows,
+                 [null, "num", "num", null]) +
+        '<p class="note">훑은 곳: ' +
+        d.roots.map(function (r) {
+          return AT.esc(r[0]) + " (" + AT.esc(r[1]) + "개)";
+        }).join("<br>") +
+        (d.missing.length ? "<br>없는 폴더라 보지 못했습니다: " +
+          d.missing.map(AT.esc).join(", ") : "") +
+        (d.skipped.length ? "<br>" + d.skipped.map(AT.esc).join("<br>") : "") +
+        "</p>" +
+        d.purposes.map(drawSamples).join("") +
+        AT.command(d.command);
+      $("swpurposes").innerHTML = d.purposes.map(function (name) {
+        return '<label><input type="checkbox" value="' + AT.esc(name) +
+          '"> ' + AT.esc(name) + "</label>";
+      }).join("");
+      $("swpick").hidden = d.purposes.length === 0;
+      $("btn-sweep-apply").disabled = true;
+      $("swplan").innerHTML = "";
+      AT.message($("swmsg"), "파일 <b>" + d.files + "개</b> · " +
+                 AT.esc(d.total) + " · 쓰임새 " + d.purposes.length + "가지", "ok");
+    } catch (e) {
+      $("swpick").hidden = true;
+      AT.message($("swmsg"), AT.esc(e.message), "bad");
+    }
+  });
+
+  function sweepPlanValues() {
+    const values = sweepValues();
+    values.purposes = sweepPicked();
+    values.swdest = $("swdest").value;
+    return values;
+  }
+
+  $("btn-sweep-plan").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/sweep_plan", sweepPlanValues());
+      $("swplan").innerHTML = AT.table(["지금 이름", "옮길 곳"], d.rows) +
+        AT.command(d.command);
+      $("btn-sweep-apply").disabled = false;
+      AT.message($("swplanmsg"), "<b>" + d.count + "개</b>를 " +
+                 AT.esc(d.dest) + " 로 옮길 수 있습니다.", "ok");
+    } catch (e) {
+      $("btn-sweep-apply").disabled = true;
+      AT.message($("swplanmsg"), AT.esc(e.message), "bad");
+    }
+  });
+
+  $("btn-sweep-apply").addEventListener("click", async function () {
+    if (!confirm($("swdest").value + " 로 파일을 옮깁니다. 계속할까요?")) return;
+    try {
+      const d = await AT.call("/api/files/sweep_apply", sweepPlanValues());
+      $("swplan").innerHTML = AT.command(d.command);
+      $("btn-sweep-apply").disabled = true;
+      AT.message($("swplanmsg"), "<b>" + d.applied + "개</b>를 " +
+                 AT.esc(d.dest) + " 로 옮겼습니다. 되돌리기 기록: " +
+                 AT.esc(d.journal), "ok");
+      await loadJournals();
+    } catch (e) { AT.message($("swplanmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function listValues() {
     return {
       path: $("path").value, glob: $("glob").value, sort: $("sort").value,
@@ -1827,6 +2074,8 @@ def make() -> App:
         subtitle="미리보기 → 옮기기 → 되돌리기",
         body=lambda: BODY,
         actions={"preview": preview, "apply": apply, "dupes": dupes,
+                 "sweep_look": sweep_look, "sweep_plan": sweep_plan,
+                 "sweep_apply": sweep_apply,
                  "pack_preview": pack_preview, "pack_apply": pack_apply,
                  "audit": audit,
                  "documents": documents,

@@ -49,6 +49,98 @@ def cmd_file_organize(a) -> int:
     return 0
 
 
+def cmd_file_sweep(a) -> int:
+    """여러 폴더를 한꺼번에 훑어 쓰임새별로 묶고, 그대로 정리까지 한다."""
+    roots = [Path(one) for one in a.dirs] or files.default_roots()
+    if not roots:
+        _p("훑을 폴더를 찾지 못했습니다. 폴더를 직접 적어 주세요.")
+        _p("  예: at file sweep ~/다운로드 ~/바탕화면")
+        return 1
+
+    found = files.sweep(roots, recursive=not a.no_recursive,
+                        include_hidden=a.hidden, min_age_days=a.min_age)
+    for path in found.missing:
+        _p(f"없는 폴더라 보지 못했습니다: {path}")
+    for line in found.skipped:
+        _p(f"  {line}")
+    if not found.roots:
+        return 1
+
+    _p(f"훑은 곳 {len(found.roots)}곳 · 파일 {found.files:,}개 "
+       f"· {files.human_size(found.total)}")
+    for root in found.roots:
+        _p(f"  {root}  파일 {found.counts.get(str(root), 0):,}개")
+
+    if not found.files:
+        _p("\n파일이 없습니다.")
+        return 0
+
+    want = a.purpose or []
+    unknown = [one for one in want if found.group(one) is None]
+    if unknown:
+        _p("\n그런 쓰임새는 없습니다: " + ", ".join(unknown))
+        _p("  있는 것: " + ", ".join(g.purpose for g in found.groups))
+        return 1
+
+    groups = [g for g in found.groups if not want or g.purpose in want]
+
+    if not want and not a.to:
+        _p("")
+        _grid(["쓰임새", "개수", "크기", "예시"],
+              [[g.purpose, f"{g.count:,}", files.human_size(g.size),
+                ", ".join(f.path.name for f in g.files[:2])]
+               for g in groups], limit=40)
+        _p("\n무엇을 보고 그렇게 나눴는지와 파일 목록은 "
+           "--purpose <쓰임새> 로 봅니다.")
+        _p("한곳으로 모으려면 --to <폴더> 를 붙이세요 "
+           "(미리보기입니다. 옮기려면 --apply).")
+        return 0
+
+    if not a.to:
+        many = len(found.roots) > 1
+        for group in groups:
+            _p(f"\n[{group.purpose}] {group.count:,}개 "
+               f"· {files.human_size(group.size)}")
+            rows = []
+            for one in group.files[:a.limit]:
+                where = one.path.relative_to(one.root)
+                rows.append([f"{one.root.name}/{where}" if many else str(where),
+                             files.human_size(one.size), one.why])
+            _grid(["파일", "크기", "왜 그렇게 봤나"], rows, limit=52)
+            if group.count > a.limit:
+                _p(f"  ... {group.count - a.limit:,}개 더")
+        _p("\n이름으로 미루어 짐작한 것도 있습니다. "
+           "옮기기 전에 «왜 그렇게 봤나» 를 보세요.")
+        return 0
+
+    dest = Path(a.to).expanduser()
+    moves = files.plan_sweep_moves(found, dest, purposes=want or None,
+                                   fixname=a.fixname)
+    if not moves:
+        _p("\n옮길 파일이 없습니다. (이미 그 폴더 안에 있습니다)")
+        return 0
+
+    buckets: dict[str, int] = {}
+    for mv in moves:
+        buckets[Path(mv.dst).parent.name] = buckets.get(Path(mv.dst).parent.name, 0) + 1
+    prefix = "" if a.apply else DRY + " "
+    _p(f"\n모을 곳: {dest}")
+    for name in sorted(buckets):
+        _p(f"{prefix}{name}/  <- {buckets[name]}개")
+    if a.verbose:
+        for mv in moves:
+            _p(f"  {Path(mv.src).name}  ->  {Path(mv.dst).parent.name}/")
+
+    if not a.apply:
+        _p(f"\n총 {len(moves)}개. 실제로 옮기려면 --apply 를 붙이세요.")
+        return 0
+
+    journal = files.apply_moves(moves)
+    _p(f"\n{len(moves)}개를 옮겼습니다.")
+    _p(f"되돌리기: at file undo {journal}")
+    return 0
+
+
 def cmd_file_docs(a) -> int:
     """워드·엑셀·슬라이드 파일의 속성을 표로. 누가 만든 문서인지 본다."""
     from .. import sheet
@@ -1722,6 +1814,26 @@ def add_commands(sub) -> None:
     o.add_argument("--fixname", action="store_true", help="옮기면서 파일명도 정리")
     o.add_argument("-v", "--verbose", action="store_true")
     o.set_defaults(func=cmd_file_organize)
+
+    sw = fp.add_parser("sweep",
+                       help="여러 폴더를 한꺼번에 훑어 쓰임새별로 묶기·정리")
+    sw.add_argument("dirs", nargs="*", metavar="폴더",
+                    help="비우면 홈 아래 다운로드·바탕화면·문서·사진 중 있는 것")
+    sw.add_argument("--purpose", action="append", metavar="쓰임새",
+                    help="그 묶음만 자세히 (예: 스크린샷). 여러 번 쓸 수 있다")
+    sw.add_argument("--to", metavar="폴더", help="쓰임새별로 이 폴더에 모은다")
+    sw.add_argument("--apply", action="store_true",
+                    help="실제로 옮긴다 (기본은 미리보기)")
+    sw.add_argument("--no-recursive", action="store_true",
+                    help="하위 폴더는 보지 않는다")
+    sw.add_argument("--hidden", action="store_true", help="숨김 파일도")
+    sw.add_argument("--min-age", type=float, default=0.0, metavar="일",
+                    help="이만큼 오래된 파일만 (예: 30)")
+    sw.add_argument("--fixname", action="store_true", help="옮기면서 파일명도 정리")
+    sw.add_argument("--limit", type=int, default=15, metavar="개",
+                    help="묶음마다 보여 줄 파일 수")
+    sw.add_argument("-v", "--verbose", action="store_true")
+    sw.set_defaults(func=cmd_file_sweep)
 
     dcs = fp.add_parser("docs",
                         help="워드·엑셀·슬라이드·한글·PDF 속성 목록 "

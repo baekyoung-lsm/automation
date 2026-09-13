@@ -1049,6 +1049,122 @@ class RenameByMapTest(unittest.TestCase):
         self.assertTrue((self.root / "가.pdf").exists())
 
 
+class SweepTest(unittest.TestCase):
+    """여러 폴더 한꺼번에 훑기. 쓰임새를 무엇으로 갈랐는지까지 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.down = self.root / "다운로드"
+        self.desk = self.root / "바탕화면"
+        for folder in (self.down, self.desk):
+            folder.mkdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def make(self, folder: Path, name: str, size: int = 10) -> Path:
+        path = folder / name
+        path.write_bytes(b"x" * size)
+        return path
+
+    def test_purpose_reads_name_not_only_extension(self):
+        """같은 .png 라도 스크린샷과 사진은 갈라야 정리가 된다."""
+        cases = {
+            "Screenshot 2024-05-01 at 10.02.11.png": "스크린샷",
+            "화면 캡처 2024-01-02.png": "스크린샷",
+            "IMG_0012.JPG": "사진",
+            "KakaoTalk_20240102.jpg": "사진",
+            "휴가.png": "이미지",
+            "영화.mp4.crdownload": "받다 만 파일",
+            "~$보고서.docx": "찌꺼기",
+            "설치파일.exe": "설치",
+            "보고서.pdf": "문서",
+        }
+        for name, want in cases.items():
+            purpose, why = files.purpose_of(Path("/어딘가") / name)
+            self.assertEqual(purpose, want, name)
+            self.assertTrue(why, name)
+
+    def test_partial_download_is_not_read_as_video(self):
+        """받다 만 파일을 «영상» 으로 옮기면 열리지도 않는 것을 옮기게 된다."""
+        purpose, why = files.purpose_of(Path("영화.mp4.crdownload"))
+        self.assertEqual(purpose, "받다 만 파일")
+        self.assertIn(".crdownload", why)
+
+    def test_sweep_gathers_several_folders(self):
+        self.make(self.down, "보고서.pdf", 100)
+        self.make(self.down, "Screenshot 1.png", 30)
+        self.make(self.desk, "화면 캡처 2024-01-02.png", 20)
+        found = files.sweep([self.down, self.desk])
+
+        self.assertEqual(found.files, 3)
+        self.assertEqual(found.total, 150)
+        self.assertEqual(found.counts[str(self.down.resolve())], 2)
+        shots = found.group("스크린샷")
+        self.assertEqual(shots.count, 2)
+        self.assertEqual(shots.size, 50)
+        # 큰 것부터 - 자리를 차지하는 것이 먼저 보여야 한다
+        self.assertEqual(shots.files[0].path.name, "Screenshot 1.png")
+
+    def test_missing_folder_is_said_not_dropped(self):
+        """없는 폴더를 조용히 빼면 «다 봤다» 로 읽힌다."""
+        self.make(self.down, "보고서.pdf")
+        found = files.sweep([self.down, self.root / "없는곳"])
+        self.assertEqual(found.roots, [self.down.resolve()])
+        self.assertEqual([p.name for p in found.missing], ["없는곳"])
+
+    def test_nested_folder_is_counted_once(self):
+        inner = self.down / "안쪽"
+        inner.mkdir()
+        self.make(inner, "보고서.pdf")
+        found = files.sweep([self.down, inner])
+        self.assertEqual(found.files, 1)
+        self.assertTrue(any("한 번만" in line for line in found.skipped))
+
+    def test_plan_moves_by_purpose(self):
+        self.make(self.down, "Screenshot 1.png")
+        self.make(self.desk, "화면 캡처.png")
+        self.make(self.down, "보고서.pdf")
+        found = files.sweep([self.down, self.desk])
+
+        dest = self.root / "정리"
+        moves = files.plan_sweep_moves(found, dest, purposes=["스크린샷"])
+        self.assertEqual(len(moves), 2)
+        self.assertEqual({Path(m.dst).parent.name for m in moves}, {"스크린샷"})
+        self.assertTrue(all(Path(m.dst).parent.parent == dest for m in moves))
+        # 계획만 세운다 - 아직 아무것도 옮기지 않았다
+        self.assertFalse(dest.exists())
+        self.assertTrue((self.down / "Screenshot 1.png").exists())
+
+    def test_same_name_from_two_folders_does_not_overwrite(self):
+        self.make(self.down, "Screenshot.png", 10)
+        self.make(self.desk, "Screenshot.png", 20)
+        found = files.sweep([self.down, self.desk])
+        moves = files.plan_sweep_moves(found, self.root / "정리")
+        self.assertEqual(len({m.dst for m in moves}), 2)
+
+    def test_files_already_under_dest_stay(self):
+        """두 번 돌려도 정리한 것을 또 옮기지 않는다."""
+        dest = self.root / "정리"
+        (dest / "스크린샷").mkdir(parents=True)
+        self.make(dest / "스크린샷", "Screenshot 1.png")
+        found = files.sweep([self.down, dest])
+        self.assertEqual(files.plan_sweep_moves(found, dest), [])
+
+    def test_default_roots_follow_home(self):
+        home = self.root / "집"
+        (home / "다운로드").mkdir(parents=True)
+        old = os.environ.get("HOME")
+        os.environ["HOME"] = str(home)
+        try:
+            self.assertEqual(files.default_roots(), [home / "다운로드"])
+        finally:
+            if old is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old
+
+
 class FolderAuditTest(unittest.TestCase):
     """받은 폴더 훑기. 무엇을 봤는지도 함께 내는지 본다."""
 

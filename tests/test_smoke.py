@@ -143,6 +143,42 @@ class SmokeTest(unittest.TestCase):
 
     # ------------------------------------------------------------ file
 
+    def test_file_sweep_gathers_and_moves_back(self):
+        """여러 폴더를 훑어 쓰임새별로 모으고, 되돌리기까지 실제로 돌린다."""
+        받은곳 = Path(self.path("훑기"))
+        (받은곳 / "다운로드").mkdir(parents=True)
+        (받은곳 / "바탕화면").mkdir()
+        (받은곳 / "다운로드" / "Screenshot 1.png").write_bytes(b"\x89PNG" * 9)
+        (받은곳 / "다운로드" / "설치본.exe").write_bytes(b"MZ" * 9)
+        (받은곳 / "바탕화면" / "화면 캡처.png").write_bytes(b"\x89PNG" * 5)
+
+        훑음 = self.run_cli("file", "sweep", str(받은곳 / "다운로드"),
+                            str(받은곳 / "바탕화면"))
+        self.assertIn("스크린샷", 훑음)
+        self.assertIn("설치", 훑음)
+
+        근거 = self.run_cli("file", "sweep", str(받은곳 / "다운로드"),
+                            "--purpose", "스크린샷")
+        self.assertIn("이름에", 근거)
+
+        정리 = 받은곳 / "정리"
+        미리 = self.run_cli("file", "sweep", str(받은곳 / "다운로드"),
+                            str(받은곳 / "바탕화면"), "--purpose", "스크린샷",
+                            "--to", str(정리))
+        self.assertIn("미리보기", 미리)
+        self.assertFalse(정리.exists())
+
+        옮김 = self.run_cli("file", "sweep", str(받은곳 / "다운로드"),
+                            str(받은곳 / "바탕화면"), "--purpose", "스크린샷",
+                            "--to", str(정리), "--apply")
+        self.assertIn("되돌리기", 옮김)
+        self.assertEqual(len(list((정리 / "스크린샷").glob("*.png"))), 2)
+        self.assertTrue((받은곳 / "다운로드" / "설치본.exe").exists())
+
+        저널 = 옮김.rsplit("at file undo ", 1)[1].strip()
+        self.run_cli("file", "undo", 저널)
+        self.assertTrue((받은곳 / "다운로드" / "Screenshot 1.png").exists())
+
     def test_file_group(self):
         self.run_cli("file", "photos", self.path("문서"))
         self.assertIn("파일", self.run_cli("file", "list", self.path("문서")))

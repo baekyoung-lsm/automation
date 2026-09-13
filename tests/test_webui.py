@@ -655,6 +655,83 @@ class WebUiTest(UiCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
+class FilesSweepTest(UiCase):
+    """여러 폴더 한꺼번에 훑기 화면. 계획을 서버에서 다시 세우는지까지 본다."""
+
+    def folders(self):
+        down = self.work / "다운로드"
+        desk = self.work / "바탕화면"
+        for folder in (down, desk):
+            folder.mkdir()
+        (down / "Screenshot 1.png").write_bytes(b"\x89PNG" * 9)
+        (down / "보고서.pdf").write_bytes(b"%PDF" * 9)
+        (desk / "화면 캡처.png").write_bytes(b"\x89PNG" * 5)
+        return down, desk
+
+    def body(self, down, desk, **extra):
+        payload = {"folders": f"{down}\n{desk}"}
+        payload.update(extra)
+        return payload
+
+    def test_look_groups_by_purpose_with_reason(self):
+        down, desk = self.folders()
+        _, data = self.post("/api/files/sweep_look", self.body(down, desk))
+        self.assertEqual(data["files"], 3)
+        self.assertIn("스크린샷", data["purposes"])
+        # 왜 그렇게 봤는지가 같이 와야 사람이 보고 판단한다
+        shots = data["samples"]["스크린샷"]
+        self.assertEqual(len(shots), 2)
+        self.assertTrue(any("이름에" in row[3] for row in shots))
+
+    def test_missing_folder_is_reported(self):
+        down, _ = self.folders()
+        _, data = self.post("/api/files/sweep_look",
+                            {"folders": f"{down}\n{self.work / '없는곳'}"})
+        self.assertEqual(data["missing"], [str(self.work / "없는곳")])
+
+    def test_plan_then_apply_moves_only_picked(self):
+        down, desk = self.folders()
+        dest = self.work / "정리"
+        body = self.body(down, desk, purposes=["스크린샷"], swdest=str(dest))
+        _, plan = self.post("/api/files/sweep_plan", body)
+        self.assertEqual(plan["count"], 2)
+        self.assertFalse(dest.exists())        # 미리보기는 아무것도 바꾸지 않는다
+
+        _, done = self.post("/api/files/sweep_apply", body)
+        self.assertEqual(done["applied"], 2)
+        self.assertEqual(len(list((dest / "스크린샷").glob("*.png"))), 2)
+        self.assertTrue((down / "보고서.pdf").exists())
+        # 되돌리기 기록이 남아 화면의 «되돌리기» 에서 함께 보인다
+        self.assertTrue((self.home / ".attools" / "journal" /
+                         done["journal"]).exists())
+
+    def test_unknown_purpose_is_refused(self):
+        """화면이 보낸 쓰임새를 그대로 믿으면 엉뚱한 것을 옮기게 된다."""
+        down, desk = self.folders()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.post("/api/files/sweep_plan",
+                      self.body(down, desk, purposes=["없는쓰임새"],
+                                swdest=str(self.work / "정리")))
+        self.assertEqual(ctx.exception.code, 400)
+        self.assertFalse((self.work / "정리").exists())
+
+    def test_command_hint_runs(self):
+        import shlex
+
+        from attools import cli
+
+        down, desk = self.folders()
+        _, look = self.post("/api/files/sweep_look",
+                            self.body(down, desk, swhidden=True))
+        _, plan = self.post("/api/files/sweep_plan",
+                            self.body(down, desk, purposes=["스크린샷"],
+                                      swdest=str(self.work / "정리")))
+        for command in (look["command"], plan["command"]):
+            parts = shlex.split(command)
+            self.assertEqual(parts[0], "at", command)
+            cli.build_parser().parse_args(parts[1:])
+
+
 class SheetAppTest(UiCase):
     """엑셀 화면. WebUiTest 의 서버·홈 설정을 그대로 쓴다."""
 

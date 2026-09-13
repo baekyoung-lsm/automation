@@ -833,6 +833,203 @@ def audit_folder(root: Path, *, recursive: bool = True,
     return report
 
 
+# ------------------------------------------- 여러 폴더 한꺼번에 훑기 (쓰임새별)
+
+# 홈 아래에서 흔히 어질러지는 곳. 한글 이름과 영어 이름을 둘 다 본다 -
+# 어느 쪽이 있는지는 운영체제와 언어 설정에 따라 다르다. 없는 것은 없다고
+# 말하고 넘어간다.
+COMMON_FOLDERS = ("다운로드", "Downloads", "바탕화면", "Desktop",
+                  "문서", "Documents", "사진", "Pictures")
+
+# 내려받다 멈춘 파일. 이름만 보고 «영상» 으로 분류하면 열리지도 않는 것을
+# 옮기게 된다.
+PARTIAL_SUFFIXES = {".crdownload", ".part", ".partial", ".download",
+                    ".opdownload", ".!ut", ".aria2"}
+
+SCREENSHOT_RE = re.compile(r"screen\s*-?shot|스크린\s*샷|화면\s*캡[처쳐]",
+                           re.IGNORECASE)
+# 카메라·휴대폰이 붙이는 이름. 확장자가 이미지일 때만 본다.
+CAMERA_RE = re.compile(r"^(img[-_]\d|dsc[nf]?[-_]?\d|p\d{7}|"
+                       r"kakaotalk[-_]|photo[-_]?\d|\d{8}[-_]\d{6})",
+                       re.IGNORECASE)
+
+JUNK_PURPOSE = "찌꺼기"
+PARTIAL_PURPOSE = "받다 만 파일"
+SHOT_PURPOSE = "스크린샷"
+PHOTO_PURPOSE = "사진"
+
+
+def purpose_of(path: Path) -> tuple[str, str]:
+    """파일의 쓰임새와 «왜 그렇게 봤는지» 를 돌려준다.
+
+    확장자만으로는 다운로드 폴더가 정리되지 않는다 - .png 는 스크린샷일 수도
+    사진일 수도 있고, .zip 은 받다 만 것일 수도 있다. 근거를 함께 돌려주는
+    것은 이름으로 미루어 짐작한 자리가 어디인지 사람이 보고 판단하라는
+    뜻이다. 짐작한 것을 확인한 것처럼 적지 않는다.
+    """
+    path = Path(path)
+    name = path.name
+    suffix = path.suffix.lower()
+
+    if name in JUNK_NAMES or name.startswith(JUNK_PREFIX):
+        return JUNK_PURPOSE, "프로그램이 남긴 파일"
+    if suffix in PARTIAL_SUFFIXES:
+        return PARTIAL_PURPOSE, f"내려받다 멈춘 파일 ({suffix})"
+
+    category = category_of(path)
+    if category == "이미지":
+        found = SCREENSHOT_RE.search(name)
+        if found:
+            return SHOT_PURPOSE, f"이름에 «{found.group(0)}»"
+        if CAMERA_RE.match(name):
+            return PHOTO_PURPOSE, "카메라·휴대폰이 붙이는 이름"
+    return category, f"확장자 {suffix or '없음'}"
+
+
+@dataclass
+class SweptFile:
+    path: Path
+    root: Path                # 어느 폴더를 훑다 나왔는지
+    size: int
+    mtime: float
+    purpose: str
+    why: str
+
+
+@dataclass
+class SweepGroup:
+    purpose: str
+    files: list[SweptFile] = field(default_factory=list)
+
+    @property
+    def count(self) -> int:
+        return len(self.files)
+
+    @property
+    def size(self) -> int:
+        return sum(f.size for f in self.files)
+
+
+@dataclass
+class Sweep:
+    roots: list[Path] = field(default_factory=list)        # 실제로 훑은 곳
+    groups: list[SweepGroup] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)   # 폴더별 파일 수
+    missing: list[Path] = field(default_factory=list)      # 없어서 못 본 곳
+    skipped: list[str] = field(default_factory=list)       # 겹쳐서 뺀 곳·못 읽은 것
+
+    @property
+    def files(self) -> int:
+        return sum(g.count for g in self.groups)
+
+    @property
+    def total(self) -> int:
+        return sum(g.size for g in self.groups)
+
+    def group(self, purpose: str) -> SweepGroup | None:
+        for one in self.groups:
+            if one.purpose == purpose:
+                return one
+        return None
+
+
+def default_roots() -> list[Path]:
+    """홈 아래 흔한 폴더 중 실제로 있는 것만. 홈은 부를 때마다 다시 본다."""
+    home = Path.home()
+    out: list[Path] = []
+    for name in COMMON_FOLDERS:
+        path = home / name
+        if path.is_dir() and path not in out:
+            out.append(path)
+    return out
+
+
+def _trim_roots(roots) -> tuple[list[Path], list[Path], list[str]]:
+    """겹치는 폴더와 없는 폴더를 갈라낸다. 같은 파일을 두 번 세지 않기 위해서다."""
+    kept: list[Path] = []
+    missing: list[Path] = []
+    notes: list[str] = []
+    for raw in roots:
+        path = Path(raw).expanduser()
+        if not path.is_dir():
+            missing.append(path)
+            continue
+        path = path.resolve()
+        if path in kept:
+            continue
+        inside = next((k for k in kept if k in path.parents), None)
+        if inside is not None:
+            notes.append(f"{path} 는 {inside} 안에 있어 한 번만 셉니다.")
+            continue
+        kept.append(path)
+    return kept, missing, notes
+
+
+def sweep(roots, *, recursive: bool = True, include_hidden: bool = False,
+          min_age_days: float = 0.0) -> Sweep:
+    """여러 폴더를 한꺼번에 훑어 쓰임새별로 묶는다. 파일은 건드리지 않는다.
+
+    다운로드·바탕화면처럼 여러 곳에 나뉘어 쌓인 것을 한자리에서 보기 위한
+    것이다. 없는 폴더와 겹치는 폴더는 조용히 빼지 않고 적어 둔다.
+    """
+    kept, missing, notes = _trim_roots(roots)
+    found = Sweep(roots=kept, missing=missing, skipped=notes)
+    buckets: dict[str, SweepGroup] = {}
+
+    for root in kept:
+        seen = 0
+        for path in iter_targets(root, recursive=recursive,
+                                 include_hidden=include_hidden,
+                                 min_age_days=min_age_days):
+            try:
+                info = path.stat()
+            except OSError as exc:
+                found.skipped.append(f"{path} - 읽지 못했습니다 ({exc.strerror})")
+                continue
+            purpose, why = purpose_of(path)
+            group = buckets.get(purpose)
+            if group is None:
+                group = buckets[purpose] = SweepGroup(purpose)
+            group.files.append(SweptFile(path, root, info.st_size,
+                                         info.st_mtime, purpose, why))
+            seen += 1
+        found.counts[str(root)] = seen
+
+    for group in buckets.values():
+        group.files.sort(key=lambda f: (-f.size, str(f.path)))
+    found.groups = sorted(buckets.values(),
+                          key=lambda g: (-g.count, -g.size, g.purpose))
+    return found
+
+
+def plan_sweep_moves(found: Sweep, dest: Path, *,
+                     purposes: list[str] | None = None,
+                     fixname: bool = False) -> list[Move]:
+    """훑은 결과를 쓰임새 폴더로 모으는 계획. 파일 시스템은 건드리지 않는다."""
+    dest = Path(dest).expanduser()
+    dest = (dest.resolve() if dest.exists()
+            else (Path.cwd() / dest).resolve())
+    wanted = set(purposes) if purposes else None
+    planned: set[Path] = set()
+    moves: list[Move] = []
+
+    for group in found.groups:
+        if wanted is not None and group.purpose not in wanted:
+            continue
+        for item in sorted(group.files, key=lambda f: str(f.path)):
+            src = item.path
+            # 이미 목적지 안에 있는 것은 그대로 둔다.
+            if dest == src.parent or dest in src.parents:
+                continue
+            name = sanitize_filename(src.name) if fixname else to_nfc(src.name)
+            target = unique_path(dest / group.purpose / name, planned)
+            if target == src:
+                continue
+            planned.add(target)
+            moves.append(Move(str(src), str(target)))
+    return moves
+
+
 # ------------------------------------------------------- 첨부용 나눠 담기
 
 @dataclass

@@ -67,6 +67,7 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | 명령 | 하는 일 |
 | --- | --- |
 | `at file organize <디렉터리>` | 확장자 종류(문서/이미지/영상/압축/코드…)나 날짜별로 분류해 옮긴다 |
+| `at file sweep [폴더…]` | 다운로드·바탕화면 등 **여러 폴더를 한꺼번에** 훑어 «쓰임새»(스크린샷·사진·받다 만 파일·설치·문서…)별로 묶고, 고른 것만 한곳에 모은다 |
 | `at file list <디렉터리>` | 파일 목록을 표로 (이름·폴더·크기·수정일). `-o 목록.xlsx` 로 저장 |
 | `at file docs [디렉터리]` | 워드·엑셀·슬라이드·한글·PDF 속성 목록 - 제목·만든 사람·쪽 수. 문서에 남은 이름을 찾는다 |
 | `at file scrub [디렉터리]` | 문서·PDF 속성의 사람·회사 이름을 지운 **사본**을 만든다 (`--apply`) |
@@ -98,6 +99,9 @@ pip install -e .            # 또는 패키지로 설치 (at 명령 생성)
 | `at file undo [저널]` | 직전 organize/fixname 을 되돌린다. 옮겨 갔던 자리에 남은 빈 폴더도 지운다 |
 
 ```bash
+at file sweep                          # 다운로드·바탕화면·문서·사진을 한꺼번에
+at file sweep ~/다운로드 ~/바탕화면 --purpose 스크린샷   # 왜 그렇게 봤는지까지
+at file sweep ~/다운로드 ~/바탕화면 --purpose 스크린샷 --to ~/정리 --apply
 at file organize ~/Downloads --by ext-date --min-age 7 -v   # 미리보기
 at file organize ~/Downloads --by ext-date --min-age 7 --apply
 at file photos ~/사진 --by month                             # 촬영일별 미리보기
