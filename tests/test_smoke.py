@@ -261,6 +261,15 @@ class SmokeTest(unittest.TestCase):
         # 그림만 든 쪽은 «글자가 없는 쪽» 으로 알린다 (스캔본 안내)
         그림만 = self.run_cli("file", "pdftext", 묶음, expect=1)
         self.assertIn("글자가 없는 쪽", 그림만)
+
+        # 넣은 그림을 다시 꺼낼 수 있어야 한다. 미리보기는 아무것도 만들지 않는다
+        미리 = self.run_cli("file", "pdfimg", 묶음)
+        self.assertIn("그림 2개", 미리)
+        꺼낸폴더 = Path(self.path("꺼낸그림"))
+        self.assertFalse(꺼낸폴더.exists())
+        저장 = self.run_cli("file", "pdfimg", 묶음, "-o", str(꺼낸폴더), "--apply")
+        self.assertIn("저장했습니다", 저장)
+        self.assertEqual(len(list(꺼낸폴더.glob("*.png"))), 2)
         # 폴더를 주면 한꺼번에. 못 연 파일도 표에 남긴다
         모음 = Path(self.path("피디에프모음"))
         모음.mkdir(exist_ok=True)

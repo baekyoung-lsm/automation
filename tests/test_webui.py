@@ -655,6 +655,42 @@ class WebUiTest(UiCase):
         self.assertEqual(ctx.exception.code, 404)
 
 
+class FilesPdfImageTest(UiCase):
+    """PDF 안의 그림 꺼내기 화면. 못 꺼낸 것을 함께 내는지까지 본다."""
+
+    def test_preview_then_save(self):
+        source = self._two_page_pdf("그림뽑기")
+        _, look = self.post("/api/files/images_preview", {"imgfile": str(source)})
+        self.assertEqual(look["count"], 2)
+        self.assertEqual(look["made"], [])
+
+        dest = self.work / "꺼낸것"
+        _, made = self.post("/api/files/images_save",
+                            {"imgfile": str(source), "imgdest": str(dest)})
+        self.assertEqual(len(made["made"]), 2)
+        self.assertEqual(len(list(dest.glob("*.png"))), 2)
+
+    def test_small_ones_are_counted_not_dropped(self):
+        source = self._two_page_pdf("작은것")
+        _, look = self.post("/api/files/images_preview",
+                            {"imgfile": str(source), "imgmin": "1MB"})
+        self.assertEqual(look["count"], 0)
+        self.assertEqual(look["small"], 2)
+
+    def test_command_hint_runs(self):
+        import shlex
+
+        from attools import cli
+
+        source = self._two_page_pdf("명령확인")
+        _, look = self.post("/api/files/images_preview",
+                            {"imgfile": str(source), "imgmin": "10KB",
+                             "imgpages": "1"})
+        parts = shlex.split(look["command"])
+        self.assertEqual(parts[0], "at")
+        cli.build_parser().parse_args(parts[1:])
+
+
 class FilesSweepTest(UiCase):
     """여러 폴더 한꺼번에 훑기 화면. 계획을 서버에서 다시 세우는지까지 본다."""
 

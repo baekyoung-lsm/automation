@@ -1810,3 +1810,295 @@ def read_text(doc: "Document", *, pages: list[int] | None = None) -> TextResult:
             if name not in result.missing:
                 result.missing.append(name)
     return result
+
+
+# ------------------------------------------------ PDF 안의 그림 꺼내기
+
+# 이미지 자체가 눌린 방식. 이것은 풀지 않고 그대로 파일로 낸다 - jpg 는
+# 이미 jpg 다. 다시 눌러 봐야 화질만 깎인다.
+IMAGE_CODECS = {"DCTDecode": "jpg", "DCT": "jpg", "JPXDecode": "jp2"}
+
+# 우리가 풀 수 있는 앞단 필터. 여기 없는 것은 못 꺼낸다고 말한다.
+PLAIN_FILTERS = {"FlateDecode", "Fl", "ASCII85Decode", "A85",
+                 "ASCIIHexDecode", "AHx", "RunLengthDecode", "RL"}
+
+MAX_PIXELS = 80_000_000        # 8천만 화소. 이보다 크면 깨진 값으로 본다
+
+
+@dataclass
+class PdfImage:
+    """PDF 안에 들어 있던 그림 하나."""
+
+    page: int
+    name: str                  # 문서 안에서의 이름 (Im0)
+    width: int
+    height: int
+    kind: str = ""             # jpg · jp2 · png. 빈 값이면 못 꺼낸 것
+    data: bytes = b""
+    colors: str = ""           # 무슨 색으로 적혀 있었나 (사람이 보고 판단하게)
+    why: str = ""              # 못 꺼낸 이유
+
+    @property
+    def ok(self) -> bool:
+        return bool(self.data)
+
+    @property
+    def size(self) -> int:
+        return len(self.data)
+
+
+def _run_length(data: bytes) -> bytes:
+    """PDF 의 RunLengthDecode. 길이 바이트 하나에 128 을 기준으로 갈린다."""
+    out = bytearray()
+    i = 0
+    while i < len(data):
+        length = data[i]
+        i += 1
+        if length == 128:
+            break
+        if length < 128:
+            out += data[i:i + length + 1]
+            i += length + 1
+        else:
+            if i >= len(data):
+                break
+            out += bytes([data[i]]) * (257 - length)
+            i += 1
+    return bytes(out)
+
+
+def _image_stream(doc: "Document", stream: Stream) -> tuple[bytes, str]:
+    """이미지 코덱 앞까지만 푼다. (자료, 남은 코덱). 코덱이 없으면 («», 생자료).
+
+    stream_data 는 DCTDecode 를 만나면 그만둔다 - 맞는 동작이다. 여기서는
+    그 앞단(Flate·A85)만 풀고 jpg 는 눌린 채로 받아야 한다.
+    """
+    get = doc.get
+    filters = get(stream.data.get("Filter")) or []
+    if isinstance(filters, (Name, str)):
+        filters = [filters]
+    parms = get(stream.data.get("DecodeParms"))
+    if parms is None:
+        parms = get(stream.data.get("DP"))
+    if not isinstance(parms, list):
+        parms = [parms]
+
+    data = stream.raw
+    for i, one in enumerate(filters):
+        kind = str(get(one))
+        if kind in IMAGE_CODECS:
+            return data, kind
+        if kind in ("FlateDecode", "Fl"):
+            data = _inflate(data)
+        elif kind in ("RunLengthDecode", "RL"):
+            data = _run_length(data)
+        elif kind in ("ASCII85Decode", "A85"):
+            import base64
+            body = re.sub(rb"\s", b"", data)
+            if body.startswith(b"<~"):
+                body = body[2:]
+            data = base64.a85decode(body.split(b"~>")[0], adobe=False)
+        elif kind in ("ASCIIHexDecode", "AHx"):
+            body = re.sub(rb"[^0-9A-Fa-f]", b"", data.split(b">")[0])
+            data = bytes.fromhex((body + b"0" if len(body) % 2 else body).decode("ascii"))
+        else:
+            raise PdfError(kind)
+        parm = get(parms[i]) if i < len(parms) else None
+        if isinstance(parm, dict):
+            data = _undo_predictor(data, parm, get)
+    return data, ""
+
+
+def _space_name(doc: "Document", space) -> str:
+    """색 공간의 이름. 모르면 빈 값."""
+    space = doc.get(space)
+    if isinstance(space, (Name, str)):
+        return str(space)
+    if isinstance(space, list) and space:
+        return str(doc.get(space[0]))
+    return ""
+
+
+def _channels(doc: "Document", space) -> tuple[int, str]:
+    """(성분 수, 사람이 읽는 이름). 모르는 색 공간은 0 을 준다."""
+    name = _space_name(doc, space)
+    if name in ("DeviceGray", "CalGray", "G"):
+        return 1, "회색"
+    if name in ("DeviceRGB", "CalRGB", "Lab", "RGB"):
+        return 3, "RGB"
+    if name in ("DeviceCMYK", "CMYK"):
+        return 4, "CMYK"
+    if name == "ICCBased":
+        space = doc.get(space)
+        target = doc.get(space[1]) if len(space) > 1 else None
+        count = int(doc.get(target.data.get("N")) or 0) if isinstance(target, Stream) else 0
+        return count, {1: "회색", 3: "RGB", 4: "CMYK"}.get(count, "ICC")
+    if name in ("Indexed", "I"):
+        return 1, "색표(Indexed)"
+    return 0, name or "알 수 없음"
+
+
+def _palette(doc: "Document", space) -> tuple[bytes, int]:
+    """색표(Indexed)의 표와 바탕 색의 성분 수. 못 읽으면 (b"", 0)."""
+    space = doc.get(space)
+    if not isinstance(space, list) or len(space) < 4:
+        return b"", 0
+    base, _hival, lookup = doc.get(space[1]), doc.get(space[2]), doc.get(space[3])
+    count, _ = _channels(doc, base)
+    if count != 3:                     # RGB 바탕만 편다. 나머지는 짐작하지 않는다
+        return b"", 0
+    if isinstance(lookup, Stream):
+        try:
+            lookup = stream_data(lookup, doc)
+        except PdfError:
+            return b"", 0
+    if isinstance(lookup, str):
+        lookup = lookup.encode("latin-1", "replace")
+    return (lookup if isinstance(lookup, bytes) else b""), count
+
+
+def _png(data: bytes, width: int, height: int, *, bits: int, gray: bool) -> bytes:
+    """생 화소를 PNG 로 싼다. 줄마다 필터 바이트(0)를 앞에 붙인다."""
+    import struct
+
+    channels = 1 if gray else 3
+    stride = (width * channels * bits + 7) // 8
+    rows = bytearray()
+    for y in range(height):
+        line = data[y * stride:(y + 1) * stride]
+        rows += b"\x00" + line
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (struct.pack(">I", len(body)) + kind + body
+                + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF))
+
+    head = struct.pack(">IIBBBBB", width, height, bits, 0 if gray else 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head)
+            + chunk(b"IDAT", zlib.compress(bytes(rows), 6)) + chunk(b"IEND", b""))
+
+
+def _as_png(doc: "Document", stream: Stream, data: bytes,
+            width: int, height: int) -> tuple[bytes, str, str]:
+    """눌리지 않은 화소를 PNG 로. (자료, 색 이름, 못 한 이유)."""
+    get = doc.get
+    bits = int(get(stream.data.get("BitsPerComponent"))
+               or get(stream.data.get("BPC")) or 8)
+    space = stream.data.get("ColorSpace") or stream.data.get("CS")
+    mask = bool(get(stream.data.get("ImageMask")) or get(stream.data.get("IM")))
+
+    if mask:
+        # 도장·글자 모양으로 쓰는 1비트 그림. PNG 에 1비트 회색이 있다.
+        stride = (width + 7) // 8
+        if len(data) < stride * height:
+            return b"", "흑백(1비트)", "자료가 모자랍니다"
+        return _png(data, width, height, bits=1, gray=True), "흑백(1비트)", ""
+
+    count, colors = _channels(doc, space)
+    if colors == "색표(Indexed)":
+        table, _ = _palette(doc, space)
+        if not table or bits != 8:
+            return b"", colors, "색표를 펴지 못했습니다"
+        out = bytearray()
+        for value in data[:width * height]:
+            out += table[value * 3:value * 3 + 3].ljust(3, b"\x00")
+        if len(out) < width * height * 3:
+            return b"", colors, "자료가 모자랍니다"
+        return _png(bytes(out), width, height, bits=8, gray=False), colors, ""
+
+    if count not in (1, 3):
+        return b"", colors, f"{colors} 색은 다루지 못합니다"
+    if count == 3 and bits not in (8, 16):
+        return b"", colors, f"{bits}비트 RGB 는 다루지 못합니다"
+    if count == 1 and bits not in (1, 2, 4, 8, 16):
+        return b"", colors, f"{bits}비트 회색은 다루지 못합니다"
+
+    stride = (width * count * bits + 7) // 8
+    if len(data) < stride * height:
+        # 모자란 것을 채워 내면 그럴듯한 그림이 나오지만 그 그림은 거짓이다.
+        return b"", colors, "자료가 모자랍니다"
+    return _png(data, width, height, bits=bits, gray=count == 1), colors, ""
+
+
+def _image_of(doc: "Document", number: int, name: str,
+              stream: Stream) -> PdfImage:
+    get = doc.get
+    width = int(get(stream.data.get("Width")) or get(stream.data.get("W")) or 0)
+    height = int(get(stream.data.get("Height")) or get(stream.data.get("H")) or 0)
+    found = PdfImage(number, name, width, height)
+    if width <= 0 or height <= 0:
+        found.why = "크기를 읽지 못했습니다"
+        return found
+    if width * height > MAX_PIXELS:
+        found.why = "크기가 이상합니다"
+        return found
+
+    try:
+        data, codec = _image_stream(doc, stream)
+    except PdfError as exc:
+        found.why = f"{exc} 방식은 풀지 못합니다"
+        return found
+
+    if codec:
+        found.kind = IMAGE_CODECS[codec]
+        found.data = data
+        found.colors = _channels(doc, stream.data.get("ColorSpace")
+                                 or stream.data.get("CS"))[1]
+        return found
+
+    body, colors, why = _as_png(doc, stream, data, width, height)
+    found.colors = colors
+    if not body:
+        found.why = why
+        return found
+    found.kind = "png"
+    found.data = body
+    return found
+
+
+def _xobjects(doc: "Document", data: dict, number: int, *,
+              depth: int = 0, seen: set | None = None) -> list[PdfImage]:
+    """쪽(또는 Form) 안의 그림. Form 안에 또 들어 있는 것도 따라간다."""
+    seen = seen if seen is not None else set()
+    out: list[PdfImage] = []
+    if depth > 4:
+        return out
+    resources = doc.get(data.get("Resources")) or {}
+    if not isinstance(resources, dict):
+        return out
+    holder = doc.get(resources.get("XObject")) or {}
+    if not isinstance(holder, dict):
+        return out
+
+    for name in sorted(holder):
+        ref = holder[name]
+        key = (number, ref.num) if isinstance(ref, Ref) else (number, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        stream = doc.get(ref)
+        if not isinstance(stream, Stream):
+            continue
+        kind = str(doc.get(stream.data.get("Subtype")) or "")
+        if kind == "Image":
+            out.append(_image_of(doc, number, name, stream))
+        elif kind == "Form":
+            out += _xobjects(doc, stream.data, number, depth=depth + 1, seen=seen)
+    return out
+
+
+def read_images(doc: "Document", *,
+                pages: list[int] | None = None) -> list[PdfImage]:
+    """PDF 안의 그림을 꺼낸다. 못 꺼낸 것도 이유와 함께 목록에 남긴다.
+
+    jpg 는 눌린 그대로 낸다. 다시 눌러 내면 화질만 깎인다. 눌리지 않은
+    화소는 PNG 로 싸고, 우리가 모르는 색 공간·압축은 «못 꺼냈다» 고 적는다.
+    조용히 빼면 그림이 몇 장 없는 문서로 보인다.
+    """
+    all_pages = doc.pages()
+    picked = pages or list(range(1, len(all_pages) + 1))
+    out: list[PdfImage] = []
+    for number in picked:
+        if not 1 <= number <= len(all_pages):
+            continue
+        out += _xobjects(doc, all_pages[number - 1].data, number)
+    return out

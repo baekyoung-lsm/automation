@@ -849,6 +849,90 @@ def text_save(payload: dict) -> dict:
     return _text_result(payload, path, found, out)
 
 
+def _img_command(payload: dict, path, out=None, *, apply: bool = False) -> str:
+    args: list[object] = ["file", "pdfimg", path]
+    pages = form.text(payload, "imgpages")
+    if pages:
+        args += ["--pages", pages]
+    least = form.text(payload, "imgmin")
+    if least:
+        args += ["--min", least]
+    if out is not None:
+        args += ["-o", out]
+    if apply:
+        args.append("--apply")
+    return form.command(*args)
+
+
+def _pdf_pictures(payload: dict):
+    """PDF 안의 그림을 꺼낸다. (파일, 고른 것, 작아서 뺀 것, 못 꺼낸 것)"""
+    from ... import pdf
+
+    path = form.existing_file(payload, "imgfile", max_bytes=0)
+    spec = form.text(payload, "imgpages")
+    raw = form.text(payload, "imgmin")
+    try:
+        least = files.parse_size(raw) if raw else 0
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+    try:
+        doc = pdf.open_pdf(path)
+        wanted = pdf.page_numbers(spec, len(doc.pages())) if spec else None
+        found = pdf.read_images(doc, pages=wanted)
+    except (pdf.PdfError, OSError, ValueError) as exc:
+        raise UiError(str(exc)) from None
+
+    taken = [one for one in found if one.ok]
+    return (path, [one for one in taken if one.size >= least],
+            [one for one in taken if one.size < least],
+            [one for one in found if not one.ok])
+
+
+def _img_result(payload: dict, path, picked, small, failed, *,
+                folder=None, made=None) -> dict:
+    return {"rows": [[str(one.page), one.name, f"{one.width}x{one.height}",
+                      one.kind, files.human_size(one.size), one.colors]
+                     for one in picked[:200]],
+            "count": len(picked), "small": len(small),
+            # 못 꺼낸 것을 조용히 빼면 그림이 몇 장 없는 문서로 보인다
+            "failed": [[str(one.page), one.name, one.why] for one in failed[:10]],
+            "failed_count": len(failed),
+            "folder": str(folder) if folder else "",
+            "made": made or [],
+            "command": _img_command(payload, path, folder, apply=bool(made))}
+
+
+def images_preview(payload: dict) -> dict:
+    path, picked, small, failed = _pdf_pictures(payload)
+    return _img_result(payload, path, picked, small, failed)
+
+
+def images_save(payload: dict) -> dict:
+    """고른 것만 폴더에 낸다. 원본은 건드리지 않는다."""
+    from ... import hangul
+
+    path, picked, small, failed = _pdf_pictures(payload)
+    if not picked:
+        raise UiError("꺼낼 그림이 없습니다.")
+    raw = form.text(payload, "imgdest")
+    folder = Path(raw).expanduser() if raw else path.with_name(f"{path.stem} 그림")
+    if folder.exists() and not folder.is_dir():
+        raise UiError(f"폴더가 아닙니다: {folder}")
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        made = []
+        for index, one in enumerate(picked, 1):
+            name = hangul.sanitize_filename(
+                f"{path.stem}-{one.page:03d}-{index}.{one.kind}")
+            target = files.unique_path(folder / name)
+            target.write_bytes(one.data)
+            made.append(target.name)
+    except OSError as exc:
+        raise UiError(str(exc)) from None
+    return _img_result(payload, path, picked, small, failed,
+                       folder=folder, made=made)
+
+
 def _join_plan(payload: dict):
     """폴더 안의 PDF 를 이름 순으로. 스캔은 대개 그 차례가 맞다."""
     from ... import pdf
@@ -1332,6 +1416,33 @@ BODY = """
   </div>
   <div id="textmsg"></div>
   <div id="textout"></div>
+</section>
+
+<section class="card">
+  <h2>PDF 안의 그림 꺼내기</h2>
+  <p class="note">보고서·계약서 PDF 에 든 <b>사진·도표를 파일로</b> 꺼냅니다.
+     jpg 는 <b>눌린 그대로</b> 냅니다 — 다시 눌러 내면 화질만 깎입니다.
+     우리가 모르는 압축·색 방식은 <b>«꺼내지 못한 것»</b> 으로 이유와 함께 적습니다.
+     조용히 빼면 그림이 몇 장 없는 문서로 보입니다.
+     <b>원본은 건드리지 않습니다.</b></p>
+  <div class="row">
+    <div style="flex:3 1 16rem"><label for="imgfile">PDF 파일</label>
+      <input type="text" id="imgfile" data-browse=".pdf" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="imgpages">쪽 (비우면 전부)</label>
+      <input type="text" id="imgpages" placeholder="1-3,7" spellcheck="false"></div>
+    <div style="flex:0 1 9rem"><label for="imgmin">이보다 작은 것은 빼기</label>
+      <input type="text" id="imgmin" placeholder="20KB" spellcheck="false"></div>
+  </div>
+  <div class="row">
+    <div style="flex:2 1 16rem"><label for="imgdest">넣을 폴더 (비우면 «&lt;이름&gt; 그림»)</label>
+      <input type="text" id="imgdest" spellcheck="false"></div>
+  </div>
+  <div class="actions">
+    <button class="primary" id="btn-img">무엇이 들어 있나</button>
+    <button id="btn-img-save" disabled>파일로 꺼내기</button>
+  </div>
+  <div id="imgmsg"></div>
+  <div id="imgout"></div>
 </section>
 
 <section class="card">
@@ -1999,6 +2110,53 @@ BODY = """
     } catch (e) { AT.message($("swplanmsg"), AT.esc(e.message), "bad"); }
   });
 
+  // ------------------------------------------------- PDF 안의 그림 꺼내기
+
+  function imgValues() {
+    return {
+      imgfile: $("imgfile").value, imgpages: $("imgpages").value,
+      imgmin: $("imgmin").value, imgdest: $("imgdest").value,
+    };
+  }
+
+  function drawImages(d) {
+    $("imgout").innerHTML =
+      AT.table(["쪽", "이름", "크기", "형식", "용량", "색"], d.rows) +
+      (d.small ? '<p class="note">작아서 뺀 것 ' + d.small +
+        "개 (로고·아이콘일 때가 많습니다)</p>" : "") +
+      (d.failed_count ? '<p class="note">꺼내지 못한 것 ' + d.failed_count +
+        "개 - 모르는 방식은 짐작해 내지 않습니다.</p>" +
+        AT.table(["쪽", "이름", "왜"], d.failed) : "") +
+      (d.made.length ? '<p class="note">' + AT.esc(d.folder) + " 에 " +
+        d.made.length + "개를 냈습니다.</p>" : "") +
+      AT.command(d.command);
+  }
+
+  $("btn-img").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/images_preview", imgValues());
+      drawImages(d);
+      $("btn-img-save").disabled = d.count === 0;
+      AT.message($("imgmsg"), "꺼낼 수 있는 그림 <b>" + d.count + "개</b>" +
+                 (d.failed_count ? " · 못 꺼낸 것 " + d.failed_count + "개" : ""),
+                 d.count ? "ok" : "bad");
+      AT.remember("files", "imgfile", $("imgfile").value);
+    } catch (e) {
+      $("btn-img-save").disabled = true;
+      AT.message($("imgmsg"), AT.esc(e.message), "bad");
+    }
+  });
+
+  $("btn-img-save").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/files/images_save", imgValues());
+      drawImages(d);
+      $("btn-img-save").disabled = true;
+      AT.message($("imgmsg"), "<b>" + d.made.length + "개</b>를 " +
+                 AT.esc(d.folder) + " 에 냈습니다.", "ok");
+    } catch (e) { AT.message($("imgmsg"), AT.esc(e.message), "bad"); }
+  });
+
   function listValues() {
     return {
       path: $("path").value, glob: $("glob").value, sort: $("sort").value,
@@ -2086,6 +2244,7 @@ def make() -> App:
                  "num_preview": num_preview, "num_make": num_make,
                  "eml_preview": eml_preview, "eml_save": eml_save,
                  "text_preview": text_preview, "text_save": text_save,
+                 "images_preview": images_preview, "images_save": images_save,
                  "join_preview": join_preview, "join_make": join_make,
                  "scrub_preview": scrub_preview, "scrub_apply": scrub_apply,
                  "listing": listing, "listing_save": listing_save,

@@ -502,6 +502,151 @@ def _stream_obj(body: bytes) -> bytes:
     return b"<< /Length %d >>\nstream\n%s\nendstream" % (len(body), body)
 
 
+def image_pdf(path: Path, images: list[bytes]) -> Path:
+    """그림 XObject 를 담은 한 쪽짜리 PDF. 그림 꺼내기 시험용이다."""
+    names = " ".join(f"/Im{i} {4 + i} 0 R" for i in range(len(images)))
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+            b"/Resources << /XObject << " + names.encode("ascii") + b" >> >> >>"),
+    }
+    for i, body in enumerate(images):
+        objects[4 + i] = body
+    return text_pdf(path, objects)
+
+
+def image_obj(data: bytes, *, width: int, height: int, extra: bytes = b"",
+              filters: bytes = b"/Filter /FlateDecode") -> bytes:
+    body = zlib.compress(data) if b"FlateDecode" in filters else data
+    head = (b"<< /Type /XObject /Subtype /Image /Width %d /Height %d %s %s "
+            b"/Length %d >>" % (width, height, extra, filters, len(body)))
+    return head + b"\nstream\n" + body + b"\nendstream"
+
+
+class PdfImageTest(unittest.TestCase):
+    """PDF 안의 그림 꺼내기. 못 꺼낸 것을 조용히 빼지 않는지까지 본다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def found(self, images: list[bytes]):
+        path = image_pdf(self.root / "그림.pdf", images)
+        return pdf.read_images(pdf.open_pdf(path))
+
+    def pixels(self, data: bytes) -> bytes:
+        """만든 PNG 을 다시 읽어 화소로 편다. 모양만 PNG 인 것을 걸러낸다."""
+        back = self.root / "다시.png"
+        back.write_bytes(data)
+        return zlib.decompress(pdf.read_image(back).data)
+
+    def test_rgb_pixels_come_out_as_png(self):
+        raw = bytes([9, 8, 7] * 6)          # 3x2 RGB
+        got = self.found([image_obj(raw, width=3, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8")])
+        self.assertEqual(len(got), 1)
+        one = got[0]
+        self.assertTrue(one.ok, one.why)
+        self.assertEqual((one.kind, one.width, one.height), ("png", 3, 2))
+        self.assertTrue(one.data.startswith(b"\x89PNG"))
+        # 실제로 같은 화소가 나와야 한다 - 모양만 PNG 면 소용없다
+        self.assertEqual(self.pixels(one.data), raw)
+
+    def test_jpeg_is_passed_through_untouched(self):
+        """jpg 를 다시 눌러 내면 화질만 깎인다. 그대로 나와야 한다."""
+        import sys as _sys
+
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_files import exif_jpeg
+
+        raw = exif_jpeg()
+        got = self.found([image_obj(raw, width=4, height=4,
+                                    extra=b"/ColorSpace /DeviceGray "
+                                          b"/BitsPerComponent 8",
+                                    filters=b"/Filter /DCTDecode")])
+        self.assertEqual(got[0].kind, "jpg")
+        self.assertEqual(got[0].data, raw)
+
+    def test_indexed_palette_is_expanded(self):
+        table = bytes([255, 0, 0, 0, 255, 0])       # 0 번 빨강, 1 번 초록
+        space = (b"/ColorSpace [/Indexed /DeviceRGB 1 <"
+                 + table.hex().encode("ascii") + b">] /BitsPerComponent 8")
+        got = self.found([image_obj(bytes([0, 1, 1, 0]), width=2, height=2,
+                                    extra=space)])
+        self.assertTrue(got[0].ok, got[0].why)
+        self.assertEqual(self.pixels(got[0].data),
+                         bytes([255, 0, 0, 0, 255, 0, 0, 255, 0, 255, 0, 0]))
+
+    def test_cmyk_is_reported_not_guessed(self):
+        """모르는 색을 짐작해 내면 색이 뒤집힌 그림이 나온다. 안 낸다."""
+        got = self.found([image_obj(bytes(4 * 6), width=3, height=2,
+                                    extra=b"/ColorSpace /DeviceCMYK "
+                                          b"/BitsPerComponent 8")])
+        self.assertFalse(got[0].ok)
+        self.assertIn("CMYK", got[0].colors)
+        self.assertTrue(got[0].why)
+
+    def test_unknown_compression_is_reported(self):
+        got = self.found([image_obj(b"\x00" * 10, width=8, height=8,
+                                    extra=b"/ColorSpace /DeviceGray "
+                                          b"/BitsPerComponent 1",
+                                    filters=b"/Filter /CCITTFaxDecode")])
+        self.assertFalse(got[0].ok)
+        self.assertIn("CCITTFaxDecode", got[0].why)
+
+    def test_short_data_is_not_padded(self):
+        """모자란 것을 채워 내면 그럴듯한 그림이 나오지만 그것은 거짓이다."""
+        got = self.found([image_obj(bytes([1, 2, 3]), width=3, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8")])
+        self.assertFalse(got[0].ok)
+        self.assertIn("모자랍니다", got[0].why)
+
+    def test_image_mask_becomes_one_bit_png(self):
+        got = self.found([image_obj(bytes([0b10100000, 0b01000000]),
+                                    width=3, height=2,
+                                    extra=b"/ImageMask true")])
+        self.assertTrue(got[0].ok, got[0].why)
+        self.assertEqual(got[0].kind, "png")
+
+    def test_pages_can_be_picked(self):
+        raw = bytes([1, 2, 3] * 4)
+        path = image_pdf(self.root / "둘.pdf",
+                         [image_obj(raw, width=2, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8")])
+        doc = pdf.open_pdf(path)
+        self.assertEqual(len(pdf.read_images(doc, pages=[1])), 1)
+        self.assertEqual(pdf.read_images(doc, pages=[2]), [])
+
+    def test_same_image_twice_is_counted_once_per_page(self):
+        """한 쪽에서 같은 객체를 두 이름으로 가리켜도 두 번 세지 않는다."""
+        raw = bytes([5, 6, 7] * 4)
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: (b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] "
+                b"/Resources << /XObject << /A 4 0 R /B 4 0 R >> >> >>"),
+            4: image_obj(raw, width=2, height=2,
+                         extra=b"/ColorSpace /DeviceRGB /BitsPerComponent 8"),
+        }
+        path = text_pdf(self.root / "두번.pdf", objects)
+        self.assertEqual(len(pdf.read_images(pdf.open_pdf(path))), 1)
+
+    def test_run_length_is_decoded(self):
+        raw = bytes([7, 8, 9] * 4)
+        packed = bytes([len(raw) - 1]) + raw + bytes([128])
+        got = self.found([image_obj(packed, width=2, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8",
+                                    filters=b"/Filter /RunLengthDecode")])
+        self.assertTrue(got[0].ok, got[0].why)
+
+
 class TextExtractTest(unittest.TestCase):
     """PDF 는 «글자» 가 아니라 «글꼴의 몇 번 글리프» 를 적어 둔 형식이다."""
 

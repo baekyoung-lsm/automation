@@ -514,6 +514,80 @@ def cmd_file_pdftext(a) -> int:
     return 0
 
 
+def cmd_file_pdfimg(a) -> int:
+    """PDF 안에 든 그림을 꺼낸다. 원본은 건드리지 않는다."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        wanted = pdf.page_numbers(a.pages, total) if a.pages else None
+        found = pdf.read_images(doc, pages=wanted)
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    least = files.parse_size(a.min) if a.min else 0
+    taken = [one for one in found if one.ok]
+    small = [one for one in taken if one.size < least]
+    picked = [one for one in taken if one.size >= least]
+    failed = [one for one in found if not one.ok]
+
+    _p(f"{path.name}  {total}쪽  ·  그림 {len(found)}개")
+    if not found:
+        _p("  그림이 없습니다. (글자만 든 문서이거나, 그림이 쪽 바깥에 있습니다)")
+        return 1
+
+    rows = []
+    for one in picked[:a.limit]:
+        rows.append([str(one.page), one.name, f"{one.width}x{one.height}",
+                     one.kind, files.human_size(one.size), one.colors])
+    if rows:
+        _p("")
+        _grid(["쪽", "이름", "크기", "형식", "용량", "색"], rows, limit=24)
+        if len(picked) > a.limit:
+            _p(f"  ... {len(picked) - a.limit}개 더")
+    if small:
+        _p(f"\n{a.min} 보다 작아 뺀 것 {len(small)}개 "
+           "(로고·아이콘일 때가 많습니다)")
+    if failed:
+        _p(f"\n꺼내지 못한 것 {len(failed)}개")
+        for one in failed[:5]:
+            _p(f"  {one.page}쪽 {one.name} {one.width}x{one.height} "
+               f"- {one.why}")
+        if len(failed) > 5:
+            _p(f"  ... {len(failed) - 5}개 더")
+        _p("  모르는 방식은 짐작해 내지 않습니다. 그림이 빠졌다면 이 줄을 보세요.")
+
+    if not picked:
+        _p("\n꺼낼 것이 없습니다.")
+        return 1
+    if not a.apply:
+        _p(f"\n{len(picked)}개를 꺼낼 수 있습니다. 실제로 저장하려면 "
+           "--apply 를 붙이세요.")
+        return 0
+
+    folder = Path(a.out) if a.out else path.with_name(f"{path.stem} 그림")
+    folder.mkdir(parents=True, exist_ok=True)
+    saved = 0
+    for index, one in enumerate(picked, 1):
+        name = f"{path.stem}-{one.page:03d}-{index}.{one.kind}"
+        target = folder / hangul.sanitize_filename(name)
+        if not _may_write(a, target):
+            return 1
+        target.write_bytes(one.data)
+        saved += 1
+    _p(f"\n{saved}개를 «{folder}» 에 저장했습니다.")
+    if any(one.kind == "jpg" for one in picked):
+        _p("  jpg 는 눌린 그대로 냈습니다. 사진에 촬영 정보가 남아 있을 수 "
+           "있습니다(at file exif 로 봅니다).")
+    return 0
+
+
 def cmd_file_pdfcut(a) -> int:
     """PDF 에서 필요한 쪽만 뽑는다. 원본은 건드리지 않는다."""
     from .. import pdf
@@ -1923,6 +1997,26 @@ def add_commands(sub) -> None:
                   "글꼴에 글자 정보(ToUnicode)가 없으면 그 부분은 빼고 꺼냅니다. "
                   "스캔한 그림 속 글자는 읽지 못합니다.")
     txt.set_defaults(func=cmd_file_pdftext)
+
+    pim = fp.add_parser("pdfimg", help="PDF 안에 든 그림 꺼내기 (사진·도표)")
+    pim.add_argument("file", metavar="파일.pdf")
+    pim.add_argument("--pages", metavar="쪽", help="예: 1-3,7 또는 5- 또는 -3")
+    pim.add_argument("-o", "--out", metavar="폴더",
+                     help="넣을 폴더 (기본 «<이름> 그림»)")
+    pim.add_argument("--apply", action="store_true",
+                     help="실제로 저장한다 (기본은 무엇이 있는지만 본다)")
+    pim.add_argument("--min", metavar="크기", default="",
+                     help="이보다 작은 것은 뺀다 (예: 20KB)")
+    pim.add_argument("--limit", type=int, default=20, metavar="개",
+                     help="표에 보여 줄 개수")
+    pim.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    pim.epilog = ("예: at file pdfimg 보고서.pdf\n"
+                  "    at file pdfimg 보고서.pdf --min 20KB --apply\n"
+                  "    at file pdfimg 계약서.pdf --pages 1-2 -o 사진/ --apply\n"
+                  "jpg 는 눌린 그대로 냅니다(다시 눌러 화질을 깎지 않습니다). "
+                  "모르는 압축·색 공간은 «꺼내지 못한 것» 으로 이유와 함께 적습니다.")
+    pim.set_defaults(func=cmd_file_pdfimg)
 
     num = fp.add_parser("pdfnum", help="PDF 에 쪽 번호 찍기 (합본 계약서·제출본)")
     num.add_argument("file", metavar="파일.pdf")
