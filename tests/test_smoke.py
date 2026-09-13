@@ -179,6 +179,26 @@ class SmokeTest(unittest.TestCase):
         self.run_cli("file", "undo", 저널)
         self.assertTrue((받은곳 / "다운로드" / "Screenshot 1.png").exists())
 
+    def test_file_sweep_refuses_bad_destinations(self):
+        """--to 를 파일로 주면 옮기다 중간에 멎지 말고 미리 막아야 한다."""
+        방 = Path(self.path("훑기막기"))
+        (방 / "다운로드").mkdir(parents=True)
+        (방 / "다운로드" / "보고서.pdf").write_bytes(b"%PDF")
+        파일 = 방 / "파일.txt"
+        파일.write_text("가", encoding="utf-8")
+
+        말 = self.run_cli("file", "sweep", str(파일), expect=1)
+        self.assertIn("폴더가 아닙니다", 말)
+
+        막힘 = self.run_cli("file", "sweep", str(방 / "다운로드"),
+                            "--to", str(파일), expect=1)
+        self.assertIn("모을 곳이 폴더가 아닙니다", 막힘)
+        self.assertEqual(파일.read_text(encoding="utf-8"), "가")
+
+        안쪽 = self.run_cli("file", "sweep", str(방 / "다운로드"),
+                            "--to", str(방 / "다운로드" / "정리"))
+        self.assertIn("훑는 폴더 안쪽", 안쪽)
+
     def test_file_group(self):
         self.run_cli("file", "photos", self.path("문서"))
         self.assertIn("파일", self.run_cli("file", "list", self.path("문서")))

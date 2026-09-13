@@ -72,6 +72,9 @@ def cmd_file_sweep(a) -> int:
     for path in found.missing:
         _p(f"없는 폴더라 보지 못했습니다: {path}")
     if not found.roots:
+        for line in found.skipped:
+            _p(f"  {line}")
+        _p("훑을 폴더가 없습니다.")
         return 1
 
     _p(f"훑은 곳 {len(found.roots)}곳 · 파일 {found.files:,}개 "
@@ -125,6 +128,15 @@ def cmd_file_sweep(a) -> int:
         return 0
 
     dest = Path(a.to).expanduser()
+    if dest.exists() and not dest.is_dir():
+        _p(f"\n모을 곳이 폴더가 아닙니다: {dest}")
+        return 1
+    inside = [root for root in found.roots
+              if root == dest or root in dest.parents]
+    if inside:
+        # 옮겨 넣은 자리를 다음에 또 훑게 된다. 미리 말해 준다
+        _p(f"\n모을 곳이 훑는 폴더 안쪽입니다: {dest}")
+        _p("  다음에 훑을 때 그 안의 파일이 다시 걸립니다.")
     moves = files.plan_sweep_moves(found, dest, purposes=want or None,
                                    fixname=a.fixname)
     if not moves:

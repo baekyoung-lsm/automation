@@ -1009,8 +1009,18 @@ def _trim_roots(roots) -> tuple[list[Path], list[Path], list[str]]:
     notes: list[str] = []
     for raw in roots:
         path = Path(raw).expanduser()
-        if not path.is_dir():
-            missing.append(path)
+        try:
+            folder = path.is_dir()
+            there = path.exists()
+        except OSError as exc:
+            notes.append(f"{path} - 열어 보지 못했습니다 ({why_os(exc)})")
+            continue
+        if not folder:
+            # 있는데 폴더가 아닌 것을 «없다» 고 하면 틀린 말이다
+            if there:
+                notes.append(f"{path} - 폴더가 아닙니다")
+            else:
+                missing.append(path)
             continue
         path = path.resolve()
         if path in kept:

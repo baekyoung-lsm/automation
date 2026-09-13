@@ -1167,6 +1167,15 @@ class SweepTest(unittest.TestCase):
         self.assertEqual(found.roots, [self.down.resolve()])
         self.assertEqual([p.name for p in found.missing], ["없는곳"])
 
+    def test_a_file_given_as_folder_says_so(self):
+        """있는데 폴더가 아닌 것을 «없다» 고 하면 틀린 말이다."""
+        one = self.root / "파일.txt"
+        one.write_text("가", encoding="utf-8")
+        found = files.sweep([one])
+        self.assertEqual(found.missing, [])
+        self.assertTrue(any("폴더가 아닙니다" in line for line in found.skipped),
+                        found.skipped)
+
     def test_nested_folder_is_counted_once(self):
         inner = self.down / "안쪽"
         inner.mkdir()
