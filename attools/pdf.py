@@ -2111,3 +2111,53 @@ def read_images(doc: "Document", *,
             continue
         out += _xobjects(doc, all_pages[number - 1].data, number)
     return out
+
+
+# ---------------------------------------------------- 쪽마다 무엇이 들어 있나
+
+@dataclass
+class PageFacts:
+    """쪽 하나에 무엇이 들어 있는지. 판단은 부르는 쪽이 한다."""
+
+    number: int
+    chars: int = 0             # 꺼낸 글자 수 (공백 제외)
+    images: int = 0            # 그림 수
+    image_bytes: int = 0       # 그림 자료의 크기 합
+    unreadable: int = 0        # 꺼내지 못한 그림 수
+    missing_fonts: list = field(default_factory=list)
+
+    @property
+    def empty(self) -> bool:
+        """글자도 그림도 없는 쪽. 이것만이 «확실히 빈 쪽» 이다."""
+        return self.chars == 0 and self.images == 0 and self.unreadable == 0
+
+
+def page_facts(doc: "Document", *, pages: list[int] | None = None) -> list[PageFacts]:
+    """쪽마다 글자 수와 그림을 센다.
+
+    스캔한 백지는 «그림 한 장» 으로 들어 있어 글자만 봐서는 빈 쪽인지 알 수
+    없다. 그래서 세기만 하고 «백지다» 라고 말하지 않는다 - 그 판단에 필요한
+    것(글자 수·그림 수·그림 용량)을 그대로 돌려준다.
+    """
+    all_pages = doc.pages()
+    picked = pages or list(range(1, len(all_pages) + 1))
+    out: list[PageFacts] = []
+    for number in picked:
+        if not 1 <= number <= len(all_pages):
+            continue
+        page = all_pages[number - 1]
+        facts = PageFacts(number)
+        try:
+            body, missing = page_text(doc, page)
+        except (PdfError, ValueError, RecursionError):
+            body, missing = "", []
+        facts.chars = len("".join(body.split()))
+        facts.missing_fonts = list(missing)
+        for image in _xobjects(doc, page.data, number):
+            if image.ok:
+                facts.images += 1
+                facts.image_bytes += image.size
+            else:
+                facts.unreadable += 1
+        out.append(facts)
+    return out

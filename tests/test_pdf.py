@@ -684,6 +684,49 @@ class PdfImageTest(unittest.TestCase):
         self.assertTrue(got[0].ok, got[0].why)
 
 
+class PageFactsTest(unittest.TestCase):
+    """쪽마다 무엇이 들어 있는지 센다. «백지다» 라고 단정하지는 않는다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_empty_page_has_nothing(self):
+        objects = {
+            1: b"<< /Type /Catalog /Pages 2 0 R >>",
+            2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>",
+        }
+        path = text_pdf(self.root / "빈쪽.pdf", objects)
+        facts = pdf.page_facts(pdf.open_pdf(path))
+        self.assertEqual(len(facts), 1)
+        self.assertTrue(facts[0].empty)
+        self.assertEqual((facts[0].chars, facts[0].images), (0, 0))
+
+    def test_page_with_an_image_is_not_empty(self):
+        """스캔한 백지도 그림 한 장이다. 비었다고 하면 안 된다."""
+        raw = bytes([255, 255, 255] * 4)
+        path = image_pdf(self.root / "그림쪽.pdf",
+                         [image_obj(raw, width=2, height=2,
+                                    extra=b"/ColorSpace /DeviceRGB "
+                                          b"/BitsPerComponent 8")])
+        facts = pdf.page_facts(pdf.open_pdf(path))
+        self.assertFalse(facts[0].empty)
+        self.assertEqual(facts[0].images, 1)
+        self.assertGreater(facts[0].image_bytes, 0)
+
+    def test_unreadable_image_still_counts_as_something(self):
+        path = image_pdf(self.root / "못읽는그림.pdf",
+                         [image_obj(b"\x00" * 4, width=4, height=4,
+                                    extra=b"/ColorSpace /DeviceCMYK "
+                                          b"/BitsPerComponent 8")])
+        facts = pdf.page_facts(pdf.open_pdf(path))
+        self.assertFalse(facts[0].empty)
+        self.assertEqual((facts[0].images, facts[0].unreadable), (0, 1))
+
+
 class TextExtractTest(unittest.TestCase):
     """PDF 는 «글자» 가 아니라 «글꼴의 몇 번 글리프» 를 적어 둔 형식이다."""
 

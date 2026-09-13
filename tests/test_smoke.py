@@ -290,6 +290,39 @@ class SmokeTest(unittest.TestCase):
         저장 = self.run_cli("file", "pdfimg", 묶음, "-o", str(꺼낸폴더), "--apply")
         self.assertIn("저장했습니다", 저장)
         self.assertEqual(len(list(꺼낸폴더.glob("*.png"))), 2)
+
+        # 백지가 섞인 스캔본에서 그 쪽을 짚어 주고, 짚어 준 명령이 진짜 돌아야 한다
+        하양 = Path(self.path("하양"))
+        하양.mkdir(exist_ok=True)
+        import struct as _struct
+        import zlib as _zlib
+
+        def _png(path, noisy):
+            rows = b""
+            for y in range(24):
+                row = b"".join(bytes([(x * 37 + y * 11) % 256, 9, 200]) if noisy
+                               else b"\xff\xff\xff" for x in range(24))
+                rows += b"\x00" + row
+            def _chunk(kind, body):
+                return (_struct.pack(">I", len(body)) + kind + body
+                        + _struct.pack(">I", _zlib.crc32(kind + body) & 0xFFFFFFFF))
+            path.write_bytes(b"\x89PNG\r\n\x1a\n"
+                             + _chunk(b"IHDR", _struct.pack(">IIBBBBB", 24, 24, 8, 2, 0, 0, 0))
+                             + _chunk(b"IDAT", _zlib.compress(rows))
+                             + _chunk(b"IEND", b""))
+
+        _png(하양 / "1.png", True)
+        _png(하양 / "2.png", False)      # 백지
+        _png(하양 / "3.png", True)
+        스캔 = self.path("스캔본.pdf")
+        self.run_cli("file", "pdf", str(하양), "-o", 스캔)
+        빈쪽 = self.run_cli("file", "pdfblank", 스캔, "--only")
+        self.assertIn("백지로 보이는 쪽 1개: 2", 빈쪽)
+        # 짚어 준 명령을 실제로 돌려 본다
+        정리 = self.path("스캔본-정리.pdf")
+        self.run_cli("file", "pdfcut", 스캔, "--drop", "2", "-o", 정리)
+        self.assertIn("빈 쪽도, 백지로 보이는 쪽도 없습니다",
+                      self.run_cli("file", "pdfblank", 정리, "--only"))
         # 폴더를 주면 한꺼번에. 못 연 파일도 표에 남긴다
         모음 = Path(self.path("피디에프모음"))
         모음.mkdir(exist_ok=True)

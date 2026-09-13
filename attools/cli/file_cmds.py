@@ -603,6 +603,80 @@ def cmd_file_pdfimg(a) -> int:
     return 0
 
 
+def cmd_file_pdfblank(a) -> int:
+    """스캔본에서 빈 쪽과 백지로 보이는 쪽을 찾는다. 빼지는 않는다."""
+    from statistics import median
+
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        total = len(doc.pages())
+        wanted = pdf.page_numbers(a.pages, total) if a.pages else None
+        facts = pdf.page_facts(doc, pages=wanted)
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    if not facts:
+        _p("볼 쪽이 없습니다.")
+        return 1
+
+    sizes = [one.image_bytes for one in facts if one.images]
+    middle = median(sizes) if sizes else 0
+    empty, thin = [], []
+    rows = []
+    for one in facts:
+        note = ""
+        if one.empty:
+            note = "빈 쪽 (글자도 그림도 없음)"
+            empty.append(one.number)
+        elif one.chars == 0 and one.images and middle and \
+                one.image_bytes <= middle * a.ratio:
+            share = one.image_bytes / middle * 100
+            note = f"백지일 수 있음 (그림 용량이 다른 쪽의 {share:.0f}%)"
+            thin.append(one.number)
+        elif one.chars == 0 and one.unreadable:
+            note = "글자가 없고 그림은 꺼내지 못했습니다"
+        rows.append([str(one.number), f"{one.chars:,}", str(one.images),
+                     files.human_size(one.image_bytes) if one.images else "-",
+                     note])
+
+    _p(f"{path.name}  {total}쪽")
+    _p("")
+    show = [row for row in rows if row[4]] if a.only else rows
+    if not show:
+        _p("빈 쪽도, 백지로 보이는 쪽도 없습니다.")
+        return 0
+    _grid(["쪽", "글자", "그림", "그림 용량", "본 것"], show[:a.limit], limit=44)
+    if len(show) > a.limit:
+        _p(f"  ... {len(show) - a.limit}쪽 더")
+
+    _p("")
+    if empty:
+        _p(f"빈 쪽 {len(empty)}개: " + ", ".join(str(n) for n in empty[:20]))
+    if thin:
+        _p(f"백지로 보이는 쪽 {len(thin)}개: "
+           + ", ".join(str(n) for n in thin[:20]))
+    if not empty and not thin:
+        _p("빈 쪽도, 백지로 보이는 쪽도 없습니다.")
+        return 0
+
+    drop = ",".join(str(n) for n in sorted(empty + thin))
+    _p(f"\n빼려면: at file pdfcut {path} --drop {drop} "
+       f"-o {path.stem}-정리.pdf")
+    if thin:
+        _p("  «백지로 보이는 쪽» 은 그림 용량만 보고 짐작한 것입니다. "
+           "열어 보고 빼세요.")
+    _p("  스캔한 그림 속 글자는 읽지 못합니다. 글자가 0이라고 빈 쪽인 것은 "
+       "아닙니다.")
+    return 0
+
+
 def cmd_file_pdfcut(a) -> int:
     """PDF 에서 필요한 쪽만 뽑는다. 원본은 건드리지 않는다."""
     from .. import pdf
@@ -2032,6 +2106,22 @@ def add_commands(sub) -> None:
                   "jpg 는 눌린 그대로 냅니다(다시 눌러 화질을 깎지 않습니다). "
                   "모르는 압축·색 공간은 «꺼내지 못한 것» 으로 이유와 함께 적습니다.")
     pim.set_defaults(func=cmd_file_pdfimg)
+
+    pbl = fp.add_parser("pdfblank",
+                        help="스캔본에서 빈 쪽·백지로 보이는 쪽 찾기")
+    pbl.add_argument("file", metavar="파일.pdf")
+    pbl.add_argument("--pages", metavar="쪽", help="예: 1-3,7 또는 5- 또는 -3")
+    pbl.add_argument("--only", action="store_true",
+                     help="걸린 쪽만 보여 준다")
+    pbl.add_argument("--ratio", type=float, default=0.15, metavar="비율",
+                     help="그림 용량이 가운데 값의 이 비율 이하면 백지로 본다 "
+                          "(기본 0.15)")
+    pbl.add_argument("--limit", type=int, default=40, metavar="쪽")
+    pbl.epilog = ("예: at file pdfblank 스캔본.pdf --only\n"
+                  "글자도 그림도 없는 쪽만 «빈 쪽» 이라고 합니다. 스캔한 백지는 "
+                  "그림 한 장으로 들어 있어 용량으로 짐작만 합니다 - 빼기 전에 "
+                  "열어 보세요.")
+    pbl.set_defaults(func=cmd_file_pdfblank)
 
     num = fp.add_parser("pdfnum", help="PDF 에 쪽 번호 찍기 (합본 계약서·제출본)")
     num.add_argument("file", metavar="파일.pdf")
