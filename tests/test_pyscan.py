@@ -12,6 +12,86 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from attools.code import pyscan
 
 
+class RedefinedTest(unittest.TestCase):
+    """두 번 정의된 이름. 맞는 자리(property 짝·판 갈라 쓰기)는 세지 않는다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def write(self, body: str) -> Path:
+        path = self.root / "겹침.py"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_function_defined_twice(self):
+        path = self.write("def 일하다():\n    return 1\n\n\n"
+                          "def 일하다():\n    return 2\n")
+        found = pyscan.redefined(path)
+        self.assertEqual([(f.name, f.kind, f.first, f.line) for f in found],
+                         [("일하다", "함수", 1, 5)])
+
+    def test_method_defined_twice(self):
+        path = self.write("class 가:\n    def 보다(self):\n        pass\n\n"
+                          "    def 보다(self):\n        pass\n")
+        found = pyscan.redefined(path)
+        self.assertEqual(len(found), 1)
+        self.assertEqual((found[0].kind, found[0].where), ("메서드", "가"))
+
+    def test_property_pair_is_not_counted(self):
+        path = self.write("class 가:\n"
+                          "    @property\n"
+                          "    def 값(self):\n        return self._v\n\n"
+                          "    @값.setter\n"
+                          "    def 값(self, v):\n        self._v = v\n")
+        self.assertEqual(pyscan.redefined(path), [])
+
+    def test_version_split_is_not_counted(self):
+        """if/try 안에서 갈라 정의하는 것은 옳은 코드다."""
+        path = self.write("import sys\n\n"
+                          "if sys.version_info >= (3, 11):\n"
+                          "    def 하다():\n        return 1\n"
+                          "else:\n"
+                          "    def 하다():\n        return 2\n")
+        self.assertEqual(pyscan.redefined(path), [])
+
+    def test_overload_is_not_counted(self):
+        path = self.write("from typing import overload\n\n"
+                          "@overload\n"
+                          "def 하다(x: int) -> int: ...\n\n"
+                          "@overload\n"
+                          "def 하다(x: str) -> str: ...\n\n"
+                          "def 하다(x):\n    return x\n")
+        self.assertEqual(pyscan.redefined(path), [])
+
+    def test_same_name_in_different_classes_is_fine(self):
+        path = self.write("class 가:\n    def 보다(self):\n        pass\n\n"
+                          "class 나:\n    def 보다(self):\n        pass\n")
+        self.assertEqual(pyscan.redefined(path), [])
+
+    def test_broken_file_is_skipped(self):
+        path = self.write("def 하다(:\n")
+        self.assertEqual(pyscan.redefined(path), [])
+
+    def test_scan_counts_files(self):
+        self.write("def 하다():\n    pass\n\n\ndef 하다():\n    pass\n")
+        (self.root / "멀쩡.py").write_text("def 하나():\n    pass\n",
+                                           encoding="utf-8")
+        found, seen = pyscan.redefined_scan([self.root])
+        self.assertEqual(seen, 2)
+        self.assertEqual(len(found), 1)
+
+    def test_our_own_repository_is_clean(self):
+        """이 검사는 우리 저장소에서 실제로 한 번 사고가 나서 만들었다."""
+        root = Path(__file__).resolve().parents[1]
+        found, seen = pyscan.redefined_scan([root / "attools", root / "tests"])
+        self.assertEqual(found, [], "\n".join(
+            f"{f.path}:{f.line} {f.name}" for f in found))
+        self.assertGreater(seen, 50)
+
+
 class UnusedImportTest(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())

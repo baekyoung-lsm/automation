@@ -40,6 +40,11 @@ jobs:
       - name: 안 쓰는 import 검사 (자기 자신에게)
         run: python at dev unused attools tests
 
+      # 같은 이름으로 함수를 다시 쓰면 파이썬은 말없이 덮는다. 실제로 화면
+      # 파일에서 도우미 하나가 그렇게 가려져 멀쩡하던 기능이 멎은 적이 있다.
+      - name: 두 번 정의된 이름 검사 (자기 자신에게)
+        run: python at dev twice attools tests
+
       # 3.10 에서만 깨지는 문법·표준 라이브러리를 미리 잡는다.
       - name: 지원 파이썬 판 검사 (자기 자신에게)
         run: python at dev pyver attools tests --target 3.10

@@ -328,6 +328,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev fake -c <열=종류>` | 시험용 가짜 표 만들기 (한글 이름·전화·주소·사업자번호) |
 | `at dev lock <이전> <이후>` | 잠금 파일 비교 - 어떤 패키지가 얼마나 올라갔나 |
 | `at dev unused [경로]` | 안 쓰는 import 찾기. `--modules` 로 아무도 안 부르는 모듈까지 |
+| `at dev twice [경로]` | 같은 파일에서 **두 번 정의된** 함수·클래스·메서드 (뒤엣것이 앞엣것을 가린다) |
 | `at dev outline [경로]` | 파이썬 소스 구조 - 파일별 클래스·함수·긴 함수·설명 없는 것 |
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
@@ -386,6 +387,7 @@ at dev http localhost:8080/health --head               # 헤더만
 at dev health https://api.example.com/health https://example.com  # 배포 뒤
 at dev health --from 주소목록.txt --expect 200
 at dev unused src/ --modules                           # 걸리면 exit 1
+at dev twice attools tests                 # 가려진 이름이 있으면 exit 1
 at dev outline src/ --sort 길이                        # 긴 함수가 있는 파일부터
 at dev loc .                       # 이 저장소가 얼마나 큰가
 at dev loc src --glob '*.ts' --top 20
@@ -465,6 +467,13 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 값이다 — 정확한 지표라기보다 어디부터 볼지 정하는 눈금이라고 화면에도 적는다. 실행하지 않고
 `ast` 로만 읽으므로 남의 코드에도 안전하다. `--file` 로 한 파일의 목록을 보면 메서드는
 소속 클래스 아래에 들여써서 나온다.
+
+`at dev twice` 는 **같은 파일에서 두 번 정의된** 함수·클래스·메서드를 찾는다. 파이썬은
+아무 말 없이 뒤엣것으로 덮으므로, 앞엣것은 그 순간부터 아무도 부르지 못한다 — 실제로 이
+저장소의 화면 파일에서 이미 있던 도우미를 같은 이름으로 다시 쓰는 바람에 멀쩡하던 기능이
+멎은 적이 있다. 시험 파일에서 같은 이름의 시험 메서드가 겹치면 **앞엣것은 아예 돌지 않는데**
+겉보기에는 초록불이라 더 나쁘다. `if`/`try` 안에서 파이썬 판에 따라 갈라 정의한 것,
+`@property` 의 짝(`@x.setter`), `@overload` 는 맞는 코드이므로 세지 않는다.
 
 `at dev unused` 는 `ast` 로 읽으므로 문자열 검색보다 정확하다. 별칭(`import numpy as np`),
 속성 사용(`os.path.join`), `__all__` 에 적힌 이름, 문자열 타입 주석까지 쓴 것으로 센다.

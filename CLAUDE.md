@@ -132,6 +132,7 @@ python3.10 -m unittest discover -s tests   # CI 가 3.10 도 돌린다. 여기�
 ./at git scan                            # 자기 저장소 시크릿 검사
 ./at doc lint README.md --only-errors    # 깨진 링크·이미지·제목 구조
 ./at dev unused attools tests            # 안 쓰는 import
+./at dev twice attools tests             # 두 번 정의돼 앞엣것이 가려진 이름
 ./at dev pyver attools tests --target 3.10   # 3.10 에서 안 도는 자리
 ```
 

@@ -103,6 +103,89 @@ def unused_imports(path: Path, *, skip_init: bool = True) -> list[UnusedImport]:
     return out
 
 
+@dataclass
+class Redefined:
+    """같은 자리에서 두 번 정의된 이름. 뒤엣것이 앞엣것을 가린다."""
+
+    path: Path
+    name: str
+    kind: str          # 함수 · 클래스 · 메서드
+    first: int         # 먼저 정의된 줄
+    line: int          # 다시 정의된 줄
+    where: str = ""    # 어느 클래스 안인가 (모듈 자리면 빈 값)
+
+
+# property 의 짝, typing.overload 처럼 «같은 이름이 여러 번» 이 맞는 자리.
+KEEP_DECORATORS = ("setter", "getter", "deleter", "overload", "register",
+                   "validator", "default")
+
+
+def _decorated(node) -> bool:
+    for one in getattr(node, "decorator_list", []):
+        text = ast.dump(one)
+        if any(f"'{name}'" in text for name in KEEP_DECORATORS):
+            return True
+    return False
+
+
+def _redefined_in(body, path: Path, where: str) -> list[Redefined]:
+    """한 몸통(모듈·클래스) 안에서 같은 이름이 두 번 나오는 자리.
+
+    if / try 안의 정의는 그 몸통의 직계가 아니므로 여기 걸리지 않는다.
+    파이썬 판에 따라 다르게 정의하는 자리가 그렇게 생겼고, 그것은 옳은 코드다.
+    """
+    seen: dict[str, tuple[int, str]] = {}
+    out: list[Redefined] = []
+    for node in body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            kind = "메서드" if where else "함수"
+        elif isinstance(node, ast.ClassDef):
+            kind = "클래스"
+        else:
+            continue
+        if _decorated(node):
+            continue
+        earlier = seen.get(node.name)
+        if earlier is not None:
+            out.append(Redefined(path, node.name, kind, earlier[0],
+                                 node.lineno, where))
+        seen[node.name] = (node.lineno, kind)
+    return out
+
+
+def redefined(path: Path) -> list[Redefined]:
+    """한 파일에서 두 번 정의된 함수·클래스·메서드를 찾는다.
+
+    파이썬은 아무 말 없이 뒤엣것으로 덮는다. 화면 파일에 이미 있던 도우미를
+    같은 이름으로 다시 쓰는 바람에 멀쩡하던 기능이 멎은 적이 있어 만들었다.
+    시험 파일에서도 같은 이름의 시험 메서드는 하나만 돌아 조용히 안 돌게 된다.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return []
+
+    out = _redefined_in(tree.body, path, "")
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            out += _redefined_in(node.body, path, node.name)
+    return sorted(out, key=lambda r: r.line)
+
+
+def redefined_scan(roots: list[Path]) -> tuple[list[Redefined], int]:
+    """여러 경로를 훑는다. (찾은 것, 본 파일 수)"""
+    found: list[Redefined] = []
+    seen = 0
+    for root in roots:
+        paths = [root] if root.is_file() else list(iter_python(root))
+        for path in paths:
+            if path.suffix != ".py":
+                continue
+            seen += 1
+            found += redefined(path)
+    return found, seen
+
+
 def module_name(path: Path, root: Path) -> str:
     rel = path.relative_to(root).with_suffix("")
     parts = [p for p in rel.parts if p != "__init__"]

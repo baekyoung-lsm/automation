@@ -687,6 +687,32 @@ def cmd_dev_pyver(a) -> int:
     return 1 if target and report.over(target) else 0
 
 
+def cmd_dev_twice(a) -> int:
+    """같은 파일에서 두 번 정의된 이름. 파이썬은 말없이 뒤엣것으로 덮는다."""
+    roots = [Path(one) for one in a.paths]
+    for root in roots:
+        if not root.exists():
+            _p(f"그런 경로가 없습니다: {root}")
+            return 1
+
+    found, checked = pyscan.redefined_scan(roots)
+    if not found:
+        _p(f"파일 {checked}개, 두 번 정의된 이름이 없습니다.")
+        return 0
+
+    _p(f"두 번 정의된 이름 {len(found)}건 (파일 {checked}개 훑음)")
+    _grid(["파일", "무엇", "이름", "어디", "먼저", "나중"],
+          [[str(one.path), one.kind, one.name, one.where or "-",
+            str(one.first), str(one.line)] for one in found[:a.limit]],
+          limit=40)
+    if len(found) > a.limit:
+        _p(f"  ... {len(found) - a.limit}건 더")
+    _p("뒤엣것이 앞엣것을 가립니다. 앞엣것은 아무도 부르지 못합니다.")
+    _p("  if/try 안에서 갈라 정의한 것과 property 짝(@x.setter), "
+       "@overload 는 세지 않습니다.")
+    return 1
+
+
 def cmd_dev_unused(a) -> int:
     roots = [Path(p) for p in a.dirs]
     for root in roots:
@@ -1834,6 +1860,16 @@ def add_commands(sub) -> None:
                     help="__init__.py 도 본다 (다시 내보내기가 많아 오탐이 늘어난다)")
     un.add_argument("--limit", type=int, default=30)
     un.set_defaults(func=cmd_dev_unused)
+
+    tw = dp.add_parser("twice",
+                       help="두 번 정의된 이름 찾기 (중복 정의 - 뒤엣것이 "
+                            "앞엣것을 가린다)")
+    tw.add_argument("paths", nargs="*", default=["."], metavar="경로")
+    tw.add_argument("--limit", type=int, default=30)
+    tw.epilog = ("예: at dev twice attools tests\n"
+                 "같은 이름으로 함수를 다시 쓰면 파이썬은 아무 말 없이 덮습니다. "
+                 "시험 메서드가 겹치면 앞엣것은 아예 돌지 않습니다.")
+    tw.set_defaults(func=cmd_dev_twice)
 
     ht = dp.add_parser("http", help="HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐)")
     ht.add_argument("url", metavar="주소")
