@@ -1197,6 +1197,12 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("연차", self.run_cli("life", "annual", "2020-03-02",
                                           "--on", "2026-09-07", "--table", "2"))
         self.assertIn("부가세", self.run_cli("life", "tax", "1100000"))
+        보험 = self.run_cli("life", "insure", "300만")
+        self.assertIn("국민연금", 보험)
+        self.assertIn("간이세액표", 보험)      # 세금은 세지 않는다고 말해야 한다
+        self.assertIn("실수령액",
+                      self.run_cli("life", "insure", "4800만", "--annual",
+                                   "--tax", "84850"))
         시급 = self.run_cli("life", "hourly", "300만", "--overtime", "10")
         self.assertIn("통상시급", 시급)
         self.assertIn("연장 10시간", 시급)

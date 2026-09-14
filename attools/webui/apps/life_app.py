@@ -199,6 +199,45 @@ def tax(payload: dict) -> dict:
             "note": "원 미만은 버립니다."}
 
 
+def insure(payload: dict) -> dict:
+    """4대보험 공제. 근로소득세는 세지 않는다고 그 자리에 적는다."""
+    pay = _amount(payload, "amount")
+    if form.flag(payload, "annual"):
+        pay /= 12
+    try:
+        got = life.insurance(pay)
+    except ValueError as exc:
+        raise UiError(str(exc)) from None
+
+    rows = [[f"{one.name} ({one.rate:g}%)",
+             f"{one.worker:,}원" + (f"  · {one.note}" if one.note else "")]
+            for one in got.rows]
+    rows.append(["근로자 부담 합계", f"{got.worker:,}원"])
+    rows.append(["4대보험만 뺀 금액", life.format_won(got.left)])
+    rows.append(["사업주 부담 합계", f"{got.company:,}원"])
+
+    tax = _amount(payload, "tax") if form.text(payload, "tax") else 0
+    headline = f"4대보험 {got.worker:,}원 공제"
+    if tax:
+        rows.append(["소득세·지방소득세 (적어 주신 값)", f"{int(tax):,}원"])
+        rows.append(["실수령액", life.format_won(got.left - int(tax))])
+        headline = f"실수령 {life.format_won(got.left - int(tax))}"
+    return {
+        "headline": headline,
+        "rows": rows,
+        "note": f"{got.year}년 요율 기준입니다. 근로소득세는 근로소득 간이세액표를 "
+                "봐야 해서 요율로 계산할 수 없습니다 - 급여명세서의 "
+                "소득세+지방소득세를 적으면 실수령액까지 냅니다. 산재보험과 "
+                "사업주의 고용안정·직업능력개발 몫은 세지 않았습니다. 공단 "
+                "고지서는 10원 미만을 절사하는 곳이 있어 몇 원 다를 수 있습니다.",
+        "command": form.command("life", "insure", form.text(payload, "amount"),
+                                *(["--annual"] if form.flag(payload, "annual")
+                                  else []),
+                                *(["--tax", form.text(payload, "tax")]
+                                  if tax else [])),
+    }
+
+
 def saving(payload: dict) -> dict:
     """적금·예금 만기 계산. 단리 기준이라는 것을 그 자리에 적는다."""
     kind = form.choice(payload, "kind", {"적금", "예금"}, "적금")
@@ -457,6 +496,7 @@ BODY = """
   <button data-tab="workday" aria-selected="false">영업일</button>
   <button data-tab="unit" aria-selected="false">단위</button>
   <button data-tab="tax" aria-selected="false">부가세·원천징수</button>
+  <button data-tab="insure" aria-selected="false">4대보험</button>
   <button data-tab="saving" aria-selected="false">적금·예금</button>
   <button data-tab="rent" aria-selected="false">전월세</button>
   <button data-tab="worktime" aria-selected="false">근무 시간</button>
@@ -558,6 +598,25 @@ BODY = """
     <div style="flex:0 0 auto"><button class="primary" id="btn-tax">계산</button></div>
   </div>
   <div id="tax-out"></div>
+</section>
+
+<section class="card" data-panel="insure" hidden>
+  <h2>월급에서 4대보험이 얼마나</h2>
+  <p class="note">국민연금·건강보험·장기요양·고용보험을 셉니다.
+     <b>근로소득세는 세지 않습니다</b> - 간이세액표를 봐야 나오는 값이라
+     요율로 맞출 수 없습니다. 급여명세서의 소득세+지방소득세를 적으면
+     실수령액까지 냅니다.</p>
+  <div class="row">
+    <div><label for="i-amount">월 보수 (세전)</label>
+      <input type="text" id="i-amount" placeholder="300만" spellcheck="false"></div>
+    <div><label for="i-tax">소득세+지방소득세 (선택)</label>
+      <input type="text" id="i-tax" placeholder="84850" spellcheck="false"></div>
+    <div style="flex:0 0 auto"><button class="primary" id="btn-insure">계산</button></div>
+  </div>
+  <div class="checks">
+    <label><input type="checkbox" id="i-annual"> 적은 금액이 연봉이다</label>
+  </div>
+  <div id="insure-out"></div>
 </section>
 
 <section class="card" data-panel="saving" hidden>
@@ -834,6 +893,16 @@ BODY = """
       '<p class="note">' + AT.esc(d.note) + "</p>";
   }
 
+  $("btn-insure").addEventListener("click", function () {
+    run("insure-out", "/api/life/insure", {
+      amount: $("i-amount").value, tax: $("i-tax").value,
+      annual: $("i-annual").checked,
+    }, function (d) {
+      table2("insure-out", d);
+      $("insure-out").innerHTML += AT.command(d.command);
+    });
+  });
+
   $("btn-saving").addEventListener("click", function () {
     run("saving-out", "/api/life/saving", {
       kind: $("v-kind").value, amount: $("v-amount").value,
@@ -911,7 +980,7 @@ def make() -> App:
         body=lambda: BODY,
         actions={"dday": dday, "split": split, "loan": loan, "unit": unit,
                  "annual": annual, "severance": severance,
-                 "tax": tax, "won": won, "workday": workday,
+                 "tax": tax, "insure": insure, "won": won, "workday": workday,
                  "holidays": holidays, "saving": saving, "rent": rent,
                  "worktime": worktime, "hourly": hourly,
                  "weekly": weekly},

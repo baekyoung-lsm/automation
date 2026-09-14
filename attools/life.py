@@ -442,6 +442,102 @@ class Withholding:
         return self.tax / self.gross * 100 if self.gross else 0.0
 
 
+
+# ------------------------------------------------- 4대보험 (직장가입자)
+
+# 요율은 해마다 바뀐다. 언제 기준인지 함께 들고 다녀야 «작년 요율로 계산한
+# 값» 을 그냥 내놓는 일이 없다. 바뀌면 여기 한 줄과 시험만 고친다.
+#
+# 2026년 기준 (모두 «보수월액 대비» 총 요율이고, 근로자는 절반이다)
+#   국민연금   9.5%   - 2026년부터 2033년까지 해마다 0.5%p 오른다
+#   건강보험   7.19%
+#   장기요양   0.9448% - 보건복지부는 «소득 대비» 로 고시한다
+#                        (건강보험료 대비로는 약 13.14%)
+#   고용보험   1.8%   - 실업급여 몫. 근로자 0.9%
+#                        (사업주는 고용안정·직업능력개발 몫을 더 낸다)
+#   산재보험   업종마다 다르고 사업주가 전액 낸다 - 여기서 세지 않는다
+INSURANCE_YEAR = 2026
+PENSION_RATE = 9.5
+HEALTH_RATE = 7.19
+CARE_RATE = 0.9448          # 소득 대비
+JOB_RATE = 1.8
+
+# 국민연금만 기준소득월액 상·하한이 있다 (2025.7 ~ 2026.6 적용)
+PENSION_TOP = 6_370_000
+PENSION_FLOOR = 400_000
+
+
+@dataclass
+class Premium:
+    name: str
+    base: int            # 무엇에 매겼는가 (기준소득월액·보수월액)
+    rate: float          # 총 요율 (%)
+    worker: int          # 근로자 부담
+    company: int         # 사업주 부담
+    note: str = ""
+
+
+@dataclass
+class Insurance:
+    pay: int
+    year: int
+    rows: list = field(default_factory=list)
+
+    @property
+    def worker(self) -> int:
+        return sum(one.worker for one in self.rows)
+
+    @property
+    def company(self) -> int:
+        return sum(one.company for one in self.rows)
+
+    @property
+    def left(self) -> int:
+        """4대보험만 뺀 금액. 근로소득세는 여기서 빼지 않는다."""
+        return self.pay - self.worker
+
+
+def _halve(base: float, rate: float) -> tuple[int, int]:
+    """총 보험료를 반씩. 원 미만은 버린다 - 공단 고지도 버림이다."""
+    total = base * rate / 100
+    worker = int(total / 2)
+    return worker, int(total) - worker
+
+
+def insurance(pay: float, *, year: int = INSURANCE_YEAR,
+              pension: float = PENSION_RATE, health: float = HEALTH_RATE,
+              care: float = CARE_RATE, job: float = JOB_RATE) -> Insurance:
+    """월 보수(세전)에서 4대보험 공제를 센다. 근로소득세는 세지 않는다.
+
+    근로소득세는 «근로소득 간이세액표» 를 봐야 해서 요율로 계산할 수 없다.
+    모르는 것을 그럴듯하게 채우는 대신 4대보험까지만 세고, 세금은 아는
+    금액을 받아 빼도록 한다.
+    """
+    if pay <= 0:
+        raise ValueError("월 보수는 0보다 커야 합니다.")
+    pay = int(pay)
+    out = Insurance(pay, year)
+
+    base = min(max(pay, PENSION_FLOOR), PENSION_TOP)
+    note = ""
+    if base != pay:
+        note = (f"기준소득월액 상한 {PENSION_TOP:,}원" if base == PENSION_TOP
+                else f"기준소득월액 하한 {PENSION_FLOOR:,}원")
+    worker, company = _halve(base, pension)
+    out.rows.append(Premium("국민연금", base, pension, worker, company, note))
+
+    worker, company = _halve(pay, health)
+    out.rows.append(Premium("건강보험", pay, health, worker, company))
+
+    worker, company = _halve(pay, care)
+    out.rows.append(Premium("장기요양", pay, care, worker, company,
+                            f"건강보험료의 {care / health * 100:.2f}%"))
+
+    worker, company = _halve(pay, job)
+    out.rows.append(Premium("고용보험", pay, job, worker, company,
+                            "실업급여 몫. 사업주는 더 낸다"))
+    return out
+
 def withhold(gross: float, *, rate: float = WITHHOLD_RATE) -> Withholding:
     """원천징수. 지방소득세는 소득세의 10% 이고, 각각 원 미만을 버린다.
 

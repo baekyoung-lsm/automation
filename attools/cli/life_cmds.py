@@ -211,6 +211,52 @@ def cmd_life_hourly(a) -> int:
     return 0
 
 
+def cmd_life_insure(a) -> int:
+    """월급에서 4대보험이 얼마나 빠지는지. 근로소득세는 세지 않는다."""
+    try:
+        amount = life.parse_amount(" ".join(a.amount))
+    except ValueError as e:
+        _p(str(e))
+        return 1
+    if a.annual:
+        amount /= 12
+    try:
+        got = life.insurance(amount, pension=a.pension, health=a.health,
+                             care=a.care, job=a.job)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"월 보수(세전) {life.format_won(got.pay)}"
+       f"{'  (연봉을 12로 나눴습니다)' if a.annual else ''}")
+    _p(f"{got.year}년 요율 기준\n")
+    _grid(["항목", "매긴 금액", "요율", "근로자", "사업주", "메모"],
+          [[one.name, f"{one.base:,}", f"{one.rate:g}%", f"{one.worker:,}",
+            f"{one.company:,}", one.note] for one in got.rows], limit=30)
+    _p(f"\n근로자 부담 합계 {got.worker:,}원  ·  사업주 부담 합계 "
+       f"{got.company:,}원")
+    _p("  사업주는 여기에 고용안정·직업능력개발 몫과 산재보험을 더 냅니다 "
+       "- 그 둘은 세지 않았습니다.")
+    _p(f"4대보험만 뺀 금액 {life.format_won(got.left)}")
+
+    if a.tax:
+        try:
+            tax = life.parse_amount(a.tax)
+        except ValueError as e:
+            _p(str(e))
+            return 1
+        _p(f"\n적어 주신 소득세·지방소득세 {int(tax):,}원까지 빼면 "
+           f"실수령액 {life.format_won(got.left - int(tax))}")
+    else:
+        _p("\n근로소득세는 «근로소득 간이세액표» 를 봐야 해서 요율로 계산할 수 "
+           "없습니다.")
+        _p("  급여명세서의 소득세+지방소득세를 --tax 로 주시면 실수령액까지 뺍니다.")
+    _p("공단 고지서는 10원 미만을 절사하는 곳이 있어 몇 원 다를 수 있습니다.")
+    _p("요율은 해마다 바뀝니다. 바뀌면 --pension 10 처럼 «총» 요율로 주세요 "
+       "(근로자는 그 절반입니다).")
+    return 0
+
+
 def cmd_life_tax(a) -> int:
     try:
         amount = life.parse_amount(" ".join(a.amount))
@@ -713,6 +759,24 @@ def add_commands(sub) -> None:
     un = lp.add_parser("unit", help="단위 변환 (평/㎡, 근/돈, 마일, 화씨…)")
     un.add_argument("value", nargs="+", metavar="값+단위", help="예: 84㎡, 30평, 1근, 100F")
     un.set_defaults(func=cmd_life_unit)
+
+    ins = lp.add_parser("insure", help="4대보험 공제액 - 월급에서 얼마나 빠지나")
+    ins.add_argument("amount", nargs="+", metavar="금액",
+                     help="월 보수(세전). 예: 3000000, 300만")
+    ins.add_argument("--annual", action="store_true",
+                     help="준 금액이 연봉이다 (12로 나눈다)")
+    ins.add_argument("--tax", metavar="금액",
+                     help="급여명세서의 소득세+지방소득세. 주면 실수령액까지 뺀다")
+    ins.add_argument("--pension", type=float, default=life.PENSION_RATE,
+                     metavar="%", help="국민연금 총 요율")
+    ins.add_argument("--health", type=float, default=life.HEALTH_RATE,
+                     metavar="%", help="건강보험 총 요율")
+    ins.add_argument("--care", type=float, default=life.CARE_RATE,
+                     metavar="%", help="장기요양 총 요율 (소득 대비)")
+    ins.add_argument("--job", type=float, default=life.JOB_RATE,
+                     metavar="%", help="고용보험 총 요율 (실업급여 몫)")
+    ins.epilog = "예: at life insure 300만 --tax 84850"
+    ins.set_defaults(func=cmd_life_insure)
 
     tx = lp.add_parser("tax", help="부가세 계산과 원천징수 실수령액")
     tx.add_argument("amount", nargs="+", metavar="금액", help="예: 1100000, 110만")

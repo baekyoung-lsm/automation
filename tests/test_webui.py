@@ -1609,6 +1609,23 @@ class NovelAppTest(UiCase):
 class LifeAppTest(UiCase):
     """일상 계산 화면. 숫자만 다루므로 파일은 만들지 않는다."""
 
+    def test_insure_counts_the_four_and_says_it_skips_income_tax(self):
+        _, data = self.post("/api/life/insure", {"amount": "300만"})
+        붙인 = " ".join(row[0] for row in data["rows"])
+        for name in ("국민연금", "건강보험", "장기요양", "고용보험"):
+            self.assertIn(name, 붙인)
+        self.assertIn("간이세액표", data["note"])
+        self.assertNotIn("실수령", data["headline"])
+
+    def test_insure_with_a_known_tax_gives_the_take_home(self):
+        _, data = self.post("/api/life/insure",
+                            {"amount": "4800만", "annual": True, "tax": "84850"})
+        self.assertIn("실수령", data["headline"])
+
+    def test_insure_refuses_an_empty_amount(self):
+        with self.assertRaises(urllib.error.HTTPError):
+            self.post("/api/life/insure", {"amount": ""})
+
     def test_dday(self):
         _, data = self.post("/api/life/dday",
                             {"date": "2026-03-15", "today": "2026-09-04"})
@@ -3089,6 +3106,11 @@ class CommandHintTest(UiCase):
                       "hidden": True, "fixname": True}):
             _, data = self.post("/api/files/preview", body)
             self.accepts(data["command"])
+
+    def test_life_insure_command(self):
+        _, data = self.post("/api/life/insure",
+                            {"amount": "300만", "tax": "84850", "annual": False})
+        self.accepts(data["command"])
 
     def test_privacy_command(self):
         (self.work / "명단.csv").write_text("이름\n김민수\n", encoding="utf-8")

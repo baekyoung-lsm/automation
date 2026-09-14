@@ -545,3 +545,52 @@ class WeeklyHolidayPayTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             life.weekly_holiday_pay(10000, -1)
 
+
+
+class InsuranceTest(unittest.TestCase):
+    """4대보험 공제. 요율은 해마다 바뀌므로 기준 연도까지 함께 본다."""
+
+    def test_the_four_premiums_are_half_of_the_total_rate(self):
+        got = life.insurance(3_000_000)
+        몫 = {one.name: one.worker for one in got.rows}
+        self.assertEqual(몫["국민연금"], int(3_000_000 * 9.5 / 100 / 2))
+        self.assertEqual(몫["건강보험"], int(3_000_000 * 7.19 / 100 / 2))
+        self.assertEqual(몫["장기요양"], int(3_000_000 * 0.9448 / 100 / 2))
+        self.assertEqual(몫["고용보험"], int(3_000_000 * 1.8 / 100 / 2))
+        self.assertEqual(got.worker, sum(몫.values()))
+        self.assertEqual(got.left, 3_000_000 - got.worker)
+
+    def test_pension_stops_at_the_ceiling(self):
+        """국민연금만 기준소득월액 상·하한이 있다. 안 걸면 고소득에서 틀린다."""
+        높은 = life.insurance(10_000_000)
+        연금 = [one for one in 높은.rows if one.name == "국민연금"][0]
+        self.assertEqual(연금.base, life.PENSION_TOP)
+        self.assertIn("상한", 연금.note)
+        건강 = [one for one in 높은.rows if one.name == "건강보험"][0]
+        self.assertEqual(건강.base, 10_000_000)      # 건강보험은 그대로다
+
+    def test_pension_has_a_floor_too(self):
+        낮은 = life.insurance(200_000)
+        연금 = [one for one in 낮은.rows if one.name == "국민연금"][0]
+        self.assertEqual(연금.base, life.PENSION_FLOOR)
+        self.assertIn("하한", 연금.note)
+
+    def test_rates_can_be_given_for_another_year(self):
+        got = life.insurance(3_000_000, pension=9.0)
+        연금 = [one for one in got.rows if one.name == "국민연금"][0]
+        self.assertEqual(연금.worker, 135_000)
+
+    def test_the_year_of_the_rates_travels_with_the_numbers(self):
+        self.assertEqual(life.insurance(3_000_000).year, life.INSURANCE_YEAR)
+
+    def test_zero_pay_is_refused(self):
+        with self.assertRaises(ValueError):
+            life.insurance(0)
+
+    def test_rounding_never_loses_a_won(self):
+        """반씩 나눌 때 홀수가 사라지면 합이 안 맞는다."""
+        for pay in (1_234_567, 2_345_678, 3_456_789):
+            got = life.insurance(pay)
+            for one in got.rows:
+                self.assertEqual(one.worker + one.company,
+                                 int(one.base * one.rate / 100), one.name)
