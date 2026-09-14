@@ -81,7 +81,7 @@ def launcher_body(apps: list[App], token: str) -> str:
         blocks.append(f'<section class="card" data-section="1"><h2>{escape(section)}</h2>'
                       f'<ul class="apps">{items}</ul></section>')
 
-    # 화면이 열두 개다. 무엇을 하고 싶은지로 걸러 낼 수 있게 한다.
+    # 화면이 여럿이다. 무엇을 하고 싶은지로 걸러 낼 수 있게 한다.
     search = ('<section class="card">'
               '<label for="q">무엇을 하고 싶으세요</label>'
               '<input type="text" id="q" spellcheck="false" '

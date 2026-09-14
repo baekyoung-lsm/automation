@@ -48,7 +48,7 @@ class UiCase(unittest.TestCase):
     """서버를 띄우고 홈을 임시 폴더로 돌리는 뼈대. 시험은 물려받는 쪽에 둔다.
 
     이 자리에 시험을 두면 화면마다 물려받은 클래스에서 똑같은 시험이 한 번씩
-    더 돈다. 열두 화면이면 열두 번이다.
+    더 돈다. 화면이 열 몇 개면 그만큼 되풀이된다.
     """
 
     def _two_page_pdf(self, name: str = "스캔") -> Path:
@@ -1820,6 +1820,61 @@ class LifeSeveranceTest(UiCase):
         self.assertEqual(ctx.exception.code, 400)
 
 
+
+class PrivacyAppTest(UiCase):
+    """개인정보 점검 화면. 읽기만 하고, 값을 가려서 돌려줘야 한다."""
+
+    def 자료(self):
+        from attools import xlsx
+
+        root = self.work / "보낼자료"
+        root.mkdir()
+        번호 = "9001011234568"                       # 검증번호까지 맞는 가짜 번호
+        (root / "명단.csv").write_text(
+            f"이름,번호,연락처\n김민수,{번호},010-1234-5678\n", encoding="utf-8")
+        xlsx.write_sheets(root / "급여.xlsx",
+                          {"2026년": [["이름", "카드"],
+                                      ["김민수", "4111-1111-1111-1111"]]})
+        (root / "안내.md").write_text("# 안내\n담당 hong@example.com\n",
+                                      encoding="utf-8")
+        return root, 번호
+
+    def test_finds_files_and_hides_the_values(self):
+        root, 번호 = self.자료()
+        _, data = self.post("/api/privacy/scan", {"path": str(root)})
+        self.assertEqual(data["hit_files"], 3)
+        본문 = json.dumps(data, ensure_ascii=False)
+        self.assertIn("900101-1******", 본문)
+        self.assertNotIn(번호, 본문)                  # 원래 값은 나가면 안 된다
+        self.assertNotIn("4111111111111111", 본문)
+
+    def test_only_the_chosen_kinds(self):
+        root, _번호 = self.자료()
+        _, data = self.post("/api/privacy/scan",
+                            {"path": str(root), "kind_0": True})  # 주민등록번호
+        kinds = {kind for row in data["rows"] for kind in row[2].split(", ")}
+        self.assertEqual(kinds, {"주민등록번호"})
+
+    def test_nothing_is_changed_on_disk(self):
+        root, _번호 = self.자료()
+        before = {p.name: p.read_bytes() for p in root.iterdir()}
+        self.post("/api/privacy/scan", {"path": str(root)})
+        self.assertEqual({p.name: p.read_bytes() for p in root.iterdir()},
+                         before)
+
+    def test_unreadable_files_are_reported(self):
+        root, _번호 = self.자료()
+        (root / "망가짐.docx").write_bytes("zip 이 아니다".encode())
+        _, data = self.post("/api/privacy/scan", {"path": str(root)})
+        self.assertEqual([row[0] for row in data["broken"]], ["망가짐.docx"])
+
+    def test_empty_folder_says_so(self):
+        빈 = self.work / "빈폴더"
+        빈.mkdir()
+        with self.assertRaises(urllib.error.HTTPError):
+            self.post("/api/privacy/scan", {"path": str(빈)})
+
+
 class TextAppTest(UiCase):
     """일괄 바꾸기 화면. 고친 뒤 되돌아오는지까지 본다."""
 
@@ -2862,7 +2917,7 @@ class RecentTest(UiCase):
 
 
 class LauncherTest(UiCase):
-    """런처. 화면이 열두 개라 찾을 수 있어야 한다."""
+    """런처. 화면이 여럿이라 찾을 수 있어야 한다."""
 
     def launcher(self):
         """UiCase 의 self.home 은 임시 홈 경로라 이름을 겹치지 않게 둔다."""
@@ -3034,6 +3089,13 @@ class CommandHintTest(UiCase):
                       "hidden": True, "fixname": True}):
             _, data = self.post("/api/files/preview", body)
             self.accepts(data["command"])
+
+    def test_privacy_command(self):
+        (self.work / "명단.csv").write_text("이름\n김민수\n", encoding="utf-8")
+        _, data = self.post("/api/privacy/scan",
+                            {"path": str(self.work), "glob": "*.csv",
+                             "kind_0": True, "hidden": True})
+        self.accepts(data["command"])
 
     def test_files_pdf_commands(self):
         source = self._two_page_pdf("명령확인")
