@@ -507,6 +507,48 @@ def cmd_novel_pov(a) -> int:
     return 1
 
 
+def cmd_novel_thread(a) -> int:
+    """복선·소재가 어느 화에 나오고 언제부터 안 나오는지."""
+    targets = _novel_targets(a.paths)
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    chapters: list[tuple[str, str]] = []
+    for path in targets:
+        raw = manuscript.read_text(path)
+        chapters.append((manuscript.chapter_title(path, raw),
+                         manuscript.strip_headings(raw)))
+    total = len(chapters)
+
+    rows = names.cast_by_chapter(chapters, list(a.words))
+    threads = names.thread_notes(rows, total, tail=a.tail, gap=a.gone)
+    표 = []
+    for one in threads:
+        cells = "".join("." if not n else ("+" if n >= a.strong else "o")
+                        for n in one.row.counts)
+        표.append([one.word, cells, f"{one.row.total:,}",
+                  chapters[one.row.first - 1][0] if one.row.first else "-",
+                  chapters[one.row.last - 1][0] if one.row.last else "-",
+                  one.note])
+    _grid(["소재", f"화별({total}화)", "총", "처음", "마지막", "본 대로"],
+          표, limit=40)
+    _p(f"\n. 안 나옴   o 나옴   + {a.strong}회 이상")
+    _p("조사가 붙은 꼴까지 셉니다. 더 긴 낱말의 일부는 세지 않습니다 "
+       "- «칼» 을 셀 때 «칼날» 은 빼고 셉니다.")
+
+    걸린 = [one for one in threads if one.note]
+    if not 걸린:
+        _p("\n심어 두고 안 쓴 것으로 보이는 소재는 없습니다.")
+        return 0
+    _p("\n한 번 더 볼 것")
+    for one in 걸린:
+        _p(f"  {_pad(one.word, 14)}{one.note}")
+    _p("\n일부러 그렇게 둔 것일 수 있습니다. 어디에 있는지는 "
+       "at novel find 로 봅니다.")
+    return 1
+
+
 def cmd_novel_export(a) -> int:
     targets = _novel_targets(a.paths)
     # 내보낸 파일이 원고 디렉터리 안에 있으면 다음 실행에서 원고로 다시 잡힌다.
@@ -1245,6 +1287,19 @@ def add_commands(sub) -> None:
                     help="화마다 어긋난 문장을 몇 개까지 (기본 6)")
     pv.add_argument("--limit", type=int, default=40)
     pv.set_defaults(func=cmd_novel_pov)
+
+    th = np_.add_parser("thread", help="복선·소재 추적 - 어느 화에 나오고 언제부터 안 나오나")
+    th.add_argument("paths", nargs="+")
+    th.add_argument("-w", "--word", dest="words", action="append", required=True,
+                    metavar="말", help="추적할 소재. 여러 번 쓸 수 있다")
+    th.add_argument("--strong", type=int, default=3, metavar="회",
+                    help="이만큼 나오면 + 로 (기본 3)")
+    th.add_argument("--gone", type=int, default=5, metavar="화",
+                    help="마지막 등장 뒤 이만큼 지나면 알린다 (기본 5)")
+    th.add_argument("--tail", type=int, default=3, metavar="화",
+                    help="끝에서 이 안에 처음 나온 것은 «이제 심은 것» 으로 본다")
+    th.epilog = "예: at novel thread 원고/ -w 목걸이 -w 편지 -w '붉은 실'"
+    th.set_defaults(func=cmd_novel_thread)
 
     ex = np_.add_parser("export", help="여러 화를 한 파일로 - 투고·인쇄용")
     ex.add_argument("paths", nargs="+")

@@ -494,6 +494,43 @@ def cast_by_chapter(chapters: list[tuple[str, str]],
     return sorted(rows, key=lambda r: (-r.total, r.name))
 
 
+# ------------------------------------------------------- 복선·소재 추적
+
+@dataclass
+class Thread:
+    word: str
+    row: "CastRow"
+    note: str = ""            # 사람이 볼 한마디 (판단은 사람이 한다)
+
+
+def thread_notes(rows: list["CastRow"], total: int, *, tail: int = 3,
+                 gap: int = 5) -> list[Thread]:
+    """복선처럼 «심었는데 안 쓴 것» 을 짚어 준다.
+
+    끝에서 tail 화 안에 처음 나온 것은 «이제 심은 것» 이라 아무 말도 하지
+    않는다. 한 번만 나오고 끝난 것, 심어 두고 gap 화 넘게 안 쓴 것,
+    한 화에 몰린 것만 한마디씩 붙인다 - 일부러 그런 것일 수 있으므로
+    «이렇다» 까지만 적고 고치라고 하지 않는다.
+    """
+    out: list[Thread] = []
+    for row in rows:
+        note = ""
+        if not row.total:
+            note = "한 번도 안 나옴"
+        elif row.first > total - tail:
+            note = "끝 무렵에 처음 나옴"
+        elif row.total == 1:
+            note = f"{row.first}화에 한 번뿐"
+        elif row.gone_for(total) >= gap:
+            # 한 화에 몰렸더라도 그 뒤로 오래 안 나왔으면 그쪽이 할 말이다.
+            # «한 화에만 몰림» 은 아직 최근에 쓰인 소재에만 붙인다
+            note = f"{row.last}화 뒤로 {row.gone_for(total)}화째 안 나옴"
+        elif row.first == row.last:
+            note = f"{row.first}화에만 몰림"
+        out.append(Thread(row.name, row, note))
+    return out
+
+
 # --------------------------------------------------- 이름 바꾸기 (조사까지)
 
 # 이름 뒤에 붙는 조사 가운데 받침에 따라 꼴이 갈리는 것들. 긴 것부터 본다.

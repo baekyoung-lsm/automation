@@ -1032,3 +1032,45 @@ class VoiceTest(unittest.TestCase):
         self.assertEqual((one.mixed, one.person), (0.0, 0.0))
         self.assertEqual(one.tense, "?")
         self.assertEqual(off, [])
+
+
+class ThreadTest(unittest.TestCase):
+    """복선 추적. 일부러 그렇게 둔 것일 수 있어 «이렇다» 까지만 말한다."""
+
+    def rows(self, chapters, words, **kw):
+        rows = names.cast_by_chapter(chapters, words)
+        return {one.word: one.note
+                for one in names.thread_notes(rows, len(chapters), **kw)}
+
+    def test_a_prop_planted_and_never_used_again(self):
+        chapters = [("1화", "목걸이가 놓여 있었다. 목걸이를 집었다.")]
+        chapters += [(f"{i}화", "그는 걸었다.") for i in range(2, 10)]
+        note = self.rows(chapters, ["목걸이"])["목걸이"]
+        self.assertIn("1화 뒤로", note)
+        self.assertIn("8화째", note)
+
+    def test_a_prop_just_planted_at_the_end_is_left_alone(self):
+        """끝에서 막 심은 것을 «안 쓴다» 고 하면 매번 걸린다."""
+        chapters = [(f"{i}화", "그는 걸었다.") for i in range(1, 5)]
+        chapters.append(("5화", "편지가 왔다. 편지를 읽었다."))
+        self.assertEqual(self.rows(chapters, ["편지"])["편지"], "끝 무렵에 처음 나옴")
+
+    def test_used_all_along_gets_no_note(self):
+        chapters = [(f"{i}화", "칼을 들었다. 칼이 빛났다.") for i in range(1, 6)]
+        self.assertEqual(self.rows(chapters, ["칼"])["칼"], "")
+
+    def test_a_word_that_never_appears_is_said_so(self):
+        chapters = [("1화", "그는 걸었다.")]
+        self.assertEqual(self.rows(chapters, ["반지"])["반지"], "한 번도 안 나옴")
+
+    def test_only_once_in_the_middle(self):
+        chapters = [("1화", "그는 걸었다."), ("2화", "편지를 받았다."),
+                    ("3화", "그는 걸었다."), ("4화", "그는 걸었다."),
+                    ("5화", "그는 걸었다."), ("6화", "그는 걸었다.")]
+        self.assertEqual(self.rows(chapters, ["편지"])["편지"], "2화에 한 번뿐")
+
+    def test_a_longer_word_is_not_counted_as_the_short_one(self):
+        """«칼» 을 셀 때 «칼날» 을 세면 회수한 것처럼 보인다."""
+        chapters = [("1화", "칼을 들었다."), ("2화", "칼날이 빛났다.")]
+        rows = names.cast_by_chapter(chapters, ["칼"])
+        self.assertEqual(rows[0].counts, [1, 0])

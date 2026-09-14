@@ -1306,6 +1306,9 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("그때 불이 꺼진다", 시제)
         self.assertIn("과거", 시제)
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
+        복선 = self.run_cli("novel", "thread", 원고, "-w", "리안", "-w", "없는소재",
+                          expect=1)
+        self.assertIn("한 번도 안 나옴", 복선)
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
 
