@@ -611,3 +611,110 @@ class CountTextTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _rrn(front: str, tail: str) -> str:
+    """검증번호가 맞는 열세 자리를 만든다 (시험용 가짜 번호).
+
+    front 는 생년월일 여섯 자리, tail 은 성별 자리를 포함한 여섯 자리다.
+    """
+    base = front + tail
+    check = (11 - sum(int(d) * w for d, w in
+                      zip(base, text.RRN_WEIGHTS)) % 11) % 10
+    return base + str(check)
+
+
+class PrivacyTest(unittest.TestCase):
+    """개인정보 훑기. 오탐과 미탐이 둘 다 나쁜 자리라 경계를 시험한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_checksum_marks_sure_but_a_mismatch_is_still_reported(self):
+        """2020년 10월부터 주는 번호는 검증번호가 없다. 틀렸다고 버리면 놓친다."""
+        good = _rrn("900101", "123456")
+        bad = good[:12] + str((int(good[12]) + 1) % 10)
+        확인 = text.scan_privacy(good)
+        형식 = text.scan_privacy(bad)
+        self.assertEqual([one.sure for one in 확인], ["확인"])
+        self.assertEqual([one.sure for one in 형식], ["형식"])
+
+    def test_thirteen_digits_that_are_not_a_date_are_not_a_rrn(self):
+        self.assertEqual(text.scan_privacy("주문 1234567890123"), [])
+        self.assertEqual(text.scan_privacy("991331-1234567"), [])   # 13월 31일
+
+    def test_a_longer_digit_run_is_not_cut_into_a_rrn(self):
+        self.assertEqual(
+            [one.kind for one in text.scan_privacy("90010112345678901")], [])
+
+    def test_the_raw_number_never_comes_back(self):
+        """점검하겠다고 주민번호를 그대로 찍으면 점검이 새 유출이 된다."""
+        number = _rrn("850505", "234567")
+        found = text.scan_privacy(f"김민수 {number}")
+        self.assertEqual(len(found), 1)
+        self.assertNotIn(number[7:], found[0].shown)
+        self.assertTrue(found[0].shown.endswith("******"))
+
+    def test_card_numbers_need_the_check_digit(self):
+        self.assertEqual([one.kind for one in
+                          text.scan_privacy("카드 4111-1111-1111-1111")],
+                         ["카드번호"])
+        self.assertEqual(text.scan_privacy("주문 4111-1111-1111-1112"), [])
+
+    def test_account_and_passport_need_the_word_next_to_them(self):
+        self.assertEqual(text.scan_privacy("110-123-456789"), [])
+        계좌 = text.scan_privacy("입금 계좌 110-123-456789")
+        self.assertEqual([one.kind for one in 계좌], ["계좌번호"])
+        self.assertEqual([one.sure for one in 계좌], ["짐작"])
+        self.assertEqual(text.scan_privacy("코드 M12345678"), [])
+        self.assertEqual([one.kind for one in
+                          text.scan_privacy("여권 M12345678")], ["여권번호"])
+
+    def test_phone_and_email_are_found(self):
+        found = text.scan_privacy("010-1234-5678 hong@example.com")
+        self.assertEqual(sorted(one.kind for one in found),
+                         ["이메일", "휴대전화"])
+
+    def test_only_narrows_the_kinds(self):
+        found = text.scan_privacy("010-1234-5678 " + _rrn("900101", "123456"),
+                                  ["주민등록번호"])
+        self.assertEqual([one.kind for one in found], ["주민등록번호"])
+
+    def test_excel_is_read_with_the_sheet_name(self):
+        from attools import xlsx
+
+        path = self.root / "명단.xlsx"
+        xlsx.write_sheets(path, {"2026년": [["이름", "번호"],
+                                            ["김민수", _rrn("900101", "123456")]]})
+        seen = text.privacy_scan([self.root])
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0].found[0].kind, "주민등록번호")
+        self.assertEqual(seen[0].found[0].where, "2026년")
+
+    def test_unreadable_files_are_kept_not_dropped(self):
+        """못 읽은 파일을 빼면 «없습니다» 가 «못 봤습니다» 를 덮는다."""
+        (self.root / "망가짐.docx").write_bytes("zip 이 아니다".encode())
+        seen = text.privacy_scan([self.root])
+        self.assertEqual(len(seen), 1)
+        self.assertTrue(seen[0].error)
+        self.assertEqual(seen[0].found, [])
+
+    def test_word_documents_are_read(self):
+        path = self.root / "계약.docx"
+        docx.write_document(path, [docx.paragraph(
+            f"갑({_rrn('850505', '234567')})과 을은 다음과 같이 계약한다.")])
+        seen = text.privacy_scan([self.root])
+        self.assertEqual([one.kind for one in seen[0].found], ["주민등록번호"])
+
+    def test_serious_kinds_are_counted_apart(self):
+        one = text.PrivacyFile(Path("x"), found=text.scan_privacy(
+            f"{_rrn('900101', '123456')} hong@example.com"))
+        self.assertEqual(one.count, 2)
+        self.assertEqual(one.serious, 1)
+
+    def test_unknown_kind_is_refused(self):
+        with self.assertRaises(text.TextError):
+            text.privacy_scan([self.root], kinds=["혈액형"])

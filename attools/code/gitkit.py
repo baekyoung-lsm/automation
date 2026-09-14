@@ -30,7 +30,7 @@ SECRET_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
                             r"|https://discord(?:app)?\.com/api/webhooks/\S+")),
     ("접속 문자열 비밀번호", re.compile(
         r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis|amqp)://[^:/\s]+:[^@\s]{3,}@")),
-    ("주민등록번호", re.compile(r"\b\d{6}-[1-4]\d{6}\b")),
+    ("주민등록번호", re.compile(r"\b(\d{2})(\d{2})(\d{2})-[1-4]\d{6}\b")),
     ("하드코딩된 비밀값", re.compile(
         r"""(?i)\b(?:api[_-]?key|secret[_-]?key|secret|password|passwd|access[_-]?token)"""
         r"""\s*[:=]\s*["']([^"'\s]{8,})["']""")),
@@ -218,6 +218,17 @@ def shannon_entropy(s: str) -> float:
     return -sum((n / len(s)) * math.log2(n / len(s)) for n in counts.values())
 
 
+def _birth_ok(yy: int, mm: int, dd: int) -> bool:
+    """주민등록번호 앞 여섯 자리가 실제 날짜인가. 세기는 둘 다 본다."""
+    for century in (1900, 2000):
+        try:
+            datetime(century + yy, mm, dd)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def _is_placeholder(value: str) -> bool:
     value = value.strip()
     return bool(PLACEHOLDER.match(value) or PLACEHOLDER_MARK.search(value))
@@ -232,6 +243,13 @@ def scan_text(text: str, path: str, *, entropy_threshold: float = 0.0) -> list[F
             m = pattern.search(line)
             if not m:
                 continue
+            # 앞 여섯 자리가 날짜가 아니면 주민등록번호가 아니다. 주문번호나
+            # 일부러 만든 시험용 숫자가 걸리면 다음부터 경고를 안 보게 된다
+            if kind == "주민등록번호":
+                if not _birth_ok(*(int(g) for g in m.groups())):
+                    continue
+                findings.append(Finding(path, lineno, kind, line.strip()[:160]))
+                break
             # 형태가 뚜렷한 키(AKIA..., ghp_... )는 그대로 신고하고,
             # 일반 대입문에서 뽑은 값만 플레이스홀더인지 확인한다.
             if m.groups() and _is_placeholder(m.group(1)):

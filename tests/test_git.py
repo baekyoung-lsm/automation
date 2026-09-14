@@ -23,6 +23,12 @@ class GitkitTest(unittest.TestCase):
         kinds = {f.kind for f in gitkit.scan_text(text, "a.py")}
         self.assertEqual(kinds, {"GitHub 토큰", "접속 문자열 비밀번호", "하드코딩된 비밀값"})
 
+    def test_a_thirteen_digit_number_that_is_not_a_date_is_not_a_rrn(self):
+        """주문번호가 주민번호로 걸리면 다음부터 경고를 안 보게 된다."""
+        걸림 = gitkit.scan_text("주민 900101-1234567\n", "a.py")   # attools: ignore
+        self.assertEqual([f.kind for f in 걸림], ["주민등록번호"])
+        self.assertEqual(gitkit.scan_text("주문 991331-1234567\n", "a.py"), [])
+
     def test_ignores_placeholders(self):
         text = ('API_KEY = "your-key-here"\n'
                 'SECRET = "${VAULT_SECRET}"\n'

@@ -240,6 +240,83 @@ def cmd_text_pick(a) -> int:
     return 0
 
 
+def cmd_text_privacy(a) -> int:
+    """폴더 안 문서에 개인정보가 들어 있는지 훑는다. 고치지 않는다."""
+    paths = [Path(one) for one in (a.paths or ["."])]
+    missing = [one for one in paths if not one.exists()]
+    if missing:
+        _p(f"경로가 없습니다: {', '.join(str(m) for m in missing)}")
+        return 1
+
+    kinds = [k.strip() for k in (a.only or "").split(",") if k.strip()] or None
+    try:
+        seen = text.privacy_scan(paths, kinds=kinds, glob=a.glob,
+                                 hidden=a.hidden)
+    except text.TextError as e:
+        _p(str(e))
+        return 1
+    if not seen:
+        _p("읽을 파일이 없습니다.")
+        return 1
+
+    hits = [one for one in seen if one.found]
+    broken = [one for one in seen if one.error]
+
+    if a.out:
+        from .. import sheet
+
+        rows = [[str(one.path), item.kind, item.shown, item.where, item.line,
+                 item.sure, item.note]
+                for one in hits for item in one.found]
+        table = sheet.Table(["파일", "종류", "가린 값", "자리", "줄", "확신", "메모"],
+                            rows)
+        if not _may_write(a, Path(a.out)):
+            return 1
+        _p(f"저장: {sheet.save(table, Path(a.out))}  ({len(rows):,}건)")
+        _p("값은 가려서 저장합니다 - 점검 기록이 새 유출이 되지 않게.")
+        return 1 if hits else 0
+
+    if hits:
+        rows = []
+        먼저 = sorted(hits, key=lambda f: (-f.serious, -f.count))
+        for one in 먼저[:a.limit]:
+             rows.append([one.path.name, str(one.count),
+                          ", ".join(one.kinds()),
+                          one.found[0].shown, one.found[0].sure])
+        _grid(["파일", "건수", "무엇이", "보기", "확신"], rows, limit=34)
+        if len(hits) > a.limit:
+            _p(f"... 파일 {len(hits) - a.limit:,}개 더 (--limit 로 조절)")
+
+        if a.detail:
+            for one in 먼저[:a.limit]:
+                _p(f"\n{one.path}  ({one.read_as})")
+                for item in one.found[:a.each]:
+                    자리 = f"{item.where} " if item.where else ""
+                    메모 = f"  ({item.note})" if item.note else ""
+                    _p(f"  {자리}{item.line}줄  {item.kind}  {item.shown}"
+                       f"  [{item.sure}]{메모}")
+                if one.count > a.each:
+                    _p(f"  ... {one.count - a.each:,}건 더")
+        else:
+            _p("\n어느 줄인지 보려면 --detail, 표로 남기려면 -o 점검.csv.")
+            _p("주민등록번호·카드번호만 보려면 --only 주민등록번호,카드번호.")
+
+    total = sum(one.count for one in hits)
+    _p(f"\n파일 {len(seen):,}개를 봤습니다. "
+       f"{f'{len(hits):,}개 파일에서 {total:,}건' if hits else '찾은 것이 없습니다'}.")
+    if broken:
+        _p(f"못 읽은 파일 {len(broken)}개 - 이 파일들은 보지 못했습니다")
+        for one in broken[:5]:
+            _p(f"  {one.path.name}: {_cut(one.error, 50)}")
+    _p("값은 가려서 보여줍니다. 스캔본처럼 글자가 없는 파일은 찾지 못하므로 "
+       "«없음» 이 «안전» 은 아닙니다.")
+    if any(item.sure == "형식" for one in hits for item in one.found
+           if item.kind == "주민등록번호"):
+        _p("주민등록번호의 «형식» 은 검증번호가 맞지 않는다는 뜻입니다 - "
+           "2020년 10월부터 주는 번호는 검증번호가 없어 이렇게 나옵니다.")
+    return 1 if hits else 0
+
+
 def cmd_text_kbd(a) -> int:
     """한/영 자판을 잘못 눌러 깨진 글을 되살린다."""
     body = " ".join(a.words) if a.words else sys.stdin.read().rstrip("\n")
@@ -688,6 +765,23 @@ def add_commands(sub) -> None:
                     help="이미 있는 파일을 덮어쓴다")
     pk.add_argument("--limit", type=int, default=40, metavar="개")
     pk.set_defaults(func=cmd_text_pick)
+
+    pv = tp.add_parser("privacy",
+                       help="문서에 개인정보가 들어 있는지 훑기 (밖으로 보내기 전)")
+    text_paths(pv)
+    pv.add_argument("-g", "--glob", action="append", metavar="패턴")
+    pv.add_argument("--hidden", action="store_true")
+    pv.add_argument("--only", metavar="종류",
+                    help="쉼표로. 예: --only 주민등록번호,카드번호 (기본 전부)")
+    pv.add_argument("--detail", action="store_true",
+                    help="파일마다 어느 줄인지까지")
+    pv.add_argument("--each", type=int, default=10, metavar="개",
+                    help="--detail 에서 파일마다 몇 건까지 (기본 10)")
+    pv.add_argument("-o", "--out", metavar="파일", help="표로 저장 (.csv, .xlsx)")
+    pv.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    pv.add_argument("--limit", type=int, default=20, metavar="개")
+    pv.set_defaults(func=cmd_text_privacy)
 
     kb = tp.add_parser("kbd", help="한/영 자판을 잘못 눌러 깨진 글 되살리기")
     kb.add_argument("words", nargs="*", metavar="글",

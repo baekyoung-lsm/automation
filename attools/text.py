@@ -72,8 +72,12 @@ def read_text_any(path: Path) -> tuple[str, str]:
 
 def iter_files(paths: list[Path], *, glob: list[str] | None = None,
                hidden: bool = False, max_size: int = 5_000_000,
-               documents: bool = False):
-    """훑을 파일. documents 를 켜면 워드 문서도 낸다 (찾기 전용이다)."""
+               documents: bool = False, sheets: bool = False):
+    """훑을 파일. documents 를 켜면 워드 문서도 낸다 (찾기 전용이다).
+
+    sheets 를 켜면 엑셀(.xlsx)까지 낸다. 명단이 엑셀에 있는 일이 많아
+    개인정보 훑기에서 쓴다 - 역시 읽기 전용이다.
+    """
     patterns = glob or ["*"]
     seen: set[Path] = set()
 
@@ -81,7 +85,9 @@ def iter_files(paths: list[Path], *, glob: list[str] | None = None,
         if p in seen or not p.is_file() or p.is_symlink():
             return False
         suffix = p.suffix.lower()
-        if suffix in BINARY_SUFFIXES and not (documents and suffix in DOCUMENT_SUFFIXES):
+        readable = (documents and suffix in DOCUMENT_SUFFIXES) or \
+                   (sheets and suffix == ".xlsx")
+        if suffix in BINARY_SUFFIXES and not readable:
             return False
         try:
             return p.stat().st_size <= max_size
@@ -190,6 +196,229 @@ def unique_picked(found: list[Picked]) -> list[Picked]:
             continue
         seen.add(key)
         out.append(item)
+    return out
+
+
+# --------------------------------------------------- 개인정보 훑기 (읽기만)
+
+# 밖으로 내보내기 전에 «이 폴더에 주민번호가 들어 있나» 를 보는 자리다.
+# 파일을 고치지 않는다. 찾은 값은 가려서 보여준다 - 점검하겠다고 터미널에
+# 주민번호를 그대로 찍으면 점검이 새 유출이 된다.
+
+PRIVACY_SUFFIXES = DOCUMENT_SUFFIXES | {".xlsx"}
+PRIVACY_KINDS = ("주민등록번호", "카드번호", "휴대전화", "전화번호", "이메일",
+                 "계좌번호", "여권번호")
+# 그 자체로 사람을 특정하는 것들. 이메일·전화는 문서에 흔해서 같이 세면
+# 정작 봐야 할 파일이 뒤로 밀린다
+SERIOUS_KINDS = ("주민등록번호", "카드번호", "계좌번호", "여권번호")
+# 표 파일은 줄 앞에 시트 이름을 붙여 둔다. 마크다운의 «[글](주소)» 와 섞이지
+# 않게 «시트:» 까지 보고 읽는다
+SHEET_MARK = re.compile(r"^\[시트: ([^\]]+)\]\t")
+
+RRN_SCAN = re.compile(r"(?<![\d-])(\d{2})(\d{2})(\d{2})[-\s]?([1-8])(\d{6})(?![\d-])")
+CARD_SCAN = re.compile(r"(?<![\d-])(?:\d{4}[-\s]?){3}\d{4}(?![\d-])"
+                       r"|(?<![\d-])\d{4}[-\s]?\d{6}[-\s]?\d{5}(?![\d-])")
+PASSPORT_SCAN = re.compile(r"(?<![A-Za-z0-9])([MSRODmsrod])(\d{8})(?![A-Za-z0-9])")
+ACCOUNT_SCAN = re.compile(r"(?<![\d-])\d{2,6}-\d{2,6}-\d{2,8}(?![\d-])")
+ACCOUNT_WORDS = ("계좌", "입금", "예금주", "은행", "송금", "이체")
+PASSPORT_WORDS = ("여권", "passport", "PASSPORT", "Passport")
+
+# 앞 여섯 자리가 날짜가 아니면 주민번호가 아니다. 주문번호·전화번호가
+# 우연히 열세 자리로 붙은 것을 주민번호로 세지 않으려는 것이다.
+RRN_WEIGHTS = (2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5)
+
+
+def rrn_birth(yy: int, mm: int, dd: int, sex: int) -> str:
+    """주민번호 앞자리를 날짜로. 날짜가 아니면 빈 글자."""
+    century = 1900 if sex in (1, 2, 5, 6) else 2000
+    try:
+        return datetime(century + yy, mm, dd).strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
+def rrn_checksum_ok(digits: str) -> bool:
+    """열세 자리의 검증번호가 맞는가.
+
+    2020년 10월부터 새로 주는 번호는 성별 자리 말고 뒤 여섯 자리가 임의번호라
+    이 계산이 맞지 않는다. 그래서 «틀리면 주민번호가 아니다» 로 쓰면 안 되고,
+    맞으면 «거의 확실하다» 는 뜻으로만 쓴다.
+    """
+    if len(digits) != 13 or not digits.isdigit():
+        return False
+    total = sum(int(d) * w for d, w in zip(digits[:12], RRN_WEIGHTS))
+    return (11 - total % 11) % 10 == int(digits[12])
+
+
+def luhn_ok(digits: str) -> bool:
+    """카드번호 검사식(Luhn). 열여섯 자리 숫자를 다 카드로 세지 않으려는 것이다."""
+    if not digits.isdigit() or not 13 <= len(digits) <= 19:
+        return False
+    total, double = 0, False
+    for ch in reversed(digits):
+        value = int(ch)
+        if double:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+        double = not double
+    return total % 10 == 0
+
+
+def hide(kind: str, value: str) -> str:
+    """찾은 값을 가린다. 어느 자리인지는 알아보되 값은 남지 않게."""
+    digits = re.sub(r"\D", "", value)
+    if kind == "주민등록번호":
+        return f"{digits[:6]}-{digits[6]}******"
+    if kind == "카드번호":
+        return "*" * (len(digits) - 4) + digits[-4:]
+    if kind in ("휴대전화", "전화번호", "계좌번호"):
+        return value[:-4].translate(str.maketrans("0123456789", "*" * 10)) + value[-4:]
+    if kind == "이메일":
+        name, _, host = value.partition("@")
+        return f"{name[:2]}{'*' * max(1, len(name) - 2)}@{host}"
+    if kind == "여권번호":
+        return value[0] + "*" * (len(value) - 3) + value[-2:]
+    return "*" * len(value)
+
+
+@dataclass
+class Privacy:
+    kind: str
+    shown: str                 # 가린 값. 원래 값은 남기지 않는다
+    line: int
+    sure: str = "형식"         # 확인 / 형식 / 짐작
+    where: str = ""            # 시트 이름·쪽 같은 자리
+    note: str = ""
+
+
+@dataclass
+class PrivacyFile:
+    path: Path
+    read_as: str = ""
+    found: list = field(default_factory=list)
+    error: str = ""
+
+    @property
+    def count(self) -> int:
+        return len(self.found)
+
+    @property
+    def serious(self) -> int:
+        return sum(1 for one in self.found if one.kind in SERIOUS_KINDS)
+
+    def kinds(self) -> list[str]:
+        out: list[str] = []
+        for one in self.found:
+            if one.kind not in out:
+                out.append(one.kind)
+        return out
+
+
+def scan_privacy(body: str, kinds: list[str] | None = None) -> list[Privacy]:
+    """글 한 편에서 개인정보로 보이는 것을 찾는다. 값은 가려서 담는다."""
+    wanted = set(kinds or PRIVACY_KINDS)
+    out: list[Privacy] = []
+    for number, line in enumerate(body.splitlines(), 1):
+        head = SHEET_MARK.match(line)
+        where = head.group(1) if head else ""
+
+        if "주민등록번호" in wanted:
+            for found in RRN_SCAN.finditer(line):
+                yy, mm, dd, sex, tail = found.groups()
+                born = rrn_birth(int(yy), int(mm), int(dd), int(sex))
+                if not born:
+                    continue
+                digits = f"{yy}{mm}{dd}{sex}{tail}"
+                sure = "확인" if rrn_checksum_ok(digits) else "형식"
+                note = f"{born} 생"
+                if int(sex) in (5, 6, 7, 8):
+                    note += " · 외국인등록번호 자리"
+                out.append(Privacy("주민등록번호", hide("주민등록번호", digits),
+                                   number, sure, where, note))
+
+        if "카드번호" in wanted:
+            for found in CARD_SCAN.finditer(line):
+                digits = re.sub(r"\D", "", found.group(0))
+                if not luhn_ok(digits):
+                    continue          # 검사식이 안 맞으면 카드번호가 아니다
+                out.append(Privacy("카드번호", hide("카드번호", digits), number,
+                                   "확인", where))
+
+        for kind, rule in (("휴대전화", PICK_RULES["휴대폰"]),
+                           ("전화번호", PICK_RULES["전화"]),
+                           ("이메일", PICK_RULES["이메일"])):
+            if kind not in wanted:
+                continue
+            for found in rule.finditer(line):
+                out.append(Privacy(kind, hide(kind, found.group(0)), number,
+                                   "형식", where))
+
+        # 계좌·여권은 숫자만으로는 가릴 수 없다. 같은 줄에 그 말이 있을 때만
+        # 짐작으로 올린다 - 아무 숫자나 계좌로 세면 표가 못 쓰게 된다
+        if "계좌번호" in wanted and any(w in line for w in ACCOUNT_WORDS):
+            for found in ACCOUNT_SCAN.finditer(line):
+                text_found = found.group(0)
+                if RRN_SCAN.fullmatch(text_found):
+                    continue
+                out.append(Privacy("계좌번호", hide("계좌번호", text_found), number,
+                                   "짐작", where, "같은 줄에 «계좌»·«입금» 이 있음"))
+        if "여권번호" in wanted and any(w in line for w in PASSPORT_WORDS):
+            for found in PASSPORT_SCAN.finditer(line):
+                out.append(Privacy("여권번호", hide("여권번호", found.group(0)),
+                                   number, "짐작", where,
+                                   "같은 줄에 «여권» 이 있음"))
+    return out
+
+
+def read_for_scan(path: Path) -> tuple[str, str]:
+    """훑기용으로 글자를 꺼낸다. 표 파일이면 시트 이름을 줄 앞에 붙인다."""
+    path = Path(path)
+    if path.suffix.lower() == ".xlsx":
+        from . import xlsx as xlsxkit
+
+        lines: list[str] = []
+        try:
+            names = xlsxkit.sheet_names(path)
+        except xlsxkit.XlsxError as exc:
+            raise TextError(str(exc)) from None
+        for name in names:
+            try:
+                rows = xlsxkit.read_sheet(path, name)
+            except xlsxkit.XlsxError as exc:
+                raise TextError(str(exc)) from None
+            for row in rows:
+                lines.append(f"[시트: {name}]\t"
+                             + "\t".join("" if c is None else str(c) for c in row))
+        return "\n".join(lines), f"표 {len(names)}시트"
+    return read_words_or_text(path)
+
+
+def privacy_scan(paths: list[Path], *, kinds: list[str] | None = None,
+                 glob: list[str] | None = None, hidden: bool = False,
+                 max_size: int = 40_000_000) -> list[PrivacyFile]:
+    """폴더를 훑어 파일마다 개인정보를 찾는다. 못 읽은 파일도 남긴다.
+
+    못 읽은 파일을 조용히 빼면 «없습니다» 가 «못 봤습니다» 를 덮는다.
+    """
+    unknown = [k for k in (kinds or []) if k not in PRIVACY_KINDS]
+    if unknown:
+        raise TextError(f"모르는 종류: {', '.join(unknown)} "
+                        f"(쓸 수 있는 것: {', '.join(PRIVACY_KINDS)})")
+
+    out: list[PrivacyFile] = []
+    for path in iter_files(paths, glob=glob, hidden=hidden, max_size=max_size,
+                           documents=True, sheets=True):
+        one = PrivacyFile(path)
+        try:
+            body, one.read_as = read_for_scan(path)
+        except (TextError, docx.DocxError, hwpx.HwpxError, OSError) as exc:
+            one.error = str(exc) or "읽지 못했습니다"
+            out.append(one)
+            continue
+        one.found = scan_privacy(body, kinds)
+        out.append(one)
     return out
 
 
