@@ -1278,6 +1278,17 @@ class TurnPagesTest(unittest.TestCase):
         out = self.make([3, 1, 2, 4], {})
         self.assertEqual(len(pdf.open_pdf(out).pages()), 4)
 
+    def test_the_same_page_can_be_used_twice(self):
+        """표지를 앞뒤로 넣거나 --order 1,1 을 주면 같은 쪽이 두 번 온다."""
+        out = self.make([1, 1, 2], {}, "두번.pdf")
+        self.assertEqual(len(pdf.open_pdf(out).pages()), 3)
+
+    def test_a_repeated_page_can_still_be_turned(self):
+        plan = pdf.rotation_plan([1, 1, 2], [1], 90)
+        self.assertEqual(plan, {1: 90, 2: 90})
+        self.assertEqual(self.turns(self.make([1, 1, 2], plan, "돌린두번.pdf")),
+                         [90, 90, 0])
+
     def test_a_crooked_angle_is_refused(self):
         with self.assertRaises(pdf.PdfError):
             pdf.rotation_plan([1, 2], None, 45)

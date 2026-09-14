@@ -299,6 +299,7 @@ class PrivacyFile:
     read_as: str = ""
     found: list = field(default_factory=list)
     error: str = ""
+    stopped: bool = False       # 너무 많아 세다 멈췄는가
 
     @property
     def count(self) -> int:
@@ -316,10 +317,25 @@ class PrivacyFile:
         return out
 
 
-def scan_privacy(body: str, kinds: list[str] | None = None) -> list[Privacy]:
-    """글 한 편에서 개인정보로 보이는 것을 찾는다. 값은 가려서 담는다."""
+# 한 파일에서 이만큼 찾으면 그만 센다. 전화번호가 수만 개 든 파일을 끝까지
+# 담으면 메모리가 먼저 나간다. 멈췄다는 사실은 부르는 쪽에 알린다
+PRIVACY_CAP = 2000
+
+
+def scan_privacy(body: str, kinds: list[str] | None = None, *,
+                 cap: int = 0) -> list[Privacy]:
+    """글 한 편에서 개인정보로 보이는 것을 찾는다. 값은 가려서 담는다.
+
+    cap 을 주면 그만큼 찾고 멈춘다 (0 이면 끝까지). 전화번호가 수만 개 든
+    한 줄짜리 파일도 있어서, 줄이 아니라 «찾은 건수» 로 센다.
+    """
     wanted = set(kinds or PRIVACY_KINDS)
     out: list[Privacy] = []
+
+    def full(item: Privacy) -> bool:
+        out.append(item)
+        return bool(cap) and len(out) >= cap
+
     for number, line in enumerate(body.splitlines(), 1):
         head = SHEET_MARK.match(line)
         where = head.group(1) if head else ""
@@ -335,16 +351,18 @@ def scan_privacy(body: str, kinds: list[str] | None = None) -> list[Privacy]:
                 note = f"{born} 생"
                 if int(sex) in (5, 6, 7, 8):
                     note += " · 외국인등록번호 자리"
-                out.append(Privacy("주민등록번호", hide("주민등록번호", digits),
-                                   number, sure, where, note))
+                if full(Privacy("주민등록번호", hide("주민등록번호", digits),
+                                number, sure, where, note)):
+                    return out
 
         if "카드번호" in wanted:
             for found in CARD_SCAN.finditer(line):
                 digits = re.sub(r"\D", "", found.group(0))
                 if not luhn_ok(digits):
                     continue          # 검사식이 안 맞으면 카드번호가 아니다
-                out.append(Privacy("카드번호", hide("카드번호", digits), number,
-                                   "확인", where))
+                if full(Privacy("카드번호", hide("카드번호", digits), number,
+                                "확인", where)):
+                    return out
 
         for kind, rule in (("휴대전화", PICK_RULES["휴대폰"]),
                            ("전화번호", PICK_RULES["전화"]),
@@ -352,23 +370,26 @@ def scan_privacy(body: str, kinds: list[str] | None = None) -> list[Privacy]:
             if kind not in wanted:
                 continue
             for found in rule.finditer(line):
-                out.append(Privacy(kind, hide(kind, found.group(0)), number,
-                                   "형식", where))
+                if full(Privacy(kind, hide(kind, found.group(0)), number,
+                                "형식", where)):
+                    return out
 
         # 계좌·여권은 숫자만으로는 가릴 수 없다. 같은 줄에 그 말이 있을 때만
         # 짐작으로 올린다 - 아무 숫자나 계좌로 세면 표가 못 쓰게 된다
         if "계좌번호" in wanted and any(w in line for w in ACCOUNT_WORDS):
             for found in ACCOUNT_SCAN.finditer(line):
-                text_found = found.group(0)
-                if RRN_SCAN.fullmatch(text_found):
+                spot = found.group(0)
+                if RRN_SCAN.fullmatch(spot):
                     continue
-                out.append(Privacy("계좌번호", hide("계좌번호", text_found), number,
-                                   "짐작", where, "같은 줄에 «계좌»·«입금» 이 있음"))
+                if full(Privacy("계좌번호", hide("계좌번호", spot), number,
+                                "짐작", where, "같은 줄에 «계좌»·«입금» 이 있음")):
+                    return out
         if "여권번호" in wanted and any(w in line for w in PASSPORT_WORDS):
             for found in PASSPORT_SCAN.finditer(line):
-                out.append(Privacy("여권번호", hide("여권번호", found.group(0)),
-                                   number, "짐작", where,
-                                   "같은 줄에 «여권» 이 있음"))
+                if full(Privacy("여권번호", hide("여권번호", found.group(0)),
+                                number, "짐작", where,
+                                "같은 줄에 «여권» 이 있음")):
+                    return out
     return out
 
 
@@ -397,7 +418,8 @@ def read_for_scan(path: Path) -> tuple[str, str]:
 
 def privacy_scan(paths: list[Path], *, kinds: list[str] | None = None,
                  glob: list[str] | None = None, hidden: bool = False,
-                 max_size: int = 40_000_000) -> list[PrivacyFile]:
+                 max_size: int = 40_000_000,
+                 cap: int = PRIVACY_CAP) -> list[PrivacyFile]:
     """폴더를 훑어 파일마다 개인정보를 찾는다. 못 읽은 파일도 남긴다.
 
     못 읽은 파일을 조용히 빼면 «없습니다» 가 «못 봤습니다» 를 덮는다.
@@ -417,7 +439,8 @@ def privacy_scan(paths: list[Path], *, kinds: list[str] | None = None,
             one.error = str(exc) or "읽지 못했습니다"
             out.append(one)
             continue
-        one.found = scan_privacy(body, kinds)
+        one.found = scan_privacy(body, kinds, cap=cap)
+        one.stopped = bool(cap) and len(one.found) >= cap
         out.append(one)
     return out
 

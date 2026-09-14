@@ -304,6 +304,10 @@ def cmd_text_privacy(a) -> int:
     total = sum(one.count for one in hits)
     _p(f"\n파일 {len(seen):,}개를 봤습니다. "
        f"{f'{len(hits):,}개 파일에서 {total:,}건' if hits else '찾은 것이 없습니다'}.")
+    멈춘 = [one for one in hits if one.stopped]
+    if 멈춘:
+        _p(f"너무 많아 파일 {len(멈춘)}개는 {text.PRIVACY_CAP:,}건에서 세다 "
+           "멈췄습니다 - 실제로는 더 있습니다.")
     if broken:
         _p(f"못 읽은 파일 {len(broken)}개 - 이 파일들은 보지 못했습니다")
         for one in broken[:5]:

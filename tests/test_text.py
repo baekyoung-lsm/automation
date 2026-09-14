@@ -715,6 +715,20 @@ class PrivacyTest(unittest.TestCase):
         self.assertEqual(one.count, 2)
         self.assertEqual(one.serious, 1)
 
+    def test_counting_stops_at_the_cap_even_in_one_long_line(self):
+        """전화번호 수만 개가 한 줄에 든 파일도 있다. 줄이 아니라 건수로 센다."""
+        한줄 = "010-1234-5678 " * 50
+        self.assertEqual(len(text.scan_privacy(한줄, cap=10)), 10)
+        (self.root / "긴줄.txt").write_text(한줄, encoding="utf-8")
+        seen = text.privacy_scan([self.root], cap=10)
+        self.assertEqual(len(seen[0].found), 10)
+        self.assertTrue(seen[0].stopped)
+
+    def test_a_small_file_is_not_marked_as_stopped(self):
+        (self.root / "작은.txt").write_text("010-1234-5678\n", encoding="utf-8")
+        seen = text.privacy_scan([self.root], cap=10)
+        self.assertFalse(seen[0].stopped)
+
     def test_unknown_kind_is_refused(self):
         with self.assertRaises(text.TextError):
             text.privacy_scan([self.root], kinds=["혈액형"])

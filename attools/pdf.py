@@ -1225,17 +1225,25 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
     out = Path(out)
     copier = _Copier()
     chosen = []
+    taken: set = set()
     for doc, numbers in picks:
         pages = doc.pages()
         for number in numbers:
             page = pages[number - 1]
             key = (id(doc), page.obj) if page.obj is not None \
                 else (id(doc), -(len(chosen) + 1))
+            # 같은 쪽을 두 번 넣는 일이 있다(표지를 앞뒤로, --order 1,1).
+            # 같은 열쇠로 자리를 잡으면 둘이 한 자리를 나눠 쪽이 하나로 준다
+            again = 0
+            while key in taken:
+                again += 1
+                key = (*key, again)
+            taken.add(key)
             chosen.append((doc, page, copier.reserve(key), key))
     if not chosen:
         raise PdfError("고른 쪽이 없습니다")
 
-    keep = {key for _doc, _page, _new, key in chosen}
+    keep = {key[:2] for _doc, _page, _new, key in chosen}
     tree = copier.reserve(("root", "pages"))
     catalog = copier.reserve(("root", "catalog"))
     info_slot = copier.reserve(("root", "info"))

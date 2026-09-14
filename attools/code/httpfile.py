@@ -139,6 +139,9 @@ def resolve(request: Request, values: dict) -> tuple[Request, list]:
 
     def take(text: str) -> str:
         filled, gone = fill(text, values)
+        # 값이 또 «{{이름}}» 이면(@a = {{a}} 처럼) 채운 뒤에도 자리가 남는다.
+        # 그대로 부르면 주소에 «{{a}}» 가 박힌 채 나간다
+        gone += [found.group(1) for found in SLOT.finditer(filled)]
         for one in gone:
             if one not in missing:
                 missing.append(one)

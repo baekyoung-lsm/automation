@@ -238,6 +238,12 @@ Authorization: Bearer {{token}}
         self.assertIsNone(value)
         self.assertIn("token", why)
 
+    def test_a_value_that_is_itself_a_slot_is_reported(self):
+        """«@a = {{a}}» 을 그대로 부르면 주소에 «{{a}}» 가 박힌 채 나간다."""
+        one = httpfile.parse("GET http://x/{{a}}\n").requests[0]
+        _made, missing = httpfile.resolve(one, {"a": "{{a}}"})
+        self.assertEqual(missing, ["a"])
+
     def test_read_vars_rejects_a_bare_word(self):
         self.assertEqual(httpfile.read_vars(["a=1", "b=2=3"]),
                          {"a": "1", "b": "2=3"})
