@@ -823,6 +823,13 @@ class SmokeTest(unittest.TestCase):
                               self.path(".env"), "--sync")
         self.assertIn("DB_PASSWORD=<db_password>", synced)
         self.assertNotIn("비밀", synced)          # 비밀값이 새어 나가면 안 된다
+        요청 = self.root / "api.http"
+        요청.write_text("@host = http://127.0.0.1:1\n\n### 목록\n"
+                       "GET {{host}}/items\nAuthorization: Bearer {{token}}\n",
+                       encoding="utf-8")
+        부름 = self.run_cli("dev", "calls", str(요청), expect=1)
+        self.assertIn("token", 부름)              # 부르기 전에 빠진 값을 알린다
+        self.assertIn("보기만", 부름)
         self.assertIn("ERROR", self.run_cli("dev", "log", self.path("app.log")))
         자름 = self.run_cli("dev", "log", self.path("app.log"),
                           "--since", "2026-09-01 10:00", "-o", self.path("자른.log"))

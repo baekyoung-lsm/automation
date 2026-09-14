@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import files, hangul, life, sheet, text
-from ..code import (dbkit, deps, devkit, fakedata, jsonkit, loc, logkit,
-                    openapi, project, pyscan)
+from ..code import (dbkit, deps, devkit, fakedata, httpfile, jsonkit, loc,
+                    logkit, openapi, project, pyscan)
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
@@ -779,6 +779,9 @@ def cmd_dev_http(a) -> int:
     try:
         result = devkit.fetch(url, method=method, headers=headers, body=body,
                               timeout=a.timeout)
+    except ValueError as e:
+        _p(str(e))
+        return 1
     except OSError as e:
         _p(f"부르지 못했습니다: {e}")
         _p("주소와 포트를 확인하세요. 사내망이면 프록시 설정도 봅니다.")
@@ -1075,6 +1078,155 @@ def cmd_dev_outline(a) -> int:
            + ", ".join(str(r.path) for r in broken[:3]))
     _p("--file 로 파일 하나의 클래스·함수 목록을 봅니다.")
     return 0
+
+
+def _calls_url(url: str) -> str:
+    return url if "://" in url else f"http://{url}"
+
+
+def _calls_run(one, values: dict, timeout: float, show: bool) -> tuple[bool, str]:
+    """한 요청을 부르고 «(이어가도 되나, 한 줄 설명)» 을 돌려준다."""
+    import json as _json
+
+    made, missing = httpfile.resolve(one, values)
+    if missing:
+        _p(f"  {one.number}. 값을 모르는 이름: {', '.join(missing)}")
+        _p("     --var 이름=값 으로 주거나 파일 위쪽에 @이름=값 으로 적으세요.")
+        return False, "값 없음"
+
+    headers = {k: v for k, v in made.headers}
+    body = made.body.encode("utf-8") if made.body.strip() else None
+    if body and not any(k.lower() == "content-type" for k in headers):
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    try:
+        result = devkit.fetch(_calls_url(made.url), method=made.method,
+                              headers=headers, body=body, timeout=timeout)
+    except ValueError as e:
+        _p(f"  {one.number}. {made.method} {_cut(made.url, 60)}")
+        for line in str(e).splitlines():
+            _p(f"     {line.strip()}")
+        return False, "머리글 오류"
+    except OSError as e:
+        _p(f"  {one.number}. {made.method} {made.url}  ->  부르지 못했습니다: {e}")
+        return False, "연결 실패"
+
+    mark = "" if result.ok else "  <- 실패"
+    _p(f"  {one.number}. {made.method} {_cut(made.url, 60)}")
+    _p(f"     {result.status} {result.reason}{mark}  ·  {result.seconds * 1000:,.0f}ms"
+       f"  ·  {files.human_size(len(result.body))}")
+
+    text_body = result.text()
+    if made.saves:
+        try:
+            data = _json.loads(text_body)
+        except _json.JSONDecodeError:
+            _p("     @save: 응답이 JSON 이 아니라 값을 꺼내지 못했습니다.")
+            return False, "JSON 아님"
+        for name, where in made.saves:
+            value, why = httpfile.pick(data, where)
+            if why:
+                _p(f"     @save {name}: {why}")
+                return False, "@save 실패"
+            values[name] = value
+            _p(f"     @save {name} = {_cut(str(value), 50)}")
+
+    if show:
+        _p("")
+        try:
+            text_body = _json.dumps(_json.loads(text_body), ensure_ascii=False,
+                                    indent=2)
+        except _json.JSONDecodeError:
+            pass
+        for line in text_body.splitlines()[:40]:
+            _p(f"     {line}")
+        _p("")
+    return result.ok, "" if result.ok else f"{result.status}"
+
+
+def cmd_dev_calls(a) -> int:
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    doc = httpfile.parse(manuscript.read_text(path))
+    try:
+        values = httpfile.read_vars(a.var)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+    known = dict(doc.variables)
+    known.update(values)
+
+    if doc.problems:
+        _p("못 읽은 줄 - 무시하지 않고 알립니다")
+        for one in doc.problems[:10]:
+            _p(f"  {one}")
+        _p("")
+    if not doc.requests:
+        _p(f"{path.name}: 요청을 찾지 못했습니다.")
+        _p("  «### 이름» 으로 나누고 «GET https://…» 으로 시작하는 형식입니다.")
+        return 1
+
+    chosen = doc.requests
+    if a.only:
+        chosen = [one for one in doc.requests if one.number in a.only]
+        if not chosen:
+            _p(f"{a.only} 번 요청이 없습니다. 1..{len(doc.requests)} 중에서 고르세요.")
+            return 1
+
+    if not a.run:
+        rows, holes, coming = [], [], set()
+        for one in chosen:
+            made, missing = httpfile.resolve(one, known)
+            # 앞 요청이 @save 로 받아 오는 이름은 «모르는 이름» 이 아니다.
+            # 부르기 전에 다 알 수 없는 것이 정상이라 여기서 겁을 주면 안 된다
+            late = [m for m in missing if m in coming]
+            missing = [m for m in missing if m not in coming]
+            holes += [m for m in missing if m not in holes]
+            coming.update(name for name, _ in one.saves)
+            note = ", ".join(missing)
+            if not note:
+                note = (f"{', '.join(late)} <- 앞 요청" if late else
+                        ("본문 있음" if made.body.strip() else ""))
+            rows.append([str(one.number), one.name or "-", made.method,
+                         _cut(made.url, 46), note])
+        _grid(["번호", "이름", "메서드", "주소", "비고"], rows, limit=46)
+        if holes:
+            _p(f"\n값을 모르는 이름: {', '.join(sorted(holes))}")
+            _p("  --var 이름=값 으로 주거나 파일 위쪽에 @이름=값 으로 적으세요.")
+        writes = [one for one in chosen if one.writes]
+        if writes:
+            _p(f"\n자료를 바꾸는 요청이 {len(writes)}개 있습니다"
+               f" ({', '.join(one.method for one in writes)}).")
+        _p("\n실제로 부르려면 --run 을 붙이세요. 지금은 보기만 했습니다.")
+        return 1 if holes else 0
+
+    writes = [one for one in chosen if one.writes]
+    if writes and not a.yes:
+        _p(f"자료를 바꾸는 요청이 {len(writes)}개 있습니다"
+           f" ({', '.join(f'{one.number}.{one.method}' for one in writes)}).")
+        _p("  보낸 뒤에는 되돌릴 수 없습니다.")
+        if not _confirm("그대로 부를까요?"):
+            _p("부르지 않았습니다. --yes 를 붙이면 묻지 않습니다.")
+            return 1
+
+    _p(f"{path.name}  ·  요청 {len(chosen)}개\n")
+    bad = 0
+    for one in chosen:
+        okay, why = _calls_run(one, known, a.timeout,
+                               a.show is not None and one.number in (a.show or []))
+        if not okay:
+            bad += 1
+            if not a.keep_going:
+                left = len(chosen) - chosen.index(one) - 1
+                if left:
+                    _p(f"\n여기서 멈춥니다 ({why}). 뒤의 {left}개는 부르지 않았습니다"
+                       " - 앞의 결과를 쓰는 일이 많아서입니다.")
+                    _p("  그래도 끝까지 부르려면 --keep-going 을 붙이세요.")
+                break
+    _p("")
+    _p("모두 성공했습니다." if not bad else f"실패 {bad}개.")
+    return 0 if not bad else 1
 
 
 def cmd_dev_mask(a) -> int:
@@ -1870,6 +2022,23 @@ def add_commands(sub) -> None:
                  "같은 이름으로 함수를 다시 쓰면 파이썬은 아무 말 없이 덮습니다. "
                  "시험 메서드가 겹치면 앞엣것은 아예 돌지 않습니다.")
     tw.set_defaults(func=cmd_dev_twice)
+
+    cl = dp.add_parser("calls", help=".http 파일의 요청을 차례대로 부르기 (로그인 -> 목록)")
+    cl.add_argument("file", metavar="파일", help="예: api.http")
+    cl.add_argument("--run", action="store_true",
+                    help="실제로 부른다 (기본은 무엇을 부를지 보기만)")
+    cl.add_argument("--var", action="append", metavar="이름=값",
+                    help="«{{이름}}» 자리에 넣을 값. 파일의 @이름=값 보다 우선한다")
+    cl.add_argument("--only", type=int, action="append", metavar="번호",
+                    help="그 번호만 부른다 (여러 번 줄 수 있다)")
+    cl.add_argument("--show", type=int, action="append", metavar="번호",
+                    help="그 요청의 응답 본문을 보여준다")
+    cl.add_argument("--keep-going", action="store_true",
+                    help="하나가 실패해도 끝까지 부른다")
+    cl.add_argument("--yes", action="store_true",
+                    help="POST·DELETE 같은 요청을 묻지 않고 부른다")
+    cl.add_argument("--timeout", type=float, default=10.0, metavar="초")
+    cl.set_defaults(func=cmd_dev_calls)
 
     ht = dp.add_parser("http", help="HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐)")
     ht.add_argument("url", metavar="주소")

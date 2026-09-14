@@ -801,6 +801,18 @@ def fetch(url: str, *, method: str = "GET", headers: dict | None = None,
     import urllib.error
     import urllib.request
 
+    # HTTP 머리글은 latin-1 만 실어 나른다. 한글이 섞이면 urllib 이 그대로
+    # UnicodeEncodeError 를 던져 추적이 통째로 나온다. 어느 머리글인지 먼저 말한다
+    for name, value in (headers or {}).items():
+        for what, one in (("이름", name), ("값", value)):
+            try:
+                str(one).encode("latin-1")
+            except UnicodeEncodeError:
+                raise ValueError(
+                    f"머리글 {what}에 한글·특수문자가 있습니다: {name}: {value}\n"
+                    "  HTTP 머리글에는 영문·숫자만 실을 수 있습니다. "
+                    "한글은 본문에 넣거나 서버와 정한 방식으로 부호화해 주세요.") from None
+
     request = urllib.request.Request(encode_url(url), data=body,
                                      method=method.upper(), headers=headers or {})
     started = _time.perf_counter()

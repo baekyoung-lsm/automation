@@ -1,8 +1,12 @@
 """HTTP 한 번 부르기 시험. 진짜 서버를 띄워서 확인한다."""
 
+import contextlib
 import http.server
+import io
 import json
+import shutil
 import socketserver
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -11,6 +15,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from attools import cli
 from attools.code import devkit
 
 
@@ -104,3 +109,97 @@ class HttpTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CallsTest(unittest.TestCase):
+    """.http 파일을 차례대로 부르기. 진짜 서버에 대고 끝까지 돌린다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = socketserver.TCPServer(("127.0.0.1", 0), 시험서버)
+        cls.base = f"http://127.0.0.1:{cls.server.server_address[1]}"
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join(timeout=5)
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.file = self.root / "api.http"
+        self.file.write_text(
+            f"@host = {self.base}\n"
+            "\n"
+            "### 로그인\n"
+            "POST {{host}}/login\n"
+            "Content-Type: application/json\n"
+            "# @save kind = 형식\n"
+            "\n"
+            '{"아이디": "{{user}}"}\n'
+            "\n"
+            "### 목록\n"
+            "GET {{host}}/items\n"
+            "X-Kind: {{kind}}\n", encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def run_cli(self, *args, expect: int = 0) -> str:
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = cli.main(["dev", "calls", str(self.file), *args])
+        self.assertEqual(code, expect, out.getvalue())
+        return out.getvalue()
+
+    def test_preview_does_not_call_and_says_so(self):
+        got = self.run_cli("--var", "user=kim")
+        self.assertIn("보기만", got)
+        self.assertIn("로그인", got)
+        self.assertNotIn("201", got)
+
+    def test_preview_does_not_call_a_saved_name_missing(self):
+        """뒤 요청이 앞 요청에서 받는 값은 «모르는 이름» 이 아니다."""
+        got = self.run_cli("--var", "user=kim")
+        self.assertIn("앞 요청", got)
+        self.assertNotIn("값을 모르는 이름", got)
+
+    def test_missing_value_is_named_and_nothing_is_called(self):
+        got = self.run_cli(expect=1)
+        self.assertIn("user", got)
+        self.assertIn("값을 모르는 이름", got)
+
+    def test_runs_in_order_and_carries_the_saved_value(self):
+        got = self.run_cli("--var", "user=kim", "--run", "--yes")
+        self.assertIn("201", got)                      # 로그인
+        self.assertIn("@save kind = application/json", got)
+        self.assertIn("200", got)                      # 목록
+        self.assertIn("모두 성공", got)
+
+    def test_write_requests_are_not_called_without_a_yes(self):
+        """POST·DELETE 는 되돌릴 수 없다. 확인 없이 나가면 안 된다."""
+        got = self.run_cli("--var", "user=kim", "--run", expect=1)
+        self.assertIn("되돌릴 수 없습니다", got)
+        self.assertIn("부르지 않았습니다", got)
+        self.assertNotIn("201", got)
+
+    def test_only_runs_the_chosen_number(self):
+        got = self.run_cli("--only", "2", "--var", "kind=x", "--run")
+        self.assertIn("200", got)
+        self.assertNotIn("로그인", got)
+
+    def test_failure_stops_the_rest(self):
+        self.file.write_text(
+            f"### 없는 곳\nGET {self.base}/none\n\n"
+            f"### 다음\nGET {self.base}/\n", encoding="utf-8")
+        got = self.run_cli("--run", expect=1)
+        self.assertIn("404", got)
+        self.assertIn("여기서 멈춥니다", got)
+        got = self.run_cli("--run", "--keep-going", expect=1)
+        self.assertIn("실패 1개", got)
+
+    def test_body_shown_on_request(self):
+        got = self.run_cli("--only", "2", "--var", "kind=x", "--run", "--show", "2")
+        self.assertIn("안녕", got)

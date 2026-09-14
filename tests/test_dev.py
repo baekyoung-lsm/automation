@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from attools import text
-from attools.code import deps, devkit, logkit
+from attools.code import deps, devkit, httpfile, logkit
 from attools.write import names
 from attools.code.schedule import Cron, CronError
 
@@ -174,6 +174,83 @@ class DevkitTest(unittest.TestCase):
         with self.assertRaises(devkit.RetryError) as ctx:
             devkit.retry(["/없는/명령"], tries=3, sleeper=lambda s: None)
         self.assertIn("돌리지 못했습니다", str(ctx.exception))
+
+
+
+class HttpFileTest(unittest.TestCase):
+    SAMPLE = """@host = http://127.0.0.1:9
+
+### 로그인
+POST {{host}}/login
+Content-Type: application/json
+# @save token = data.token
+
+{"아이디": "{{user}}"}
+
+### 목록
+GET {{host}}/items?q={{ 검색어 }}
+Authorization: Bearer {{token}}
+"""
+
+    def test_parses_two_requests_with_names_and_body(self):
+        doc = httpfile.parse(self.SAMPLE)
+        self.assertEqual([one.name for one in doc.requests], ["로그인", "목록"])
+        self.assertEqual(doc.variables, {"host": "http://127.0.0.1:9"})
+        first = doc.requests[0]
+        self.assertEqual(first.method, "POST")
+        self.assertEqual(first.headers, [("Content-Type", "application/json")])
+        self.assertEqual(first.body, '{"아이디": "{{user}}"}')
+        self.assertEqual(first.saves, [("token", "data.token")])
+        self.assertEqual(doc.problems, [])
+
+    def test_write_methods_are_marked(self):
+        doc = httpfile.parse(self.SAMPLE)
+        self.assertEqual([one.number for one in doc.writes], [1])
+
+    def test_unreadable_lines_are_reported_not_dropped(self):
+        doc = httpfile.parse("GET http://x\n이게 뭐지\n")
+        self.assertEqual(len(doc.requests), 1)
+        self.assertTrue(doc.problems)
+        self.assertIn("2행", doc.problems[0])
+
+    def test_unknown_slots_come_back_instead_of_blanks(self):
+        """빈 칸으로 바꾸면 엉뚱한 주소를 부르게 된다. 이름을 돌려줘야 한다."""
+        filled, missing = httpfile.fill("http://a/{{b}}/{{c}}", {"b": "1"})
+        self.assertEqual(filled, "http://a/1/{{c}}")
+        self.assertEqual(missing, ["c"])
+
+    def test_resolve_fills_url_headers_and_body(self):
+        doc = httpfile.parse(self.SAMPLE)
+        made, missing = httpfile.resolve(doc.requests[1],
+                                         {"host": "http://h", "token": "T",
+                                          "검색어": "김"})
+        self.assertEqual(made.url, "http://h/items?q=김")
+        self.assertEqual(made.headers, [("Authorization", "Bearer T")])
+        self.assertEqual(missing, [])
+
+    def test_pick_says_where_it_broke(self):
+        data = {"data": {"items": [{"id": 7}]}}
+        self.assertEqual(httpfile.pick(data, "data.items[0].id"), (7, ""))
+        value, why = httpfile.pick(data, "data.items[3].id")
+        self.assertIsNone(value)
+        self.assertIn("3번째", why)
+        value, why = httpfile.pick(data, "data.token")
+        self.assertIsNone(value)
+        self.assertIn("token", why)
+
+    def test_read_vars_rejects_a_bare_word(self):
+        self.assertEqual(httpfile.read_vars(["a=1", "b=2=3"]),
+                         {"a": "1", "b": "2=3"})
+        with self.assertRaises(ValueError):
+            httpfile.read_vars(["그냥이름"])
+
+
+class HeaderEncodingTest(unittest.TestCase):
+    def test_korean_header_is_named_not_traced(self):
+        """머리글에 한글이 섞이면 urllib 이 추적을 통째로 뱉는다. 먼저 막는다."""
+        with self.assertRaises(ValueError) as caught:
+            devkit.fetch("http://127.0.0.1:9", headers={"X-Who": "김민수"})
+        self.assertIn("X-Who", str(caught.exception))
 
 
 class FileBase64Test(unittest.TestCase):

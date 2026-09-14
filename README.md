@@ -366,6 +366,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 시험은 어떻게 돌리나, CI 는 무엇을 돌리나 |
 | `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
+| `at dev calls <파일.http>` | `.http` 파일의 요청을 **차례대로** 부른다 (로그인 → 목록 → 상세). 기본은 미리보기, `--run` 이라야 실제로 부른다 |
 | `at dev health <주소…>` | 여러 주소를 한 번에 두드려 상태·시간 확인. 하나라도 안 되면 exit 1 |
 | `at dev mask [파일]` | 로그를 공유하기 전에 주민등록번호·전화·카드·이메일·토큰·비밀번호를 가린다 |
 | `at dev wait <대상>` | `host:port` 나 URL 이 응답할 때까지 기다린다. 컨테이너 띄운 뒤 헬스체크용 |
@@ -414,6 +415,9 @@ at dev lock /tmp/전.json package-lock.json --major     # 맨 앞 숫자가 바�
 at dev http localhost:8080/api/users                   # 2xx 아니면 exit 1
 at dev http api.example.com/orders --json '{"수량":2}' -H 'X-Key: 값'
 at dev http localhost:8080/health --head               # 헤더만
+at dev calls api.http                                  # 무엇을 부를지 먼저 본다
+at dev calls api.http --run --var user=kim             # 순서대로 실제로
+at dev calls api.http --run --only 2 --show 2          # 두 번째만, 본문까지
 at dev health https://api.example.com/health https://example.com  # 배포 뒤
 at dev health --from 주소목록.txt --expect 200
 at dev unused src/ --modules                           # 걸리면 exit 1
@@ -490,6 +494,33 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 많은데, 예외로 끊으면 그걸 못 본다(종료 코드로는 실패를 알린다). 응답이 JSON 이면 한글을
 그대로 두고 들여써서 보여 주고, `Authorization` 같은 헤더 값은 가려서 찍는다 — 터미널
 기록이나 화면 공유로 새는 것을 막으려는 것이다.
+
+`at dev calls` 는 부르는 **순서**를 파일로 남기는 자리다. VS Code REST Client 나
+IntelliJ 가 쓰는 `.http` 형식 그대로다.
+
+```http
+@host = https://api.example.com
+
+### 로그인
+POST {{host}}/login
+Content-Type: application/json
+# @save token = data.token
+
+{"아이디": "{{user}}", "비밀번호": "{{pw}}"}
+
+### 내 주문
+GET {{host}}/orders
+Authorization: Bearer {{token}}
+```
+
+`# @save 이름 = 자리` 는 응답 JSON 에서 값을 꺼내 뒤 요청의 `{{이름}}` 에 넣는다
+(`data.items[0].id` 처럼 쓴다). 토큰을 손으로 복사해 붙이지 않으려는 것이다.
+
+기본은 **미리보기**다 — 무엇을 어떤 순서로 부를지, 값이 빠진 이름은 무엇인지만 보여주고
+부르지 않는다. `--run` 을 붙여야 실제로 부르고, `POST`·`DELETE` 처럼 자료를 바꾸는
+요청이 섞여 있으면 한 번 더 묻는다(`--yes` 로 건너뛴다). 보낸 요청은 되돌릴 수 없어서다.
+하나가 실패하면 거기서 멈춘다 — 앞의 결과를 뒤에서 쓰는 일이 많아 계속 부르면 실패가
+번진다. 끝까지 보려면 `--keep-going`.
 
 `at dev outline` 은 처음 보는 코드에서 어디부터 읽을지 정할 때 쓴다. 파일마다 줄 수,
 클래스·함수 수, **가장 긴 함수**, **갈림길이 가장 많은 함수**, 설명(docstring) 없는 공개
