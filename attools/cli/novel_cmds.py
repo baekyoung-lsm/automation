@@ -418,6 +418,95 @@ def cmd_novel_style(a) -> int:
     return 0
 
 
+# 소수만 섞이면 실수로, 많이 섞이면 일부러 그렇게 쓴 것으로 본다.
+# 비율만 보면 짧은 글이 억울하다 - 다섯 문장에 하나면 20%지만 실수다.
+# 그래서 «몇 문장 안 된다» 도 함께 본다
+MIX_SLIP = 0.15
+MIX_FEW = 3
+# 지문 문장 중 1인칭 표현이 이만큼 넘으면 1인칭, 이보다 적으면 3인칭으로 본다
+PERSON_FIRST = 0.15
+PERSON_THIRD = 0.02
+
+
+def _slip(one) -> bool:
+    """주된 시제에서 «몇 문장만» 벗어났는가 (실수로 보이는가)."""
+    return bool(one.off) and (one.off <= MIX_FEW or one.mixed < MIX_SLIP)
+
+
+def _person_of(one) -> str:
+    if not one.narration:
+        return "?"
+    if one.person >= PERSON_FIRST:
+        return "1인칭"
+    if one.person <= PERSON_THIRD:
+        return "3인칭"
+    return "섞임"
+
+
+def cmd_novel_pov(a) -> int:
+    """화마다 시제와 시점이 흔들리는지 본다. 퇴고에서 가장 흔한 지적이다."""
+    targets = _novel_targets(a.paths)
+    if not targets:
+        _p("텍스트 파일을 찾지 못했습니다.")
+        return 1
+
+    rows, slips = [], []
+    for path in targets:
+        one, off = manuscript.voice_metrics(manuscript.read_text(path),
+                                            path.stem)
+        if not one.narration:
+            continue
+        rows.append(one)
+        slips.append(off)
+    if not rows:
+        _p("잴 만한 내용이 없습니다.")
+        return 1
+
+    table = []
+    for one in rows[:a.limit]:
+        판정 = one.tense
+        if _slip(one):
+            판정 += f" ({'현재' if one.tense == '과거' else '과거'}형 {one.off}문장)"
+        elif one.off:
+            판정 = "과거·현재 섞어 씀"
+        table.append([one.name, f"{one.sentences:,}", f"{one.past:,}",
+                      f"{one.present:,}", _person_of(one),
+                      f"{one.person:.0%}", 판정])
+    _grid(["대상", "문장", "과거", "현재", "시점", "1인칭", "본 대로"],
+          table, limit=22)
+    if len(rows) > a.limit:
+        _p(f"  ... {len(rows) - a.limit}개 더")
+
+    못센것 = sum(one.unsure for one in rows)
+    _p(f"\n대사는 빼고 지문만 셌습니다. 시제를 가릴 수 없는 문장 {못센것:,}개는 "
+       "세지 않았습니다 (체언 종결·«…더라» 같은 것).")
+    _p("1인칭 = 지문에 «나는·내가·내 …» 가 나온 문장 비율입니다.")
+
+    시점들 = [_person_of(one) for one in rows]
+    다수 = max(set(시점들), key=시점들.count) if 시점들 else "?"
+    다른 = [one.name for one, kind in zip(rows, 시점들)
+          if kind != 다수 and kind != "?"]
+    if len(rows) >= 3 and 다른:
+        _p(f"\n시점이 다른 곳: {', '.join(다른[:8])}"
+           f"{' …' if len(다른) > 8 else ''}  (다른 곳은 {다수})")
+
+    실수 = [(one, off) for one, off in zip(rows, slips) if _slip(one)]
+    if not 실수:
+        _p("\n주된 시제에서 몇 문장만 벗어난 곳은 없습니다.")
+        return 0
+
+    _p(f"\n시제가 몇 문장만 벗어난 곳 {len(실수)}군데")
+    for one, off in 실수[:a.limit]:
+        _p(f"\n  {one.name}  ({one.tense}형인데 {one.off}문장)")
+        for spot in off[:a.each]:
+            자리 = f"{spot.line}줄" if spot.line else "위치 모름"
+            _p(f"    {자리}  [{spot.tense}]  {_cut(spot.text, 58)}")
+        if len(off) > a.each:
+            _p(f"    ... {len(off) - a.each}문장 더 (--each 로 조절)")
+    _p("\n회상 장면은 일부러 시제를 바꾸기도 합니다. 판단은 쓰는 사람이 합니다.")
+    return 1
+
+
 def cmd_novel_export(a) -> int:
     targets = _novel_targets(a.paths)
     # 내보낸 파일이 원고 디렉터리 안에 있으면 다음 실행에서 원고로 다시 잡힌다.
@@ -1149,6 +1238,13 @@ def add_commands(sub) -> None:
     sy.add_argument("--min", type=int, default=100, metavar="자", help="장면 최소 분량")
     sy.add_argument("--limit", type=int, default=40)
     sy.set_defaults(func=cmd_novel_style)
+
+    pv = np_.add_parser("pov", help="시점·시제 흔들림 - 과거/현재 섞임, 1인칭/3인칭")
+    pv.add_argument("paths", nargs="+")
+    pv.add_argument("--each", type=int, default=6, metavar="개",
+                    help="화마다 어긋난 문장을 몇 개까지 (기본 6)")
+    pv.add_argument("--limit", type=int, default=40)
+    pv.set_defaults(func=cmd_novel_pov)
 
     ex = np_.add_parser("export", help="여러 화를 한 파일로 - 투고·인쇄용")
     ex.add_argument("paths", nargs="+")

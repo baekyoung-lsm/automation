@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from .. import docx
+from .. import docx, hangul
 
 TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".text"}
 SNAPSHOT_DIR = ".attools-snapshots"
@@ -561,6 +561,125 @@ def style_metrics(text: str, name: str = "", *, long_limit: int = 80) -> Style:
         st.vocabulary = len(set(words)) / len(words)
     return st
 
+
+# ----------------------------------------------- 시점·시제 흔들림 (퇴고용)
+
+# 퇴고에서 가장 많이 지적받는 것이 시제 혼용과 시점 흔들림이다. 사람이
+# 읽으면 «어딘가 어색한데» 로 지나가므로 세어서 보여 준다.
+
+# 상태를 말하는 종결. 받침이 ㅆ 이라 과거처럼 보이지만 현재형이다
+STATIVE = ("있다", "없다", "있나", "없나")
+FIRST_PERSON = re.compile(
+    r"(?<![가-힣])(?:나는|내가|나를|나도|나만|나에게|나한테|나의|우리는|우리가"
+    r"|내 (?=[가-힣])|제가|저는(?= ))")
+# 문장 끝의 따옴표·문장부호를 걷어 내고 종결 어미만 본다
+TAIL = re.compile(r"[\s.!?…\"'”’」』\)\]]+$")
+
+
+def _jongseong(ch: str) -> str:
+    code = ord(ch) if ch else 0
+    if not (0xAC00 <= code <= 0xD7A3):
+        return ""
+    return hangul.JONG[(code - 0xAC00) % 28].strip()
+
+
+def tense_of(sentence: str) -> str:
+    """한 문장의 시제. «과거»·«현재»·«» (가릴 수 없음).
+
+    «했다·갔다» 처럼 종결 앞 받침이 ㅆ 이면 과거, «한다·먹는다» 처럼 ㄴ 이면
+    현재로 본다. «있다·없다» 는 받침이 ㅆ 이지만 현재라 따로 뺀다. 어느
+    쪽인지 가릴 수 없는 문장(«…그 남자.», «…했더라»)은 빈 글자로 두고 세지
+    않는다 - 애매한 것을 한쪽에 몰아넣으면 비율이 거짓말을 한다.
+    """
+    body = TAIL.sub("", sentence.strip())
+    if not body:
+        return ""
+    if body.endswith(STATIVE):
+        return "현재"
+    if not body.endswith("다"):
+        return ""
+    before = body[-2] if len(body) >= 2 else ""
+    jong = _jongseong(before)
+    if jong == "ㅆ":
+        return "과거"
+    if jong == "ㄴ" or body.endswith("는다"):
+        return "현재"
+    return ""
+
+
+def narration(text: str) -> str:
+    """대사를 뺀 지문만. 대사 속 «나는» 은 시점과 상관없다."""
+    return QUOTE.sub(" ", text)
+
+
+@dataclass
+class Voice:
+    name: str
+    sentences: int = 0          # 시제를 가린 문장 수
+    past: int = 0
+    present: int = 0
+    unsure: int = 0             # 가릴 수 없던 문장
+    first_person: int = 0       # 1인칭 표현이 나온 지문 문장 수
+    narration: int = 0          # 지문 문장 수
+
+    @property
+    def tense(self) -> str:
+        if not self.sentences:
+            return "?"
+        return "과거" if self.past >= self.present else "현재"
+
+    @property
+    def off(self) -> int:
+        """주된 시제와 다른 문장 수."""
+        return min(self.past, self.present)
+
+    @property
+    def mixed(self) -> float:
+        return self.off / self.sentences if self.sentences else 0.0
+
+    @property
+    def person(self) -> float:
+        return self.first_person / self.narration if self.narration else 0.0
+
+
+@dataclass
+class OffSentence:
+    name: str
+    line: int
+    tense: str
+    text: str
+
+
+def voice_metrics(text: str, name: str = "") -> tuple[Voice, list[OffSentence]]:
+    """한 편의 시제·시점. (집계, 주된 시제와 어긋난 문장들)"""
+    body = narration(strip_markup(text))
+    out = Voice(name)
+    marks: list[tuple[str, str]] = []
+    for sentence in split_sentences(body):
+        if SEPARATOR_ONLY.match(sentence):
+            continue
+        out.narration += 1
+        if FIRST_PERSON.search(sentence):
+            out.first_person += 1
+        kind = tense_of(sentence)
+        if not kind:
+            out.unsure += 1
+            continue
+        out.sentences += 1
+        out.past += kind == "과거"
+        out.present += kind == "현재"
+        marks.append((kind, sentence.strip()))
+
+    주된 = out.tense
+    off = [OffSentence(name, _line_of_text(text, sentence), kind, sentence)
+           for kind, sentence in marks if kind != 주된]
+    return out, off
+
+
+def _line_of_text(text: str, needle: str) -> int:
+    """그 문장이 몇째 줄에서 시작하는지. 못 찾으면 0."""
+    spot = text.find(needle[:30])
+    return text.count("\n", 0, spot) + 1 if spot >= 0 else 0
 
 def style_outliers(rows: list[Style], *, sigma: float = 1.5) -> dict[str, list[str]]:
     """평균에서 크게 벗어난 항목. {대상 이름: [벗어난 지표…]}"""

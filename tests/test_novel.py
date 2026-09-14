@@ -972,3 +972,63 @@ class JoinedLineTest(unittest.TestCase):
         _body, marks = self.cmds._joined([one])
         self.assertEqual(self.cmds._where(marks, 2), "2행")
 
+
+
+class VoiceTest(unittest.TestCase):
+    """시제·시점 흔들림. 애매한 문장을 한쪽에 몰아넣으면 비율이 거짓이 된다."""
+
+    def test_past_and_present_endings(self):
+        self.assertEqual(manuscript.tense_of("그는 문을 열었다."), "과거")
+        self.assertEqual(manuscript.tense_of("비가 왔다."), "과거")
+        self.assertEqual(manuscript.tense_of("그가 밥을 먹는다."), "현재")
+        self.assertEqual(manuscript.tense_of("그는 문을 연다."), "현재")
+
+    def test_stative_endings_are_present_not_past(self):
+        """«있다» 는 받침이 ㅆ 이라 그냥 세면 과거로 잘못 들어간다."""
+        self.assertEqual(manuscript.tense_of("창밖에 눈이 있다."), "현재")
+        self.assertEqual(manuscript.tense_of("아무도 없다."), "현재")
+        self.assertEqual(manuscript.tense_of("창밖에 눈이 있었다."), "과거")
+
+    def test_unsure_sentences_are_not_counted_either_way(self):
+        for line in ("그 남자.", "바람이 차갑다.", "그랬더라.", "어디로 갈까?"):
+            self.assertEqual(manuscript.tense_of(line), "", line)
+
+    def test_trailing_quotes_do_not_hide_the_ending(self):
+        self.assertEqual(manuscript.tense_of("그는 웃었다.”"), "과거")
+
+    def test_dialogue_is_left_out_of_the_count(self):
+        """대사 속 «나는» 은 시점과 상관없다. 세면 3인칭 소설이 1인칭이 된다."""
+        body = ('그는 고개를 저었다.\n"나는 못 가."\n그는 돌아섰다.\n')
+        one, _off = manuscript.voice_metrics(body, "1화")
+        self.assertEqual(one.narration, 2)
+        self.assertEqual(one.first_person, 0)
+        self.assertEqual(one.past, 2)
+
+    def test_the_odd_sentence_out_is_pointed_at(self):
+        body = ("그는 문을 열었다. 복도는 어두웠다. 발소리가 들려왔다.\n"
+                "그때 불이 꺼진다.\n그는 숨을 죽였다.\n")
+        one, off = manuscript.voice_metrics(body, "1화")
+        self.assertEqual(one.tense, "과거")
+        self.assertEqual(one.off, 1)
+        self.assertEqual([spot.text for spot in off], ["그때 불이 꺼진다."])
+        self.assertEqual(off[0].line, 2)
+
+    def test_a_present_tense_manuscript_is_not_flagged(self):
+        body = "그녀는 커피를 마신다. 사람들이 지나간다. 전화가 울린다.\n"
+        one, off = manuscript.voice_metrics(body, "3화")
+        self.assertEqual(one.tense, "현재")
+        self.assertEqual(off, [])
+        self.assertEqual(one.mixed, 0.0)
+
+    def test_first_person_narration_is_counted(self):
+        body = "나는 집을 나섰다. 내 손에는 가방이 있었다. 비가 그쳤다.\n"
+        one, _off = manuscript.voice_metrics(body, "2화")
+        self.assertEqual(one.first_person, 2)
+        self.assertGreater(one.person, 0.6)
+
+    def test_empty_text_does_not_divide_by_zero(self):
+        one, off = manuscript.voice_metrics("", "빈것")
+        self.assertEqual((one.sentences, one.narration), (0, 0))
+        self.assertEqual((one.mixed, one.person), (0.0, 0.0))
+        self.assertEqual(one.tense, "?")
+        self.assertEqual(off, [])

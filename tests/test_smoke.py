@@ -1262,6 +1262,16 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("짧아 세지 않은 덩어리 1개", 장면)
         self.assertIn("어휘", self.run_cli("novel", "wordlist", 원고, "--min", "2"))
         self.run_cli("novel", "style", 원고)
+
+        # 시제가 몇 문장만 벗어난 곳을 짚고, 그 문장을 그대로 보여줘야 한다
+        시제원고 = Path(self.path("시제원고"))
+        시제원고.mkdir(exist_ok=True)
+        (시제원고 / "01화.txt").write_text(
+            "그는 문을 열었다. 복도는 어두웠다. 발소리가 들려왔다.\n"
+            "그때 불이 꺼진다.\n그는 숨을 죽였다.\n", encoding="utf-8")
+        시제 = self.run_cli("novel", "pov", str(시제원고), expect=1)
+        self.assertIn("그때 불이 꺼진다", 시제)
+        self.assertIn("과거", 시제)
         self.assertIn("화별", self.run_cli("novel", "cast", 원고, "--min", "2"))
         self.run_cli("novel", "tidy", 원고, "--scene-mark", "＊")
         self.assertIn("따옴표", self.run_cli("novel", "quote", 원고))
