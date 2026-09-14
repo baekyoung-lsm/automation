@@ -903,6 +903,14 @@ class SmokeTest(unittest.TestCase):
         죽은주소 = self.run_cli("dev", "health", "http://127.0.0.1:1/없음",
                               "--timeout", "1", expect=1)
         self.assertIn("안 되는 것 1개", 죽은주소)
+        도커 = Path(self.path("도커"))
+        도커.mkdir(exist_ok=True)
+        (도커 / "Dockerfile").write_text(
+            'FROM python:latest\nCOPY . /app\nRUN pip install -r r.txt\n'
+            'CMD ["python", "a.py"]\n', encoding="utf-8")
+        본것 = self.run_cli("dev", "docker", str(도커), expect=1)
+        self.assertIn("latest", 본것)
+        self.assertIn("USER", 본것)
         self.assertIn("성공", self.run_cli("dev", "retry", "--", "true"))
 
         저장소 = Path(self.path("받은저장소"))

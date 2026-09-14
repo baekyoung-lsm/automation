@@ -373,6 +373,7 @@ UTF-8 표시가 없으면 대부분의 도구가 cp437 로 읽고, 그래서 한
 | `at dev loc [경로…]` | 줄 수 세기 — 언어별 코드·주석·빈 줄, 큰 파일 순 |
 | `at dev imports <폴더>` | 모듈 import 관계 - 누가 누구를 부르나, 고리는 없나 |
 | `at dev pyver [경로…]` | 이 코드가 어느 파이썬부터 도는지. `--target 3.10` 을 넘으면 exit 1 |
+| `at dev docker [파일\|폴더]` | Dockerfile 훑기 — latest 태그, root 실행, 캐시를 깨는 COPY 차례, 이미지에 박히는 비밀값, `.dockerignore` (문제가 있으면 exit 1) |
 | `at dev doctor [폴더]` | 새로 받은 저장소 훑기 - 무엇으로 만들었나, 시험은 어떻게 돌리나, CI 는 무엇을 돌리나 |
 | `at dev cert <호스트>` | 서버 인증서 만료일·이름 확인 (만료가 가까우면 1) |
 | `at dev http <주소>` | HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐, 비밀 헤더는 가림) |
@@ -428,6 +429,8 @@ at dev http localhost:8080/health --head               # 헤더만
 at dev calls api.http                                  # 무엇을 부를지 먼저 본다
 at dev calls api.http --run --var user=kim             # 순서대로 실제로
 at dev calls api.http --run --only 2 --show 2          # 두 번째만, 본문까지
+at dev docker .                                        # Dockerfile 훑기
+at dev docker . --strict                               # 권고까지 있으면 exit 1
 at dev health https://api.example.com/health https://example.com  # 배포 뒤
 at dev health --from 주소목록.txt --expect 200
 at dev unused src/ --modules                           # 걸리면 exit 1
@@ -504,6 +507,17 @@ CI 에 넣을 수 있다. `requirements.txt` 의 `-r` 은 따라가지 않고 �
 많은데, 예외로 끊으면 그걸 못 본다(종료 코드로는 실패를 알린다). 응답이 JSON 이면 한글을
 그대로 두고 들여써서 보여 주고, `Authorization` 같은 헤더 값은 가려서 찍는다 — 터미널
 기록이나 화면 공유로 새는 것을 막으려는 것이다.
+
+`at dev docker` 는 Dockerfile 에서 **되풀이해 지적받는 자리**만 짚는다 — `latest` 태그(어제
+되던 빌드가 오늘 달라진다), `USER` 없이 root 로 도는 이미지, `ENV`·`ARG` 에 박힌 비밀값,
+`COPY . .` 를 의존성 설치보다 먼저 해서 소스 한 줄만 고쳐도 설치가 다시 도는 차례,
+`apt-get update` 와 `install` 이 다른 `RUN` 에 갈린 것, `.dockerignore` 없음.
+
+「문제」와 「권고」를 나눠 적고 **문제가 있을 때만** 종료 코드 1 이다(`--strict` 면 권고도
+센다). 멀티 스테이지는 단계를 갈라 보므로 앞 단계의 `USER` 나 `CMD` 를 마지막 이미지의
+것으로 세지 않는다. `registry:5000/app:1.2` 의 포트를 태그로 착각하지 않고, 다이제스트로
+고정한 `image@sha256:…` 도 그냥 둔다 — 오탐이 한 번 나면 그다음부터 아무도 보지 않는다.
+고치지는 않는다.
 
 `at dev calls` 는 부르는 **순서**를 파일로 남기는 자리다. VS Code REST Client 나
 IntelliJ 가 쓰는 `.http` 형식 그대로다.

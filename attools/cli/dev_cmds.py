@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 from .. import files, hangul, life, sheet, text
-from ..code import (dbkit, deps, devkit, fakedata, httpfile, jsonkit, loc,
-                    logkit, openapi, project, pyscan)
+from ..code import (dbkit, deps, devkit, dockerkit, fakedata, httpfile,
+                    jsonkit, loc, logkit, openapi, project, pyscan)
 from ..code.schedule import Cron, CronError
 from ..write import manuscript
 from .common import (InputError, _pad, _p, _confirm, _read_input, _cut,
@@ -1229,6 +1229,48 @@ def cmd_dev_calls(a) -> int:
     return 0 if not bad else 1
 
 
+def cmd_dev_docker(a) -> int:
+    """Dockerfile 에서 흔히 사고 나는 자리를 짚는다. 고치지는 않는다."""
+    path = Path(a.file)
+    if path.is_dir():
+        path = path / "Dockerfile"
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        _p("  Dockerfile 이 있는 폴더를 주셔도 됩니다.")
+        return 1
+
+    try:
+        report = dockerkit.read(path)
+    except OSError as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+    if not report.steps:
+        _p(f"{path.name}: 읽을 명령이 없습니다 (FROM·RUN 같은 줄이 없습니다).")
+        return 1
+
+    _p(f"{path.name}  ·  명령 {len(report.steps)}개  ·  "
+       f"단계 {report.stages}개{' (멀티 스테이지)' if report.stages > 1 else ''}")
+
+    if not report.notes:
+        _p("\n짚을 것이 없습니다.")
+        return 0
+
+    # 표로 찍으면 «왜» 가 잘린다. 그 한 줄이 이 명령의 값어치다
+    for one in report.notes[:a.limit]:
+        자리 = f"{one.line}행" if one.line else "전체"
+        _p(f"\n  {자리}  [{one.kind}] {one.what}")
+        _p(f"        {one.why}")
+    if len(report.notes) > a.limit:
+        _p(f"... {len(report.notes) - a.limit}개 더 (--limit 로 조절)")
+
+    문제 = len(report.problems)
+    _p(f"\n문제 {문제}개, 권고 {len(report.notes) - 문제}개")
+    _p("사정이 있어 그렇게 쓴 것일 수 있습니다 - 고치지는 않았습니다.")
+    if a.strict:
+        return 1 if report.notes else 0
+    return 1 if 문제 else 0
+
+
 def cmd_dev_mask(a) -> int:
     try:
         text = _read_input(a.file)
@@ -2039,6 +2081,14 @@ def add_commands(sub) -> None:
                     help="POST·DELETE 같은 요청을 묻지 않고 부른다")
     cl.add_argument("--timeout", type=float, default=10.0, metavar="초")
     cl.set_defaults(func=cmd_dev_calls)
+
+    dk = dp.add_parser("docker", help="Dockerfile 훑기 - 태그·캐시·root·비밀값")
+    dk.add_argument("file", nargs="?", default="Dockerfile", metavar="파일|폴더")
+    dk.add_argument("--strict", action="store_true",
+                    help="권고까지 있으면 1 로 끝낸다 (기본은 문제만)")
+    dk.add_argument("--limit", type=int, default=25, metavar="개")
+    dk.epilog = "예: at dev docker .          # 폴더를 주면 그 안의 Dockerfile"
+    dk.set_defaults(func=cmd_dev_docker)
 
     ht = dp.add_parser("http", help="HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐)")
     ht.add_argument("url", metavar="주소")
