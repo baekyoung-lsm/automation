@@ -1225,3 +1225,63 @@ class NumberPagesTest(unittest.TestCase):
         body = pdf.stream_data(made.get(blob[0]), made)
         self.assertIn("본문1".encode("utf-8"), body)
 
+
+
+class TurnPagesTest(unittest.TestCase):
+    """거꾸로 스캔된 쪽 돌리기·차례 바로잡기."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        pages = []
+        for number in range(4):
+            path = self.root / f"{number}.png"
+            path.write_bytes(png_bytes(20, 30, lambda x, y: (number * 60, x, y)))
+            pages.append(pdf.read_image(path))
+        self.src = pdf.images_to_pdf(pages, self.root / "스캔본.pdf")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def turns(self, path: Path) -> list[int]:
+        doc = pdf.open_pdf(path)
+        return [int(doc.get(page.data.get("Rotate")) or 0) % 360
+                for page in doc.pages()]
+
+    def make(self, order, turns, name="새것.pdf") -> Path:
+        doc = pdf.open_pdf(self.src)
+        out = self.root / name
+        pdf.join_pdfs([(doc, order)], out, turns=turns)
+        return out
+
+    def test_only_the_chosen_pages_turn(self):
+        """뒤집어 넣은 스캔은 짝수 쪽만 거꾸로다. 전부 돌리면 홀수가 뒤집힌다."""
+        plan = pdf.rotation_plan([1, 2, 3, 4], [2, 4], 180)
+        self.assertEqual(self.turns(self.make([1, 2, 3, 4], plan)),
+                         [0, 180, 0, 180])
+
+    def test_turning_follows_the_source_page_not_the_slot(self):
+        """차례를 뒤집으면 «2쪽» 은 새 3쪽 자리에 간다. 사람은 원본을 보고 센다."""
+        order = [4, 3, 2, 1]
+        plan = pdf.rotation_plan(order, [1, 2], 90)
+        self.assertEqual(plan, {3: 90, 4: 90})
+        self.assertEqual(self.turns(self.make(order, plan)), [0, 0, 90, 90])
+
+    def test_the_angle_is_added_to_what_was_there(self):
+        once = self.make([1, 2, 3, 4], pdf.rotation_plan([1, 2, 3, 4], None, 90))
+        doc = pdf.open_pdf(once)
+        twice = self.root / "두번.pdf"
+        pdf.join_pdfs([(doc, [1, 2, 3, 4])], twice,
+                      turns=pdf.rotation_plan([1, 2, 3, 4], None, 90))
+        self.assertEqual(self.turns(twice), [180, 180, 180, 180])
+
+    def test_reordering_keeps_every_page(self):
+        out = self.make([3, 1, 2, 4], {})
+        self.assertEqual(len(pdf.open_pdf(out).pages()), 4)
+
+    def test_a_crooked_angle_is_refused(self):
+        with self.assertRaises(pdf.PdfError):
+            pdf.rotation_plan([1, 2], None, 45)
+
+    def test_no_plan_means_no_rotate_key(self):
+        self.assertEqual(pdf.rotation_plan([1, 2, 3], [9], 90), {})
+        self.assertEqual(self.turns(self.make([1, 2, 3, 4], {})), [0, 0, 0, 0])

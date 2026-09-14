@@ -271,6 +271,19 @@ class SmokeTest(unittest.TestCase):
         합본 = self.path("합본.pdf")
         self.assertIn("3쪽",
                       self.run_cli("file", "pdfjoin", 묶음, 뽑음, "-o", 합본))
+        # 뒤집어 넣은 스캔본 바로잡기. 고른 쪽만 돌고 나머지는 그대로여야 한다
+        바로 = self.path("바로잡은.pdf")
+        돌림 = self.run_cli("file", "pdfturn", 합본, "--rotate", "180",
+                          "--even", "-o", 바로)
+        self.assertIn("180도", 돌림)
+        from attools import pdf as pdfkit
+
+        문서 = pdfkit.open_pdf(Path(바로))
+        self.assertEqual([int(문서.get(쪽.data.get("Rotate")) or 0)
+                          for 쪽 in 문서.pages()], [0, 180, 0])
+        할일없음 = self.run_cli("file", "pdfturn", 합본, expect=1)
+        self.assertIn("할 일을 주세요", 할일없음)
+
         번호 = self.path("번호붙임.pdf")
         찍음 = self.run_cli("file", "pdfnum", 합본, "--skip", "1", "-o", 번호)
         self.assertIn("아래 가운데", 찍음)

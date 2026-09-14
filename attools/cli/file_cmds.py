@@ -867,6 +867,116 @@ def cmd_file_pdfnum(a) -> int:
     return 0
 
 
+def cmd_file_pdfturn(a) -> int:
+    """거꾸로 들어온 스캔본을 바로 돌리고, 뒤집혀 들어온 차례를 바로잡는다."""
+    from .. import pdf
+
+    path = Path(a.file)
+    if not path.is_file():
+        _p(f"파일이 없습니다: {path}")
+        return 1
+    try:
+        doc = pdf.open_pdf(path)
+        pages = doc.pages()
+        total = len(pages)
+    except (pdf.PdfError, OSError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    if a.even and a.odd:
+        _p("--even 과 --odd 는 함께 쓸 수 없습니다. 둘 다면 전체입니다.")
+        return 1
+
+    골라 = None
+    if a.pages:
+        try:
+            골라 = pdf.page_numbers(a.pages, total)
+        except pdf.PdfError as e:
+            _p(str(e))
+            return 1
+    elif a.even:
+        골라 = [n for n in range(1, total + 1) if n % 2 == 0]
+    elif a.odd:
+        골라 = [n for n in range(1, total + 1) if n % 2 == 1]
+
+    차례 = list(range(1, total + 1))
+    if a.order:
+        try:
+            차례 = pdf.page_numbers(a.order, total)
+        except pdf.PdfError as e:
+            _p(str(e))
+            return 1
+    if a.reverse:
+        차례 = list(reversed(차례))
+
+    try:
+        turns = pdf.rotation_plan(차례, 골라, a.rotate) if a.rotate else {}
+    except pdf.PdfError as e:
+        _p(str(e))
+        return 1
+    if not a.rotate and not a.reverse and not a.order:
+        _p("할 일을 주세요: --rotate 90 으로 돌리거나, --reverse 로 차례를 뒤집거나,")
+        _p("  --order 3,1,2 로 차례를 다시 정합니다.")
+        return 1
+
+    _p(f"{path.name}  전체 {total}쪽")
+    지금 = {n: int(doc.get(pages[n - 1].data.get("Rotate")) or 0) % 360
+          for n in range(1, total + 1)}
+    돌아간 = [n for n, angle in 지금.items() if angle]
+    if 돌아간:
+        _p(f"이미 돌아가 있는 쪽 {len(돌아간)}개: {_page_ranges(돌아간[:20])}"
+           f"{' …' if len(돌아간) > 20 else ''}")
+
+    if a.rotate:
+        몇 = len(turns)
+        어디 = "전체" if 골라 is None else _page_ranges(sorted(골라))
+        _p(f"돌리기: {어디} ({몇:,}쪽)을 {a.rotate}도 «더» 돌립니다 "
+           "- 지금 각도에 더합니다")
+        보기 = []
+        for number in (sorted(골라) if 골라 else 차례)[:5]:
+            보기.append(f"{number}쪽 {지금[number]}도 -> "
+                       f"{(지금[number] + a.rotate) % 360}도")
+        _p("  " + ",  ".join(보기) + (" …" if total > 5 else ""))
+    if a.reverse or a.order:
+        어떻게 = []
+        if a.order:
+            어떻게.append("준 차례대로")
+        if a.reverse:
+            어떻게.append("거꾸로")
+        _p(f"차례: {', '.join(어떻게)} 다시 엮습니다 ({len(차례):,}쪽)")
+        _p("  " + " · ".join(f"새 {spot}쪽 <- 원본 {number}쪽"
+                             for spot, number in enumerate(차례[:5], 1))
+           + (" …" if len(차례) > 5 else ""))
+
+    if not a.out:
+        _p("\n미리보기입니다. 파일로 만들려면 -o 바로잡은.pdf 를 주세요.")
+        return 0
+
+    out = Path(a.out)
+    if out.resolve() == path.resolve():
+        _p("원본에 덮어쓸 수 없습니다. 다른 이름을 주세요 - "
+           "잘못 돌리면 되돌릴 원본이 없어집니다.")
+        return 1
+    if not _may_write(a, out):
+        return 1
+    whole = 차례 == list(range(1, total + 1))
+    try:
+        result = pdf.join_pdfs([(doc, 차례)], out, turns=turns,
+                               catalog_from=doc if whole else None)
+    except (pdf.PdfError, OSError) as e:
+        _p(str(e))
+        return 1
+    _p(f"\n저장: {out}  ({result.pages:,}쪽, "
+       f"{files.human_size(out.stat().st_size)})")
+    if result.missing:
+        _p(f"원본이 가리키는데 없던 객체가 {result.missing}개 있었습니다. "
+           "그 자리는 비워 두었습니다 - 원본이 조금 망가져 있습니다.")
+    _p("글자와 그림은 눌린 그대로 옮겨 화질이 그대로입니다. 원본은 그대로 있습니다.")
+    if not whole:
+        _p("차례를 바꿨으므로 책갈피·양식은 따라가지 않습니다.")
+    return 0
+
+
 def cmd_file_pdfjoin(a) -> int:
     """여러 PDF 를 준 차례대로 이어 붙인다."""
     from .. import pdf
@@ -2224,6 +2334,25 @@ def add_commands(sub) -> None:
                   "    at file pdfnum 계약서.pdf --skip 1 --start 1 "
                   "--where bottom-right -o 번호붙임.pdf")
     num.set_defaults(func=cmd_file_pdfnum)
+
+    tn = fp.add_parser("pdfturn",
+                       help="거꾸로 스캔된 쪽 돌리기·쪽 차례 바로잡기")
+    tn.add_argument("file", metavar="파일.pdf")
+    tn.add_argument("-o", "--out", metavar="파일.pdf",
+                    help="비우면 무엇을 할지 보여주기만 한다")
+    tn.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    tn.add_argument("--rotate", type=int, default=0, metavar="각도",
+                    help="90·180·270. 지금 각도에 «더» 돌린다")
+    tn.add_argument("--pages", metavar="쪽", help="예: 2,4,6 또는 3-8 (기본 전체)")
+    tn.add_argument("--even", action="store_true", help="짝수 쪽만 (뒤집힌 스캔)")
+    tn.add_argument("--odd", action="store_true", help="홀수 쪽만")
+    tn.add_argument("--reverse", action="store_true", help="쪽 차례를 거꾸로")
+    tn.add_argument("--order", metavar="차례",
+                    help="예: 3,1,2 - 준 차례대로 다시 엮는다")
+    tn.epilog = ("예: at file pdfturn 스캔본.pdf --rotate 180 --even "
+                 "-o 바로잡은.pdf")
+    tn.set_defaults(func=cmd_file_pdfturn)
 
     jn = fp.add_parser("pdfjoin", help="여러 PDF 를 준 차례대로 합치기")
     jn.add_argument("files", nargs="+", metavar="파일.pdf")

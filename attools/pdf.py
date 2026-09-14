@@ -1184,8 +1184,24 @@ class JoinResult:
     missing: int             # 원본이 가리키는데 없던 객체 수 (0 이어야 한다)
 
 
+def rotation_plan(order: list[int], pages: list[int] | None,
+                  angle: int) -> dict[int, int]:
+    """«출력 차례 -> 더할 각도». pages 가 없으면 전부 돌린다.
+
+    스캐너가 낱장을 뒤집어 넣으면 짝수 쪽만 거꾸로 들어온다. 그래서 쪽마다
+    따로 돌릴 수 있어야 한다. 고르는 기준은 «원본 쪽 번호» 다 - 사람은
+    원본을 보고 «2, 4쪽이 거꾸로다» 라고 세기 때문이다.
+    """
+    if angle % 90:
+        raise PdfError(f"돌릴 각도는 90 의 배수여야 합니다: {angle}")
+    wanted = None if pages is None else set(pages)
+    return {spot: angle for spot, number in enumerate(order, 1)
+            if wanted is None or number in wanted}
+
+
 def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
               *, title: str = "", rotate: int = 0,
+              turns: dict | None = None,
               catalog_from: Document | None = None,
               info: dict | None = None,
               metadata: bytes | None = None,
@@ -1194,6 +1210,8 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
 
     rotate 는 90 의 배수. 원래 돌아가 있던 각도에 더한다 - 스캔한 것이
     이미 눕혀져 있으면 «90 도 더»가 맞지 «90 도로» 는 틀리기 때문이다.
+    turns 는 «출력 차례 -> 더할 각도» 로, 쪽마다 다르게 돌릴 때 쓴다
+    (rotation_plan 으로 만든다). rotate 와 함께 주면 더해진다.
 
     catalog_from 을 주면 그 문서의 목차(책갈피·양식·쪽 번호 표시·구조 태그)를
     함께 옮긴다. 쪽을 다 옮길 때만 뜻이 있다 - 안 옮긴 쪽을 가리키는 책갈피는
@@ -1234,9 +1252,10 @@ def join_pdfs(picks: list[tuple[Document, list[int]]], out: Path,
         copied = copier.convert(doc, data)
         copied["Type"] = Name("Page")
         copied["Parent"] = Ref(tree)
-        if rotate:
+        extra = (rotate + (turns or {}).get(order, 0)) % 360
+        if extra:
             was = doc.get(page.data.get("Rotate"))
-            copied["Rotate"] = (int(was or 0) + rotate) % 360
+            copied["Rotate"] = (int(was or 0) + extra) % 360
         if stamp:
             body = stamp(order, page, doc)
             if body:

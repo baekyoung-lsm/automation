@@ -81,6 +81,7 @@ python3 build.py            # 한 파일(dist/at.pyz)로 묶어 나눠 주기
 | `at file pdfblank <파일>` | 스캔본에서 **빈 쪽·백지로 보이는 쪽** 찾기 (빼는 명령까지 적어 준다) |
 | `at file pdfstamp <파일> --image <그림>` | PDF 에 **도장·서명 그림**을 얹는다 (PNG 의 투명한 자리는 비친다). 원본은 그대로 두고 새 파일로 |
 | `at file pdfnum <파일>` | PDF 에 쪽 번호를 찍는다 (합본 계약서·제출본). 원래 내용 위에 한 겹 |
+| `at file pdfturn <파일>` | 거꾸로 스캔된 쪽을 돌리고 뒤집힌 쪽 차례를 바로잡는다 (`--even` 짝수 쪽만, `--reverse` 역순) |
 | `at file exif [경로]` | 사진에 남은 촬영 정보(**위치**·기기·날짜) 보기, `--strip` 으로 지운 사본 |
 | `at file audit <디렉터리>` | 받은 폴더 한 번에 훑기 — 구성·이름 문제·중복·찌꺼기·빈 파일·큰 파일 |
 | `at file photos <디렉터리>` | 사진을 **찍은 날짜**(EXIF)별로 묶는다. 촬영 시각을 못 읽은 사진은 두고 온다 |
@@ -150,6 +151,8 @@ at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf  # 거꾸로 스�
 at file pdfcut 모음.pdf --each --apply              # 한 쪽씩 따로
 at file pdfjoin 앞.pdf 본문.pdf 뒤.pdf -o 합본.pdf
 at file pdfnum 합본.pdf --skip 1 -o 번호붙임.pdf     # 표지 빼고 쪽 번호
+at file pdfturn 스캔본.pdf --rotate 180 --even -o 바로잡은.pdf  # 뒤집힌 뒷면만
+at file pdfturn 스캔본.pdf --reverse -o 차례대로.pdf   # 거꾸로 들어간 스캔
 at file pdftext 계약서.pdf --pages 1-2 -o 계약서.txt  # 글자만 꺼내기
 at file pdfimg 보고서.pdf                    # 무엇이 들어 있나
 at file pdfimg 보고서.pdf --min 20KB --apply  # 로고·아이콘 빼고 꺼내기
@@ -256,6 +259,13 @@ PNG 가 낫다(투명도가 없으면 그렇다고 미리 알려 준다). 크기
 어느 쪽이든 **전자서명은 무효가 된다** - 반쪽만 옮겨 놓고 옮겼다고 하면 나중에 더 곤란하다. 다 쓰고 나면 만든
 파일을 **다시 열어 쪽 수를 세어 보고**, 맞지 않으면 그 파일을 지운다. 암호가 걸린 PDF 는
 열지 않는다(암호를 푼 사본으로 다시 해야 한다). 원본은 어느 쪽도 건드리지 않는다.
+
+`at file pdfturn` 은 스캔이 잘못 들어온 것을 바로잡는다. 낱장 급지로 양면을 뜨면
+뒷면만 거꾸로 들어오는데, `--rotate 180 --even` 이 그 경우다. 마지막 장부터 들어온
+스캔은 `--reverse`, 차례가 아예 섞였으면 `--order 3,1,2` 로 다시 엮는다. 각도는 지금
+각도에 **더한다** — 이미 눕혀 저장된 쪽에 «90도로» 를 적용하면 도로 눕기 때문이다.
+고르는 기준은 원본 쪽 번호라, 차례를 뒤집으면서 «2쪽을 돌려라» 해도 그 쪽을 따라간다.
+원본에는 덮어쓰지 않는다 — 잘못 돌리면 되돌릴 원본이 없어진다.
 
 `at file pdfnum` 은 쪽 번호를 **원래 내용 위에 한 겹 더 얹는다**. 글꼴은 파일에 심지 않고
 뷰어가 가진 Helvetica 를 쓰므로 파일이 거의 커지지 않는데, 그래서 **한글은 넣지 못한다** —
