@@ -18,9 +18,22 @@ def _open(payload: dict) -> sheet.Table:
     name = form.text(payload, "sheet") or None
     header_row = int(form.number(payload, "header_row", 1, low=1, high=1000))
     try:
-        return sheet.load(path, sheet=name, header_row=header_row - 1)
+        return sheet.load(path, sheet=name, header_row=header_row - 1,
+                          fill_merged=form.flag(payload, "unmerge"))
     except sheet.SheetError as exc:
         raise UiError(str(exc)) from None
+
+
+def _merge_note(table: sheet.Table, payload: dict) -> str:
+    """합쳐 둔 칸을 말없이 빈 칸으로 읽으면 집계가 조용히 틀린다."""
+    if not table.merges:
+        return ""
+    if form.flag(payload, "unmerge"):
+        return (f"합쳐 둔 칸 {table.merges}군데를 채워 읽었습니다 "
+                "(원본 파일은 그대로입니다).")
+    return (f"합쳐 둔 칸이 {table.merges}군데 있습니다 - 왼쪽 위 한 칸에만 값이 "
+            "있어 나머지는 빈 칸으로 읽힙니다. «합쳐 둔 칸 채워 읽기» 를 켜면 "
+            "엑셀 화면에 보이는 대로 읽습니다.")
 
 
 def _cells(table: sheet.Table, limit: int) -> list[list[str]]:
@@ -51,6 +64,7 @@ def peek(payload: dict) -> dict:
         "count": len(table.rows),
         "shown": min(len(table.rows), PEEK_ROWS),
         "columns": columns,
+        "merge_note": _merge_note(table, payload),
     }
 
 
@@ -205,7 +219,8 @@ def _other(payload: dict) -> sheet.Table:
     """비교·합칠 상대 파일. 같은 시트·머리글 규칙으로 읽는다."""
     return _open({"path": form.text(payload, "other"),
                   "sheet": form.text(payload, "other_sheet"),
-                  "header_row": payload.get("header_row", 1)})
+                  "header_row": payload.get("header_row", 1),
+                  "unmerge": payload.get("unmerge", False)})
 
 
 def compare(payload: dict) -> dict:
@@ -1468,6 +1483,10 @@ BODY = """
       <input type="text" id="header_row" value="1" spellcheck="false">
     </div>
   </div>
+  <div class="checks">
+    <label><input type="checkbox" id="unmerge"> 합쳐 둔 칸 채워 읽기
+      (엑셀 화면에 보이는 대로)</label>
+  </div>
   <div class="actions">
     <button class="primary" id="btn-open">열어 보기</button>
     <button id="btn-sheets">시트 목록</button>
@@ -2062,6 +2081,7 @@ BODY = """
       path: $("path").value,
       sheet: $("sheet").value,
       header_row: $("header_row").value,
+      unmerge: $("unmerge").checked,
       key: $("key").value,
       required: $("required").value,
       dedupe: $("dedupe").checked,
@@ -2929,8 +2949,9 @@ BODY = """
       $("rows").innerHTML = AT.table(data.headers, data.rows);
       AT.message($("msg"), "<b>" + data.count + "행</b>, " +
         data.headers.length + "열" + (data.sheet ? " · 시트 " +
-        AT.esc(data.sheet) : "") + ". 아래에는 " + data.shown + "행만 보입니다.",
-        "ok");
+        AT.esc(data.sheet) : "") + ". 아래에는 " + data.shown + "행만 보입니다." +
+        (data.merge_note ? "<br>" + AT.esc(data.merge_note) : ""),
+        data.merge_note && !$("unmerge").checked ? "bad" : "ok");
     } catch (e) { AT.message($("msg"), AT.esc(e.message), "bad"); }
   });
 
@@ -2973,6 +2994,9 @@ BODY = """
 
   ["path", "sheet", "header_row"].forEach(function (id) {
     $(id).addEventListener("input", function () { $("btn-save").disabled = true; });
+  });
+  $("unmerge").addEventListener("change", function () {
+    $("btn-save").disabled = true;      // 다시 열어 봐야 한다
   });
 })();
 </script>

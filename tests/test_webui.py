@@ -1606,6 +1606,49 @@ class NovelAppTest(UiCase):
         self.assertEqual(before, after)
 
 
+class SheetMergeTest(UiCase):
+    """엑셀 화면에서도 합쳐 둔 칸을 말없이 빈 칸으로 읽으면 안 된다."""
+
+    def merged(self):
+        import zipfile
+
+        from attools import xlsx
+
+        plain = self.work / "병합전.xlsx"
+        xlsx.write_sheets(plain, {"명단": [["부서", "금액"], ["영업1팀", 100],
+                                          [None, 200], ["영업2팀", 400]]})
+        path = self.work / "병합.xlsx"
+        with zipfile.ZipFile(plain) as src, zipfile.ZipFile(path, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename.startswith("xl/worksheets/"):
+                    data = data.decode("utf-8").replace(
+                        "</sheetData>",
+                        '</sheetData><mergeCells count="1">'
+                        '<mergeCell ref="A2:A3"/></mergeCells>').encode("utf-8")
+                dst.writestr(item, data)
+        return path
+
+    def test_the_screen_says_there_are_merged_cells(self):
+        _, data = self.post("/api/sheet/peek", {"path": str(self.merged())})
+        self.assertIn("합쳐 둔 칸이 1군데", data["merge_note"])
+        self.assertEqual(data["rows"][1][0], "")       # 그대로면 빈 칸이다
+
+    def test_filling_can_be_asked_for(self):
+        _, data = self.post("/api/sheet/peek",
+                            {"path": str(self.merged()), "unmerge": True})
+        self.assertIn("채워 읽었습니다", data["merge_note"])
+        self.assertEqual(data["rows"][1][0], "영업1팀")
+
+    def test_a_plain_file_gets_no_note(self):
+        from attools import xlsx
+
+        path = self.work / "깨끗.xlsx"
+        xlsx.write_sheets(path, {"가": [["부서"], ["영업1팀"]]})
+        _, data = self.post("/api/sheet/peek", {"path": str(path)})
+        self.assertEqual(data["merge_note"], "")
+
+
 class LifeAppTest(UiCase):
     """일상 계산 화면. 숫자만 다루므로 파일은 만들지 않는다."""
 
