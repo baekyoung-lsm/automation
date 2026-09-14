@@ -3555,3 +3555,30 @@ class MergedCellTest(unittest.TestCase):
         self.assertEqual(xlsx.anchor_of(merges, 3, 0), (2, 0))
         self.assertIsNone(xlsx.anchor_of(merges, 5, 0))
         self.assertIsNone(xlsx.anchor_of(merges, 3, 1))
+
+
+class TotalRowBehindColumnsTest(unittest.TestCase):
+    """앞에 번호·출처 열이 붙어 있어도 합계 줄을 찾아야 한다."""
+
+    def test_a_total_row_behind_a_source_column(self):
+        """at sheet merge 가 붙인 출처 열 때문에 합계 줄을 놓쳤었다."""
+        table = sheet.Table(["출처", "부서", "금액"],
+                            [["영업1팀.xlsx", "영업1팀", 100],
+                             ["영업1팀.xlsx", "합계", 100]])
+        self.assertEqual(sheet.total_rows(table), [3])
+
+    def test_a_total_row_at_the_front_still_works(self):
+        table = sheet.Table(["부서", "금액"], [["영업1팀", 100], ["합계", 100]])
+        self.assertEqual(sheet.total_rows(table), [3])
+
+    def test_a_word_far_to_the_right_is_not_a_total_row(self):
+        """오른쪽 끝 비고란에 «합계» 라고 적힌 자료 줄까지 세면 안 된다."""
+        table = sheet.Table(["부서", "이름", "사번", "비고"],
+                            [["영업1팀", "김민수", "A001", "합계 확인 요망"],
+                             ["영업1팀", "이영희", "A002", "합계"]])
+        self.assertEqual(sheet.total_rows(table), [])
+
+    def test_blank_cells_do_not_count_toward_the_look_ahead(self):
+        table = sheet.Table(["번호", "구분", "부서", "금액"],
+                            [[None, None, "합계", 100]])
+        self.assertEqual(sheet.total_rows(table), [2])

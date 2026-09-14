@@ -868,20 +868,26 @@ TOTAL_WORDS = {"합계", "총계", "소계", "계", "총합", "합", "누계",
                "total", "sum", "subtotal", "grand total"}
 
 
-def total_rows(table: Table) -> list[int]:
-    """합계로 보이는 행의 번호(머리글이 1행)."""
+def total_rows(table: Table, *, look: int = 3) -> list[int]:
+    """합계로 보이는 행의 번호(머리글이 1행).
+
+    맨 앞 칸만 보면 앞에 «번호»·«출처» 열이 붙은 표에서 합계 줄을 놓친다
+    (at sheet merge 가 붙이는 출처 열이 그렇다). 그 줄을 못 보면 집계가
+    두 번 세어지는데 표는 멀쩡히 만들어진다. 그래서 앞쪽 몇 칸을 본다.
+    """
     out = []
     for number, row in enumerate(table.rows, 2):
-        first = ""
+        seen = 0
         for cell in row:
             text = to_text(cell).strip()
-            if text:
-                first = text
+            if not text:
+                continue
+            seen += 1
+            if re.sub(r"[\s:·]", "", text).lower() in TOTAL_WORDS:
+                out.append(number)
                 break
-        if not first:
-            continue
-        if re.sub(r"[\s:·]", "", first).lower() in TOTAL_WORDS:
-            out.append(number)
+            if seen >= look:
+                break
     return out
 
 
@@ -3871,6 +3877,7 @@ class FormCheck:
     extra: list = field(default_factory=list)       # 기준에 없는데 있는 열
     reordered: bool = False                         # 열은 같은데 순서가 다르다
     notes: list = field(default_factory=list)       # 머리글을 잘못 읽은 것 같다
+    merges: int = 0                                 # 합쳐 둔 칸이 몇 군데인가
 
     @property
     def same(self) -> bool:
@@ -3914,7 +3921,7 @@ def _data_sheet(path: Path, first: Table, *, header_row: int = 0) -> Table:
 
 
 def compare_forms(paths: list[Path], *, sheet: str | None = None,
-                  header_row: int = 0) -> FormReport:
+                  header_row: int = 0, fill_merged: bool = False) -> FormReport:
     """여러 파일의 열 구성을 견준다. 가장 흔한 구성을 기준으로 삼는다.
 
     부서마다 같은 서식으로 채워 보낸 파일을 합치기 전에 본다. 누가 열을
@@ -3927,7 +3934,8 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
         path = Path(raw)
         check = FormCheck(path=path)
         try:
-            table = load(path, sheet=sheet, header_row=header_row)
+            table = load(path, sheet=sheet, header_row=header_row,
+                         fill_merged=fill_merged)
             if sheet is None and not _looks_like_data(table):
                 table = _data_sheet(path, table, header_row=header_row)
         except (SheetError, OSError, UnicodeDecodeError) as exc:
@@ -3935,6 +3943,7 @@ def compare_forms(paths: list[Path], *, sheet: str | None = None,
             report.checks.append(check)
             continue
         check.sheet = table.sheet
+        check.merges = table.merges
         check.headers = [to_text(h).strip() for h in table.headers]
         check.rows = len(table.rows)
         # 머리글 줄을 잘못 잡은 파일은 «열 다름» 이 아니라 «읽는 법이 다름» 이다

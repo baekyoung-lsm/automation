@@ -1270,6 +1270,7 @@ def cmd_sheet_forms(a) -> int:
         return 1
 
     report = sheet.compare_forms(targets, sheet=a.sheet,
+                                 fill_merged=getattr(a, "unmerge", False),
                                  header_row=a.header_row - 1)
     if not report.standard:
         _p("열 구성을 읽은 파일이 없습니다.")
@@ -1303,6 +1304,18 @@ def cmd_sheet_forms(a) -> int:
     standard = sheet.Table(list(report.standard), [])
     for note in sheet.misread_header(standard):
         _p(f"\n{note}")
+
+    # 합쳐 둔 칸은 합치기 전에 알아야 한다. 합친 뒤에는 어느 파일에서 온
+    # 빈 칸인지 알 수 없다
+    글쓴 = [c for c in report.checks if c.merges]
+    if 글쓴 and not getattr(a, "unmerge", False):
+        _p(f"\n합쳐 둔 칸이 있는 파일 {len(글쓴)}개")
+        for check in 글쓴[:a.limit]:
+            _p(f"  {check.path.name}  {check.merges}군데")
+        _p("  왼쪽 위 한 칸에만 값이 있어 나머지는 빈 칸으로 읽힙니다 "
+           "- --unmerge 로 채워 읽으세요.")
+    elif 글쓴:
+        _p(f"\n합쳐 둔 칸이 있는 파일 {len(글쓴)}개는 채워 읽었습니다.")
 
     wrong_head = [c for c in report.checks if c.notes]
     if wrong_head:
