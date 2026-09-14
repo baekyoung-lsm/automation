@@ -586,6 +586,32 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 양식에 값 채워 내보내기 (collect 의 반대). 원본 양식은 그대로여야 한다
+        from attools import xlsx as xlsxkit
+
+        양식 = Path(self.path("견적서양식.xlsx"))
+        xlsxkit.write_sheets(양식, {"견적서": [["견 적 서", None],
+                                            ["업체명", None]]})
+        거래처 = Path(self.path("거래처.xlsx"))
+        xlsxkit.write_sheets(거래처, {"목록": [["업체", "금액"],
+                                            ["한빛상사", 1250000],
+                                            ["새벽물산", 300000]]})
+        보낼곳 = Path(self.path("견적서낼곳"))
+        앞서 = 양식.read_bytes()
+        미리 = self.run_cli("sheet", "form", str(양식), "--data", str(거래처),
+                          "--cell", "B2=업체", "--name", "{업체}.xlsx",
+                          "-o", str(보낼곳))
+        self.assertIn("미리보기", 미리)
+        self.assertFalse(보낼곳.exists())
+        낸것 = self.run_cli("sheet", "form", str(양식), "--data", str(거래처),
+                          "--cell", "B2=업체", "--name", "{업체}.xlsx",
+                          "-o", str(보낼곳), "--apply")
+        self.assertIn("2개를 만들었습니다", 낸것)
+        self.assertEqual(양식.read_bytes(), 앞서)     # 양식은 건드리지 않는다
+        만든표 = xlsxkit.read_sheet(보낼곳 / "한빛상사.xlsx")
+        self.assertEqual(만든표[1][1], "한빛상사")
+        self.assertEqual(만든표[0][0], "견 적 서")
+
         모음 = self.run_cli("sheet", "collect", self.path(), "--cell", "A1=머리",
                            "--glob", "명단.csv")
         self.assertIn("명단.csv", 모음)

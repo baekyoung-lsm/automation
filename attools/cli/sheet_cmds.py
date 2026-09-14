@@ -1334,6 +1334,116 @@ def cmd_sheet_forms(a) -> int:
     return 1 if odd else 0
 
 
+def cmd_sheet_form(a) -> int:
+    """양식 파일(xlsx)의 칸에 값을 넣어 새 파일로. 서식은 그대로 둔다."""
+    from .. import hangul, xlsx
+
+    form = Path(a.file)
+    if not form.is_file():
+        _p(f"양식 파일이 없습니다: {form}")
+        return 1
+    if form.suffix.lower() not in sheet.XLSX_SUFFIXES:
+        _p(f"양식은 엑셀(xlsx)이어야 합니다: {form.suffix or '확장자 없음'}")
+        _p("  서식·수식이 든 파일을 그대로 두고 칸만 바꾸는 일이라서입니다.")
+        return 1
+
+    try:
+        직접 = dict(sheet.parse_fill(one) for one in (a.set or []))
+        연결 = dict(sheet.parse_fill(one) for one in (a.cell or []))
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    if not 직접 and not 연결:
+        _p("무엇을 어디에 넣을지 주세요.")
+        _p("  값을 바로 넣으려면  --set B3=한빛상사")
+        _p("  표에서 가져오려면   --data 명단.xlsx --cell B3=업체")
+        return 1
+
+    plans: list = []
+    if a.data:
+        if not 연결:
+            _p("--data 를 줬으면 --cell 로 어느 열을 어느 칸에 넣을지 주세요.")
+            return 1
+        table = _load(a, a.data)
+        if table is None:
+            return 1
+        plans, missing = sheet.form_plans(table, 연결,
+                                          name_template=a.name or "")
+        # --set 은 열 이름이 아니라 값 그대로다. 모든 파일에 같은 값이 들어간다
+        for one in plans:
+            one.values.update(직접)
+        if missing:
+            _p(f"표에 없는 열: {', '.join(sorted(missing))}")
+            _p(f"  있는 열: {', '.join(table.headers)}")
+            return 1
+        if not plans:
+            _p("표에 자료 행이 없습니다.")
+            return 1
+    else:
+        plans = [sheet.FormPlan(1, "", dict(직접))]
+
+    묶음 = len(plans) > 1 or bool(a.data)
+    _p(f"양식 {form.name}  ·  칸 {len(plans[0].values)}개"
+       f"{f'  ·  파일 {len(plans):,}개' if 묶음 else ''}")
+    보기 = plans[0]
+    for ref, value in list(보기.values.items())[:8]:
+        _p(f"  {ref} <- {_cut(sheet.to_text(value), 44)}")
+    if len(보기.values) > 8:
+        _p(f"  ... {len(보기.values) - 8}칸 더")
+    if 묶음:
+        _p(f"\n첫 파일 이름: {보기.name or '(이름 틀이 없습니다)'}")
+
+    if not a.out:
+        _p("\n어디에 낼지 -o 로 주세요 "
+           f"({'폴더' if 묶음 else '파일 이름'}).")
+        return 1
+    out = Path(a.out)
+
+    if 묶음:
+        빈이름 = [one for one in plans if not one.name]
+        if 빈이름:
+            _p("\n--name 으로 파일 이름 틀을 주세요. 예: --name '{업체}_견적서.xlsx'")
+            return 1
+        이름들 = [hangul.sanitize_filename(one.name) for one in plans]
+        겹침 = {name for name in 이름들 if 이름들.count(name) > 1}
+        if 겹침:
+            _p(f"\n같은 이름이 되는 파일이 있습니다: {', '.join(sorted(겹침)[:3])}")
+            _p("  --name 에 {번호} 를 넣어 서로 다르게 해 주세요. "
+               "덮어쓰면 앞엣것이 사라집니다.")
+            return 1
+        if not a.apply:
+            _p(f"\n[미리보기] {out}/ 아래에 {len(plans):,}개를 만듭니다:")
+            for name in 이름들[:5]:
+                _p(f"  {name}")
+            if len(이름들) > 5:
+                _p(f"  ... {len(이름들) - 5:,}개 더")
+            _p("\n실제로 만들려면 --apply 를 붙이세요. 원본 양식은 건드리지 않습니다.")
+            return 0
+
+    made = 0
+    for one in plans:
+        target = out / hangul.sanitize_filename(one.name) if 묶음 else out
+        if not _may_write(a, target):
+            return 1
+        try:
+            xlsx.set_cells(form, target, one.values, sheet=a.sheet)
+            xlsx.read_sheet(target)        # 만든 파일을 다시 열어 본다
+        except (xlsx.XlsxError, OSError) as e:
+            _p(f"{target.name}: {e}")
+            if target.exists():
+                target.unlink()            # 열리지 않는 파일은 남기지 않는다
+            return 1
+        made += 1
+        if not 묶음:
+            _p(f"\n저장: {target}")
+
+    if 묶음:
+        _p(f"\n{made:,}개를 만들었습니다: {out}/")
+    _p("양식의 서식·수식·그림은 그대로 옮겼습니다. 값을 넣은 칸의 수식은 지웠습니다.")
+    _p("원본 양식은 건드리지 않았습니다.")
+    return 0
+
+
 def cmd_sheet_collect(a) -> int:
     """같은 양식으로 받은 파일들에서 같은 칸만 뽑아 한 표로 (취합)."""
     targets: list[Path] = []
@@ -2937,6 +3047,25 @@ def add_commands(sub) -> None:
                      help="폴더에서 고를 무늬 (예: *.xlsx)")
     fm2.add_argument("--limit", type=int, default=30, metavar="개")
     fm2.set_defaults(func=cmd_sheet_forms)
+
+    fm = common(sh.add_parser("form", help="양식 파일(xlsx)의 칸에 값 채워 내보내기"))
+    fm.add_argument("file", metavar="양식.xlsx")
+    fm.add_argument("--set", action="append", metavar="칸=값",
+                    help="값을 바로 넣는다. 예: --set B3=한빛상사")
+    fm.add_argument("--data", metavar="파일",
+                    help="표에서 가져온다 (행마다 파일 하나)")
+    fm.add_argument("--cell", action="append", metavar="칸=열",
+                    help="예: --cell B3=업체 --cell C7=금액. «{업체} 귀중» 처럼 틀도 된다")
+    fm.add_argument("--name", metavar="틀",
+                    help="낼 파일 이름 틀. 예: '{업체}_견적서.xlsx'")
+    fm.add_argument("-o", "--out", metavar="파일|폴더")
+    fm.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    fm.add_argument("--apply", action="store_true",
+                    help="여러 개를 만들 때 실제로 만든다 (기본은 미리보기)")
+    fm.epilog = ("예: at sheet form 견적서양식.xlsx --data 거래처.xlsx "
+                 "--cell B3=업체 --cell C7=금액 --name '{업체}.xlsx' -o 보낼것 --apply")
+    fm.set_defaults(func=cmd_sheet_form)
 
     cl2 = sh.add_parser("collect", help="같은 양식 파일들에서 같은 칸만 뽑기 (취합)")
     cl2.add_argument("paths", nargs="+", metavar="경로", help="폴더 또는 파일들")

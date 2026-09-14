@@ -1405,6 +1405,57 @@ def fill(table: Table, template: str, *, name_template: str = "",
     return out, missing
 
 
+# --------------------------------------------- 양식 파일에 값 채워 내보내기
+
+@dataclass
+class FormPlan:
+    number: int                  # 표에서 몇째 행인가 (머리글이 1행)
+    name: str                    # 낼 파일 이름
+    values: dict = field(default_factory=dict)    # {칸: 값}
+
+
+def parse_fill(spec: str) -> tuple[str, str]:
+    """«B3=업체» 를 (칸, 열 이름 또는 틀) 로. 칸 주소가 아니면 알린다."""
+    ref, sep, source = str(spec).partition("=")
+    ref = ref.strip()
+    if not sep or not ref or not source.strip():
+        raise SheetError(f"«칸=열이름» 으로 주세요: {spec}")
+    try:
+        xlsx.split_ref(ref)      # 주소가 아니면 여기서 걸린다
+    except xlsx.XlsxError as exc:
+        # 부르는 쪽은 SheetError 만 받는다. 그대로 새어 나가면 역추적이 뜬다
+        raise SheetError(str(exc)) from None
+    return ref.upper(), source.strip()
+
+
+def form_plans(table: Table, cells: dict, *, name_template: str = "",
+               start: int = 1) -> tuple[list[FormPlan], set[str]]:
+    """표의 행마다 «어느 칸에 무엇을 넣을지» 를 세운다. (계획들, 없는 열 이름)
+
+    값 자리에 «{업체} 귀중» 처럼 틀을 쓸 수도 있고, 열 이름만 적으면 그 열의
+    값을 그대로 넣는다. 파일은 여기서 만들지 않는다 - 세우는 것과 쓰는 것을
+    나눠야 미리보기가 실제와 같아진다.
+    """
+    missing: set[str] = set()
+    out: list[FormPlan] = []
+    for number, row in enumerate(table.rows, start):
+        values = {h: row[i] if i < len(row) else None
+                  for i, h in enumerate(table.headers)}
+        values["번호"] = number
+        made: dict[str, object] = {}
+        for ref, source in cells.items():
+            if "{" in source:
+                made[ref] = render(source, values, missing=missing)
+            elif source in values:
+                made[ref] = values[source]
+            else:
+                missing.add(source)
+        name = render(name_template, values, missing=missing).strip() \
+            if name_template else ""
+        out.append(FormPlan(number, name, made))
+    return out, missing
+
+
 # ------------------------------------------------------------ 주소 라벨(인쇄)
 
 # 라벨지는 제품마다 칸 크기가 다르다. 확인하지 못한 제품 번호는 넣지 않고,

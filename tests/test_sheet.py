@@ -3582,3 +3582,90 @@ class TotalRowBehindColumnsTest(unittest.TestCase):
         table = sheet.Table(["번호", "구분", "부서", "금액"],
                             [[None, None, "합계", 100]])
         self.assertEqual(sheet.total_rows(table), [2])
+
+
+class SetCellsTest(unittest.TestCase):
+    """양식 파일의 칸만 갈아 끼우기. 나머지는 그대로 있어야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.form = self.root / "양식.xlsx"
+        xlsx.write_sheets(self.form, {"견적서": [
+            ["견 적 서", None, None],
+            ["업체명", None, "금액"],
+            [None, None, None]]})
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def fill(self, values, name="채움.xlsx"):
+        out = self.root / name
+        xlsx.set_cells(self.form, out, values)
+        return out
+
+    def test_values_land_in_the_right_cells(self):
+        grid = xlsx.read_sheet(self.fill({"B2": "한빛상사", "C2": 1250000}))
+        self.assertEqual(grid[1], ["업체명", "한빛상사", 1250000])
+        self.assertEqual(grid[0][0], "견 적 서")      # 손대지 않은 칸은 그대로
+
+    def test_the_template_file_is_not_touched(self):
+        before = self.form.read_bytes()
+        self.fill({"B2": "한빛상사"})
+        self.assertEqual(self.form.read_bytes(), before)
+
+    def test_a_cell_beyond_the_used_range_is_created(self):
+        grid = xlsx.read_sheet(self.fill({"D9": "새 칸"}))
+        self.assertEqual(len(grid), 9)
+        self.assertEqual(grid[8][3], "새 칸")
+
+    def test_every_other_part_of_the_file_is_copied(self):
+        out = self.fill({"B2": "한빛상사"})
+        with zipfile.ZipFile(self.form) as a, zipfile.ZipFile(out) as b:
+            self.assertEqual(sorted(a.namelist()), sorted(b.namelist()))
+
+    def test_numbers_stay_numbers_and_text_stays_text(self):
+        grid = xlsx.read_sheet(self.fill({"A3": 7, "B3": "7"}))
+        self.assertEqual(grid[2][0], 7)
+        self.assertEqual(grid[2][1], "7")
+
+    def test_an_empty_value_clears_the_cell(self):
+        grid = xlsx.read_sheet(self.fill({"A2": ""}))
+        self.assertIsNone(grid[1][0])
+
+    def test_no_cells_is_refused(self):
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.set_cells(self.form, self.root / "x.xlsx", {})
+
+    def test_a_bad_reference_is_refused(self):
+        with self.assertRaises(xlsx.XlsxError):
+            xlsx.set_cells(self.form, self.root / "x.xlsx", {"세번째칸": 1})
+
+
+class FormPlanTest(unittest.TestCase):
+    def table(self):
+        return sheet.Table(["업체", "금액"],
+                           [["한빛상사", 1250000], ["새벽물산", 300000]])
+
+    def test_a_plan_per_row(self):
+        plans, missing = sheet.form_plans(
+            self.table(), {"B3": "업체", "C7": "금액"},
+            name_template="{번호:02d}_{업체}.xlsx")
+        self.assertEqual(missing, set())
+        self.assertEqual([one.name for one in plans],
+                         ["01_한빛상사.xlsx", "02_새벽물산.xlsx"])
+        self.assertEqual(plans[0].values, {"B3": "한빛상사", "C7": 1250000})
+
+    def test_a_template_value_is_rendered(self):
+        plans, _missing = sheet.form_plans(self.table(), {"A1": "{업체} 귀중"})
+        self.assertEqual(plans[0].values["A1"], "한빛상사 귀중")
+
+    def test_a_missing_column_is_named_not_blanked(self):
+        """빈 칸으로 넣으면 백 장을 만든 뒤에야 안다."""
+        _plans, missing = sheet.form_plans(self.table(), {"B3": "담당자"})
+        self.assertEqual(missing, {"담당자"})
+
+    def test_parse_fill_checks_the_reference(self):
+        self.assertEqual(sheet.parse_fill("b3=업체"), ("B3", "업체"))
+        for bad in ("업체", "B3=", "=업체", "셋째=업체"):
+            with self.assertRaises(sheet.SheetError, msg=bad):
+                sheet.parse_fill(bad)

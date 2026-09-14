@@ -407,6 +407,122 @@ def read_cells(path: Path, refs: list[str], sheet: str | None = None, *,
     return found
 
 
+# ------------------------------------------ 양식 파일의 칸만 바꿔 새 파일로
+
+# 서식·수식·그림·인쇄 설정이 든 양식 파일을 그대로 두고 값만 갈아 끼운다.
+# 새로 만들어 담으면 그 서식이 다 날아가므로, 원본 zip 을 통째로 베끼고
+# 시트 xml 한 조각만 고친다.
+
+
+def _cell_node(ref: str, value, style: str | None) -> ET.Element:
+    """칸 하나를 xml 마디로. 글자는 inlineStr 로 넣어 공유 문자열을 안 건드린다.
+
+    아래쪽의 _cell_xml 은 새 파일을 쓸 때 글자를 이어 붙이는 것이라 다르다.
+    """
+    cell = ET.Element(f"{{{NS['m']}}}c", {"r": ref})
+    if style is not None:
+        cell.set("s", style)
+    if value is None or value == "":
+        return cell
+    if isinstance(value, bool):
+        cell.set("t", "b")
+        ET.SubElement(cell, f"{{{NS['m']}}}v").text = "1" if value else "0"
+    elif isinstance(value, (int, float)):
+        ET.SubElement(cell, f"{{{NS['m']}}}v").text = repr(value) \
+            if isinstance(value, float) else str(value)
+    elif isinstance(value, (datetime, date)):
+        cell.set("t", "d")       # ISO 날짜. 서식은 양식이 들고 있는 것을 쓴다
+        ET.SubElement(cell, f"{{{NS['m']}}}v").text = value.isoformat()
+    else:
+        cell.set("t", "inlineStr")
+        text = ILLEGAL.sub("", str(value))
+        node = ET.SubElement(cell, f"{{{NS['m']}}}is")
+        ET.SubElement(node, f"{{{NS['m']}}}t").text = text
+        if text != text.strip():
+            node[0].set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    return cell
+
+
+def set_cells(source: Path, dest: Path, values: dict, *,
+              sheet: str | None = None) -> int:
+    """양식 파일의 칸 몇 개만 바꿔 새 파일로 낸다. 바꾼 칸 수를 돌려준다.
+
+    원본은 건드리지 않는다. 서식·수식·그림·인쇄 설정은 그대로 남는다.
+    값을 넣은 칸에 수식이 있었으면 그 수식은 지운다 - 값과 수식이 함께
+    남으면 엑셀이 어느 쪽을 보여 줄지 알 수 없다.
+    """
+    source, dest = Path(source), Path(dest)
+    if not values:
+        raise XlsxError("바꿀 칸을 하나 이상 주세요. 예: B3=담당자")
+    wanted = {}
+    for ref, value in values.items():
+        row, col = split_ref(ref)
+        wanted[(row, col)] = (f"{index_to_col(col)}{row}", value)
+
+    with _open(source) as z:
+        part = _sheet_part(z, sheet)
+        names = z.namelist()
+        root = _part(z, part)
+        data = root.find("m:sheetData", NS)
+        if data is None:
+            data = ET.SubElement(root, f"{{{NS['m']}}}sheetData")
+        keep = {name: z.read(name) for name in names if name != part}
+
+    rows = {}
+    for node in data.findall("m:row", NS):
+        mark = node.get("r")
+        rows[int(mark)] = node if (mark or "").isdigit() else None
+    changed = 0
+    dropped_formula = False
+
+    for (line, col), (ref, value) in sorted(wanted.items()):
+        row = rows.get(line)
+        if row is None:
+            row = ET.Element(f"{{{NS['m']}}}row", {"r": str(line)})
+            _insert_by(data, row, line, lambda el: int(el.get("r") or 0))
+            rows[line] = row
+        old = None
+        for cell in row.findall("m:c", NS):
+            spot = cell.get("r")
+            if spot and split_ref(spot) == (line, col):
+                old = cell
+                break
+        style = old.get("s") if old is not None else None
+        if old is not None:
+            if old.find("m:f", NS) is not None:
+                dropped_formula = True
+            row.remove(old)
+        made = _cell_node(ref, value, style)
+        _insert_by(row, made, col,
+                   lambda el: split_ref(el.get("r") or "A1")[1])
+        changed += 1
+
+    if dropped_formula:
+        # 수식을 지웠으면 계산 순서표가 어긋난다. 지우면 엑셀이 다시 만든다
+        keep.pop("xl/calcChain.xml", None)
+
+    body = ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
+        for name in names:
+            if name == part:
+                out.writestr(name, body)
+            elif name in keep:
+                out.writestr(name, keep[name])
+    return changed
+
+
+def _insert_by(parent: ET.Element, node: ET.Element, key: int, of) -> None:
+    """번호 차례를 지켜 끼운다. 엑셀은 행·칸이 차례대로 있어야 읽는다."""
+    for spot, other in enumerate(list(parent)):
+        try:
+            if of(other) > key:
+                parent.insert(spot, node)
+                return
+        except (XlsxError, ValueError):
+            continue
+    parent.append(node)
+
 def _cell_value(c: ET.Element, strings: list[str], date_flags: list[bool],
                 epoch: datetime | None = None):
     kind = c.get("t", "n")
