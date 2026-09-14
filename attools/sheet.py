@@ -55,6 +55,7 @@ class Table:
     rows: list[list]
     source: str = ""
     sheet: str = ""
+    merges: int = 0          # 원본에서 합쳐 둔 칸이 몇 군데였나
 
     @property
     def width(self) -> int:
@@ -289,9 +290,17 @@ def _has_rows(grid: list[list], header_row: int = 0) -> bool:
 
 
 def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
-         raw: bool = False) -> Table:
+         raw: bool = False, fill_merged: bool = False) -> Table:
+    """파일 하나를 표로. fill_merged 를 켜면 합쳐 둔 칸의 값을 채워 읽는다.
+
+    엑셀에서 칸을 합쳐 두면 값은 왼쪽 위 한 칸에만 있다. 그대로 읽으면
+    «부서» 가 세 행 중 한 행에만 있는 표가 되어 집계가 조용히 틀린다.
+    그래서 몇 군데였는지는 늘 세어 두고(table.merges), 채우는 것은 시킬
+    때만 한다 - 원본 파일은 어느 쪽이든 건드리지 않는다.
+    """
     path = Path(path)
     suffix = path.suffix.lower()
+    merges = 0
 
     if suffix in XLSX_SUFFIXES:
         # xlsx 쪽 오류도 SheetError 로 바꿔 낸다. 시트 이름을 잘못 적는 일은
@@ -299,15 +308,17 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
         try:
             names = xlsx.sheet_names(path)
             used_sheet = sheet or (names or [""])[0]
-            grid = xlsx.read_sheet(path, sheet)
+            grid = xlsx.read_sheet(path, sheet, fill_merged=fill_merged)
+            merges = len(xlsx.merged_ranges(path, sheet))
             if sheet is None and len(names) > 1 and not _has_rows(grid, header_row):
                 # 첫 시트가 «안내»·«표지» 인 파일이 흔하다. 그것을 자료로 읽으면
                 # 그 파일은 통째로 0행이 되어 말없이 빠진다. 자료가 든 첫 시트를
                 # 대신 본다 - 어느 시트를 봤는지는 표(table.sheet)에 남는다.
                 for name in names[1:]:
-                    other = xlsx.read_sheet(path, name)
+                    other = xlsx.read_sheet(path, name, fill_merged=fill_merged)
                     if _has_rows(other, header_row):
                         grid, used_sheet = other, name
+                        merges = len(xlsx.merged_ranges(path, name))
                         break
         except xlsx.XlsxError as exc:
             raise SheetError(str(exc)) from None
@@ -324,8 +335,10 @@ def load(path: Path, *, sheet: str | None = None, header_row: int = 0,
                          + (f"\n  {OTHER_READERS[suffix]}" if suffix in OTHER_READERS
                             else ""))
 
-    return table_from_grid(grid, header_row=header_row, source=str(path),
-                           sheet_name=used_sheet, label=str(path))
+    table = table_from_grid(grid, header_row=header_row, source=str(path),
+                            sheet_name=used_sheet, label=str(path))
+    table.merges = merges
+    return table
 
 
 @dataclass
@@ -3828,7 +3841,9 @@ def collect_cells(paths: list[Path], specs: list[CellSpec], *,
         suffix = path.suffix.lower()
         try:
             if suffix in XLSX_SUFFIXES:
-                found = xlsx.read_cells(path, refs, sheet)
+                # 양식 파일은 칸을 합쳐 두는 일이 흔하다. 합쳐진 칸을 가리키면
+                # 값이 든 왼쪽 위 칸을 읽는다 - 엑셀에서 보이는 그 값이다
+                found = xlsx.read_cells(path, refs, sheet, follow_merges=True)
             elif suffix in CSV_SUFFIXES or not suffix:
                 found = _csv_cells(path, refs)
             else:

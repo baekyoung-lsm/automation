@@ -548,6 +548,33 @@ class SmokeTest(unittest.TestCase):
 
     # ----------------------------------------------------------- sheet
 
+    def test_sheet_merged_cells(self):
+        """합쳐 둔 칸을 말없이 빈 칸으로 읽으면 집계가 조용히 틀린다."""
+        import zipfile as _zip
+
+        from attools import xlsx as xlsxkit
+
+        plain = Path(self.path("병합전.xlsx"))
+        xlsxkit.write_sheets(plain, {"명단": [
+            ["부서", "금액"], ["영업1팀", 100], [None, 200], ["영업2팀", 400]]})
+        merged = Path(self.path("병합.xlsx"))
+        with _zip.ZipFile(plain) as src, _zip.ZipFile(merged, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename.startswith("xl/worksheets/"):
+                    data = data.decode("utf-8").replace(
+                        "</sheetData>",
+                        '</sheetData><mergeCells count="1">'
+                        '<mergeCell ref="A2:A3"/></mergeCells>').encode("utf-8")
+                dst.writestr(item, data)
+
+        그냥 = self.run_cli("sheet", "pivot", str(merged), "--row", "부서",
+                          "--value", "금액", "--agg", "sum")
+        self.assertIn("합쳐 둔 칸이 1군데", 그냥)     # 조용히 넘어가면 안 된다
+        채움 = self.run_cli("sheet", "pivot", str(merged), "--row", "부서",
+                          "--value", "금액", "--agg", "sum", "--unmerge")
+        self.assertIn("300", 채움)                   # 100 + 200
+
     def test_sheet_group(self):
         csv = self.path("명단.csv")
         self.run_cli("sheet", "convert", csv, "-o", self.path("명단.md"))

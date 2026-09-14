@@ -14,12 +14,23 @@ from .common import _pad, _p, _cut, _dump, _grid, _may_write, _width
 
 
 def _load(a, path: str | None = None) -> sheet.Table | None:
+    unmerge = getattr(a, "unmerge", False)
     try:
-        return sheet.load(Path(path or a.file), sheet=getattr(a, "sheet", None),
-                          header_row=getattr(a, "header_row", 1) - 1)
+        table = sheet.load(Path(path or a.file), sheet=getattr(a, "sheet", None),
+                           header_row=getattr(a, "header_row", 1) - 1,
+                           fill_merged=unmerge)
     except (sheet.SheetError, OSError) as e:
         _p(f"읽지 못했습니다: {e}")
         return None
+    # 합쳐 둔 칸을 말없이 빈 칸으로 읽으면 집계가 조용히 틀린다. 한 줄 알린다
+    if table.merges and not unmerge:
+        _p(f"합쳐 둔 칸이 {table.merges}군데 있습니다 - 왼쪽 위 한 칸에만 값이 "
+           "있어 나머지는 빈 칸으로 읽힙니다.")
+        _p("  엑셀 화면에 보이는 대로 채워 읽으려면 --unmerge 를 붙이세요.\n")
+    elif table.merges:
+        _p(f"합쳐 둔 칸 {table.merges}군데를 채워 읽었습니다 "
+           "(원본 파일은 그대로입니다).\n")
+    return table
 
 
 def _other_sheets(a, table) -> list[str]:
@@ -56,7 +67,8 @@ def _save_table(a, table) -> int:
                 continue
             try:
                 tables[name] = sheet.load(
-                    source, sheet=name, header_row=getattr(a, "header_row", 1) - 1)
+                    source, sheet=name, header_row=getattr(a, "header_row", 1) - 1,
+                    fill_merged=getattr(a, "unmerge", False))
             except (sheet.SheetError, OSError) as e:
                 _p(f"«{name}» 시트를 옮기지 못했습니다: {e}")
                 return 1
@@ -1408,7 +1420,8 @@ def cmd_sheet_diff(a) -> int:
     try:
         after = sheet.load(Path(second),
                            sheet=a.other_sheet or getattr(a, "sheet", None),
-                           header_row=a.header_row - 1)
+                           header_row=a.header_row - 1,
+                           fill_merged=getattr(a, "unmerge", False))
     except (sheet.SheetError, OSError) as e:
         _p(f"읽지 못했습니다: {e}")
         return 1
@@ -2692,6 +2705,8 @@ def add_commands(sub) -> None:
         parser.add_argument("--sheet", help="xlsx 시트 이름")
         parser.add_argument("--header-row", type=int, default=1, metavar="행",
                             help="헤더가 있는 행 번호 (기본 1, 엑셀에서 본 그 번호)")
+        parser.add_argument("--unmerge", action="store_true",
+                            help="합쳐 둔 칸의 값을 채워 읽는다 (엑셀 화면대로)")
         return parser
 
     pk = common(sh.add_parser("peek", help="열 구성·타입·결측 훑어보기"))

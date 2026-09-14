@@ -228,8 +228,63 @@ def _sheet_part(z: zipfile.ZipFile, name: str | None) -> str:
     return target[1:] if target.startswith("/") else f"xl/{target.lstrip('/')}"
 
 
-def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
-    """시트를 값의 2차원 리스트로 읽는다. 빈 칸은 None."""
+def merged_ranges(path: Path, sheet: str | None = None) -> list[tuple[int, int, int, int]]:
+    """병합된 칸 범위. (첫 행, 첫 열, 끝 행, 끝 열) - 행은 1부터, 열은 0부터.
+
+    엑셀에서 칸을 합쳐 두면 값은 왼쪽 위 한 칸에만 들어 있고 나머지는 빈
+    칸이다. 그대로 읽으면 «부서» 가 세 행 중 한 행에만 있는 표가 되어
+    집계가 조용히 틀린다. 그래서 병합이 있는지부터 볼 수 있게 한다.
+    """
+    with _open(path) as z:
+        part = _sheet_part(z, sheet)
+        out: list[tuple[int, int, int, int]] = []
+        with z.open(part) as stream:
+            for _, el in ET.iterparse(stream, events=("end",)):
+                if el.tag != f"{{{NS['m']}}}mergeCell":
+                    continue
+                spot = el.get("ref") or ""
+                el.clear()
+                if ":" not in spot:
+                    continue
+                try:
+                    first, last = (split_ref(one) for one in spot.split(":", 1))
+                except XlsxError:
+                    continue          # 읽지 못한 범위는 없는 셈 친다
+                out.append((first[0], first[1], last[0], last[1]))
+    return sorted(out)
+
+
+def spread_merged(grid: list[list], merges) -> int:
+    """병합된 칸의 값을 그 범위에 채운다. 채운 칸 수를 돌려준다.
+
+    엑셀 화면에서 «보이는 대로» 만든다. 원본 파일은 건드리지 않는다.
+    """
+    filled = 0
+    for top, left, bottom, right in merges:
+        if top - 1 >= len(grid):
+            continue
+        row = grid[top - 1]
+        value = row[left] if left < len(row) else None
+        if value is None:
+            continue
+        for line in range(top - 1, min(bottom, len(grid))):
+            here = grid[line]
+            if len(here) <= right:
+                here.extend([None] * (right + 1 - len(here)))
+            for col in range(left, right + 1):
+                if here[col] is None:
+                    here[col] = value
+                    filled += 1
+    return filled
+
+
+def read_sheet(path: Path, sheet: str | None = None, *,
+               fill_merged: bool = False) -> list[list]:
+    """시트를 값의 2차원 리스트로 읽는다. 빈 칸은 None.
+
+    fill_merged 를 켜면 합쳐 둔 칸의 값을 그 범위에 채운다 - 엑셀 화면에
+    보이는 대로다. 기본은 파일에 적힌 그대로 읽는다.
+    """
     with _open(path) as z:
         strings = _shared_strings(z)
         date_flags = _date_style_flags(z)
@@ -271,7 +326,11 @@ def read_sheet(path: Path, sheet: str | None = None) -> list[list]:
         if not by_row:
             return []
         rows = [by_row.get(i, []) for i in range(1, max(by_row) + 1)]
-        return [r + [None] * (width - len(r)) for r in rows]
+        grid = [r + [None] * (width - len(r)) for r in rows]
+
+    if fill_merged:
+        spread_merged(grid, merged_ranges(path, sheet))
+    return grid
 
 
 def split_ref(ref: str) -> tuple[int, int]:
@@ -284,11 +343,24 @@ def split_ref(ref: str) -> tuple[int, int]:
     return int(digits), col_to_index(letters)
 
 
-def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[str, object]:
+def anchor_of(merges, row: int, col: int) -> tuple[int, int] | None:
+    """그 칸이 합쳐진 범위 안이면 값이 든 왼쪽 위 칸. 아니면 None."""
+    for top, left, bottom, right in merges:
+        if top <= row <= bottom and left <= col <= right:
+            return (top, left)
+    return None
+
+
+def read_cells(path: Path, refs: list[str], sheet: str | None = None, *,
+               follow_merges: bool = False) -> dict[str, object]:
     """지정한 칸만 읽는다. 없는 칸은 None 이다.
 
     read_sheet 는 행을 나온 차례대로 쌓으므로, 가운데 행이 통째로 빠진 파일에서는
     «몇 행» 이 어긋난다. 양식 파일에서 B3 을 집어 오려면 행 번호 자체를 봐야 한다.
+
+    follow_merges 를 켜면 합쳐진 칸을 가리켰을 때 값이 든 왼쪽 위 칸을 대신
+    읽는다. 양식 파일은 «담당자» 칸을 B3:D3 으로 합쳐 두는 일이 흔한데,
+    C3 을 집으면 빈 칸이 나와 그 파일만 빠뜨린 것처럼 보인다.
     """
     wanted: dict[tuple[int, int], list[str]] = {}
     for ref in refs:
@@ -296,6 +368,15 @@ def read_cells(path: Path, refs: list[str], sheet: str | None = None) -> dict[st
     found: dict[str, object] = {name: None for names in wanted.values() for name in names}
     if not wanted:
         return found
+
+    if follow_merges:
+        merges = merged_ranges(path, sheet)
+        if merges:
+            moved: dict[tuple[int, int], list[str]] = {}
+            for spot, names in wanted.items():
+                here = anchor_of(merges, *spot) or spot
+                moved.setdefault(here, []).extend(names)
+            wanted = moved
     rows_wanted = {row for row, _col in wanted}
 
     with _open(path) as z:

@@ -3480,3 +3480,78 @@ class AuditHeaderTest(unittest.TestCase):
         self.assertEqual([k for k, _d in self.kinds(table) if k in ("머리글", "빈 행")],
                          [])
 
+
+
+class MergedCellTest(unittest.TestCase):
+    """합쳐 둔 칸. 그대로 읽으면 빈 칸이 되어 집계가 조용히 틀린다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        plain = self.root / "원본.xlsx"
+        xlsx.write_sheets(plain, {"명단": [
+            ["부서", "이름", "금액"],
+            ["영업1팀", "김민수", 100],
+            [None, "이영희", 200],
+            [None, "박철수", 300],
+            ["영업2팀", "최지우", 400]]})
+        # 우리 쓰기 코드는 병합을 만들지 않으므로 xml 에 직접 넣는다
+        self.path = self.root / "병합.xlsx"
+        with zipfile.ZipFile(plain) as src, zipfile.ZipFile(self.path, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename.startswith("xl/worksheets/"):
+                    data = data.decode("utf-8").replace(
+                        "</sheetData>",
+                        '</sheetData><mergeCells count="1">'
+                        '<mergeCell ref="A2:A4"/></mergeCells>').encode("utf-8")
+                dst.writestr(item, data)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_merged_ranges_are_found(self):
+        self.assertEqual(xlsx.merged_ranges(self.path), [(2, 0, 4, 0)])
+
+    def test_reading_plainly_leaves_the_blanks(self):
+        grid = xlsx.read_sheet(self.path)
+        self.assertEqual([row[0] for row in grid[1:4]], ["영업1팀", None, None])
+
+    def test_filling_spreads_the_value_like_excel_shows_it(self):
+        grid = xlsx.read_sheet(self.path, fill_merged=True)
+        self.assertEqual([row[0] for row in grid[1:4]],
+                         ["영업1팀", "영업1팀", "영업1팀"])
+        # 합치지 않은 칸은 건드리지 않는다
+        self.assertEqual(grid[4][0], "영업2팀")
+
+    def test_the_table_carries_how_many_merges_there_were(self):
+        self.assertEqual(sheet.load(self.path).merges, 1)
+        self.assertEqual(sheet.load(self.path, fill_merged=True).merges, 1)
+
+    def test_a_file_without_merges_reports_none(self):
+        clean = self.root / "깨끗.xlsx"
+        xlsx.write_sheets(clean, {"가": [["ㄱ"], ["1"]]})
+        self.assertEqual(xlsx.merged_ranges(clean), [])
+        self.assertEqual(sheet.load(clean).merges, 0)
+
+    def test_grouping_is_wrong_without_filling_and_right_with_it(self):
+        """이 시험이 이 기능의 이유다. 소리 없이 다른 답이 나온다."""
+        그냥 = sheet.pivot(sheet.load(self.path), rows=["부서"], values="금액",
+                        agg="sum")
+        채움 = sheet.pivot(sheet.load(self.path, fill_merged=True), rows=["부서"],
+                        values="금액", agg="sum")
+        def 몫(table):
+            return {row[0]: row[-1] for row in table.rows}
+        self.assertEqual(몫(그냥).get("영업1팀"), 100)
+        self.assertEqual(몫(채움).get("영업1팀"), 600)
+
+    def test_read_cells_can_follow_a_merge(self):
+        """양식 파일은 «담당자» 칸을 합쳐 두는 일이 흔하다."""
+        self.assertIsNone(xlsx.read_cells(self.path, ["A3"])["A3"])
+        self.assertEqual(
+            xlsx.read_cells(self.path, ["A3"], follow_merges=True)["A3"], "영업1팀")
+
+    def test_anchor_of_only_matches_inside_the_range(self):
+        merges = [(2, 0, 4, 0)]
+        self.assertEqual(xlsx.anchor_of(merges, 3, 0), (2, 0))
+        self.assertIsNone(xlsx.anchor_of(merges, 5, 0))
+        self.assertIsNone(xlsx.anchor_of(merges, 3, 1))
