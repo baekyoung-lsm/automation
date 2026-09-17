@@ -1248,6 +1248,26 @@ def _mask_unclear(reports) -> list[list[str]]:
     return rows
 
 
+def mask_guess(payload: dict) -> dict:
+    """가릴 열을 짐작해 목록으로 돌려준다. 가리지는 않는다.
+
+    고른 것을 화면의 목록에 넣어 주어, 사람이 빼거나 더한 뒤에 가린다 -
+    짐작한 대로 바로 가려 버리면 무엇이 가려졌는지 모르고 내보내게 된다.
+    """
+    table = _open(payload)
+    found = sheet.guess_private(table)
+    if not found:
+        raise UiError("가릴 만한 열을 찾지 못했습니다. 값 꼴(주민번호·전화·"
+                      "이메일)과 열 이름(이름·주소·계좌)으로 찾습니다. "
+                      "가려야 할 열이 있으면 아래에서 직접 골라 주세요.")
+    return {
+        "specs": [[one.column, one.kind] for one in found],
+        "why": [[one.column, one.kind, one.why,
+                 f"{one.share:.0%}" if one.why == "값 꼴" else "-"]
+                for one in found],
+    }
+
+
 def mask_preview(payload: dict) -> dict:
     table, reports = _masked(payload)
     return {"report": _mask_rows(reports), "unclear": _mask_unclear(reports),
@@ -1920,6 +1940,7 @@ BODY = """
     <div><label for="mcol">열</label><select id="mcol"></select></div>
     <div><label for="mkind">어떻게</label><select id="mkind"><option value="이름">이름 · 홍*동</option><option value="전화">전화 · 010-****-5678</option><option value="이메일">이메일 · ho**@example.com</option><option value="주민번호">주민번호 · 900101-1******</option><option value="계좌">계좌·카드 · 뒤 네 자리만</option><option value="주소">주소 · 시·군·구까지만</option></select></div>
     <div style="flex:0 0 auto"><button id="btn-madd">목록에 더하기</button></div>
+    <div style="flex:0 0 auto"><button id="btn-mguess">알아서 고르기</button></div>
   </div>
   <div id="mspecs" class="note" style="margin-top:.6rem"></div>
   <div class="actions">
@@ -2794,6 +2815,21 @@ BODY = """
   }
   drawMspecs();
 
+  $("btn-mguess").addEventListener("click", async function () {
+    try {
+      const d = await AT.call("/api/sheet/mask_guess", values());
+      d.specs.forEach(function (s) {
+        if (!mspecs.some(m => m[0] === s[0] && m[1] === s[1])) mspecs.push(s);
+      });
+      drawMspecs();
+      $("btn-mask-save").disabled = true;
+      AT.message($("maskmsg"),
+        "<b>" + d.specs.length + "개</b> 열을 골랐습니다. 짐작이니 목록을 "
+        + "보고 빼거나 더해 주세요." +
+        AT.table(["열", "가림", "어떻게 찾았나", "그 꼴 비율"], d.why), "ok");
+    } catch (e) { AT.message($("maskmsg"), AT.esc(e.message), "bad"); }
+  });
+
   $("btn-madd").addEventListener("click", function () {
     const column = $("mcol").value;
     if (!column) { AT.message($("maskmsg"), "먼저 파일을 열어 주세요.", "bad"); return; }
@@ -3019,7 +3055,8 @@ def make() -> App:
                  "pick_save": pick_save, "sum_preview": sum_preview,
                  "sum_save": sum_save,
                  "tidy_preview": tidy_preview, "tidy_save": tidy_save,
-                 "mask_preview": mask_preview, "mask_save": mask_save,
+                 "mask_guess": mask_guess,
+        "mask_preview": mask_preview, "mask_save": mask_save,
                  "collect_preview": collect_preview,
                  "collect_save": collect_save,
                  "dates_preview": dates_preview,

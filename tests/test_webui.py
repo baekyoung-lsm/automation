@@ -1606,6 +1606,36 @@ class NovelAppTest(UiCase):
         self.assertEqual(before, after)
 
 
+class SheetMaskGuessTest(UiCase):
+    """가릴 열 짐작. 화면이 바로 가려 버리면 무엇이 가려졌는지 모른다."""
+
+    def sample(self):
+        path = self.work / "명단.csv"
+        path.write_text(
+            "사번,이름,연락처,금액\n"
+            "A001,김민수,010-1111-2222,100\n"
+            "A002,이영희,010-3333-4444,200\n", encoding="utf-8")
+        return path
+
+    def test_it_returns_a_list_instead_of_masking(self):
+        _, data = self.post("/api/sheet/mask_guess", {"path": str(self.sample())})
+        self.assertEqual(sorted(one[0] for one in data["specs"]),
+                         ["연락처", "이름"])
+        why = {one[0]: one[2] for one in data["why"]}
+        self.assertEqual(why["이름"], "열 이름")
+        self.assertEqual(why["연락처"], "값 꼴")
+
+    def test_plain_columns_are_left_out(self):
+        _, data = self.post("/api/sheet/mask_guess", {"path": str(self.sample())})
+        self.assertNotIn("금액", [one[0] for one in data["specs"]])
+
+    def test_nothing_to_guess_says_what_it_looked_for(self):
+        path = self.work / "숫자.csv"
+        path.write_text("번호,수량\n1,5\n", encoding="utf-8")
+        with self.assertRaises(urllib.error.HTTPError):
+            self.post("/api/sheet/mask_guess", {"path": str(path)})
+
+
 class SheetMergeTest(UiCase):
     """엑셀 화면에서도 합쳐 둔 칸을 말없이 빈 칸으로 읽으면 안 된다."""
 
