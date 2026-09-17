@@ -586,6 +586,22 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 엑셀 한 파일의 시트를 모두 훑기 (하나씩 열어 보지 않게)
+        from attools import xlsx as xlsxkit2
+
+        여러 = Path(self.path("여러시트.xlsx"))
+        xlsxkit2.write_sheets(여러, {
+            "안내": [["이 파일은 정산 자료입니다"]],
+            "정산": [["부서", "금액"], ["가", 100], ["나", 200], ["합계", 400]],
+            "명단": [["이름", "연락처"], ["김민수", "010-1111-2222"]]})
+        모두 = self.run_cli("sheet", "audit", str(여러), "--all")
+        self.assertIn("시트 3개", 모두)
+        self.assertIn("합계 안 맞음", 모두)
+        self.assertIn("개인정보", 모두)
+        섞임 = self.run_cli("sheet", "audit", self.path("명단.csv"), "--all",
+                          expect=1)
+        self.assertIn("엑셀(xlsx)", 섞임)     # csv 는 시트가 하나다
+
         # 거래명세서의 줄 단위 셈 검산 (수량 x 단가 = 금액)
         명세 = Path(self.path("명세서.xlsx"))
         from attools import xlsx as xlsxkit1

@@ -539,8 +539,49 @@ def cmd_sheet_mask(a) -> int:
     return 1 if unclear and a.strict else 0
 
 
+def _audit_all(a) -> int:
+    """엑셀 한 파일의 시트를 모두 훑는다. 하나씩 열어 보지 않게."""
+    source = Path(a.file)
+    if source.suffix.lower() not in sheet.XLSX_SUFFIXES:
+        _p("--all 은 엑셀(xlsx) 파일에만 씁니다. 이 파일은 시트가 하나입니다.")
+        return 1
+    try:
+        found = sheet.describe_sheets(source, header_row=a.header_row - 1)
+    except (sheet.SheetError, OSError) as e:
+        _p(f"읽지 못했습니다: {e}")
+        return 1
+
+    _p(f"{source.name}  ·  시트 {len(found)}개\n")
+    rows, 걸린 = [], 0
+    for info in found:
+        if info.error or not info.rows:
+            rows.append([info.name, "-", "-", info.error or "행 없음"])
+            continue
+        try:
+            table = sheet.load(source, sheet=info.name,
+                               header_row=a.header_row - 1,
+                               fill_merged=getattr(a, "unmerge", False))
+        except (sheet.SheetError, OSError) as e:
+            rows.append([info.name, "-", "-", str(e)])
+            continue
+        rep = sheet.audit(table)
+        걸린 += len(rep.notes)
+        kinds = []
+        for note in rep.notes:
+            if note.kind not in kinds:
+                kinds.append(note.kind)
+        rows.append([info.name, f"{rep.rows:,}", f"{rep.columns}",
+                     ", ".join(kinds) if kinds else "볼 만한 곳 없음"])
+    _grid(["시트", "행", "열", "볼 만한 곳"], rows, limit=46)
+    _p(f"\n모두 {걸린:,}가지. 한 시트를 자세히 보려면 "
+       "--sheet 이름 으로 다시 부르세요 (--all 없이).")
+    return 1 if 걸린 and a.strict else 0
+
+
 def cmd_sheet_audit(a) -> int:
     """받은 표를 한 번에 훑는다. 무엇부터 봐야 하는지 알려 준다."""
+    if a.all:
+        return _audit_all(a)
     t = _load(a)
     if t is None:
         return 1
@@ -3290,6 +3331,10 @@ def add_commands(sub) -> None:
     ad.add_argument("file")
     ad.add_argument("--strict", action="store_true",
                     help="볼 만한 곳이 있으면 1 로 끝낸다")
+    ad.add_argument("--all", action="store_true",
+                    help="엑셀 안의 시트를 모두 훑는다 (한 줄씩 요약)")
+    ad.epilog = ("예: at sheet audit 받은표.xlsx\n"
+                 "    at sheet audit 받은표.xlsx --all      # 시트 전부 한눈에")
     ad.set_defaults(func=cmd_sheet_audit)
 
     ol2 = common(sh.add_parser("outliers", help="숫자 열에서 드문 값 찾기 (입력 실수 검수)"))

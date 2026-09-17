@@ -1381,7 +1381,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | --- | --- |
 | 모든 `sheet` 명령 공통 | `--sheet` 시트 이름, `--header-row` 머리글 줄 번호, `--unmerge` 합쳐 둔 칸을 채워 읽기 |
 | `at sheet peek <파일>` | 시트 목록, 행·열 수, 열마다 타입·결측·고유값·최소/최대·예시. `--stats` 로 합계·평균·중앙값. 머리글을 잘못 읽은 것 같으면(제목 줄이 있는 파일) 그 자리에서 알려 준다 |
-| `at sheet audit <파일>` | 받은 표 한 번에 훑기 — 머리글·빈 칸·타입 섞임·중복 행·빈 행·**합계 줄과 그 값이 맞는지**·드문 값·개인정보·표기 흔들림·내보낼 때 걸릴 값 |
+| `at sheet audit <파일>` | 받은 표 한 번에 훑기 — 머리글·빈 칸·타입 섞임·중복 행·빈 행·**합계 줄과 그 값이 맞는지**·드문 값·개인정보·표기 흔들림·내보낼 때 걸릴 값. `--all` 로 엑셀 안의 **시트 전부**를 한 줄씩 |
 | `at sheet check <파일>` | 중복 키, 키 결측, 타입 혼재, 앞뒤·전각 공백, **문자로 저장된 숫자/날짜** |
 | `at sheet outliers <파일> -c <열>` | 숫자 열에서 드문 값 찾기 (0 하나, 1억 하나 같은 입력 실수) |
 | `at sheet gaps <파일> -c <열>` | 번호·날짜 열에서 **빠진 것** 찾기 (전표 누락, 안 낸 날). 빠진 게 있으면 exit 1 |
@@ -1443,6 +1443,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 at sheet peek 매출.xlsx --sheet 1분기 -n 10
 at sheet peek 매출.xlsx --stats            # 합계·평균·중앙값·최빈값
 at sheet audit 받은명단.xlsx              # 뭐부터 봐야 하나
+at sheet audit 받은표.xlsx --all             # 시트가 열 개여도 한눈에
 at sheet check 직원명부.xlsx --key 사번 --required 입사일
 at sheet outliers 매출.xlsx -c 금액              # 검수 전에 한 번
 at sheet gaps 전표.xlsx -c 전표번호               # 빠진 번호 찾기
