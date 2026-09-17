@@ -586,6 +586,19 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 받은 표의 합계 줄이 맞는지 검산. 소계만 안 맞는 표를 잡아야 한다
+        from attools import xlsx as xlsxkit0
+
+        정산 = Path(self.path("정산서.xlsx"))
+        xlsxkit0.write_sheets(정산, {"정산": [
+            ["부서", "금액"], ["영업1팀", 120000], ["영업1팀", "80,000"],
+            ["소계", 200000], ["영업2팀", 450000], ["영업2팀", 70000],
+            ["소계", 450000], ["합계", 720000]]})
+        검산 = self.run_cli("sheet", "total", str(정산), "--check", expect=1)
+        self.assertIn("안 맞는 곳 1군데", 검산)
+        self.assertIn("-70,000", 검산)
+        self.assertIn("맞음", 검산)             # 나머지 줄은 맞다고 해야 한다
+
         # 양식에 값 채워 내보내기 (collect 의 반대). 원본 양식은 그대로여야 한다
         from attools import xlsx as xlsxkit
 

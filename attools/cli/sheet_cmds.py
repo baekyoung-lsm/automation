@@ -1937,10 +1937,53 @@ def cmd_sheet_filldown(a) -> int:
     return _sheet_result(a, result, f"{where}  빈 칸 {filled:,}개 채움")
 
 
+def _total_check(a, table) -> int:
+    """표에 적힌 합계 줄이 실제 합과 맞는지 검산한다. 표는 만들지 않는다."""
+    try:
+        checks, counted = sheet.check_totals(table, a.col or None,
+                                             tolerance=a.tol)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+    if not checks:
+        _p(f"{Path(table.source).name or '표'}: 합계로 보이는 줄이 없습니다.")
+        _p("  «합계»·«소계»·«총계» 로 시작하는 줄을 찾습니다. "
+           "합계 줄을 붙이려면 --check 없이 쓰세요.")
+        return 1
+
+    틀림 = [one for one in checks if not one.ok]
+    _p(f"합계 줄 {len({one.row for one in checks})}개  ·  "
+       f"셈한 열 {', '.join(counted)}\n")
+    _grid(["줄", "이름", "열", "적힌 값", "실제 합", "차이", "본 범위"],
+          [[str(one.row), _cut(one.label, 10), _cut(one.column, 12),
+            f"{one.written:,.0f}", f"{one.counted:,.0f}",
+            "맞음" if one.ok else f"{one.gap:+,.0f}", one.scope]
+           for one in checks[:a.rows]], limit=16)
+    if len(checks) > a.rows:
+        _p(f"  ... {len(checks) - a.rows}개 더 (--rows 로 조절)")
+
+    못센칸 = sum(one.skipped for one in checks)
+    if 못센칸:
+        _p(f"\n숫자로 못 읽은 칸 {못센칸}개는 세지 않았습니다 - "
+           "at sheet clean 으로 먼저 정리하면 정확해집니다.")
+    if not 틀림:
+        _p("\n모두 맞습니다.")
+        return 0
+    _p(f"\n안 맞는 곳 {len(틀림)}군데")
+    for one in 틀림:
+        _p(f"  {one.row}행 {one.column}: 적힌 값 {one.written:,.0f} · "
+           f"실제 {one.counted:,.0f} · 차이 {one.gap:+,.0f}")
+    _p("\n행을 끼워 넣고 합계 식을 안 고친 자리가 대부분입니다. "
+       "원 단위 절사 때문이면 --tol 1 처럼 주세요.")
+    return 1
+
+
 def cmd_sheet_total(a) -> int:
     t = _load(a)
     if t is None:
         return 1
+    if a.check:
+        return _total_check(a, t)
     try:
         result, counted = sheet.with_total(t, a.col or None, kind=a.kind,
                                            label=a.label or "")
@@ -3382,6 +3425,12 @@ def add_commands(sub) -> None:
     tt.add_argument("--kind", choices=sorted(sheet.TOTAL_KINDS), default="sum",
                     help="sum 합계 · avg 평균 · count 개수 (기본 sum)")
     tt.add_argument("--label", metavar="글자", help="첫 칸에 넣을 이름 (기본 합계)")
+    tt.add_argument("--check", action="store_true",
+                    help="표에 이미 적힌 합계 줄이 맞는지 검산한다 (붙이지 않는다)")
+    tt.add_argument("--tol", type=float, default=0.0, metavar="값",
+                    help="--check 에서 이만큼 차이는 맞는 것으로 (원 단위 절사)")
+    tt.epilog = ("예: at sheet total 명세.xlsx -c 금액 -o 합계붙임.xlsx\n"
+                 "    at sheet total 받은표.xlsx --check        # 적힌 합계가 맞나")
     tt.set_defaults(func=cmd_sheet_total)
 
     sl = common(sh.add_parser("split", help="여러 파일로 나누기"))

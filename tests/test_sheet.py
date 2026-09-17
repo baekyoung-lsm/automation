@@ -3669,3 +3669,78 @@ class FormPlanTest(unittest.TestCase):
         for bad in ("업체", "B3=", "=업체", "셋째=업체"):
             with self.assertRaises(sheet.SheetError, msg=bad):
                 sheet.parse_fill(bad)
+
+
+class CheckTotalsTest(unittest.TestCase):
+    """받은 표에 적힌 합계가 맞는지 검산. 눈으로는 안 보이는 자리다."""
+
+    def only(self, table, **kw):
+        checks, _names = sheet.check_totals(table, **kw)
+        return [(one.row, one.column, one.written, one.counted, one.ok)
+                for one in checks]
+
+    def test_a_subtotal_that_was_not_updated(self):
+        """행을 끼워 넣고 합계 식을 안 고친 자리 - 실무에서 제일 흔하다."""
+        table = sheet.Table(["부서", "금액"], [
+            ["영업1팀", 120000], ["영업1팀", 80000], ["소계", 200000],
+            ["영업2팀", 450000], ["영업2팀", 150000], ["영업2팀", 70000],
+            ["소계", 600000], ["합계", 870000]])
+        got = self.only(table)
+        self.assertEqual(got[0], (4, "금액", 200000.0, 200000.0, True))
+        self.assertEqual(got[1], (8, "금액", 600000.0, 670000.0, False))
+        self.assertEqual(got[2][4], True)          # 총계는 맞는다
+
+    def test_the_last_line_is_read_as_a_grand_total(self):
+        table = sheet.Table(["부서", "금액"], [
+            ["가", 100], ["소계", 100], ["나", 200], ["소계", 200],
+            ["합계", 300]])
+        checks, _names = sheet.check_totals(table)
+        self.assertEqual(checks[-1].scope, "전체")
+        self.assertTrue(checks[-1].ok)
+
+    def test_text_numbers_are_counted(self):
+        """엑셀에서 «80,000» 은 글자로 들어온다. 버리면 합이 적어진다."""
+        table = sheet.Table(["항목", "금액"], [
+            ["가", "120,000"], ["나", "80000원"], ["합계", "200,000"]])
+        checks, _names = sheet.check_totals(table)
+        self.assertEqual((checks[0].written, checks[0].counted),
+                         (200000.0, 200000.0))
+        self.assertTrue(checks[0].ok)
+
+    def test_a_cell_that_cannot_be_read_is_counted_apart(self):
+        table = sheet.Table(["항목", "금액"], [
+            ["가", 100], ["나", "모름"], ["합계", 100]])
+        checks, _names = sheet.check_totals(table)
+        self.assertEqual(checks[0].skipped, 1)
+        self.assertTrue(checks[0].ok)          # 읽은 것끼리는 맞는다
+
+    def test_tolerance_for_rounding(self):
+        table = sheet.Table(["항목", "금액"], [
+            ["가", 100.4], ["나", 200.4], ["합계", 300]])
+        self.assertFalse(sheet.check_totals(table)[0][0].ok)
+        self.assertTrue(sheet.check_totals(table, tolerance=1)[0][0].ok)
+
+    def test_no_total_row_means_nothing_to_check(self):
+        table = sheet.Table(["금액"], [[100], [200]])
+        self.assertEqual(sheet.check_totals(table), ([], []))
+
+    def test_columns_without_numbers_are_left_alone(self):
+        table = sheet.Table(["부서", "비고", "금액"], [
+            ["가", "확인", 100], ["합계", "", 100]])
+        _checks, names = sheet.check_totals(table)
+        self.assertEqual(names, ["금액"])
+
+    def test_an_empty_total_cell_only_breaks_the_block(self):
+        """합계 줄인데 그 열이 비어 있으면 셈하지 않고 구간만 끊는다."""
+        table = sheet.Table(["부서", "금액"], [
+            ["가", 100], ["소계", None], ["나", 200], ["합계", 200]])
+        got = self.only(table)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0], (5, "금액", 200.0, 200.0, True))
+
+    def test_only_the_chosen_column(self):
+        table = sheet.Table(["항목", "금액", "수량"], [
+            ["가", 100, 2], ["나", 200, 3], ["합계", 300, 6]])
+        checks, names = sheet.check_totals(table, ["수량"])
+        self.assertEqual(names, ["수량"])
+        self.assertEqual([one.column for one in checks], ["수량"])

@@ -594,6 +594,100 @@ def with_total(table: Table, columns: list[str] | None = None, *,
                  source=table.source, sheet=table.sheet), counted
 
 
+# ----------------------------------------------- 합계 줄 검산 (받은 표 점검)
+
+@dataclass
+class TotalCheck:
+    row: int                 # 합계 줄 번호 (머리글이 1행)
+    label: str               # «소계»·«합계» 처럼 그 줄에 적힌 말
+    column: str
+    written: float           # 표에 적힌 값
+    counted: float           # 자료 행을 실제로 더한 값
+    scope: str = "구간"      # 구간(직전 합계 줄 다음부터) / 전체
+    skipped: int = 0         # 숫자로 못 읽어 못 센 칸 수
+    tolerance: float = 0.0   # 이만큼 차이는 맞는 것으로 본다 (원 단위 절사)
+
+    @property
+    def gap(self) -> float:
+        return self.written - self.counted
+
+    @property
+    def ok(self) -> bool:
+        # 0.005 는 실수 셈에서 생기는 찌꺼기. 절사 오차는 tolerance 로 준다
+        return abs(self.gap) <= self.tolerance + 0.005
+
+
+def number_of(value) -> float | None:
+    """칸을 숫자로. «1,350,000» 이나 «870000원» 처럼 글자로 든 것도 읽는다."""
+    if isinstance(value, bool) or _is_blank(value):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return parse_number(to_text(value))
+
+
+def check_totals(table: Table, columns: list[str] | None = None, *,
+                 tolerance: float = 0.0) -> tuple[list[TotalCheck], list[str]]:
+    """표에 적힌 합계 줄이 실제 합과 맞는지 센다. (검산 결과, 셈한 열 이름)
+
+    받은 표의 합계가 틀려 있는 일은 흔하다 - 행을 나중에 끼워 넣고 합계
+    식을 안 고친 경우가 대부분이다. 눈으로는 안 보이고, 그대로 결재가
+    올라간다.
+
+    소계가 여럿이면 «직전 합계 줄 다음부터 이 줄 앞까지» 를 센다. 그 값이
+    안 맞으면 «맨 위부터 이 줄 앞까지»(총계)로 한 번 더 본다 - 마지막 줄은
+    보통 총계라서다. 둘 중 하나가 맞으면 맞는 것으로 본다.
+    """
+    wanted = ([table.index_of(c) for c in columns] if columns
+              else [i for i, _ in enumerate(table.headers)])
+    totals = set(total_rows(table))
+    if not totals:
+        return [], []
+
+    counted_names: list[str] = []
+    out: list[TotalCheck] = []
+    for i in wanted:
+        # 자료 행에 숫자가 하나도 없는 열은 셈할 열이 아니다
+        if not any(number_of(row[i]) is not None
+                   for number, row in enumerate(table.rows, 2)
+                   if number not in totals and i < len(row)):
+            continue
+        counted_names.append(table.headers[i])
+
+        block: list[float] = []      # 직전 합계 줄 다음부터
+        whole: list[float] = []      # 맨 위부터 (합계 줄은 빼고)
+        missed = 0
+        for number, row in enumerate(table.rows, 2):
+            value = row[i] if i < len(row) else None
+            if number not in totals:
+                got = number_of(value)
+                if got is None:
+                    if not _is_blank(value):
+                        missed += 1
+                else:
+                    block.append(got)
+                    whole.append(got)
+                continue
+
+            written = number_of(value)
+            if written is None:
+                block = []           # 합계 줄이 비어 있으면 구간만 끊는다
+                continue
+            label = next((to_text(cell).strip() for cell in row
+                          if to_text(cell).strip()), "")
+            near, far = sum(block), sum(whole)
+            scope, counted = "구간", near
+            # 마지막 줄은 보통 총계다. 구간 합이 안 맞고 전체 합이 맞으면
+            # 그 줄은 소계가 아니라 총계로 본다
+            if abs(written - near) > tolerance and abs(written - far) <= tolerance:
+                scope, counted = "전체", far
+            out.append(TotalCheck(number, label, table.headers[i], written,
+                                  counted, scope, missed, tolerance))
+            block, missed = [], 0
+    out.sort(key=lambda one: (one.row, one.column))
+    return out, counted_names
+
+
 # --------------------------------------------------------------- 값 찾기
 
 @dataclass
