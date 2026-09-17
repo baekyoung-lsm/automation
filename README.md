@@ -1445,7 +1445,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet from-hwpx <파일>` | 한글 문서(hwpx) 안의 표를 엑셀·csv 로 |
 | `at sheet from-pptx <파일>` | 슬라이드(pptx) 안의 표를 엑셀·csv 로 |
 | `at sheet from-md <파일>` | 마크다운 문서 안의 표를 엑셀·csv 로 |
-| `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리 |
+| `at sheet convert <파일> -o <출력>` | csv ↔ xlsx 변환, 깨진 인코딩 정리. 폴더를 주면 **무더기로** (`--to`, `--apply`) |
 
 ```bash
 at sheet peek 매출.xlsx --sheet 1분기 -n 10
@@ -1460,6 +1460,7 @@ at sheet row 직원.xlsx --eq 사번=E2          # 그 사람 정보를 세로�
 at sheet row 직원.xlsx --at 15              # 엑셀에서 본 15행
 at sheet format 명단.xlsx --phone 연락처 --bizno 사업자등록번호 -o 정리본.xlsx
 at sheet convert 명단.csv -o 명단.md                          # 마크다운 표로
+at sheet convert 받은자료 --to xlsx -o 엑셀본 --apply   # csv 무더기를 엑셀로
 at doc table 명단.md --apply                                 # 칸 너비 맞추기
 at sheet mask 명단.xlsx --name 이름 --phone 연락처 --rrn 주민번호 -o 공유본.xlsx
 at sheet mask 거래처.csv --address 주소 --account 계좌번호 --strict

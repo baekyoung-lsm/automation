@@ -586,6 +586,23 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 받은 csv 무더기를 한글 안 깨지게 엑셀로 (폴더째)
+        받은 = Path(self.path("받은csv"))
+        받은.mkdir(exist_ok=True)
+        (받은 / "1월.csv").write_bytes("이름,금액\n김민수,100\n".encode("cp949"))
+        (받은 / "2월.csv").write_text("이름,금액\n이영희,200\n", encoding="utf-8")
+        엑셀본 = Path(self.path("엑셀본"))
+        미리3 = self.run_cli("sheet", "convert", str(받은), "-o", str(엑셀본),
+                           "--glob", "*.csv")
+        self.assertIn("미리보기", 미리3)
+        self.assertFalse(엑셀본.exists())
+        낸것3 = self.run_cli("sheet", "convert", str(받은), "-o", str(엑셀본),
+                           "--glob", "*.csv", "--apply")
+        self.assertIn("2개를 만들었습니다", 낸것3)
+        from attools import xlsx as xlsxkit3
+
+        self.assertEqual(xlsxkit3.read_sheet(엑셀본 / "1월.xlsx")[1][0], "김민수")
+
         # 보낼 폴더를 통째로 가리기. 원본은 그대로, 짐작한 열을 밝혀야 한다
         보낼폴더 = Path(self.path("보낼자료"))
         보낼폴더.mkdir(exist_ok=True)

@@ -1982,7 +1982,53 @@ def cmd_sheet_rename(a) -> int:
     return 1 if missing else 0
 
 
+def _convert_many(a) -> int:
+    """폴더 안의 표 파일을 한꺼번에 바꾼다. 받은 csv 무더기를 엑셀로 여는 자리."""
+    targets = _sheet_paths([a.file], glob=a.glob or "")
+    out = Path(a.out)
+    if out.suffix:
+        _p(f"여러 파일을 바꾸려면 -o 는 폴더여야 합니다: {out}")
+        return 1
+    바꿀꼴 = ".csv" if a.to == "csv" else ".xlsx"
+    todo = [one for one in targets if one.suffix.lower() != 바꿀꼴]
+    if not todo:
+        _p(f"바꿀 파일이 없습니다 (이미 모두 {바꿀꼴} 이거나 표 파일이 없습니다).")
+        return 1
+
+    _p(f"{len(todo)}개를 {바꿀꼴} 로 바꿉니다  ->  {out}/\n")
+    for one in todo[:10]:
+        _p(f"  {one.name}  ->  {one.stem}{바꿀꼴}")
+    if len(todo) > 10:
+        _p(f"  ... {len(todo) - 10}개 더")
+    if not a.apply:
+        _p("\n[미리보기] 실제로 만들려면 --apply 를 붙이세요. "
+           "원본은 건드리지 않습니다.")
+        return 0
+
+    made = 0
+    for one in todo:
+        try:
+            table = sheet.load(one, header_row=a.header_row - 1,
+                               fill_merged=getattr(a, "unmerge", False))
+        except (sheet.SheetError, OSError) as e:
+            _p(f"  {one.name}: 읽지 못했습니다 - {e}")
+            return 1
+        target = out / f"{one.stem}{바꿀꼴}"
+        if not _may_write(a, target):
+            return 1
+        target.parent.mkdir(parents=True, exist_ok=True)
+        sheet.save(table, target, excel_bom=not a.no_bom,
+                   sheet_name=a.name or one.stem)
+        made += 1
+    _p(f"\n{made}개를 만들었습니다: {out}/")
+    if 바꿀꼴 == ".csv" and not a.no_bom:
+        _p("엑셀에서 한글이 깨지지 않도록 UTF-8 BOM 을 붙였습니다.")
+    return 0
+
+
 def cmd_sheet_convert(a) -> int:
+    if Path(a.file).is_dir():
+        return _convert_many(a)
     t = _load(a)
     if t is None:
         return 1
@@ -3805,4 +3851,11 @@ def add_commands(sub) -> None:
                     help="이미 있는 파일을 덮어쓴다")
     cv.add_argument("--name", default="", metavar="시트명")
     cv.add_argument("--no-bom", action="store_true", help="CSV 에 BOM 을 넣지 않는다")
+    cv.add_argument("--to", choices=("xlsx", "csv"), default="xlsx",
+                    help="폴더를 줬을 때 무엇으로 바꿀지 (기본 xlsx)")
+    cv.add_argument("--glob", metavar="무늬", help="폴더에서 고를 무늬. 예: '*.csv'")
+    cv.add_argument("--apply", action="store_true",
+                    help="폴더째 바꿀 때 실제로 만든다 (기본은 미리보기)")
+    cv.epilog = ("예: at sheet convert 명단.csv -o 명단.xlsx\n"
+                 "    at sheet convert 받은자료 --to xlsx -o 엑셀본 --apply")
     cv.set_defaults(func=cmd_sheet_convert)
