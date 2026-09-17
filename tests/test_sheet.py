@@ -3796,3 +3796,21 @@ class CalcRuleTest(unittest.TestCase):
     def test_the_rule_reads_in_korean(self):
         rule = sheet.Rule("calc", "금액", "수량*단가")
         self.assertEqual(rule.describe(), "금액 = 수량*단가 이어야 함")
+
+
+class AuditTotalTest(unittest.TestCase):
+    def test_audit_says_when_a_written_total_is_wrong(self):
+        """받은 표를 훑는 자리에서 합계가 틀린 것도 함께 짚어야 한다."""
+        table = sheet.Table(["부서", "금액"], [
+            ["가", 100], ["나", 200], ["소계", 300],
+            ["다", 400], ["소계", 500], ["합계", 700]])
+        kinds = {note.kind for note in sheet.audit(table).notes}
+        self.assertIn("합계 줄", kinds)
+        self.assertIn("합계 안 맞음", kinds)
+
+    def test_a_correct_total_is_not_complained_about(self):
+        table = sheet.Table(["부서", "금액"], [["가", 100], ["나", 200],
+                                             ["합계", 300]])
+        kinds = [note.kind for note in sheet.audit(table).notes]
+        self.assertIn("합계 줄", kinds)
+        self.assertNotIn("합계 안 맞음", kinds)

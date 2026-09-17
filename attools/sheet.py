@@ -2535,7 +2535,8 @@ def audit(table: Table) -> AuditReport:
     """
     report = AuditReport(len(table.rows), table.width)
     report.looked = ["머리글", "빈 칸이 많은 열", "한 열에 섞인 타입", "똑같은 행",
-                     "빈 행", "합계 줄", "숫자 열의 드문 값", "개인정보로 보이는 열",
+                     "빈 행", "합계 줄과 그 값이 맞는지", "숫자 열의 드문 값",
+                     "개인정보로 보이는 열",
                      "표기 흔들림", "엑셀이 수식으로 읽을 칸",
                      "내보낼 때 걸릴 값"]
     report.notes += _header_notes(table)
@@ -2554,6 +2555,19 @@ def audit(table: Table) -> AuditReport:
         report.notes.append(AuditNote(
             "합계 줄", "", f"합계로 보이는 행 {len(totals):,}개 ({where}). "
                            "집계·합치기 전에 빼세요 - 두 번 세게 됩니다"))
+        # 합계 줄이 있으면 그 값이 맞는지까지 본다. 행을 끼워 넣고 합계 식을
+        # 안 고친 표가 흔한데, 눈으로는 안 보인다
+        checks, _counted = check_totals(table)
+        wrong = [one for one in checks if not one.ok]
+        for one in wrong[:3]:
+            report.notes.append(AuditNote(
+                "합계 안 맞음", one.column,
+                f"{one.row}행에 적힌 {one.written:,.0f} 인데 실제 합은 "
+                f"{one.counted:,.0f} (차이 {one.gap:+,.0f}) "
+                "- at sheet total --check 로 전부 봅니다"))
+        if len(wrong) > 3:
+            report.notes.append(AuditNote(
+                "합계 안 맞음", "", f"그 밖에 {len(wrong) - 3}군데 더"))
 
     for col in profile(table):
         share = col.missing / len(table.rows)
