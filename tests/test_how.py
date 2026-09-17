@@ -102,5 +102,53 @@ class HowCommandTest(unittest.TestCase):
         self.assertIn("가지 더", got)
 
 
+class HelpExampleTest(unittest.TestCase):
+    """--help 아래 «예시» 는 레시피에서 채운다. 그것도 진짜 되는 명령이어야."""
+
+    def filled(self, group: str):
+        parser = cli.build_parser()
+        cli._add_examples(parser, group)
+        action = cli._subparsers(parser)
+        inner = cli._subparsers(action.choices[group])
+        return {name: (one.epilog or "") for name, one in inner.choices.items()}
+
+    def test_examples_are_filled_where_there_were_none(self):
+        got = self.filled("sheet")
+        self.assertIn("at sheet merge 제출/", got["merge"])
+        self.assertIn("at how merge", got["merge"])
+
+    def test_hand_written_examples_are_kept(self):
+        """손으로 적어 둔 예시를 레시피가 밀어내면 안 된다."""
+        before = cli.build_parser()
+        action = cli._subparsers(before)
+        inner = cli._subparsers(action.choices["sheet"])
+        손으로 = (inner.choices["form"].epilog or "")
+        self.assertIn("at sheet form", 손으로)
+        self.assertEqual(self.filled("sheet")["form"], 손으로)
+
+    def test_every_filled_example_parses(self):
+        parser = cli.build_parser()
+        for group in ("sheet", "file", "text", "doc", "dev", "life", "novel",
+                      "git"):
+            for name, epilog in self.filled(group).items():
+                for raw in epilog.splitlines():
+                    line = raw.strip().split("#")[0].strip()   # 뒤 주석은 뗀다
+                    if not line.startswith("at "):
+                        continue
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        try:
+                            parser.parse_args(shlex.split(line)[1:])
+                        except SystemExit:
+                            self.fail(f"{group} {name}: {line}")
+
+    def test_only_the_asked_group_is_touched(self):
+        """명령이 이백 개가 넘어 전부 채우면 매번 느려진다."""
+        parser = cli.build_parser()
+        cli._add_examples(parser, "sheet")
+        action = cli._subparsers(parser)
+        inner = cli._subparsers(action.choices["file"])
+        self.assertEqual(inner.choices["sweep"].epilog or "", "")
+
+
 if __name__ == "__main__":
     unittest.main()

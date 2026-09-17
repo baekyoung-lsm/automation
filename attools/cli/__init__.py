@@ -375,6 +375,39 @@ def _list_groups(parser: argparse.ArgumentParser) -> int:
     return 1
 
 
+def _add_examples(parser: argparse.ArgumentParser, group: str = "") -> None:
+    """예시가 없는 명령에 레시피의 명령 줄을 붙인다.
+
+    사용법을 두 군데(epilog 와 recipes)에 따로 적으면 한쪽만 고쳐진다.
+    손으로 적어 둔 예시는 그대로 두고, 없는 자리만 채운다.
+
+    지금 부르는 갈래만 채운다 - 명령이 이백 개가 넘어 전부 채우면 아무것도
+    안 하는 명령까지 매번 10ms 씩 느려진다.
+    """
+    from .. import recipes
+
+    action = _subparsers(parser)
+    here = (action.choices if action else {}).get(group)
+    inner = _subparsers(here) if here is not None else None
+    if inner is None:
+        return
+
+    bucket: dict[str, list[str]] = {}
+    for line in recipes.commands():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == group:
+            bucket.setdefault(parts[2], []).append(line)
+    if not bucket:
+        return
+
+    for name, one in inner.choices.items():
+        if (one.epilog or "").strip() or name not in bucket:
+            continue
+        shown = list(dict.fromkeys(bucket[name]))[:3]
+        one.epilog = ("예시:\n" + "\n".join(f"  {line}" for line in shown)
+                      + f"\n(비슷한 일: at how {name})")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = _Parser(
         prog="at", description="파일 / 텍스트 / JSON / 개발 / git / 엑셀 / 단축키 / 일상 / 소설 자동화 도구")
@@ -422,6 +455,9 @@ def main(argv: list[str] | None = None) -> int:
         argv, tail = argv[:cut], argv[cut + 1:]
 
     ap = build_parser()
+    # 지금 부르는 갈래의 명령에만 예시를 붙인다 (있는 것은 그대로 둔다)
+    if argv and not argv[0].startswith("-"):
+        _add_examples(ap, argv[0])
     # 사람이 처음 치는 말들. argparse 에는 없는 이름이라 «없는 이름입니다» 로
     # 끝나는데, 그때 정작 보고 싶은 것은 갈래 목록이다
     if argv and argv[0] in ("help", "도움말", "?", "--도움말"):
