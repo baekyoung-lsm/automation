@@ -4447,6 +4447,59 @@ MASK_KINDS = {
 }
 
 
+# ------------------------------------------- 가릴 열 짐작 (밖으로 내보내기 전)
+
+# 값 꼴로 알 수 있는 것과 열 이름으로만 알 수 있는 것이 다르다. 이름·주소·
+# 계좌는 값만 봐서는 가릴 수 없어 열 이름을 본다 - 짐작이므로 무엇을 왜
+# 골랐는지 함께 돌려주고, 고르는 것은 사람이 다시 본다.
+PRIVATE_HEADERS = {
+    "이름": ("이름", "성명", "성함", "대표자", "담당자", "수취인", "수령인",
+             "신청인", "예금주"),
+    "주소": ("주소", "소재지", "거주지", "배송지", "주소지"),
+    "계좌": ("계좌", "계좌번호", "카드번호", "카드"),
+    "주민번호": ("주민등록번호", "주민번호"),
+    "전화": ("연락처", "전화", "휴대폰", "핸드폰", "휴대전화"),
+    "이메일": ("이메일", "메일", "email", "e-mail"),
+}
+# 값 꼴로 찾은 것을 어느 가림 규칙에 태울지
+PRIVATE_KIND = {"주민번호": "주민번호", "이메일": "이메일",
+                "휴대폰": "전화", "전화": "전화"}
+
+
+@dataclass
+class PrivateGuess:
+    column: str
+    kind: str                # MASK_KINDS 의 종류
+    why: str                 # 값 꼴 / 열 이름
+    share: float = 0.0       # 값 꼴로 찾았을 때 그 꼴이던 비율
+
+
+def guess_private(table: Table, *, share: float = 0.5) -> list[PrivateGuess]:
+    """가릴 만한 열을 짐작한다. 값 꼴을 먼저 보고, 없으면 열 이름을 본다."""
+    out: list[PrivateGuess] = []
+    for index, header in enumerate(table.headers):
+        values = [to_text(row[index]).strip() for row in table.rows
+                  if index < len(row)]
+        filled_values = [v for v in values if v]
+        found = ""
+        rate = 0.0
+        if filled_values:
+            for name, pattern in _private_patterns():
+                hits = sum(1 for v in filled_values if pattern.search(v))
+                if hits / len(filled_values) >= share:
+                    found, rate = PRIVATE_KIND[name], hits / len(filled_values)
+                    break
+        if found:
+            out.append(PrivateGuess(header, found, "값 꼴", rate))
+            continue
+        key = to_text(header).strip().lower().replace(" ", "")
+        for kind, words in PRIVATE_HEADERS.items():
+            if any(word in key for word in words):
+                out.append(PrivateGuess(header, kind, "열 이름"))
+                break
+    return out
+
+
 @dataclass
 class MaskReport:
     column: str

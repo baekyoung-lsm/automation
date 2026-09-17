@@ -486,32 +486,134 @@ def cmd_sheet_format(a) -> int:
     return 1 if bad and a.strict else 0
 
 
-def cmd_sheet_mask(a) -> int:
-    """개인정보를 가린 사본을 만든다. 밖으로 내보낼 파일을 만드는 명령이다."""
-    t = _load(a)
-    if t is None:
-        return 1
-
+def _mask_wanted(a, table) -> tuple[list, list] | None:
+    """(가릴 열 목록, 짐작한 것들). 고를 것이 없으면 None."""
     wanted: list[tuple[str, str]] = []
     for kind, names_ in (("이름", a.name), ("전화", a.phone), ("이메일", a.email),
                          ("주민번호", a.rrn), ("계좌", a.account),
                          ("주소", a.address)):
         for column in names_ or []:
             wanted.append((column, kind))
-    if not wanted:
-        _p("어느 열을 어떻게 가릴지 골라 주세요.")
-        _p("  예: at sheet mask 명단.xlsx --name 이름 --phone 연락처 -o 공유본.xlsx")
-        _p(f"  쓸 수 있는 가림: {', '.join(sheet.MASK_KINDS)}")
-        return 1
 
+    guessed: list = []
+    if a.auto:
+        given = {column for column, _kind in wanted}
+        for one in sheet.guess_private(table):
+            if one.column in given:
+                continue          # 직접 준 것이 짐작보다 세다
+            guessed.append(one)
+            wanted.append((one.column, one.kind))
+    return (wanted, guessed) if wanted else None
+
+
+def _mask_table(a, table, wanted):
+    """고른 열을 가린다. (가린 표, 보고들) - 못 읽은 열이 있으면 SheetError."""
     reports = []
     for column, kind in wanted:
-        try:
-            t, rep = sheet.mask_column(t, column, kind)
-        except sheet.SheetError as e:
-            _p(str(e))
-            return 1
+        table, rep = sheet.mask_column(table, column, kind)
         reports.append(rep)
+    return table, reports
+
+
+def _mask_many(a, targets: list[Path]) -> int:
+    """폴더째 가린다. 보낼 파일을 한 번에 만드는 자리다."""
+    if not a.out:
+        _p("가린 사본을 넣을 폴더를 -o 로 주세요. (원본은 건드리지 않습니다)")
+        return 1
+    out = Path(a.out)
+    if out.suffix:
+        _p(f"여러 파일을 가리려면 -o 는 폴더여야 합니다: {out}")
+        return 1
+
+    plans = []
+    for path in targets:
+        try:
+            table = sheet.load(path, header_row=a.header_row - 1,
+                               fill_merged=getattr(a, "unmerge", False))
+        except (sheet.SheetError, OSError) as e:
+            _p(f"{path.name}: 읽지 못했습니다 - {e}")
+            return 1
+        picked = _mask_wanted(a, table)
+        if picked is None:
+            _p(f"{path.name}: 가릴 열을 찾지 못했습니다.")
+            _p("  --auto 로 짐작하게 하거나 --name 처럼 열을 직접 주세요. "
+               "한 파일이라도 못 고르면 아무것도 만들지 않습니다.")
+            return 1
+        plans.append((path, table, picked[0], picked[1]))
+
+    _p(f"파일 {len(plans)}개  ·  {'짐작해서 ' if a.auto else ''}가릴 열\n")
+    _grid(["파일", "가릴 열", "어떻게"],
+          [[one[0].name, ", ".join(c for c, _k in one[2]),
+            ", ".join(f"{g.column}={g.why}" for g in one[3]) or "직접 준 대로"]
+           for one in plans], limit=40)
+
+    if not a.apply:
+        _p(f"\n[미리보기] {out}/ 아래에 {len(plans)}개를 만듭니다. "
+           "실제로 만들려면 --apply 를 붙이세요.")
+        return 0
+
+    made, unclear = 0, 0
+    for path, table, wanted, _guessed in plans:
+        try:
+            masked, reports = _mask_table(a, table, wanted)
+        except sheet.SheetError as e:
+            _p(f"{path.name}: {e}")
+            return 1
+        target = out / path.name
+        if not _may_write(a, target):
+            return 1
+        target.parent.mkdir(parents=True, exist_ok=True)
+        sheet.save(masked, target)
+        unclear += sum(len(r.unclear) for r in reports)
+        made += 1
+    _p(f"\n{made}개를 만들었습니다: {out}/")
+    if unclear:
+        _p(f"꼴을 몰라 통째로 가린 값 {unclear:,}개 - "
+           "새는 것보다 낫다고 보고 가렸습니다.")
+    _p("원본은 건드리지 않았습니다. 보내기 전에 한 번 열어 보세요.")
+    return 1 if unclear and a.strict else 0
+
+
+def cmd_sheet_mask(a) -> int:
+    """개인정보를 가린 사본을 만든다. 밖으로 내보낼 파일을 만드는 명령이다."""
+    if Path(a.file).is_dir():
+        targets = _sheet_paths([a.file])
+        if not targets:
+            _p(f"표 파일을 찾지 못했습니다: {a.file}")
+            return 1
+        return _mask_many(a, targets)
+
+    t = _load(a)
+    if t is None:
+        return 1
+
+    picked = _mask_wanted(a, t)
+    if picked is None:
+        if a.auto:
+            _p("가릴 만한 열을 찾지 못했습니다. 값 꼴(주민번호·전화·이메일)과 "
+               "열 이름(이름·주소·계좌)으로 찾습니다.")
+            _p("  가려야 할 열이 있는데 못 찾았으면 --name 처럼 직접 주세요.")
+        else:
+            _p("어느 열을 어떻게 가릴지 골라 주세요.")
+            _p("  예: at sheet mask 명단.xlsx --name 이름 --phone 연락처 "
+               "-o 공유본.xlsx")
+            _p("  열을 짐작하게 하려면 --auto 를 붙이세요.")
+        _p(f"  쓸 수 있는 가림: {', '.join(sheet.MASK_KINDS)}")
+        return 1
+    wanted, guessed = picked
+
+    if guessed:
+        _p("짐작한 열 (값 꼴과 열 이름으로 고른 것입니다)")
+        for one in guessed:
+            쪽 = f" · {one.share:.0%} 가 그 꼴" if one.why == "값 꼴" else ""
+            _p(f"  {_pad(one.column, 14)}{one.kind} 로 가림  ({one.why}{쪽})")
+        _p("  빠진 것이 있으면 --name 처럼 직접 주세요. 짐작은 짐작입니다.\n")
+
+    try:
+        t, reports = _mask_table(a, t, wanted)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
 
     _p(f"{Path(a.file).name}  {len(t.rows):,}행")
     _grid(["열", "가림", "가린 값", "빈칸", "꼴을 몰라 통째로"],
@@ -2997,14 +3099,20 @@ def add_commands(sub) -> None:
                        ("address", "주소")):
         mk.add_argument(f"--{flag}", action="append", metavar="열",
                         help=f"{kind} 로 가릴 열 ({sheet.MASK_KINDS[kind][1]})")
-    mk.add_argument("-o", "--out", metavar="파일")
+    mk.add_argument("--auto", action="store_true",
+                    help="가릴 열을 값 꼴과 열 이름으로 짐작한다 (무엇을 골랐는지 보여준다)")
+    mk.add_argument("-o", "--out", metavar="파일|폴더")
     mk.add_argument("--overwrite", action="store_true",
                     help="이미 있는 파일을 덮어쓴다")
+    mk.add_argument("--apply", action="store_true",
+                    help="폴더째 가릴 때 실제로 만든다 (기본은 미리보기)")
     mk.add_argument("--keep-sheets", action="store_true",
                     help="원본 엑셀의 다른 시트도 그대로 옮긴다")
     mk.add_argument("--limit", type=int, default=20, help="통째로 가린 값을 몇 개까지 보일지")
     mk.add_argument("--strict", action="store_true",
                     help="꼴을 모르는 값이 하나라도 있으면 1 로 끝낸다")
+    mk.epilog = ("예: at sheet mask 명단.xlsx --name 이름 --phone 연락처 -o 공유본.xlsx\n"
+                 "    at sheet mask 보낼폴더 --auto -o 가린것 --apply")
     mk.set_defaults(func=cmd_sheet_mask)
 
     fmd = sh.add_parser("from-md", help="마크다운 문서 안의 표를 엑셀·csv 로")

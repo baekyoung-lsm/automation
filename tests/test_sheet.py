@@ -3814,3 +3814,51 @@ class AuditTotalTest(unittest.TestCase):
         kinds = [note.kind for note in sheet.audit(table).notes]
         self.assertIn("합계 줄", kinds)
         self.assertNotIn("합계 안 맞음", kinds)
+
+
+class GuessPrivateTest(unittest.TestCase):
+    """가릴 열 짐작. 오탐도 미탐도 값이 새거나 표를 못 쓰게 만든다."""
+
+    def table(self):
+        return sheet.Table(
+            ["사번", "이름", "연락처", "이메일", "주민등록번호", "주소", "금액"],
+            [["A001", "김민수", "010-1111-2222", "a@b.com",
+              "9001011234568", "서울시 강남구 1-2", 100],
+             ["A002", "이영희", "010-3333-4444", "c@d.com",
+              "8505052345678", "서울시 마포구 3-4", 200]])
+
+    def guessed(self, table=None):
+        return {one.column: (one.kind, one.why)
+                for one in sheet.guess_private(table or self.table())}
+
+    def test_values_decide_for_numbers_and_emails(self):
+        got = self.guessed()
+        self.assertEqual(got["연락처"], ("전화", "값 꼴"))
+        self.assertEqual(got["이메일"], ("이메일", "값 꼴"))
+        self.assertEqual(got["주민등록번호"], ("주민번호", "값 꼴"))
+
+    def test_headers_decide_where_values_cannot(self):
+        """이름·주소는 값만 봐서는 가릴 수 없다."""
+        got = self.guessed()
+        self.assertEqual(got["이름"], ("이름", "열 이름"))
+        self.assertEqual(got["주소"], ("주소", "열 이름"))
+
+    def test_plain_columns_are_left_alone(self):
+        got = self.guessed()
+        self.assertNotIn("사번", got)
+        self.assertNotIn("금액", got)
+
+    def test_a_column_that_only_sometimes_looks_private_is_skipped(self):
+        """한두 칸만 전화처럼 생긴 비고 열까지 가리면 표를 못 쓴다."""
+        table = sheet.Table(["비고"], [["확인"], ["010-1111-2222"], ["보류"],
+                                      ["전달함"]])
+        self.assertEqual(self.guessed(table), {})
+
+    def test_share_can_be_loosened(self):
+        table = sheet.Table(["비고"], [["확인"], ["010-1111-2222"]])
+        loose = sheet.guess_private(table, share=0.5)
+        self.assertEqual([one.column for one in loose], ["비고"])
+
+    def test_an_empty_table_guesses_by_header_only(self):
+        table = sheet.Table(["이름", "금액"], [])
+        self.assertEqual(self.guessed(table), {"이름": ("이름", "열 이름")})

@@ -586,6 +586,26 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 보낼 폴더를 통째로 가리기. 원본은 그대로, 짐작한 열을 밝혀야 한다
+        보낼폴더 = Path(self.path("보낼자료"))
+        보낼폴더.mkdir(exist_ok=True)
+        (보낼폴더 / "거래처.csv").write_text(
+            "업체,대표자,연락처\n한빛상사,박철수,010-1111-2222\n", encoding="utf-8")
+        앞서2 = (보낼폴더 / "거래처.csv").read_bytes()
+        가릴것 = Path(self.path("가린자료"))
+        미리2 = self.run_cli("sheet", "mask", str(보낼폴더), "--auto",
+                           "-o", str(가릴것))
+        self.assertIn("미리보기", 미리2)
+        self.assertFalse(가릴것.exists())
+        낸것2 = self.run_cli("sheet", "mask", str(보낼폴더), "--auto",
+                           "-o", str(가릴것), "--apply")
+        self.assertIn("1개를 만들었습니다", 낸것2)
+        가린글 = (가릴것 / "거래처.csv").read_text(encoding="utf-8")
+        self.assertIn("박*수", 가린글)
+        self.assertIn("010-****-2222", 가린글)
+        self.assertNotIn("박철수", 가린글)
+        self.assertEqual((보낼폴더 / "거래처.csv").read_bytes(), 앞서2)
+
         # 엑셀 한 파일의 시트를 모두 훑기 (하나씩 열어 보지 않게)
         from attools import xlsx as xlsxkit2
 
