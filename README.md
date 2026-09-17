@@ -698,6 +698,12 @@ mysql 은 역슬래시를 이스케이프 문자로 보기 때문에 그대로 �
 실제로 만든다. 파일 이름이 서로 겹치면 하나도 만들지 않고 멈춘다 — 덮어쓰면 앞엣것이
 사라진다.
 
+`at sheet validate --calc` 는 **줄 단위 셈**을 검산한다. 거래명세서의 `금액 = 수량 × 단가`,
+세금계산서의 `세액 = 공급가액 × 0.1`, `합계 = 공급가액 + 세액` 처럼 늘 확인하는 것들이다.
+수식은 `at sheet fx` 와 같은 문법이고, 안 맞는 줄마다 **적힌 값과 셈한 값을 나란히** 보여 준다.
+`1,500` 처럼 글자로 든 숫자도 읽는다 — 못 읽으면 멀쩡한 명세서가 통째로 「셈하지 못함」이 되고,
+그 줄이 몇 개인지는 따로 알려 준다. 원 단위 절사는 `--calc-tol 1`.
+
 `at sheet total --check` 는 **받은 표에 이미 적힌** 합계를 검산한다. 행을 나중에 끼워 넣고
 합계 식을 안 고친 표가 실무에 흔한데, 눈으로는 안 보이고 그대로 결재가 올라간다. 소계가
 여럿이면 「직전 합계 줄 다음부터 이 줄 앞까지」를 세고, 그 값이 안 맞으면 「맨 위부터」로 한 번
@@ -1411,7 +1417,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet vcard <파일>` | 명단을 연락처 파일(vcf)로 (폰 주소록에 한 번에) |
 | `at sheet from-ics <파일>` | 받은 일정(ics)을 표로 (초대·캘린더 내보내기 정리) |
 | `at sheet from-vcard <파일>` | 받은 연락처(vcf)를 표로 (폰 주소록 → 엑셀) |
-| `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록 |
+| `at sheet validate <파일>` | 규칙으로 검증 — 필수·중복·타입·정규식·범위·목록·형식, `--calc '금액=수량*단가'` 로 **줄 단위 셈** 검산 |
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
 | `at sheet age <파일> -c <열>` | 생년월일·주민번호 열에서 만 나이·연령대·성별 열 만들기 |
@@ -1502,6 +1508,8 @@ at sheet to-json 명단.xlsx --lines --compact | while read r; do curl -d "$r" .
 at sheet validate 거래처.csv --format 사업자등록번호=사업자번호 --format 연락처=휴대폰
 at sheet validate 납품.csv --required 이름 --unique 사번 \
     --match '사번=^E\d{3}$' --range '연봉=0:' --oneof 부서=영업,개발,인사
+at sheet validate 명세서.xlsx --calc '금액=수량*단가' \
+  --calc '세액=공급가액*0.1' --calc-tol 1        # 거래명세서 검산
 at sheet validate 납품.csv --rules 규칙.json      # 규칙을 파일로 두고 CI 에서
 at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --round 0 -o 계산본.xlsx
 at sheet fx 견적.xlsx --add '금액=수량*단가' --formula -o 견적본.xlsx

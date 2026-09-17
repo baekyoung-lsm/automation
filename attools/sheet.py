@@ -4479,7 +4479,7 @@ def mask_column(table: Table, column: str, kind: str) -> tuple[Table, MaskReport
 
 @dataclass
 class Rule:
-    kind: str            # required / unique / type / match / range / oneof / format
+    kind: str            # required / unique / type / match / range / oneof / format / calc
     column: str
     argument: str = ""
 
@@ -4496,6 +4496,7 @@ class Rule:
             "match": f"{self.column}: {self.argument} 에 맞아야 함",
             "range": f"{self.column}: {self.argument} 범위 안이어야 함",
             "oneof": f"{self.column}: {self.argument} 중 하나여야 함",
+            "calc": f"{self.column} = {self.argument} 이어야 함",
         }[self.kind]
 
 
@@ -4529,11 +4530,68 @@ def _range_bounds(argument: str) -> tuple[float | None, float | None]:
     return number(low), number(high)
 
 
-def validate_rules(table: Table, rules: list[Rule]) -> list[Violation]:
+def _calc_violation(table: Table, rule: Rule, tolerance: float) -> Violation:
+    """«금액 = 수량*단가» 처럼 줄 단위 셈이 맞는지 본다.
+
+    거래명세서·세금계산서에서 늘 확인하는 것이다. 셈을 다시 하지 않고
+    at sheet fx 와 같은 수식 엔진을 쓴다 - 두 벌이면 fx 로 만든 열과
+    검산 결과가 서로 다를 수 있다.
+    """
+    index = table.index_of(rule.column)
+    code, aliases = compile_expression(rule.argument, table.headers)
+    bad = Violation(rule)
+    unread = 0
+
+    def cell(row, spot):
+        # 엑셀에서 «1,500» 은 글자로 들어온다. 검산에서 그것을 못 읽으면
+        # 멀쩡한 명세서가 통째로 «셈하지 못함» 이 된다
+        value = row[spot] if spot < len(row) else None
+        if isinstance(value, str):
+            got = parse_number(value)
+            return value if got is None else got
+        return value
+
+    for number, row in enumerate(table.rows, 2):
+        scope = {h: cell(row, i) for i, h in enumerate(table.headers)
+                 if h.isidentifier()}
+        for key, header in aliases.items():
+            scope[key] = cell(row, table.headers.index(header))
+        scope.update(ALLOWED_CALLS)
+        written = number_of(row[index] if index < len(row) else None)
+        try:
+            expected = eval(code, {"__builtins__": {}}, scope)  # noqa: S307
+        except Exception:                       # 한 행이 안 되면 그 행만 뺀다
+            expected = None
+        if written is None or not isinstance(expected, (int, float)) \
+                or isinstance(expected, bool):
+            if not _is_blank(row[index] if index < len(row) else None):
+                unread += 1
+            continue
+        if abs(written - float(expected)) > tolerance + 0.005:
+            bad.count += 1
+            bad.rows.append(number)
+            if len(bad.samples) < 5:
+                bad.samples.append(f"{number}행 적힘 {written:,.0f} "
+                                   f"· 셈 {float(expected):,.0f}")
+    if unread:
+        # 못 센 행을 말하지 않으면 «다 맞다» 로 읽는다
+        bad.samples.append(f"셈하지 못한 행 {unread}개(빈 칸·문자)")
+        if not bad.count:
+            bad.count = 0
+    return bad
+
+
+def validate_rules(table: Table, rules: list[Rule], *,
+                   tolerance: float = 0.0) -> list[Violation]:
     """규칙을 어긴 행을 모은다. 행 번호는 헤더를 1행으로 센 엑셀 기준."""
     found: list[Violation] = []
 
     for rule in rules:
+        if rule.kind == "calc":
+            bad = _calc_violation(table, rule, tolerance)
+            if bad.count or bad.samples:
+                found.append(bad)
+            continue
         index = table.index_of(rule.column)
         bad = Violation(rule)
 

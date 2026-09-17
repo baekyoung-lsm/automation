@@ -586,6 +586,22 @@ class SmokeTest(unittest.TestCase):
                             "-o", self.path("표.csv"))
         self.assertIn("이름", 표뽑기)
         self.assertIn("1200", Path(self.path("표.csv")).read_text(encoding="utf-8"))
+        # 거래명세서의 줄 단위 셈 검산 (수량 x 단가 = 금액)
+        명세 = Path(self.path("명세서.xlsx"))
+        from attools import xlsx as xlsxkit1
+
+        xlsxkit1.write_sheets(명세, {"명세": [
+            ["품목", "수량", "단가", "금액"],
+            ["A4용지", 10, 5000, 50000],
+            ["USB", 5, 12000, 55000]]})
+        셈 = self.run_cli("sheet", "validate", str(명세),
+                         "--calc", "금액=수량*단가", expect=1)
+        self.assertIn("60,000", 셈)
+        self.assertIn("3", 셈)              # 어느 행인지
+        맞음 = self.run_cli("sheet", "validate", str(명세),
+                          "--calc", "금액=수량*단가", "--calc-tol", "6000")
+        self.assertIn("통과", 맞음)
+
         # 받은 표의 합계 줄이 맞는지 검산. 소계만 안 맞는 표를 잡아야 한다
         from attools import xlsx as xlsxkit0
 

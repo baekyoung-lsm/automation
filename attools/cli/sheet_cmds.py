@@ -163,7 +163,7 @@ def escape_html(text: str) -> str:
     return escape(str(text))
 
 
-RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof",
+RULE_KINDS = ("required", "unique", "type", "match", "range", "oneof", "calc",
               "format")
 
 
@@ -2766,12 +2766,13 @@ def cmd_sheet_validate(a) -> int:
     if not rules:
         _p("규칙을 하나 이상 주세요.")
         _p("  예: --required 이름 --unique 사번 --match '사번=^E\\d{3}$'")
+        _p("      --calc '금액=수량*단가'  --calc '세액=공급가액*0.1'")
         _p("      --range '연봉=0:' --type 입사일=날짜 --oneof 부서=영업,개발")
         _p("      --format 사업자등록번호=사업자번호 --format 연락처=휴대폰")
         return 1
 
     try:
-        violations = sheet.validate_rules(t, rules)
+        violations = sheet.validate_rules(t, rules, tolerance=a.calc_tol)
     except sheet.SheetError as e:
         _p(str(e))
         return 1
@@ -2788,7 +2789,8 @@ def cmd_sheet_validate(a) -> int:
         _p(f"  해당 행: {', '.join(str(n) for n in v.rows[:a.limit])}"
            + (" ..." if v.count > len(v.rows) else ""))
         if v.samples:
-            _p(f"  값 예시: {', '.join(_cut(x, 24) for x in v.samples)}")
+            # 셈이 안 맞는 줄은 «적힘 / 셈» 이 본문이다. 좁게 자르면 그게 잘린다
+            _p(f"  값 예시: {', '.join(_cut(x, 40) for x in v.samples)}")
         _p("")
     _p("행 번호는 헤더를 1행으로 센 엑셀 기준입니다.")
     return 1
@@ -3537,8 +3539,14 @@ def add_commands(sub) -> None:
     vd.add_argument("--oneof", action="append", metavar="열=값,값")
     vd.add_argument("--format", action="append", metavar="열=형식",
                     dest="format", help="사업자번호 · 휴대폰 · 전화번호 · 우편번호 · 이메일")
+    vd.add_argument("--calc", action="append", metavar="열=수식",
+                    help="줄 단위 셈이 맞는지. 예: '금액=수량*단가'")
+    vd.add_argument("--calc-tol", type=float, default=0.0, metavar="값",
+                    dest="calc_tol", help="--calc 에서 이만큼 차이는 맞는 것으로")
     vd.add_argument("--rules", metavar="파일", help="규칙을 적어 둔 JSON")
     vd.add_argument("--limit", type=int, default=20)
+    vd.epilog = ("예: at sheet validate 명세서.xlsx --calc '금액=수량*단가'\n"
+                 "    at sheet validate 계산서.xlsx --calc '세액=공급가액*0.1' --calc-tol 1")
     vd.set_defaults(func=cmd_sheet_validate)
 
     fx = common(sh.add_parser("fx", help="수식으로 계산한 열 붙이기"))

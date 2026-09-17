@@ -3744,3 +3744,55 @@ class CheckTotalsTest(unittest.TestCase):
         checks, names = sheet.check_totals(table, ["수량"])
         self.assertEqual(names, ["수량"])
         self.assertEqual([one.column for one in checks], ["수량"])
+
+
+class CalcRuleTest(unittest.TestCase):
+    """줄 단위 셈 검산 - 거래명세서·세금계산서에서 늘 보는 것."""
+
+    def table(self):
+        return sheet.Table(["품목", "수량", "단가", "금액"], [
+            ["가", 10, 5000, 50000],
+            ["나", 2, 89000, 178000],
+            ["다", 5, 12000, 55000]])       # 60,000 이어야 한다
+
+    def check(self, table, expression="금액=수량*단가", **kw):
+        rule = sheet.Rule("calc", *expression.split("=", 1))
+        return sheet.validate_rules(table, [rule], **kw)
+
+    def test_a_wrong_line_is_found_with_both_numbers(self):
+        found = self.check(self.table())
+        self.assertEqual(found[0].rows, [4])
+        self.assertIn("55,000", found[0].samples[0])
+        self.assertIn("60,000", found[0].samples[0])
+
+    def test_a_correct_sheet_passes(self):
+        table = self.table()
+        table.rows[2][3] = 60000
+        self.assertEqual(self.check(table), [])
+
+    def test_text_numbers_are_read(self):
+        table = sheet.Table(["수량", "단가", "금액"], [["2", "1,500", "3,000"]])
+        self.assertEqual(self.check(table), [])
+
+    def test_tolerance_for_rounding(self):
+        table = sheet.Table(["공급가액", "세액"], [[1005, 100]])
+        rule = "세액=공급가액*0.1"
+        self.assertTrue(self.check(table, rule))
+        self.assertEqual(self.check(table, rule, tolerance=1), [])
+
+    def test_rows_that_cannot_be_counted_are_said_so(self):
+        """못 세고도 «다 맞다» 로 보이면 안 된다."""
+        table = sheet.Table(["수량", "단가", "금액"], [[2, 1000, 2000],
+                                                   ["모름", 1000, "확인중"]])
+        found = self.check(table)
+        self.assertEqual(found[0].count, 0)
+        self.assertIn("셈하지 못한 행 1개", found[0].samples[-1])
+
+    def test_blank_rows_are_not_complained_about(self):
+        table = sheet.Table(["수량", "단가", "금액"], [[2, 1000, 2000],
+                                                   [None, None, None]])
+        self.assertEqual(self.check(table), [])
+
+    def test_the_rule_reads_in_korean(self):
+        rule = sheet.Rule("calc", "금액", "수량*단가")
+        self.assertEqual(rule.describe(), "금액 = 수량*단가 이어야 함")
