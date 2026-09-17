@@ -106,6 +106,67 @@ def cmd_find(a) -> int:
 
     _grid(["명령", "하는 일"], [[c, _cut(h, 60)] for c, h in rows], limit=60)
     _p(f"\n{len(rows)}개. 자세한 것은 <명령> --help 를 보세요.")
+    _p("하려는 일로 찾으려면 at how <말> 을 쓰세요 (명령 줄까지 보여 줍니다).")
+    return 0
+
+
+def _how_print(items, *, limit: int, topic: bool = True) -> None:
+    """레시피를 그대로 칠 수 있는 꼴로 찍는다."""
+    for one in items[:limit]:
+        _p(f"\n{f'[{one.topic}] ' if topic else ''}{one.title}")
+        for step in one.steps:
+            _p(f"  {step}")
+        if one.note:
+            _p(f"  - {one.note}")
+    if len(items) > limit:
+        _p(f"\n... {len(items) - limit}가지 더 (--limit 로 조절)")
+
+
+def cmd_how(a) -> int:
+    """하고 싶은 일에서 출발해 실제로 되는 명령을 보여 준다."""
+    from .. import recipes
+
+    needle = " ".join(a.words).strip()
+
+    # --limit 을 안 주면 주제·전부는 다 보이고, 말로 찾을 때만 열둘까지.
+    # 주제를 골라 놓고 «12가지 더» 를 다시 치게 하면 안 된다
+    limit = a.limit if a.limit is not None else 0
+
+    if a.all:
+        _p(f"자주 하는 일 {len(recipes.RECIPES)}가지")
+        _how_print(recipes.RECIPES, limit=limit or len(recipes.RECIPES))
+        return 0
+
+    if not needle:
+        _p("무엇을 하려는지 적으면 그 명령을 보여 줍니다. 예: at how 취합\n")
+        rows = []
+        for topic in recipes.topics():
+            items = recipes.by_topic(topic)
+            rows.append([topic, f"{len(items)}가지",
+                         _cut(" · ".join(one.title for one in items[:2]), 52)])
+        _grid(["주제", "몇 가지", "이런 것들"], rows, limit=52)
+        _p(f"\n  at how 취합          그 주제를 다 본다")
+        _p("  at how 개인정보      말로 찾는다 (제목·명령에서)")
+        _p("  at how --all         전부 (모두 %d가지)" % len(recipes.RECIPES))
+        _p("  at find 중복         명령 이름으로 찾는다")
+        return 0
+
+    items = recipes.by_topic(needle)
+    if items:
+        _p(f"[{items[0].topic}] {len(items)}가지")
+        _how_print(items, limit=limit or len(items), topic=False)
+        _p("\n자세한 것은 <명령> --help 를 보세요.")
+        return 0
+
+    items = recipes.search(needle)
+    if not items:
+        _p(f"'{needle}' 로 하는 일을 찾지 못했습니다.")
+        _p(f"  주제: {', '.join(recipes.topics())}")
+        _p("  명령 이름으로 찾으려면 at find <말> 을 쓰세요.")
+        return 1
+    _p(f"'{needle}' 에 걸리는 일 {len(items)}가지")
+    _how_print(items, limit=limit or 12)
+    _p("\n자세한 것은 <명령> --help 를 보세요.")
     return 0
 
 
@@ -292,7 +353,7 @@ def _list_group(parser: argparse.ArgumentParser, name: str) -> int:
     _p(f"at {name} 에는 명령이 {len(rows)}개 있습니다.")
     _grid(["명령", "하는 일"], rows, limit=60)
     _p(f"\n자세한 것은 at {name} <명령> --help 를 보세요. "
-       "찾는 말이 있으면 at find <말> 도 됩니다.")
+       "찾는 말이 있으면 at find <말>, 하려는 일로는 at how <말> 도 됩니다.")
     return 1
 
 
@@ -308,8 +369,9 @@ def _list_groups(parser: argparse.ArgumentParser) -> int:
         rows.append([f"at {name}", count, _cut(helps.get(name, ""), 50)])
     _p(f"attools {__version__} - 갈래 {len(rows)}개")
     _grid(["갈래", "명령", "하는 일"], rows, limit=50)
-    _p("\n갈래를 치면 그 안의 명령이 나옵니다 (예: at sheet). "
-       "찾는 말이 있으면 at find <말>.")
+    _p("\n갈래를 치면 그 안의 명령이 나옵니다 (예: at sheet).")
+    _p("하려는 일부터 찾으려면 at how (이럴 땐 이렇게), "
+       "명령 이름으로는 at find <말>.")
     return 1
 
 
@@ -333,6 +395,14 @@ def build_parser() -> argparse.ArgumentParser:
     fd.add_argument("words", nargs="*", metavar="말")
     fd.add_argument("--deep", action="store_true", help="옵션 설명까지 찾는다")
     fd.set_defaults(func=cmd_find)
+
+    hw = sub.add_parser("how", help="이럴 땐 이렇게 - 자주 하는 일과 그 명령")
+    hw.add_argument("words", nargs="*", metavar="주제|말",
+                    help="비우면 주제 목록. 예: at how 취합, at how 개인정보")
+    hw.add_argument("--all", action="store_true", help="전부 보여 준다")
+    hw.add_argument("--limit", type=int, default=None, metavar="개",
+                    help="몇 가지까지 (기본: 주제는 다, 말로 찾으면 12)")
+    hw.set_defaults(func=cmd_how)
 
     cp = sub.add_parser("completion", help="셸 자동완성 스크립트 출력")
     cp.add_argument("shell", nargs="?", default="bash", choices=["bash", "zsh"])

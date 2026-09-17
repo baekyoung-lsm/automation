@@ -426,6 +426,7 @@ class GroupListingTest(unittest.TestCase):
         self.assertIn("갈래", out)
         self.assertIn("at sheet", out)
         self.assertIn("at find", out)
+        self.assertIn("at how", out)       # 하려는 일로 찾는 길도 알려 준다
 
     def test_bare_group_lists_its_commands(self):
         code, out = self.run_at("sheet")

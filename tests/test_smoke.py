@@ -491,6 +491,19 @@ class SmokeTest(unittest.TestCase):
 
     # ------------------------------------------------------------ text
 
+    def test_how_group(self):
+        """이럴 땐 이렇게 - 적어 둔 명령이 실제로 도는지 하나 골라 돌려 본다."""
+        목록 = self.run_cli("how")
+        self.assertIn("취합", 목록)
+        주제 = self.run_cli("how", "점검")
+        self.assertIn("at sheet audit", 주제)
+        찾기 = self.run_cli("how", "개인정보")
+        self.assertIn("at text privacy", 찾기)
+        self.run_cli("how", "없는말입니다", expect=1)
+
+        # 레시피에 적힌 명령을 실제 파일로 한 번 돌려 본다
+        self.assertIn("행", self.run_cli("sheet", "audit", self.path("명단.csv")))
+
     def test_text_group(self):
         self.assertIn("안녕하세요", self.run_cli("text", "kbd", "dkssudgktpdy"))
         self.assertIn("날짜", self.run_cli("text", "pick", self.path("원고")))

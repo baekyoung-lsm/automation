@@ -72,6 +72,8 @@ attools/
     check.py        화면을 브라우저로 열어 JS 오류 잡기 (at ui --check)
     apps/<이름>.py   화면 하나 = 파일 하나. all_apps() 에 등록한다
 
+  recipes.py        «이럴 땐 이렇게» 레시피 (at how). 적어 둔 명령은 시험에서
+                    진짜 파서에 걸어 본다 - 안 되는 안내는 없느니만 못하다
   files.py          분류·개명·중복·감시·용량·압축·디렉터리 비교·zip·이미지
   text.py           여러 파일 찾아 바꾸기·인코딩·줄바꿈·공백·대조·줄 접기
   hangul.py         NFC 정규화, 파일명 정리, 받침·조사, 흔한 표기 오류
@@ -122,6 +124,9 @@ tests/
    터미널 명령을 함께 돌려준다. 그 명령이 진짜 되는 명령인지는 시험에서
    파서에 걸어 확인한다(`tests/test_webui.py` 의 CommandHintTest).
 5. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
+   사람이 «하고 싶은 일» 로 찾을 만한 명령이면 `attools/recipes.py` 에 레시피도
+   한 줄 더한다(`at how`). 거기 적은 명령은 시험이 파서에 걸어 보므로 옵션
+   이름이 하나만 틀려도 걸린다.
    `at find` 와 `at completion` 은 파서를 걸어 다니며 목록을 만들므로 따로 고칠 것이 없다.
 
 ## 확인
