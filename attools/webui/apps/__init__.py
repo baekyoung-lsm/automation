@@ -7,14 +7,14 @@ from __future__ import annotations
 
 
 def all_apps():
-    from . import (dev_app, doc_app, files_app, git_app, json_app, keys_app,
-                   letters_app, life_app, novel_app, privacy_app, sheet_app,
-                   text_app)
+    from . import (dev_app, doc_app, files_app, git_app, how_app, json_app,
+                   keys_app, letters_app, life_app, novel_app, privacy_app,
+                   sheet_app, text_app)
 
     return [
         files_app.make(), text_app.make(), sheet_app.make(),   # 파일과 표
         privacy_app.make(),
         doc_app.make(), novel_app.make(), letters_app.make(),  # 글
         dev_app.make(), json_app.make(), git_app.make(),       # 개발
-        keys_app.make(), life_app.make(),                      # 그 밖
+        keys_app.make(), life_app.make(), how_app.make(),      # 그 밖
     ]

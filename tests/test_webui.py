@@ -1606,6 +1606,40 @@ class NovelAppTest(UiCase):
         self.assertEqual(before, after)
 
 
+class HowAppTest(UiCase):
+    """이럴 땐 이렇게 화면. 명령 줄과 «그 화면으로 가는 길» 을 준다."""
+
+    def test_everything_by_default(self):
+        from attools import recipes
+
+        _, data = self.post("/api/how/find", {})
+        self.assertEqual(data["total"], len(recipes.RECIPES))
+        self.assertTrue(data["topics"])
+
+    def test_a_word_narrows(self):
+        _, data = self.post("/api/how/find", {"needle": "개인정보"})
+        titles = [row["title"] for row in data["rows"]]
+        self.assertTrue(any("개인정보" in one for one in titles))
+
+    def test_a_topic_narrows(self):
+        _, data = self.post("/api/how/find", {"topic": "PDF"})
+        self.assertTrue(data["rows"])
+        self.assertEqual({row["topic"] for row in data["rows"]}, {"PDF"})
+
+    def test_each_row_points_at_a_screen_when_there_is_one(self):
+        _, data = self.post("/api/how/find", {"topic": "취합"})
+        screens = [row["screen"] for row in data["rows"] if row["screen"]]
+        self.assertTrue(screens)
+        keys = {one[0] for one in screens}
+        self.assertTrue(keys <= {"sheet", "files", "text", "doc", "novel",
+                                 "dev", "git", "life"})
+
+    def test_nothing_found_is_not_an_error(self):
+        _, data = self.post("/api/how/find", {"needle": "없는말입니다"})
+        self.assertEqual(data["total"], 0)
+        self.assertEqual(data["rows"], [])
+
+
 class SheetMaskGuessTest(UiCase):
     """가릴 열 짐작. 화면이 바로 가려 버리면 무엇이 가려졌는지 모른다."""
 
@@ -3184,6 +3218,16 @@ class CommandHintTest(UiCase):
         _, data = self.post("/api/life/insure",
                             {"amount": "300만", "tax": "84850", "annual": False})
         self.accepts(data["command"])
+
+    def test_how_screen_keys_exist(self):
+        """«화면으로도 됩니다» 가 없는 화면을 가리키면 안 된다."""
+        from attools.webui.apps import all_apps
+
+        keys = {app.key for app in all_apps()}
+        _, data = self.post("/api/how/find", {})
+        for row in data["rows"]:
+            if row["screen"]:
+                self.assertIn(row["screen"][0], keys, row["title"])
 
     def test_privacy_command(self):
         (self.work / "명단.csv").write_text("이름\n김민수\n", encoding="utf-8")
