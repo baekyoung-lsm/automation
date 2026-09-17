@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import unicodedata
-
+from . import hangul
 from .keys import Group, State, next_sort, search, sort_items, SORTS
 
 HELP = [
@@ -21,22 +20,15 @@ HELP = [
 
 
 def width(text: str) -> int:
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+    return hangul.display_width(text)
 
 
 def pad(text: str, size: int) -> str:
-    return text + " " * max(0, size - width(text))
+    return hangul.pad_display(text, size)
 
 
 def cut(text: str, size: int) -> str:
-    if width(text) <= size:
-        return text
-    out = ""
-    for ch in text:
-        if width(out + ch) > size - 1:
-            return out + "…"
-        out += ch
-    return out
+    return hangul.cut_display(text, size)
 
 
 class Screen:

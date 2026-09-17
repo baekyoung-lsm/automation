@@ -505,7 +505,7 @@ class SmokeTest(unittest.TestCase):
                       self.run_cli("text", "pick", str(받은), "--docx"))
         점검 = self.run_cli("text", "privacy", str(받은), expect=1)
         self.assertIn("휴대전화", 점검)
-        self.assertIn("***-****-5678", 점검)      # 값은 가려서 보여준다
+        self.assertIn("010-****-5678", 점검)      # 값은 가려서 보여준다
         self.assertNotIn("010-1234-5678", 점검)
         셈 = self.run_cli("text", "count", self.path("원고"))
         self.assertIn("원고지", 셈)

@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import hangul
 from ..hangul import strip_particle
 
 TOC_START = "<!-- toc -->"
@@ -366,9 +367,7 @@ CELL_SPLIT = re.compile(r"(?<!\\)\|")
 
 def display_width(text: str) -> int:
     """터미널·고정폭 글꼴에서 차지하는 칸 수. 한글·한자·전각은 두 칸."""
-    import unicodedata
-
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+    return hangul.display_width(text)
 
 
 def split_row(line: str) -> list[str]:

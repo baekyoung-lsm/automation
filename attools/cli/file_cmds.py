@@ -692,6 +692,16 @@ def cmd_file_pdfcut(a) -> int:
         _p(str(e))
         return 1
 
+    if a.rotate:
+        # 돌리는 일은 pdfturn 한 곳에서만 한다. 같은 일을 두 명령이 하면
+        # 한쪽만 고쳐져 «pdfcut 으로는 짝수 쪽만 못 돌리네» 가 된다
+        _p("쪽을 돌리는 일은 at file pdfturn 으로 옮겼습니다.")
+        _p(f"  at file pdfturn {path.name} --rotate {a.rotate}"
+           + (f" --pages {a.pages}" if a.pages else "")
+           + (f" -o {a.out}" if a.out else " -o 바로잡은.pdf"))
+        _p("  거기서는 짝수 쪽만(--even), 쪽 차례 뒤집기(--reverse)도 됩니다.")
+        return 1
+
     try:
         wanted = pdf.page_numbers(a.pages, total) if a.pages \
             else list(range(1, total + 1))
@@ -718,7 +728,7 @@ def cmd_file_pdfcut(a) -> int:
             if not _may_write(a, out):
                 return 1
             try:
-                pdf.join_pdfs([(doc, [number])], out, rotate=a.rotate)
+                pdf.join_pdfs([(doc, [number])], out)
             except (pdf.PdfError, OSError) as e:
                 _p(f"{out.name}: {e}")
                 return 1
@@ -737,7 +747,6 @@ def cmd_file_pdfcut(a) -> int:
     whole = wanted == list(range(1, total + 1))   # 쪽을 다 옮기는가
     try:
         result = pdf.join_pdfs([(doc, wanted)], out, title=a.title or "",
-                               rotate=a.rotate,
                                catalog_from=doc if whole else None)
     except (pdf.PdfError, OSError) as e:
         _p(str(e))
@@ -2217,11 +2226,10 @@ def add_commands(sub) -> None:
                      help="이미 있는 파일을 덮어쓴다")
     cut.add_argument("--rotate", type=int, default=0, metavar="각도",
                      choices=(0, 90, 180, 270),
-                     help="쪽을 돌린다. 90, 180, 270 (원래 각도에 더한다)")
+                     help="(at file pdfturn 으로 옮겼습니다)")
     cut.add_argument("--title", metavar="제목", help="PDF 속성의 제목")
     cut.epilog = ("예: at file pdfcut 계약서.pdf --pages 1-3 -o 앞부분.pdf\n"
                   "    at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf\n"
-                  "    at file pdfcut 스캔.pdf --rotate 180 -o 바로세운것.pdf\n"
                   "    at file pdfcut 모음.pdf --each --apply")
     cut.set_defaults(func=cmd_file_pdfcut)
 

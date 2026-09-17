@@ -496,21 +496,10 @@ def to_markdown(table: Table) -> str:
 def unique_sheet_names(names) -> list[str]:
     """엑셀 시트 이름 규칙(31자·금지 문자)에 맞추고, 겹치면 번호를 붙인다.
 
-    긴 파일 이름 둘이 앞 31자가 같으면 잘린 뒤 같은 이름이 된다. 그대로
-    두면 시트 하나가 조용히 사라진다.
+    규칙은 xlsx 에 한 벌만 둔다. 두 벌이면 한쪽만 고쳐져 «여기서는 되는데
+    저기서는 안 되는» 일이 생긴다.
     """
-    out: list[str] = []
-    seen: set[str] = set()
-    for name in names:
-        base = xlsx.safe_sheet_name(str(name))
-        candidate, number = base, 1
-        while candidate.lower() in seen:
-            number += 1
-            tail = f"_{number}"
-            candidate = base[:31 - len(tail)] + tail
-        seen.add(candidate.lower())
-        out.append(candidate)
-    return out
+    return xlsx.unique_sheet_names(names)
 
 
 def save_sheets(tables: dict, path: Path, *, header: bool = True) -> Path:

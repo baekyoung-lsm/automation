@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from . import docx, hwpx
+from . import docx, hangul, hwpx
 from .files import IGNORE_DIRS
 
 def backup_dir() -> Path:
@@ -267,19 +267,28 @@ def luhn_ok(digits: str) -> bool:
 
 
 def hide(kind: str, value: str) -> str:
-    """찾은 값을 가린다. 어느 자리인지는 알아보되 값은 남지 않게."""
-    digits = re.sub(r"\D", "", value)
-    if kind == "주민등록번호":
-        return f"{digits[:6]}-{digits[6]}******"
-    if kind == "카드번호":
-        return "*" * (len(digits) - 4) + digits[-4:]
-    if kind in ("휴대전화", "전화번호", "계좌번호"):
-        return value[:-4].translate(str.maketrans("0123456789", "*" * 10)) + value[-4:]
-    if kind == "이메일":
-        name, _, host = value.partition("@")
-        return f"{name[:2]}{'*' * max(1, len(name) - 2)}@{host}"
+    """찾은 값을 가린다. 어느 자리인지는 알아보되 값은 남지 않게.
+
+    가리는 규칙(주민번호는 성별 자리까지, 계좌·카드는 뒤 네 자리)은
+    sheet 에 한 벌만 둔다 - at sheet mask 와 여기가 다르게 가리면 같은
+    자료를 두 가지 꼴로 내보내게 된다.
+    """
+    from . import sheet as sheetkit
+
+    maskers = {"주민등록번호": sheetkit.mask_rrn,
+               "카드번호": sheetkit.mask_account,
+               "계좌번호": sheetkit.mask_account,
+               "휴대전화": sheetkit.mask_phone,
+               "전화번호": sheetkit.mask_phone,
+               "이메일": sheetkit.mask_email}
+    masker = maskers.get(kind)
+    if masker is not None:
+        hidden = masker(value)
+        if hidden:
+            return hidden
     if kind == "여권번호":
         return value[0] + "*" * (len(value) - 3) + value[-2:]
+    # 규칙을 아는 꼴이 아니면 통째로 가린다. 모르겠다고 그냥 두면 안 된다
     return "*" * len(value)
 
 
@@ -901,10 +910,8 @@ KEEP_AS_IS = re.compile(r"^\s*(\||>|#{1,6}\s|[-*+]\s|\d+[.)]\s|\s{4,}\S)")
 
 
 def display_width(text: str) -> int:
-    """한글·한자·전각은 두 칸으로 센다."""
-    import unicodedata
-
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+    """한글·한자·전각은 두 칸으로 센다. 셈은 hangul 에 한 벌만 둔다."""
+    return hangul.display_width(text)
 
 
 def wrap_line(line: str, width: int) -> list[str]:

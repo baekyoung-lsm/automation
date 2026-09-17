@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from .. import text as text_kit
+
 PROTECTED = {"main", "master", "develop", "dev", "release", "HEAD"}
 
 SKIP_DIRS = {".git", "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
@@ -218,17 +220,6 @@ def shannon_entropy(s: str) -> float:
     return -sum((n / len(s)) * math.log2(n / len(s)) for n in counts.values())
 
 
-def _birth_ok(yy: int, mm: int, dd: int) -> bool:
-    """주민등록번호 앞 여섯 자리가 실제 날짜인가. 세기는 둘 다 본다."""
-    for century in (1900, 2000):
-        try:
-            datetime(century + yy, mm, dd)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
 def _is_placeholder(value: str) -> bool:
     value = value.strip()
     return bool(PLACEHOLDER.match(value) or PLACEHOLDER_MARK.search(value))
@@ -246,7 +237,11 @@ def scan_text(text: str, path: str, *, entropy_threshold: float = 0.0) -> list[F
             # 앞 여섯 자리가 날짜가 아니면 주민등록번호가 아니다. 주문번호나
             # 일부러 만든 시험용 숫자가 걸리면 다음부터 경고를 안 보게 된다
             if kind == "주민등록번호":
-                if not _birth_ok(*(int(g) for g in m.groups())):
+                # 날짜 판단은 text 에 한 벌만 둔다 (성별 자리 1 = 1900년대,
+                # 3 = 2000년대). 둘 다 아니면 주민번호가 아니다
+                yy, mm, dd = (int(g) for g in m.groups())
+                if not (text_kit.rrn_birth(yy, mm, dd, 1)
+                        or text_kit.rrn_birth(yy, mm, dd, 3)):
                     continue
                 findings.append(Finding(path, lineno, kind, line.strip()[:160]))
                 break

@@ -5,13 +5,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from .. import hangul
 from ..write import manuscript
 def _pad(text: str, width: int) -> str:
     """한글처럼 두 칸을 차지하는 문자를 고려한 왼쪽 정렬."""
-    import unicodedata
-
-    shown = sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
-    return text + " " * max(0, width - shown)
+    return hangul.pad_display(text, width)
 
 
 def _p(*args, **kwargs):
@@ -46,20 +44,11 @@ def _read_input(target: str) -> str:
 
 
 def _width(text: str) -> int:
-    import unicodedata
-
-    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+    return hangul.display_width(text)
 
 
 def _cut(text: str, limit: int) -> str:
-    if _width(text) <= limit:
-        return text
-    out = ""
-    for ch in text:
-        if _width(out + ch) > limit - 1:
-            return out + "…"
-        out += ch
-    return out
+    return hangul.cut_display(text, limit)
 
 
 def _may_write(a, target) -> bool:

@@ -100,6 +100,33 @@ def _clip_bytes(text: str, limit: int) -> str:
     return "".join(out).strip(" .-_") or "untitled"
 
 
+# ----------------------------------------------- 터미널에서 차지하는 칸 수
+
+# 한글·한자·전각은 고정폭 글꼴에서 두 칸이다. 이 계산이 여기저기 따로
+# 있으면 표 하나는 맞고 하나는 어긋나므로 한 자리에 둔다.
+
+def display_width(text: str) -> int:
+    """터미널·고정폭 글꼴에서 차지하는 칸 수. 한글·한자·전각은 두 칸."""
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def pad_display(text: str, width: int) -> str:
+    """오른쪽에 빈칸을 붙여 폭을 맞춘다 (왼쪽 정렬)."""
+    return text + " " * max(0, width - display_width(text))
+
+
+def cut_display(text: str, width: int) -> str:
+    """폭을 넘으면 «…» 를 붙여 자른다. 한 칸 남겨 두고 붙인다."""
+    if display_width(text) <= width:
+        return text
+    out = ""
+    for ch in text:
+        if display_width(out + ch) > width - 1:
+            return out + "…"
+        out += ch
+    return out
+
+
 def hangul_ratio(text: str) -> float:
     """전체 문자 중 한글 음절 비율. 언어 판별용."""
     if not text:
