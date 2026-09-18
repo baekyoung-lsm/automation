@@ -226,3 +226,80 @@ class HwpxMergedCellTest(unittest.TestCase):
             z.writestr("Contents/section0.xml", section)
         self.assertEqual(hwpx.tables(path), [[["합친 머리", "", "금액"]]])
 
+
+
+FORM = """<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"
+        xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+ <hp:p><hp:run><hp:t>수 신: {수신처} 귀하</hp:t></hp:run></hp:p>
+ <hp:p><hp:run><hp:t>제 목: {제</hp:t><hp:t>목}</hp:t></hp:run></hp:p>
+ <hp:p><hp:run><hp:tbl>
+   <hp:tr>
+     <hp:tc><hp:subList><hp:p><hp:run><hp:t>담당</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+     <hp:tc><hp:subList><hp:p><hp:run><hp:t>{담당자}</hp:t></hp:run></hp:p></hp:subList></hp:tc>
+   </hp:tr>
+ </hp:tbl></hp:run></hp:p>
+</hs:sec>"""
+
+
+class HwpxFormTest(unittest.TestCase):
+    """한글 양식에 값 채우기. 공문은 아직 한글로 오간다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.form = self.root / "공문양식.hwpx"
+        with zipfile.ZipFile(self.form, "w") as z:
+            # mimetype 은 눌리지 않은 채 맨 앞에 있어야 한다
+            z.writestr(zipfile.ZipInfo("mimetype"), hwpx.MIMETYPE)
+            z.writestr("version.xml", "<hv:HCFVersion/>")
+            z.writestr("Contents/section0.xml", FORM)
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_placeholders_are_listed_in_order(self):
+        self.assertEqual(hwpx.placeholders(self.form),
+                         ["수신처", "제목", "담당자"])
+
+    def test_values_land_in_paragraphs_and_tables(self):
+        out = self.root / "공문.hwpx"
+        report = hwpx.fill_document(self.form, out,
+                                    {"수신처": "한빛상사", "제목": "자료 제출 요청",
+                                     "담당자": "김민수"})
+        self.assertEqual(report.filled, 3)
+        got = hwpx.read_text(out)
+        self.assertIn("수 신: 한빛상사 귀하", got)
+        self.assertIn("제 목: 자료 제출 요청", got)
+        self.assertIn("김민수", got)
+
+    def test_a_placeholder_split_across_runs_is_still_filled(self):
+        out = self.root / "쪼개진.hwpx"
+        hwpx.fill_document(self.form, out, {"제목": "자료 제출 요청"})
+        self.assertIn("제 목: 자료 제출 요청", hwpx.read_text(out))
+
+    def test_the_mimetype_stays_first_and_uncompressed(self):
+        """맨 앞에 눌리지 않은 mimetype 이 없으면 한글이 열지 못한다."""
+        out = self.root / "공문.hwpx"
+        hwpx.fill_document(self.form, out, {"수신처": "한빛상사"})
+        with zipfile.ZipFile(out) as z:
+            first = z.infolist()[0]
+        self.assertEqual(first.filename, "mimetype")
+        self.assertEqual(first.compress_type, zipfile.ZIP_STORED)
+
+    def test_a_missing_value_is_left_alone_and_reported(self):
+        out = self.root / "모자람.hwpx"
+        report = hwpx.fill_document(self.form, out, {"수신처": "한빛상사"})
+        self.assertEqual(report.missing, ["제목", "담당자"])
+        self.assertIn("{담당자}", hwpx.read_text(out))
+
+    def test_the_template_is_not_touched(self):
+        before = self.form.read_bytes()
+        hwpx.fill_document(self.form, self.root / "x.hwpx", {"수신처": "가"})
+        self.assertEqual(self.form.read_bytes(), before)
+
+    def test_an_old_hwp_is_refused_with_what_to_do(self):
+        bad = self.root / "옛날.hwp"
+        bad.write_bytes(b"\xd0\xcf\x11\xe0not a zip")
+        with self.assertRaises(hwpx.HwpxError) as caught:
+            hwpx.placeholders(bad)
+        self.assertIn("hwpx", str(caught.exception))

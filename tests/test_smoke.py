@@ -1203,6 +1203,26 @@ class SmokeTest(unittest.TestCase):
             docxkit2.paragraph("위 사람을 {직책}(으)로 위촉합니다.")])
         명단2 = Path(self.path("위촉명단.xlsx"))
         xlsxkit4.write_sheets(명단2, {"명단": [["이름"], ["김민수"], ["이영희"]]})
+        한글양식 = Path(self.path("공문양식.hwpx"))
+        import zipfile as _zip2
+
+        from attools import hwpx as hwpxkit2
+
+        with _zip2.ZipFile(한글양식, "w") as z:
+            z.writestr(_zip2.ZipInfo("mimetype"), hwpxkit2.MIMETYPE)
+            z.writestr("Contents/section0.xml",
+                       '<?xml version="1.0" encoding="UTF-8"?>'
+                       '<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"'
+                       ' xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+                       "<hp:p><hp:run><hp:t>수 신: {수신처} 귀하</hp:t>"
+                       "</hp:run></hp:p></hs:sec>")
+        한글낸것 = self.run_cli("doc", "form", str(한글양식),
+                            "--set", "수신처=한빛상사",
+                            "-o", self.path("공문.hwpx"))
+        self.assertIn("한글 양식", 한글낸것)
+        self.assertIn("한빛상사",
+                      hwpxkit2.read_text(Path(self.path("공문.hwpx"))))
+
         자리 = self.run_cli("doc", "form", str(양식))
         self.assertIn("이름", 자리)
         self.assertIn("직책", 자리)

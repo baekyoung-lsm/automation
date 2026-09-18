@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
+from . import slots
+
 SECTION_RE = re.compile(r"^Contents/section\d+\.xml$", re.IGNORECASE)
 MIMETYPE = "application/hwp+zip"
 
@@ -220,3 +222,40 @@ def to_markdown(parts: list[tuple[str, object]]) -> str:
             out.append(str(body))
             out.append("")
     return "\n".join(out).strip() + "\n"
+
+
+# ------------------------------------------ 양식 문서에 값 채우기 (공문·계약서)
+
+# 공공기관 양식은 아직 한글(.hwpx)로 오간다. 워드와 같은 규칙으로 채운다 -
+# 두 형식 모두 zip 안의 xml 이고 문단은 «p», 글자는 «t» 다(접두사만 다르다).
+FillReport = slots.FillReport
+
+
+def placeholders(path: Path) -> list[str]:
+    """양식에 든 «{이름}» 자리 목록. 나온 차례대로, 겹치는 것은 한 번만."""
+    path = Path(path)
+    out: list[str] = []
+    with _open(path) as z:
+        names = _sections(z)
+        if not names:
+            raise HwpxError(f"한글 문서(hwpx)가 아닙니다: {path.name}")
+        for name in names:
+            for one in slots.slots_in_part(z.read(name)):
+                if one not in out:
+                    out.append(one)
+    return out
+
+
+def fill_document(source: Path, dest: Path, values: dict) -> slots.FillReport:
+    """양식의 «{이름}» 을 채워 새 파일로. 원본은 건드리지 않는다.
+
+    머리글·바닥글도 본문 조각(section) 안에 들어 있어 함께 채워진다.
+    값을 모르는 자리는 «{이름}» 그대로 둔다.
+    """
+    source = Path(source)
+    with _open(source) as z:
+        if not _sections(z):
+            raise HwpxError(f"한글 문서(hwpx)가 아닙니다: {source.name}")
+    return slots.fill_zip(source, dest, values,
+                          parts=lambda name: bool(SECTION_RE.match(name)),
+                          error=HwpxError)

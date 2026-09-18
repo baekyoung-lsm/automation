@@ -81,6 +81,8 @@ attools/
   xlsx.py           의존성 없는 xlsx 리더/라이터
   docx.py           의존성 없는 docx 리더·라이터 (문단·제목·표)
   hwpx.py           의존성 없는 hwpx(한글) 리더 (문단·표. 옛 .hwp 는 못 읽는다)
+  slots.py          양식의 «{이름}» 자리 채우기 - docx·hwpx 가 함께 쓴다.
+                    xml 을 다시 만들지 않고 글자 바이트만 고친다
   pptx.py           의존성 없는 pptx(슬라이드) 리더 (글자·표·발표자 노트)
   pdf.py            의존성 없는 PDF (속성·쪽 수 읽기, 이미지 묶어 만들기)
   eml.py            받은 메일(.eml) 읽기 - 머리글·본문·첨부 (보내지 않는다)

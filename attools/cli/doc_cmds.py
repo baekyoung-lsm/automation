@@ -671,17 +671,37 @@ def _form_values(row_values: dict, fixed: dict) -> dict:
     return made
 
 
-def cmd_doc_form(a) -> int:
-    """서식이 든 워드 양식에 «{이름}» 자리를 채워 새 파일로."""
-    from .. import docx
+def _form_kit(path: Path):
+    """양식이 워드인지 한글인지 고른다. 채우는 규칙은 둘이 같다."""
+    from .. import docx, hwpx
 
+    suffix = path.suffix.lower()
+    if suffix == ".docx":
+        return docx, docx.DocxError, "워드"
+    if suffix == ".hwpx":
+        return hwpx, hwpx.HwpxError, "한글"
+    return None, None, ""
+
+
+def cmd_doc_form(a) -> int:
+    """서식이 든 워드·한글 양식에 «{이름}» 자리를 채워 새 파일로."""
     form = Path(a.file)
     if not form.is_file():
         _p(f"양식 파일이 없습니다: {form}")
         return 1
+    kit, kit_error, 무엇 = _form_kit(form)
+    if kit is None:
+        _p(f"워드(.docx)나 한글(.hwpx) 양식을 주세요: "
+           f"{form.suffix or '확장자 없음'}")
+        if form.suffix.lower() == ".hwp":
+            _p("  옛 .hwp 는 읽지 못합니다 - 한글에서 «hwpx 로 저장» 을 "
+               "한 번 거쳐 주세요.")
+        elif form.suffix.lower() in (".xlsx", ".xlsm"):
+            _p("  엑셀 양식은 at sheet form 으로 채웁니다.")
+        return 1
     try:
-        slots = docx.placeholders(form)
-    except docx.DocxError as e:
+        slots = kit.placeholders(form)
+    except kit_error as e:
         _p(str(e))
         return 1
     if not slots:
@@ -705,7 +725,8 @@ def cmd_doc_form(a) -> int:
             return 1
         mapping[name.strip()] = column.strip()
 
-    _p(f"{form.name}  ·  채울 자리 {len(slots)}개: {', '.join(slots)}")
+    _p(f"{form.name}  ·  {무엇} 양식  ·  채울 자리 {len(slots)}개: "
+       f"{', '.join(slots)}")
     if not a.set and not a.data:
         _p("\n값을 주세요.")
         _p("  한 장만:  --set 이름=김민수 --set 직책=자문위원 -o 위촉장.docx")
@@ -740,8 +761,8 @@ def cmd_doc_form(a) -> int:
         if not _may_write(a, out):
             return 1
         try:
-            report = docx.fill_document(form, out, fixed)
-        except (docx.DocxError, OSError) as e:
+            report = kit.fill_document(form, out, fixed)
+        except (kit_error, OSError) as e:
             _p(str(e))
             return 1
         _p(f"\n저장: {out}  (채운 자리 {report.filled}곳)")
@@ -796,8 +817,8 @@ def cmd_doc_form(a) -> int:
         if not _may_write(a, target):
             return 1
         try:
-            report = docx.fill_document(form, target, values)
-        except (docx.DocxError, OSError) as e:
+            report = kit.fill_document(form, target, values)
+        except (kit_error, OSError) as e:
             _p(f"{filename}: {e}")
             return 1
         made_count += 1
@@ -1275,8 +1296,9 @@ def add_commands(sub) -> None:
                   "    at doc from-pptx 발표.pptx --notes -o 발표.md")
     dfp.set_defaults(func=cmd_doc_from_pptx)
 
-    dfm = dc.add_parser("form", help="워드 양식에 값 채우기 (위촉장·공문·계약서)")
-    dfm.add_argument("file", metavar="양식.docx")
+    dfm = dc.add_parser("form",
+                        help="워드·한글 양식에 값 채우기 (위촉장·공문·계약서)")
+    dfm.add_argument("file", metavar="양식.docx|양식.hwpx")
     dfm.add_argument("--set", action="append", metavar="자리=값",
                      help="값을 바로 넣는다. 예: --set 이름=김민수")
     dfm.add_argument("--data", metavar="파일",

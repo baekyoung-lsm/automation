@@ -13,8 +13,9 @@ from __future__ import annotations
 import re
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, field
 from html import escape
+
+from . import slots
 from pathlib import Path
 
 CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -281,111 +282,9 @@ def read_text(path: Path, *, separator: str = "\n") -> str:
 # 위촉장·수료증·공문처럼 서식이 든 워드 양식에 값만 갈아 끼운다. 새로 만들어
 # 담으면 글꼴·표·머리글·도장 그림이 다 날아가므로, 원본 zip 을 통째로 베끼고
 # 글자가 든 xml 조각만 고친다.
-SLOT = re.compile(r"\{([^{}\n]{1,60})\}")
 # 글자가 들어 있는 조각. 머리글·바닥글에 문서번호·기관명이 든 양식이 흔하다
 FILL_PARTS = re.compile(r"^word/(document|header\d*|footer\d*)\.xml$")
-# 본 이름공간의 별칭(보통 w). 만든 프로그램마다 다를 수 있어 파일에서 읽는다
-MAIN_NS = re.compile(
-    rb'xmlns:([A-Za-z0-9_.-]+)="http://schemas\.openxmlformats\.org/'
-    rb'wordprocessingml/2006/main"')
-
-
-@dataclass
-class FillReport:
-    filled: int = 0                      # 바꾼 자리 수
-    used: list = field(default_factory=list)      # 채운 이름
-    missing: list = field(default_factory=list)   # 값을 모르는 이름 (그대로 둔다)
-    parts: list = field(default_factory=list)     # 고친 조각 이름
-
-
-def _unescape(text: str) -> str:
-    from xml.sax.saxutils import unescape
-
-    out = unescape(text, {"&quot;": '"', "&apos;": "'"})
-    return re.sub(r"&#(x[0-9a-fA-F]+|\d+);",
-                  lambda m: chr(int(m.group(1)[1:], 16) if m.group(1)[0] in "xX"
-                                else int(m.group(1))), out)
-
-
-def _part_patterns(raw: bytes):
-    """이 조각에서 문단·글자를 찾을 정규식. 이름공간 별칭을 보고 만든다."""
-    found = MAIN_NS.search(raw)
-    if not found:
-        return None
-    tag = found.group(1).decode("ascii")
-    para = re.compile(rf"<{tag}:p(?:\s[^>]*)?>.*?</{tag}:p>", re.S)
-    text = re.compile(rf"(<{tag}:t)((?:\s[^>]*)?)(>)(.*?)(</{tag}:t>)", re.S)
-    return para, text
-
-
-def _slots_in(text: str) -> list[str]:
-    return [m.group(1).strip() for m in SLOT.finditer(text)]
-
-
-def _fill_paragraph(block: str, text_re, values: dict,
-                    report: FillReport) -> str:
-    """문단 한 덩어리를 채운다.
-
-    «{이름}» 이 워드 안에서는 «{이», «름}» 처럼 여러 run 으로 쪼개져 있는 일이
-    흔하다(맞춤법 검사·서식 경계). 문단 글자를 이어 붙여 찾고, 걸친 run 들의
-    글자만 고쳐 쓴다 - xml 을 통째로 다시 만들면 이름공간·호환성 표시가
-    떨어져 나가 워드가 «파일이 손상됐다» 고 한다.
-    """
-    cells = list(text_re.finditer(block))
-    if not cells:
-        return block
-    pieces = [_unescape(one.group(4)) for one in cells]
-    full = "".join(pieces)
-    found = list(SLOT.finditer(full))
-    if not found:
-        return block
-
-    plan: dict[int, tuple[int, str]] = {}          # 시작 -> (끝, 넣을 글자)
-    for match in found:
-        name = match.group(1).strip()
-        if name not in values:
-            if name not in report.missing:
-                report.missing.append(name)
-            continue
-        plan[match.start()] = (match.end(), str(values[name]))
-        if name not in report.used:
-            report.used.append(name)
-        report.filled += 1
-    if not plan:
-        return block
-
-    out, spot, last = [], 0, 0
-    for one, text in zip(cells, pieces):
-        made = []
-        for index, ch in enumerate(text, spot):
-            if index in plan:
-                made.append(plan[index][1])
-            if not any(start <= index < end for start, (end, _v) in plan.items()):
-                made.append(ch)
-        spot += len(text)
-        new = "".join(made)
-        attrs = one.group(2)
-        # 앞뒤 빈칸이 있는 글자는 그렇다고 적어야 워드가 지운다
-        if new != new.strip() and "xml:space" not in attrs:
-            attrs += ' xml:space="preserve"'
-        out.append(block[last:one.start()])
-        out.append(one.group(1) + attrs + one.group(3)
-                   + _xml_text(new) + one.group(5))
-        last = one.end()
-    out.append(block[last:])
-    return "".join(out)
-
-
-def _fill_part(raw: bytes, values: dict, report: FillReport) -> bytes | None:
-    """조각 하나를 채운다. 바뀐 것이 없으면 None."""
-    patterns = _part_patterns(raw)
-    if patterns is None:
-        return None
-    para, text_re = patterns
-    body = raw.decode("utf-8")
-    made = para.sub(lambda m: _fill_paragraph(m.group(0), text_re, values, report),
-                    body)
-    return made.encode("utf-8") if made != body else None
+FillReport = slots.FillReport
 
 
 def placeholders(path: Path) -> list[str]:
@@ -398,18 +297,9 @@ def placeholders(path: Path) -> list[str]:
             if not names:
                 raise DocxError(f"워드 문서가 아닙니다: {path.name}")
             for name in sorted(names):
-                raw = z.read(name)
-                patterns = _part_patterns(raw)
-                if patterns is None:
-                    continue
-                para, text_re = patterns
-                body = raw.decode("utf-8")
-                for block in para.finditer(body):
-                    joined = "".join(_unescape(one.group(4))
-                                     for one in text_re.finditer(block.group(0)))
-                    for one in _slots_in(joined):
-                        if one not in out:
-                            out.append(one)
+                for one in slots.slots_in_part(z.read(name)):
+                    if one not in out:
+                        out.append(one)
     except zipfile.BadZipFile:
         raise DocxError(f"워드 문서가 아닙니다 (zip 이 아닙니다): {path.name}") from None
     except OSError as exc:
@@ -417,35 +307,21 @@ def placeholders(path: Path) -> list[str]:
     return out
 
 
-def fill_document(source: Path, dest: Path, values: dict) -> FillReport:
+def fill_document(source: Path, dest: Path, values: dict) -> slots.FillReport:
     """양식의 «{이름}» 을 채워 새 파일로. 원본은 건드리지 않는다.
 
     값을 모르는 자리는 «{이름}» 그대로 둔다 - 빈 칸으로 만들면 백 장을 만든
     뒤에야 무엇이 빠졌는지 알게 된다. 모른 이름은 보고에 담아 돌려준다.
     """
-    source, dest = Path(source), Path(dest)
-    report = FillReport()
+    source = Path(source)
     try:
         with zipfile.ZipFile(source) as z:
-            names = z.namelist()
-            if "word/document.xml" not in names:
+            if "word/document.xml" not in z.namelist():
                 raise DocxError(f"워드 문서가 아닙니다: {source.name}")
-            keep = {name: z.read(name) for name in names}
     except zipfile.BadZipFile:
         raise DocxError(f"워드 문서가 아닙니다 (zip 이 아닙니다): {source.name}") from None
     except OSError as exc:
         raise DocxError(f"열지 못했습니다: {exc}") from None
-
-    for name in sorted(keep):
-        if not FILL_PARTS.match(name):
-            continue
-        made = _fill_part(keep[name], values, report)
-        if made is not None:
-            keep[name] = made
-            report.parts.append(name)
-
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as out:
-        for name in names:                      # 차례를 원본 그대로 둔다
-            out.writestr(name, keep[name])
-    return report
+    return slots.fill_zip(source, dest, values,
+                          parts=lambda name: bool(FILL_PARTS.match(name)),
+                          error=DocxError)
