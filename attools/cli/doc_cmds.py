@@ -654,6 +654,162 @@ def cmd_doc_from_pptx(a) -> int:
     return 0
 
 
+def _load_table(a, path: str):
+    """명단 파일을 표로. sheet 갈래와 같은 규칙으로 읽는다."""
+    try:
+        return sheet.load(Path(path), sheet=getattr(a, "sheet", None) or None,
+                          header_row=getattr(a, "header_row", 1) - 1)
+    except (sheet.SheetError, OSError) as e:
+        _p(f"명단을 읽지 못했습니다: {e}")
+        return None
+
+
+def _form_values(row_values: dict, fixed: dict) -> dict:
+    """한 장에 쓸 값. 직접 준 것(--set)이 표의 열보다 세다."""
+    made = dict(row_values)
+    made.update(fixed)
+    return made
+
+
+def cmd_doc_form(a) -> int:
+    """서식이 든 워드 양식에 «{이름}» 자리를 채워 새 파일로."""
+    from .. import docx, hangul
+
+    form = Path(a.file)
+    if not form.is_file():
+        _p(f"양식 파일이 없습니다: {form}")
+        return 1
+    try:
+        slots = docx.placeholders(form)
+    except docx.DocxError as e:
+        _p(str(e))
+        return 1
+    if not slots:
+        _p(f"{form.name}: 채울 자리가 없습니다.")
+        _p("  양식에 «{이름}» 처럼 중괄호로 자리를 적어 두세요 "
+           "(표 안·머리글·바닥글도 됩니다).")
+        return 1
+
+    fixed = {}
+    for one in a.set or []:
+        name, sep, value = str(one).partition("=")
+        if not sep or not name.strip():
+            _p(f"«자리=값» 으로 주세요: {one}")
+            return 1
+        fixed[name.strip()] = value
+    mapping = {}
+    for one in a.map or []:
+        name, sep, column = str(one).partition("=")
+        if not sep or not name.strip() or not column.strip():
+            _p(f"«자리=열이름» 으로 주세요: {one}")
+            return 1
+        mapping[name.strip()] = column.strip()
+
+    _p(f"{form.name}  ·  채울 자리 {len(slots)}개: {', '.join(slots)}")
+    if not a.set and not a.data:
+        _p("\n값을 주세요.")
+        _p("  한 장만:  --set 이름=김민수 --set 직책=자문위원 -o 위촉장.docx")
+        _p("  명단으로: --data 명단.xlsx --name '{이름}.docx' -o 결과 --apply")
+        return 0
+
+    table = None
+    if a.data:
+        table = _load_table(a, a.data)
+        if table is None:
+            return 1
+
+    있는 = set(fixed) | {"번호"} | set(table.headers if table else [])
+    있는 |= {name for name in mapping if mapping[name] in
+             (table.headers if table else [])}
+    빈자리 = [one for one in slots if one not in 있는]
+    if 빈자리 and not a.force:
+        _p(f"\n값을 찾지 못한 자리: {', '.join(빈자리)}")
+        if table:
+            _p(f"  표의 열: {', '.join(table.headers)}")
+            _p("  이름이 다르면 --map 자리=열 로 맞추고, 고정값은 --set 으로 줍니다.")
+        else:
+            _p("  --set 자리=값 으로 주세요.")
+        _p("  그대로 «{이름}» 이 인쇄돼도 괜찮으면 --force 를 붙이세요.")
+        return 1
+
+    if table is None:
+        if not a.out:
+            _p("\n어디에 낼지 -o 로 주세요.")
+            return 1
+        out = Path(a.out)
+        if not _may_write(a, out):
+            return 1
+        try:
+            report = docx.fill_document(form, out, fixed)
+        except (docx.DocxError, OSError) as e:
+            _p(str(e))
+            return 1
+        _p(f"\n저장: {out}  (채운 자리 {report.filled}곳)")
+        if report.missing:
+            _p(f"그대로 둔 자리: {', '.join(report.missing)}")
+        _p("양식의 서식·표·머리글·그림은 그대로 옮겼습니다. "
+           "원본 양식은 건드리지 않았습니다.")
+        return 0
+
+    plans = []
+    for number, row in enumerate(table.rows, 1):
+        values = {h: row[i] if i < len(row) else None
+                  for i, h in enumerate(table.headers)}
+        values["번호"] = number
+        for name, column in mapping.items():
+            if column in values:
+                values[name] = values[column]
+        made = _form_values(values, fixed)
+        name = sheet.render(a.name or "", made).strip() if a.name else ""
+        plans.append((number, name, made))
+
+    if not a.name:
+        _p("\n--name 으로 파일 이름 틀을 주세요. 예: --name '{이름}_위촉장.docx'")
+        return 1
+    이름들 = [hangul.sanitize_filename(one[1]) for one in plans]
+    겹침 = {one for one in 이름들 if 이름들.count(one) > 1}
+    if 겹침:
+        _p(f"\n같은 이름이 되는 파일이 있습니다: {', '.join(sorted(겹침)[:3])}")
+        _p("  --name 에 {번호} 를 넣어 서로 다르게 해 주세요. "
+           "덮어쓰면 앞엣것이 사라집니다.")
+        return 1
+    if not a.out:
+        _p("\n낼 폴더를 -o 로 주세요.")
+        return 1
+    out = Path(a.out)
+
+    _p(f"\n{len(plans)}장을 만듭니다  ->  {out}/")
+    for name in 이름들[:5]:
+        _p(f"  {name}")
+    if len(이름들) > 5:
+        _p(f"  ... {len(이름들) - 5}장 더")
+    if not a.apply:
+        _p("\n[미리보기] 실제로 만들려면 --apply 를 붙이세요. "
+           "원본 양식은 건드리지 않습니다.")
+        return 0
+
+    made_count, left = 0, []
+    for (_number, _name, values), filename in zip(plans, 이름들):
+        target = out / filename
+        if not _may_write(a, target):
+            return 1
+        try:
+            report = docx.fill_document(form, target, values)
+        except (docx.DocxError, OSError) as e:
+            _p(f"{filename}: {e}")
+            return 1
+        made_count += 1
+        for one in report.missing:
+            if one not in left:
+                left.append(one)
+    _p(f"\n{made_count}장을 만들었습니다: {out}/")
+    if left:
+        _p(f"그대로 «{{이름}}» 으로 남은 자리: {', '.join(left)}")
+    _p("양식의 서식·표·머리글·그림은 그대로 옮겼습니다. "
+       "원본 양식은 건드리지 않았습니다.")
+    return 0
+
+
 def cmd_doc_docx(a) -> int:
     from .. import docx
 
@@ -1116,6 +1272,30 @@ def add_commands(sub) -> None:
     dfp.epilog = ("예: at doc from-pptx 사업계획.pptx\n"
                   "    at doc from-pptx 발표.pptx --notes -o 발표.md")
     dfp.set_defaults(func=cmd_doc_from_pptx)
+
+    dfm = dc.add_parser("form", help="워드 양식에 값 채우기 (위촉장·공문·계약서)")
+    dfm.add_argument("file", metavar="양식.docx")
+    dfm.add_argument("--set", action="append", metavar="자리=값",
+                     help="값을 바로 넣는다. 예: --set 이름=김민수")
+    dfm.add_argument("--data", metavar="파일",
+                     help="명단(xlsx·csv)에서. 한 행에 한 장")
+    dfm.add_argument("--map", action="append", metavar="자리=열",
+                     help="자리와 열 이름이 다를 때. 예: --map 이름=성명")
+    dfm.add_argument("--name", metavar="틀",
+                     help="낼 파일 이름 틀. 예: '{이름}_위촉장.docx'")
+    dfm.add_argument("--sheet", metavar="이름", help="명단이 xlsx 일 때 시트")
+    dfm.add_argument("--header-row", type=int, default=1, metavar="행")
+    dfm.add_argument("-o", "--out", metavar="파일|폴더")
+    dfm.add_argument("--overwrite", action="store_true",
+                     help="이미 있는 파일을 덮어쓴다")
+    dfm.add_argument("--apply", action="store_true",
+                     help="여러 장을 만들 때 실제로 만든다 (기본은 미리보기)")
+    dfm.add_argument("--force", action="store_true",
+                     help="값 없는 자리를 «{이름}» 그대로 두고 만든다")
+    dfm.epilog = ("예: at doc form 위촉장.docx --set 이름=김민수 -o 위촉장_김민수.docx\n"
+                  "    at doc form 위촉장.docx --data 명단.xlsx "
+                  "--name '{이름}_위촉장.docx' -o 결과 --apply")
+    dfm.set_defaults(func=cmd_doc_form)
 
     ddx = dc.add_parser("docx", help="마크다운을 워드 문서로 (보고서 제출용)")
     ddx.add_argument("file", metavar="파일")

@@ -698,6 +698,17 @@ mysql 은 역슬래시를 이스케이프 문자로 보기 때문에 그대로 �
 있으면 글자로 견준다. **지운 행은 화면에 보여 주고** `--dropped` 로 파일에 남긴다 — 지운
 것을 못 보면 되돌릴 수도 없다.
 
+`at doc form` 은 **워드 양식**에 값을 채운다. 위촉장·수료증·공문처럼 기관 서식이 든
+`.docx` 를 그대로 두고 `{이름}` 자리만 갈아 끼운다 — 원본 zip 을 통째로 베끼고 글자가 든 xml
+조각만 고치므로 글꼴·표·머리글·도장 그림이 그대로 남는다. 표 안과 **머리글·바닥글**의 자리도
+채운다(공문은 문서번호가 머리글에 있다).
+
+워드는 `{이름}` 을 `{이`·`름`·`}` 처럼 여러 조각으로 쪼개 두는 일이 흔해서(맞춤법 검사·서식
+경계) 문단 글자를 **이어 붙여** 찾고 걸친 조각만 고쳐 쓴다. 그래서 그 문단의 다른 서식(굵게·
+글꼴)이 살아남는다. 값이 없는 자리는 **먼저 알리고 멈춘다** — `{직책}` 이 그대로 인쇄된 위촉장
+백 장을 만든 뒤에 알면 늦다(`--force` 로 넘길 수 있다). 파일 이름이 겹치면 하나도 만들지
+않는다.
+
 `at sheet form` 은 `collect` 의 반대다. 견적서·공문·급여명세서처럼 **서식이 든 양식 파일**을
 그대로 두고 칸의 값만 갈아 끼워 새 파일을 낸다. 표를 `--data` 로 주면 **행마다 파일 하나**를
 만든다(거래처 백 곳이면 백 장). 원본 zip 을 통째로 베끼고 시트 xml 한 조각만 고치므로
@@ -1162,6 +1173,7 @@ at json flat 응답.json --grep 'error|실패'
 | `at doc from-hwpx <파일>` | 한글 문서(hwpx)를 마크다운으로. 옛 `.hwp` 는 읽지 못한다 |
 | `at doc from-pptx <파일>` | 슬라이드(pptx)를 마크다운으로. `--notes` 로 발표자 노트까지 |
 | `at doc docx <파일>` | 마크다운을 워드 문서로 (보고서 제출용) |
+| `at doc form <양식.docx>` | 서식이 든 **워드 양식**에 `{이름}` 자리를 채워 새 파일로. `--data` 로 명단을 주면 **한 행에 한 장** (위촉장·공문·계약서) |
 
 ```bash
 at doc toc README.md              # 미리보기
@@ -1179,6 +1191,9 @@ at dev http wiki.example.com/page -o page.html && at doc from-html page.html -o 
 at doc from-docx 받은보고서.docx -o 보고서.md
 at doc from-hwpx 사업계획서.hwpx -o 계획서.md    # 한글 문서
 at doc docx 보고서.md -o 보고서.docx       # 제출용 워드 문서
+at doc form 위촉장.docx --set 이름=김민수 -o 위촉장_김민수.docx
+at doc form 위촉장.docx --data 명단.xlsx --set 직책=자문위원 \
+  --name '{이름}_위촉장.docx' -o 결과 --apply
 at doc slides 발표.md -o 발표.html         # 화살표로 넘기는 슬라이드
 at doc slides 문서.md --by 제목            # ## 마다 한 장
 at doc lint docs/ --only-errors            # CI 용. 고쳐야 할 것만

@@ -143,6 +143,12 @@ RECIPES: list[Recipe] = [
             "-o 보낼것 --apply"],
            "양식의 서식·수식·그림은 그대로 두고 칸 값만 바꾼다.",
            "양식 서식 대량 견적서"),
+    Recipe("만들기", "위촉장·수료증을 사람마다 한 장씩 (워드 양식)",
+           ["at doc form 위촉장.docx --set 이름=김민수 -o 위촉장_김민수.docx",
+            "at doc form 위촉장.docx --data 명단.xlsx --set 직책=자문위원 "
+            "--name '{이름}_위촉장.docx' -o 결과 --apply"],
+           "양식의 글꼴·표·머리글·도장 그림은 그대로 두고 «{이름}» 자리만 바꾼다.",
+           "위촉장 수료증 공문 워드 양식 메일머지"),
     Recipe("만들기", "명단으로 사람마다 메일 초안 만들기",
            ["at sheet mail 명단.xlsx -t 본문.txt --subject '{이름}님 안내' "
             "--to 이메일 -o 초안 --apply"],

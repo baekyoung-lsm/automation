@@ -360,3 +360,142 @@ class MergedCellTest(unittest.TestCase):
         self.assertEqual(rows[0], ["합친 머리", "", "금액"])
         self.assertEqual(rows[1], ["영업", "교통비", "1000"])
 
+
+
+class FillDocumentTest(unittest.TestCase):
+    """워드 양식에 값 채우기. 원본의 서식·이름공간이 살아 있어야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.form = self.root / "위촉장.docx"
+        docx.write_document(self.form, [
+            docx.paragraph("위 촉 장", size=32, bold=True, center=True),
+            docx.paragraph("성명: {이름}"),
+            docx.paragraph("위 사람을 {직책}(으)로 위촉합니다."),
+            docx.table([["항목", "값"], ["소속", "{소속}"]])])
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def split_form(self) -> Path:
+        """«{이름}» 이 run 세 개로 쪼개진 양식. 워드가 흔히 그렇게 만든다."""
+        body = ('<w:p><w:r><w:rPr><w:b/></w:rPr>'
+                '<w:t xml:space="preserve">귀하 </w:t></w:r>'
+                '<w:r><w:t>{이</w:t></w:r><w:r><w:t>름</w:t></w:r>'
+                '<w:r><w:t>} 님</w:t></w:r></w:p>')
+        path = self.root / "쪼개진.docx"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("[Content_Types].xml", docx.CONTENT_TYPES)
+            z.writestr("_rels/.rels", docx.ROOT_RELS)
+            z.writestr("word/document.xml",
+                       '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                       f"<w:document {docx.NS}><w:body>{body}"
+                       f"{docx.SECTION}</w:body></w:document>")
+        return path
+
+    def test_placeholders_are_listed_in_order(self):
+        self.assertEqual(docx.placeholders(self.form),
+                         ["이름", "직책", "소속"])
+
+    def test_values_land_in_paragraphs_and_tables(self):
+        out = self.root / "채움.docx"
+        report = docx.fill_document(self.form, out,
+                                    {"이름": "김민수", "직책": "자문위원",
+                                     "소속": "영업1팀"})
+        self.assertEqual(report.filled, 3)
+        got = docx.read_text(out)
+        self.assertIn("성명: 김민수", got)
+        self.assertIn("자문위원(으)로", got)
+        self.assertIn("영업1팀", got)
+
+    def test_a_placeholder_split_across_runs_is_still_filled(self):
+        """워드는 «{이름}» 을 run 여러 개로 쪼개 둔다. 이어 붙여 찾아야 한다."""
+        out = self.root / "쪼개진채움.docx"
+        report = docx.fill_document(self.split_form(), out, {"이름": "김민수"})
+        self.assertEqual(report.filled, 1)
+        self.assertEqual(docx.read_text(out).strip(), "귀하 김민수 님")
+
+    def test_other_formatting_in_that_paragraph_survives(self):
+        """문단을 통째로 다시 쓰면 굵게·글꼴이 날아간다."""
+        out = self.root / "서식.docx"
+        docx.fill_document(self.split_form(), out, {"이름": "김민수"})
+        with zipfile.ZipFile(out) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("<w:b/>", xml)
+
+    def test_a_missing_value_is_left_alone_and_reported(self):
+        """빈 칸으로 만들면 백 장을 만든 뒤에야 무엇이 빠졌는지 알게 된다."""
+        out = self.root / "모자람.docx"
+        report = docx.fill_document(self.form, out, {"이름": "김민수"})
+        self.assertEqual(report.missing, ["직책", "소속"])
+        self.assertIn("{직책}", docx.read_text(out))
+
+    def test_the_template_is_not_touched(self):
+        before = self.form.read_bytes()
+        docx.fill_document(self.form, self.root / "x.docx", {"이름": "김"})
+        self.assertEqual(self.form.read_bytes(), before)
+
+    def test_every_other_part_is_copied_byte_for_byte(self):
+        path = self.root / "그림있는.docx"
+        with zipfile.ZipFile(self.form) as src, zipfile.ZipFile(path, "w") as dst:
+            for item in src.infolist():
+                dst.writestr(item.filename, src.read(item.filename))
+            dst.writestr("word/media/도장.png", b"\x89PNG" + "가짜".encode())
+        out = self.root / "그림채움.docx"
+        docx.fill_document(path, out, {"이름": "김민수"})
+        with zipfile.ZipFile(out) as z, zipfile.ZipFile(path) as o:
+            self.assertEqual(z.namelist(), o.namelist())
+            self.assertEqual(z.read("word/media/도장.png"),
+                             o.read("word/media/도장.png"))
+
+    def test_namespaces_and_compatibility_marks_survive(self):
+        """mc:Ignorable 이 떨어지면 워드가 «파일이 손상됐다» 고 한다."""
+        path = self.root / "진짜같은.docx"
+        doc = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+               '<w:document xmlns:w="http://schemas.openxmlformats.org/'
+               'wordprocessingml/2006/main" xmlns:mc="http://schemas.'
+               'openxmlformats.org/markup-compatibility/2006" xmlns:w14='
+               '"http://schemas.microsoft.com/office/word/2010/wordml" '
+               'mc:Ignorable="w14"><w:body><w:p w14:paraId="12AB">'
+               "<w:r><w:t>{업체} 귀중</w:t></w:r></w:p></w:body></w:document>")
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("[Content_Types].xml", docx.CONTENT_TYPES)
+            z.writestr("_rels/.rels", docx.ROOT_RELS)
+            z.writestr("word/document.xml", doc)
+        out = self.root / "공문.docx"
+        docx.fill_document(path, out, {"업체": "한빛상사"})
+        with zipfile.ZipFile(out) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn('mc:Ignorable="w14"', xml)
+        self.assertIn('w14:paraId="12AB"', xml)
+        self.assertIn("한빛상사 귀중", xml)
+
+    def test_headers_are_filled_too(self):
+        """공문은 문서번호가 머리글에 있다."""
+        path = self.root / "머리글.docx"
+        with zipfile.ZipFile(self.form) as src, zipfile.ZipFile(path, "w") as dst:
+            for item in src.infolist():
+                dst.writestr(item.filename, src.read(item.filename))
+            dst.writestr("word/header1.xml",
+                         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                         f"<w:hdr {docx.NS}><w:p><w:r><w:t>문서번호 {{번호}}"
+                         "</w:t></w:r></w:p></w:hdr>")
+        out = self.root / "머리글채움.docx"
+        report = docx.fill_document(path, out, {"번호": "총무-2026-17"})
+        self.assertIn("word/header1.xml", report.parts)
+        with zipfile.ZipFile(out) as z:
+            self.assertIn("총무-2026-17",
+                          z.read("word/header1.xml").decode("utf-8"))
+
+    def test_special_characters_are_escaped(self):
+        out = self.root / "특수.docx"
+        docx.fill_document(self.form, out, {"이름": "김 & 이 <주식회사>"})
+        self.assertIn("김 & 이 <주식회사>", docx.read_text(out))
+
+    def test_a_file_that_is_not_word_is_refused(self):
+        bad = self.root / "가짜.docx"
+        bad.write_bytes(b"not a zip")
+        with self.assertRaises(docx.DocxError):
+            docx.placeholders(bad)
+        with self.assertRaises(docx.DocxError):
+            docx.fill_document(bad, self.root / "x.docx", {"이름": "김"})

@@ -1192,6 +1192,34 @@ class SmokeTest(unittest.TestCase):
     # ------------------------------------------------------------- doc
 
     def test_doc_group(self):
+        # 워드 양식에 값 채우기 (위촉장 대량 발급). 원본 양식은 그대로여야 한다
+        from attools import docx as docxkit2
+        from attools import xlsx as xlsxkit4
+
+        양식 = Path(self.path("위촉장.docx"))
+        docxkit2.write_document(양식, [
+            docxkit2.paragraph("위 촉 장", size=32, bold=True, center=True),
+            docxkit2.paragraph("성명: {이름}"),
+            docxkit2.paragraph("위 사람을 {직책}(으)로 위촉합니다.")])
+        명단2 = Path(self.path("위촉명단.xlsx"))
+        xlsxkit4.write_sheets(명단2, {"명단": [["이름"], ["김민수"], ["이영희"]]})
+        자리 = self.run_cli("doc", "form", str(양식))
+        self.assertIn("이름", 자리)
+        self.assertIn("직책", 자리)
+        모자람 = self.run_cli("doc", "form", str(양식), "--data", str(명단2),
+                           "--name", "{이름}.docx", "-o", self.path("위촉결과"),
+                           expect=1)
+        self.assertIn("직책", 모자람)          # 값 없는 자리를 먼저 말한다
+        앞선양식 = 양식.read_bytes()
+        낸것4 = self.run_cli("doc", "form", str(양식), "--data", str(명단2),
+                           "--set", "직책=자문위원", "--name", "{이름}.docx",
+                           "-o", self.path("위촉결과"), "--apply")
+        self.assertIn("2장을 만들었습니다", 낸것4)
+        self.assertEqual(양식.read_bytes(), 앞선양식)
+        만든글 = docxkit2.read_text(Path(self.path("위촉결과")) / "김민수.docx")
+        self.assertIn("성명: 김민수", 만든글)
+        self.assertIn("자문위원", 만든글)
+
         md = self.path("문서.md")
         self.assertIn("하나", self.run_cli("doc", "toc", md))
         self.run_cli("doc", "toc", md, "--apply")
