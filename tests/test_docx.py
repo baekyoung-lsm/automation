@@ -499,3 +499,58 @@ class FillDocumentTest(unittest.TestCase):
             docx.placeholders(bad)
         with self.assertRaises(docx.DocxError):
             docx.fill_document(bad, self.root / "x.docx", {"이름": "김"})
+
+
+class FillValueTest(unittest.TestCase):
+    """채워 넣는 값이 이상할 때. 위촉장에 «None» 이 인쇄되면 안 된다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.form = self.root / "양식.docx"
+        docx.write_document(self.form, [docx.paragraph("성명: {이름}")])
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def fill(self, values, name="채움.docx"):
+        out = self.root / name
+        return docx.fill_document(self.form, out, values), out
+
+    def test_a_blank_cell_becomes_a_blank_spot_not_none(self):
+        """표의 빈 칸은 None 으로 들어온다. str() 하면 «None» 이 찍힌다."""
+        report, out = self.fill({"이름": None})
+        self.assertNotIn("None", docx.read_text(out))
+        self.assertEqual(report.blank, ["이름"])
+
+    def test_an_empty_string_is_also_reported_as_blank(self):
+        report, _out = self.fill({"이름": ""})
+        self.assertEqual(report.blank, ["이름"])
+
+    def test_a_filled_value_is_not_reported_as_blank(self):
+        report, _out = self.fill({"이름": "김민수"})
+        self.assertEqual(report.blank, [])
+
+    def test_numbers_go_in_as_written(self):
+        _report, out = self.fill({"이름": 12345})
+        self.assertIn("12345", docx.read_text(out))
+
+    def test_a_newline_becomes_a_real_line_break(self):
+        """글자 «\\n» 을 그대로 넣으면 워드는 빈칸 하나로 보여 준다."""
+        _report, out = self.fill({"이름": "첫 줄\n둘째 줄"})
+        with zipfile.ZipFile(out) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn("<w:br/>", xml)
+        self.assertIn("첫 줄\n둘째 줄", docx.read_text(out))
+
+    def test_xml_in_a_value_cannot_break_the_document(self):
+        _report, out = self.fill({"이름": "</w:t></w:r><w:r><w:t>몰래"})
+        self.assertIn("</w:t></w:r><w:r><w:t>몰래", docx.read_text(out))
+
+    def test_control_characters_are_dropped(self):
+        """PDF·로그에서 옮겨 온 글에 섞여 온다. 그대로 넣으면 문서가 안 열린다."""
+        _report, out = self.fill({"이름": "김\x00민\x07수"})
+        self.assertIn("김민수", docx.read_text(out))
+
+    def test_a_value_that_looks_like_a_placeholder_is_not_filled_again(self):
+        _report, out = self.fill({"이름": "{다른자리}"})
+        self.assertIn("{다른자리}", docx.read_text(out))

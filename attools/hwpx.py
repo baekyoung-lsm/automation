@@ -258,4 +258,4 @@ def fill_document(source: Path, dest: Path, values: dict) -> slots.FillReport:
             raise HwpxError(f"한글 문서(hwpx)가 아닙니다: {source.name}")
     return slots.fill_zip(source, dest, values,
                           parts=lambda name: bool(SECTION_RE.match(name)),
-                          error=HwpxError)
+                          error=HwpxError, line_break="lineBreak")

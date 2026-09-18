@@ -27,11 +27,23 @@ class FillReport:
     filled: int = 0                      # 바꾼 자리 수
     used: list = field(default_factory=list)      # 채운 이름
     missing: list = field(default_factory=list)   # 값을 모르는 이름 (그대로 둔다)
+    blank: list = field(default_factory=list)     # 값이 빈 칸이던 이름
     parts: list = field(default_factory=list)     # 고친 조각 이름
 
 
+def as_text(value) -> str:
+    """칸 값을 넣을 글자로. 빈 칸은 빈 글자다.
+
+    None 을 그대로 str() 하면 위촉장에 «None» 이 인쇄된다. 빈 칸이던 자리는
+    보고에 담아 부르는 쪽이 알리게 한다.
+    """
+    if value is None:
+        return ""
+    return str(value)
+
+
 def escape_text(value) -> str:
-    return escape(ILLEGAL.sub("", str(value)))
+    return escape(ILLEGAL.sub("", as_text(value)))
 
 
 def unescape_text(text: str) -> str:
@@ -44,6 +56,7 @@ def unescape_text(text: str) -> str:
 
 
 def part_patterns(raw: bytes, *, para: str = "p", text: str = "t"):
+    """(문단 정규식, 글자 정규식, 이름공간 접두사)."""
     """이 조각의 문단·글자 정규식. 이름공간 접두사는 파일에서 읽는다.
 
     접두사를 «w:» 로 굳혀 두면 다른 프로그램이 만든 파일에서 조용히
@@ -56,14 +69,17 @@ def part_patterns(raw: bytes, *, para: str = "p", text: str = "t"):
     mark = found.group(1) or ""
     return (re.compile(rf"<{mark}{para}(?:\s[^>]*)?>.*?</{mark}{para}>", re.S),
             re.compile(rf"(<{mark}{text})((?:\s[^>]*)?)(>)(.*?)(</{mark}{text}>)",
-                       re.S))
+                       re.S),
+            mark)
 
 
 def slots_in(text: str) -> list[str]:
     return [m.group(1).strip() for m in SLOT.finditer(text)]
 
 
-def _fill_paragraph(block: str, text_re, values: dict, report: FillReport) -> str:
+def _fill_paragraph(block: str, text_re, values: dict, report: FillReport, *,
+                    mark: str = "", text_tag: str = "t",
+                    line_break: str = "br") -> str:
     """문단 한 덩어리를 채운다.
 
     «{이름}» 이 문서 안에서는 «{이», «름}» 처럼 여러 조각으로 쪼개져 있는 일이
@@ -85,44 +101,55 @@ def _fill_paragraph(block: str, text_re, values: dict, report: FillReport) -> st
             if name not in report.missing:
                 report.missing.append(name)
             continue
-        plan[match.start()] = (match.end(), str(values[name]))
+        made = as_text(values[name])
+        plan[match.start()] = (match.end(), made)
         if name not in report.used:
             report.used.append(name)
+        if not made.strip() and name not in report.blank:
+            report.blank.append(name)
         report.filled += 1
     if not plan:
         return block
 
     out, spot, last = [], 0, 0
-    for one, text in zip(cells, pieces):
+    for one, piece in zip(cells, pieces):
         made = []
-        for index, ch in enumerate(text, spot):
+        for index, ch in enumerate(piece, spot):
             if index in plan:
                 made.append(plan[index][1])
             if not any(start <= index < end for start, (end, _v) in plan.items()):
                 made.append(ch)
-        spot += len(text)
+        spot += len(piece)
         new = "".join(made)
         attrs = one.group(2)
         # 앞뒤 빈칸이 있는 글자는 그렇다고 적어야 지워지지 않는다
         if new != new.strip() and "xml:space" not in attrs:
             attrs += PRESERVE
         out.append(block[last:one.start()])
-        out.append(one.group(1) + attrs + one.group(3)
-                   + escape_text(new) + one.group(5))
+        # 값에 든 줄바꿈은 글자 «\n» 이 아니라 줄바꿈 태그여야 줄이 바뀐다.
+        # 그냥 넣으면 워드·한글이 빈칸 하나로 보여 준다
+        body = (f"</{mark}{text_tag}><{mark}{line_break}/>"
+                f"<{mark}{text_tag}{attrs}>").join(
+            escape_text(줄) for 줄 in new.split("\n"))
+        out.append(one.group(1) + attrs + one.group(3) + body + one.group(5))
         last = one.end()
     out.append(block[last:])
     return "".join(out)
 
 
-def fill_part(raw: bytes, values: dict, report: FillReport, **kw) -> bytes | None:
+def fill_part(raw: bytes, values: dict, report: FillReport, *,
+              line_break: str = "br", **kw) -> bytes | None:
     """조각 하나를 채운다. 바뀐 것이 없으면 None."""
     patterns = part_patterns(raw, **kw)
     if patterns is None:
         return None
-    para, text_re = patterns
+    para, text_re, mark = patterns
     body = raw.decode("utf-8")
-    made = para.sub(lambda m: _fill_paragraph(m.group(0), text_re, values, report),
-                    body)
+    made = para.sub(
+        lambda m: _fill_paragraph(m.group(0), text_re, values, report, mark=mark,
+                                  text_tag=kw.get("text", "t"),
+                                  line_break=line_break),
+        body)
     return made.encode("utf-8") if made != body else None
 
 
@@ -131,7 +158,7 @@ def slots_in_part(raw: bytes, **kw) -> list[str]:
     patterns = part_patterns(raw, **kw)
     if patterns is None:
         return []
-    para, text_re = patterns
+    para, text_re, _mark = patterns
     body = raw.decode("utf-8", "replace")
     out: list[str] = []
     for block in para.finditer(body):

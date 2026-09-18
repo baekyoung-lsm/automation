@@ -303,3 +303,36 @@ class HwpxFormTest(unittest.TestCase):
         with self.assertRaises(hwpx.HwpxError) as caught:
             hwpx.placeholders(bad)
         self.assertIn("hwpx", str(caught.exception))
+
+
+class HwpxFillValueTest(unittest.TestCase):
+    """한글 쪽 줄바꿈 태그는 워드와 다르다(lineBreak)."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.form = self.root / "양식.hwpx"
+        with zipfile.ZipFile(self.form, "w") as z:
+            z.writestr(zipfile.ZipInfo("mimetype"), hwpx.MIMETYPE)
+            z.writestr("Contents/section0.xml",
+                       '<?xml version="1.0" encoding="UTF-8"?>'
+                       '<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"'
+                       ' xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+                       "<hp:p><hp:run><hp:t>수 신: {수신처}</hp:t></hp:run></hp:p>"
+                       "</hs:sec>")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_a_newline_becomes_a_line_break_tag(self):
+        out = self.root / "채움.hwpx"
+        hwpx.fill_document(self.form, out, {"수신처": "한빛\n상사"})
+        with zipfile.ZipFile(out) as z:
+            sec = z.read("Contents/section0.xml").decode("utf-8")
+        self.assertIn("<hp:lineBreak/>", sec)
+        self.assertNotIn("<hp:br/>", sec)
+
+    def test_a_blank_value_is_reported(self):
+        out = self.root / "빈칸.hwpx"
+        report = hwpx.fill_document(self.form, out, {"수신처": None})
+        self.assertEqual(report.blank, ["수신처"])
+        self.assertNotIn("None", hwpx.read_text(out))

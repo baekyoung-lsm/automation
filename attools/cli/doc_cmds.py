@@ -768,6 +768,9 @@ def cmd_doc_form(a) -> int:
         _p(f"\n저장: {out}  (채운 자리 {report.filled}곳)")
         if report.missing:
             _p(f"그대로 둔 자리: {', '.join(report.missing)}")
+        if report.blank:
+            _p(f"값이 빈 칸이던 자리: {', '.join(report.blank)} "
+               "- 그 자리는 비워 두었습니다.")
         _p("양식의 서식·표·머리글·그림은 그대로 옮겼습니다. "
            "원본 양식은 건드리지 않았습니다.")
         return 0
@@ -811,7 +814,7 @@ def cmd_doc_form(a) -> int:
            "원본 양식은 건드리지 않습니다.")
         return 0
 
-    made_count, left = 0, []
+    made_count, left, 빈칸 = 0, [], []
     for (_number, _name, values), filename in zip(plans, 이름들):
         target = out / filename
         if not _may_write(a, target):
@@ -825,9 +828,15 @@ def cmd_doc_form(a) -> int:
         for one in report.missing:
             if one not in left:
                 left.append(one)
+        for one in report.blank:
+            if one not in 빈칸:
+                빈칸.append(one)
     _p(f"\n{made_count}장을 만들었습니다: {out}/")
     if left:
         _p(f"그대로 «{{이름}}» 으로 남은 자리: {', '.join(left)}")
+    if 빈칸:
+        _p(f"값이 빈 칸이던 자리: {', '.join(빈칸)} - 그 자리는 비워 두었습니다. "
+           "명단의 빈 칸을 한 번 보세요.")
     _p("양식의 서식·표·머리글·그림은 그대로 옮겼습니다. "
        "원본 양식은 건드리지 않았습니다.")
     return 0
