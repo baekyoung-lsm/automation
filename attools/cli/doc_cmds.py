@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .. import files, sheet, text
 from ..docs import fromhtml, mdkit
-from .common import _cut, _p, _grid, MD_SUFFIXES, _may_write
+from .common import _cut, _p, _grid, MD_SUFFIXES, _may_write, _plan_names
 
 
 # 마크다운 자리에 문서 파일을 주는 일이 흔하다. 그대로 읽으면 zip 을 글자로
@@ -673,7 +673,7 @@ def _form_values(row_values: dict, fixed: dict) -> dict:
 
 def cmd_doc_form(a) -> int:
     """서식이 든 워드 양식에 «{이름}» 자리를 채워 새 파일로."""
-    from .. import docx, hangul
+    from .. import docx
 
     form = Path(a.file)
     if not form.is_file():
@@ -763,15 +763,17 @@ def cmd_doc_form(a) -> int:
         name = sheet.render(a.name or "", made).strip() if a.name else ""
         plans.append((number, name, made))
 
+    if not plans:
+        _p("\n명단에 자료 행이 없습니다. 머리글만 있는 파일이 아닌지 보세요.")
+        return 1
     if not a.name:
         _p("\n--name 으로 파일 이름 틀을 주세요. 예: --name '{이름}_위촉장.docx'")
         return 1
-    이름들 = [hangul.sanitize_filename(one[1]) for one in plans]
-    겹침 = {one for one in 이름들 if 이름들.count(one) > 1}
-    if 겹침:
-        _p(f"\n같은 이름이 되는 파일이 있습니다: {', '.join(sorted(겹침)[:3])}")
-        _p("  --name 에 {번호} 를 넣어 서로 다르게 해 주세요. "
-           "덮어쓰면 앞엣것이 사라집니다.")
+    이름들, 막는까닭 = _plan_names([one[1] for one in plans])
+    if 막는까닭:
+        _p("")
+        for one in 막는까닭:
+            _p(f"  {one}")
         return 1
     if not a.out:
         _p("\n낼 폴더를 -o 로 주세요.")

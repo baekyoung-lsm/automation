@@ -22,6 +22,38 @@ def _confirm(question: str) -> bool:
     return input(f"{question} [y/N] ").strip().lower() in ("y", "yes")
 
 
+def _plan_names(raw: list[str]) -> tuple[list[str], list[str]]:
+    """이름 틀로 만든 파일 이름들을 검사한다. (다듬은 이름, 막는 까닭들)
+
+    이름 칸이 빈 행이 섞이면 «.docx» 같은 숨김 파일이 조용히 만들어진다.
+    겹치는 이름은 앞엣것을 덮는다. 둘 다 만든 뒤에는 알아채기 어려워서
+    만들기 전에 막는다.
+    """
+    from .. import hangul
+
+    made = [hangul.sanitize_filename(one or "") for one in raw]
+    why: list[str] = []
+
+    def 알맹이(name: str) -> str:
+        # Path(".docx").stem 은 «.docx» 다 - 숨김 파일로 보기 때문이다.
+        # 여기서는 확장자를 뗀 앞부분이 있는지를 봐야 한다
+        head, dot, _tail = name.strip().rpartition(".")
+        return (head if dot else name).strip(" ._-")
+
+    빈것 = [spot for spot, name in enumerate(made, 1) if not 알맹이(name)]
+    if 빈것:
+        자리 = ", ".join(f"{n}번째" for n in 빈것[:5])
+        why.append(f"이름이 비는 줄이 있습니다 ({자리}) - 그대로 만들면 "
+                   "확장자만 남은 숨김 파일이 됩니다. 이름 칸을 채우거나 "
+                   "--name 에 {번호} 를 넣으세요.")
+    겹침 = sorted({name for name in made if made.count(name) > 1})
+    if 겹침:
+        why.append(f"같은 이름이 되는 파일이 있습니다: {', '.join(겹침[:3])} - "
+                   "--name 에 {번호} 를 넣어 서로 다르게 해 주세요. "
+                   "덮어쓰면 앞엣것이 사라집니다.")
+    return made, why
+
+
 class InputError(Exception):
     """읽을 것을 못 찾았을 때. 사람이 읽을 문구는 부르는 쪽에서 만든다."""
 

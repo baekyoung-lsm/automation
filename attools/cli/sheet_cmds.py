@@ -10,7 +10,8 @@ from .. import files, hangul, life, sheet, text
 from ..code import devkit, jsonkit
 from ..docs import mdkit, report
 from ..write import names
-from .common import _pad, _p, _cut, _dump, _grid, _may_write, _width
+from .common import (_pad, _p, _cut, _dump, _grid, _may_write,
+                     _plan_names, _width)
 
 
 def _load(a, path: str | None = None) -> sheet.Table | None:
@@ -1543,16 +1544,14 @@ def cmd_sheet_form(a) -> int:
     out = Path(a.out)
 
     if 묶음:
-        빈이름 = [one for one in plans if not one.name]
-        if 빈이름:
+        if not a.name:
             _p("\n--name 으로 파일 이름 틀을 주세요. 예: --name '{업체}_견적서.xlsx'")
             return 1
-        이름들 = [hangul.sanitize_filename(one.name) for one in plans]
-        겹침 = {name for name in 이름들 if 이름들.count(name) > 1}
-        if 겹침:
-            _p(f"\n같은 이름이 되는 파일이 있습니다: {', '.join(sorted(겹침)[:3])}")
-            _p("  --name 에 {번호} 를 넣어 서로 다르게 해 주세요. "
-               "덮어쓰면 앞엣것이 사라집니다.")
+        이름들, 막는까닭 = _plan_names([one.name for one in plans])
+        if 막는까닭:
+            _p("")
+            for one in 막는까닭:
+                _p(f"  {one}")
             return 1
         if not a.apply:
             _p(f"\n[미리보기] {out}/ 아래에 {len(plans):,}개를 만듭니다:")
@@ -1565,7 +1564,7 @@ def cmd_sheet_form(a) -> int:
 
     made = 0
     for one in plans:
-        target = out / hangul.sanitize_filename(one.name) if 묶음 else out
+        target = out / 이름들[plans.index(one)] if 묶음 else out
         if not _may_write(a, target):
             return 1
         try:

@@ -686,3 +686,39 @@ class HouseRulesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanNamesTest(unittest.TestCase):
+    """이름 틀로 만든 파일 이름 검사. 만들기 전에 막아야 하는 것들."""
+
+    def names(self, raw):
+        from attools.cli.common import _plan_names
+
+        return _plan_names(raw)
+
+    def test_plain_names_pass(self):
+        made, why = self.names(["김민수.docx", "이영희.docx"])
+        self.assertEqual(made, ["김민수.docx", "이영희.docx"])
+        self.assertEqual(why, [])
+
+    def test_a_blank_name_is_refused(self):
+        """이름 칸이 빈 줄이 섞이면 «.docx» 숨김 파일이 조용히 만들어진다."""
+        _made, why = self.names(["김민수.docx", ".docx"])
+        self.assertEqual(len(why), 1)
+        self.assertIn("2번째", why[0])
+
+    def test_the_same_name_twice_is_refused(self):
+        _made, why = self.names(["가.xlsx", "가.xlsx"])
+        self.assertEqual(len(why), 1)
+        self.assertIn("가.xlsx", why[0])
+
+    def test_names_are_made_safe_for_the_file_system(self):
+        made, why = self.names(["가/나.docx", "다:라.docx"])
+        self.assertEqual(why, [])
+        for one in made:
+            self.assertNotIn("/", one)
+            self.assertNotIn(":", one)
+
+    def test_a_name_without_an_extension_still_counts(self):
+        _made, why = self.names(["김민수", "이영희"])
+        self.assertEqual(why, [])
