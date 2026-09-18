@@ -2349,6 +2349,20 @@ def _unique_names(labels) -> tuple[list[str], int]:
     return out, taken
 
 
+def _template_text(path: Path) -> str | None:
+    """메일머지 틀을 글자로 읽는다. 못 읽으면 까닭을 찍고 None 을 돌려준다.
+
+    틀 자리에 엑셀이나 그림을 넣는 일이 잦은데 그냥 read_text 하면
+    UnicodeDecodeError 가 역추적째 나온다. cp949 로 저장된 틀도 읽힌다.
+    """
+    try:
+        body, _enc = text.read_text_any(path)
+    except (OSError, text.TextError) as e:
+        _p(f"틀 파일을 글자로 읽지 못했습니다: {path} ({e})")
+        return None
+    return body
+
+
 def cmd_sheet_fill(a) -> int:
     t = _load(a)
     if t is None:
@@ -2358,7 +2372,9 @@ def cmd_sheet_fill(a) -> int:
     if not template_path.is_file():
         _p(f"틀 파일이 없습니다: {template_path}")
         return 1
-    template = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+    template = _template_text(template_path)
+    if template is None:
+        return 1
 
     used = sheet.placeholders(template)
     if not used:
@@ -2438,7 +2454,9 @@ def cmd_sheet_mail(a) -> int:
     if not template_path.is_file():
         _p(f"틀 파일이 없습니다: {template_path}")
         return 1
-    template = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+    template = _template_text(template_path)
+    if template is None:
+        return 1
 
     try:
         drafts, missing = sheet.build_mails(

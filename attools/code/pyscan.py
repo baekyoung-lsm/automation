@@ -75,6 +75,27 @@ def _used_names(tree: ast.AST) -> set[str]:
     return used
 
 
+
+class SourceError(Exception):
+    """파이썬 소스로 읽지 못한 파일."""
+
+
+def read_source(path: Path) -> str:
+    """파이썬 소스를 글자로 읽는다.
+
+    UTF-8 이 아닌 파일이나 널바이트가 든 파일을 그대로 ast 에 넘기면
+    UnicodeDecodeError·ValueError 가 역추적째 튀어나온다. 폴더를 훑다가
+    파일 하나 때문에 통째로 멎으면 안 되므로 여기서 한 종류로 모은다.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise SourceError("UTF-8 로 읽지 못했습니다") from None
+    if "\0" in source:
+        raise SourceError("널바이트가 들어 있습니다")
+    return source
+
+
 def unused_imports(path: Path, *, skip_init: bool = True) -> list[UnusedImport]:
     """한 파일에서 쓰지 않는 import 를 찾는다.
 
@@ -84,9 +105,9 @@ def unused_imports(path: Path, *, skip_init: bool = True) -> list[UnusedImport]:
     if skip_init and path.name == "__init__.py":
         return []
     try:
-        source = path.read_text(encoding="utf-8")
+        source = read_source(path)
         tree = ast.parse(source)
-    except (OSError, SyntaxError):
+    except (OSError, SyntaxError, SourceError):
         return []
 
     lines = source.splitlines()
@@ -161,8 +182,8 @@ def redefined(path: Path) -> list[Redefined]:
     시험 파일에서도 같은 이름의 시험 메서드는 하나만 돌아 조용히 안 돌게 된다.
     """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (OSError, SyntaxError):
+        tree = ast.parse(read_source(path))
+    except (OSError, SyntaxError, SourceError):
         return []
 
     out = _redefined_in(tree.body, path, "")
@@ -200,8 +221,8 @@ def module_uses(root: Path) -> list[ModuleUse]:
 
     for path in files:
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError):
+            tree = ast.parse(read_source(path))
+        except (OSError, SyntaxError, SourceError):
             continue
         me = module_name(path, root)
         for node in ast.walk(tree):
@@ -346,9 +367,9 @@ def outline(path: Path) -> FileOutline:
     """한 파일의 클래스·함수를 훑는다. 실행하지 않고 ast 로만 읽는다."""
     result = FileOutline(path)
     try:
-        source = path.read_text(encoding="utf-8")
+        source = read_source(path)
         tree = ast.parse(source)
-    except (OSError, SyntaxError) as e:
+    except (OSError, SyntaxError, SourceError) as e:
         result.error = str(e)
         return result
 
@@ -595,6 +616,6 @@ def compat_scan(roots: list[Path]) -> CompatReport:
             report.files += 1
             try:
                 report.hits += compat_hits(path)
-            except (SyntaxError, OSError) as e:
+            except (SyntaxError, OSError, ValueError) as e:   # 널바이트는 ValueError
                 report.failed.append((path, str(e)))
     return report

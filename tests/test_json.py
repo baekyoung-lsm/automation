@@ -220,5 +220,32 @@ class TypeGenTest(unittest.TestCase):
         self.assertIn("pass", jsonkit.to_python(jsonkit.infer_type({"a": {}})))
 
 
+class JsonEncodingTest(unittest.TestCase):
+    """UTF-8 이 아닌 파일을 줬을 때. 역추적 대신 한국어 오류여야 한다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_binary_file_raises_korean_error(self):
+        path = self.root / "그림.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00")
+        with self.assertRaises(jsonkit.JsonError) as caught:
+            jsonkit.load(path)
+        self.assertIn("글자로 읽지 못했습니다", str(caught.exception))
+
+    def test_cp949_json_is_read(self):
+        path = self.root / "설정.json"
+        path.write_bytes('{"이름": "홍길동"}'.encode("cp949"))
+        self.assertEqual(jsonkit.load(path), {"이름": "홍길동"})
+
+    def test_utf8_with_bom_is_read(self):
+        path = self.root / "bom.json"
+        path.write_bytes(b"\xef\xbb\xbf" + '{"가": 1}'.encode())
+        self.assertEqual(jsonkit.load(path), {"가": 1})
+
+
 if __name__ == "__main__":
     unittest.main()

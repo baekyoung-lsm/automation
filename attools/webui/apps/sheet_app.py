@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ... import files, sheet, xlsx
+from ... import files, sheet, text as textkit, xlsx
 from .. import App, UiError, form
 
 PEEK_ROWS = 30
@@ -914,7 +914,10 @@ def _mail_drafts(payload: dict):
     to = form.text(payload, "mlto")
     if not subject or not to:
         raise UiError("제목 틀과 받는 사람 열을 채워 주세요.")
-    body = template_path.read_text(encoding=sheet.sniff_encoding(template_path))
+    try:                      # 틀 자리에 엑셀·그림을 넣으면 500 이 아니라 안내로
+        body, _enc = textkit.read_text_any(template_path)
+    except (OSError, textkit.TextError) as exc:
+        raise UiError(f"틀 파일을 글자로 읽지 못했습니다: {exc}") from None
     attach = form.text(payload, "mlattach") or None
     try:
         drafts, missing = sheet.build_mails(table, template=body,

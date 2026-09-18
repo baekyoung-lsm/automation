@@ -2,6 +2,7 @@
 
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -589,6 +590,29 @@ class DocTodoTest(unittest.TestCase):
 
     def test_line_numbers(self):
         self.assertEqual(self.tasks()[0].line, 4)
+
+
+class UrlStripTest(unittest.TestCase):
+    """용어를 셀 때 빼는 URL·메일 주소. 긴 한 줄에서 멎지 않아야 한다."""
+
+    def test_strips_url_and_mail(self):
+        line = "보기 http://a.com/b 와 hong@x.co.kr 을 뺀다"
+        body = mdkit.URL_LIKE.sub(" ", line)
+        self.assertNotIn("http", body)
+        self.assertNotIn("@", body)
+
+    def test_keeps_plain_words(self):
+        self.assertEqual(mdkit.URL_LIKE.sub(" ", "가나다 라마바"), "가나다 라마바")
+
+    def test_long_single_line_is_fast(self):
+        """«\\S+@» 로 시작하던 때는 20만 자 한 줄에서 몇 분씩 걸렸다."""
+        start = time.monotonic()
+        mdkit.URL_LIKE.sub(" ", "가" * 40000)
+        self.assertLess(time.monotonic() - start, 1.0)
+
+    def test_prose_lines_drop_urls(self):
+        rows = list(mdkit.prose_lines("메일은 hong@x.co.kr 입니다\n"))
+        self.assertNotIn("@", rows[0][1])
 
 
 if __name__ == "__main__":

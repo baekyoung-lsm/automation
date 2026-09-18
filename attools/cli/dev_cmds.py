@@ -1025,6 +1025,9 @@ def cmd_dev_outline(a) -> int:
     rows = [r for r in rows if not r.error]
     if not rows:
         _p("파이썬 파일을 찾지 못했습니다.")
+        if broken:          # 읽다 만 파일이 있으면 «없다» 로만 끝내지 않는다
+            _p(f"읽지 못한 파일 {len(broken)}개: "
+               + ", ".join(f"{r.path} ({r.error})" for r in broken[:3]))
         return 1
 
     if a.file:

@@ -8,6 +8,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import text as textkit
+
 MISSING = object()
 
 
@@ -24,7 +26,13 @@ def load(source: str | Path):
         path = Path(source)
         if not path.is_file():
             raise JsonError(f"파일이 없습니다: {path}")
-        raw = path.read_text(encoding="utf-8-sig")
+        # UTF-8 이 아닌 json 을 그냥 read_text 하면 UnicodeDecodeError 가
+        # 그대로 튀어나온다. 창에 그림 파일을 끌어다 놓는 일이 흔해서
+        # 한국어 오류로 바꿔 준다. cp949 로 저장된 json 도 함께 읽힌다.
+        try:
+            raw, _enc = textkit.read_text_any(path)
+        except textkit.TextError as e:
+            raise JsonError(f"{path}: 글자로 읽지 못했습니다 ({e})") from None
         name = str(path)
 
     return loads(raw, name=name)

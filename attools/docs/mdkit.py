@@ -500,7 +500,9 @@ def format_tables(text: str) -> tuple[str, int]:
 # ------------------------------------------------------------ 용어 표기 점검
 
 INLINE_CODE = re.compile(r"`[^`]*`")
-URL_LIKE = re.compile(r"https?://\S+|\S+@\S+\.\S+")
+# 앞이 공백·여는 괄호일 때만 본다. «\S+@» 로 시작하면 @ 없는 긴 한 줄에서
+# 자리마다 줄 끝까지 되짚어 O(n^2) 이 된다 - 한 줄짜리 큰 파일이 멎었다.
+URL_LIKE = re.compile(r"(?<![^\s(\[<])(?:https?://\S+|[^\s@]+@[^\s@]+\.[^\s@]+)")
 WORD_EN = re.compile(r"[A-Za-z][A-Za-z0-9]{1,}")
 WORD_KO = re.compile(r"[가-힣]{2,}")
 

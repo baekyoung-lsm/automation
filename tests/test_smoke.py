@@ -959,6 +959,13 @@ class SmokeTest(unittest.TestCase):
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
         self.assertIn("홍길동은", text)
 
+    def test_sheet_fill_with_binary_template(self):
+        """틀 자리에 엑셀을 넣어도 역추적 대신 안내가 나온다."""
+        엑셀 = self.path("명단.xlsx")
+        말 = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", 엑셀,
+                          expect=1)
+        self.assertIn("글자로 읽지 못했습니다", 말)
+
     # ------------------------------------------------------------ json
 
     def test_json_group(self):

@@ -429,5 +429,49 @@ class CompatTest(unittest.TestCase):
             pyscan.parse_version("3")
 
 
+class ReadSourceTest(unittest.TestCase):
+    """파이썬 소스로 읽을 수 없는 파일. 훑다가 멎으면 안 된다."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_non_utf8_file_raises_source_error(self):
+        path = self.root / "그림.py"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        with self.assertRaises(pyscan.SourceError):
+            pyscan.read_source(path)
+
+    def test_null_byte_file_raises_source_error(self):
+        path = self.root / "널.py"
+        path.write_bytes(b"x = 1\x00\n")
+        with self.assertRaises(pyscan.SourceError):
+            pyscan.read_source(path)
+
+    def test_outline_reports_error_instead_of_raising(self):
+        path = self.root / "그림.py"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        result = pyscan.outline(path)
+        self.assertTrue(result.error)
+        self.assertEqual(result.symbols, [])
+
+    def test_scans_skip_unreadable_file(self):
+        bad = self.root / "널.py"
+        bad.write_bytes(b"x = 1\x00\n")
+        (self.root / "쓸만.py").write_text("import os\n", encoding="utf-8")
+        self.assertEqual(pyscan.unused_imports(bad), [])
+        self.assertEqual(pyscan.redefined(bad), [])
+        found, seen = pyscan.redefined_scan([self.root])
+        self.assertEqual(found, [])
+        self.assertEqual(seen, 2)
+
+    def test_compat_scan_counts_null_byte_file_as_failed(self):
+        (self.root / "널.py").write_bytes(b"x = 1\x00\n")
+        report = pyscan.compat_scan([self.root])
+        self.assertEqual(len(report.failed), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
