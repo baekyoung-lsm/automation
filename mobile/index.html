@@ -2,13 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>월급과 장부</title>
+<title>손에 든 attools</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;700;800&family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1b4b6b" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#14181b" media="(prefers-color-scheme: dark)">
-<meta name="description" content="폰에서 쓰는 장부·고정비·월급 계산기. 이 폰에만 저장한다.">
+<meta name="description" content="attools 를 폰에서. 계산·장부·고정비·단축키·명령 찾기.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -24,19 +24,11 @@
 <body>
 <style>
   :root {
-    --ground: #eff1f3;
-    --card: #ffffff;
-    --sunk: #e6e9ec;
-    --ink: #15191c;
-    --ink-2: #5a646e;
-    --ink-3: #8b959e;
-    --rule: #d5dbe0;
-    --accent: #1b4b6b;
-    --accent-soft: #dce8f0;
-    --out: #c2402b;
-    --in: #0f6e5c;
-    --warn: #8a5a12;
-    --shadow: 0 1px 2px rgba(21, 25, 28, .07), 0 6px 18px rgba(21, 25, 28, .06);
+    --ground: #eff1f3; --card: #ffffff; --sunk: #e6e9ec;
+    --ink: #15191c; --ink-2: #5a646e; --ink-3: #8b959e; --rule: #d5dbe0;
+    --accent: #1b4b6b; --accent-soft: #dce8f0;
+    --out: #c2402b; --in: #0f6e5c; --warn: #8a5a12;
+    --shadow: 0 1px 2px rgba(21,25,28,.07), 0 6px 18px rgba(21,25,28,.06);
     --body: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
     --display: "Gothic A1", "Noto Sans KR", sans-serif;
     --mono: "JetBrains Mono", ui-monospace, "Menlo", monospace;
@@ -44,35 +36,19 @@
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --ground: #14181b;
-      --card: #1c2226;
-      --sunk: #232b30;
-      --ink: #e8ecef;
-      --ink-2: #94a2ac;
-      --ink-3: #6d7a83;
-      --rule: #2c353b;
-      --accent: #7fb2d4;
-      --accent-soft: #223440;
-      --out: #e8705a;
-      --in: #46b79e;
-      --warn: #d9a340;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .3);
+      --ground: #14181b; --card: #1c2226; --sunk: #232b30;
+      --ink: #e8ecef; --ink-2: #94a2ac; --ink-3: #6d7a83; --rule: #2c353b;
+      --accent: #7fb2d4; --accent-soft: #223440;
+      --out: #e8705a; --in: #46b79e; --warn: #d9a340;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
     }
   }
   :root[data-theme="dark"] {
-    --ground: #14181b;
-    --card: #1c2226;
-    --sunk: #232b30;
-    --ink: #e8ecef;
-    --ink-2: #94a2ac;
-    --ink-3: #6d7a83;
-    --rule: #2c353b;
-    --accent: #7fb2d4;
-    --accent-soft: #223440;
-    --out: #e8705a;
-    --in: #46b79e;
-    --warn: #d9a340;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .3);
+    --ground: #14181b; --card: #1c2226; --sunk: #232b30;
+    --ink: #e8ecef; --ink-2: #94a2ac; --ink-3: #6d7a83; --rule: #2c353b;
+    --accent: #7fb2d4; --accent-soft: #223440;
+    --out: #e8705a; --in: #46b79e; --warn: #d9a340;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.3);
   }
 
   html, body { height: 100%; }
@@ -82,61 +58,58 @@
     -webkit-text-size-adjust: 100%; overscroll-behavior-y: none;
   }
   * { box-sizing: border-box; }
-  button, input, select { font: inherit; color: inherit; }
+  button, input, select, textarea { font: inherit; color: inherit; }
   .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
-  /* ---------------------------------------------------------- 뼈대 */
   .wrap { min-height: 100%; padding: 0 16px calc(var(--tab-h) + 26px); max-width: 560px; margin: 0 auto; }
   header.top {
     position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
     background: var(--ground); padding-block: 12px 8px;
     border-bottom: 1px solid var(--rule); margin: 0 -16px; padding-inline: 16px;
   }
-  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; min-height: 30px; }
   .brand h1 {
     font-family: var(--display); font-weight: 800; font-size: 19px;
-    margin: 0; letter-spacing: -.02em;
+    margin: 0; letter-spacing: -.02em; flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .brand .sub { font-size: 11px; color: var(--ink-3); letter-spacing: .08em; }
+  .brand .sub { font-size: 11px; color: var(--ink-3); letter-spacing: .04em; flex: none; }
+  .back {
+    flex: none; width: 34px; height: 34px; margin-left: -6px; border-radius: 10px;
+    border: 1px solid var(--rule); background: var(--card); cursor: pointer;
+    color: var(--ink-2); font-size: 17px; line-height: 1;
+  }
   .monthbar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
-  .monthbar .label {
-    flex: 1; text-align: center; font-family: var(--display); font-weight: 700;
-    font-size: 16px;
-  }
+  .monthbar .label { flex: 1; text-align: center; font-family: var(--display); font-weight: 700; font-size: 16px; }
   .stepper {
     width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--rule);
-    background: var(--card); cursor: pointer; font-size: 17px; line-height: 1;
-    color: var(--ink-2);
+    background: var(--card); cursor: pointer; font-size: 17px; line-height: 1; color: var(--ink-2);
   }
-  .stepper:disabled { opacity: .35; }
+  .search { margin-top: 8px; }
+  .search input {
+    width: 100%; padding: 11px 13px; border-radius: 11px; border: 1px solid var(--rule);
+    background: var(--card); min-height: 44px;
+  }
 
-  /* ---------------------------------------------------------- 카드 */
-  .card {
-    background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
-    padding: 14px; margin-top: 12px;
-  }
-  .card > h2 {
-    font-family: var(--display); font-weight: 700; font-size: 13px; margin: 0 0 10px;
-    color: var(--ink-2); letter-spacing: .04em;
-  }
+  .card { background: var(--card); border: 1px solid var(--rule); border-radius: 14px; padding: 14px; margin-top: 12px; }
+  .card > h2 { font-family: var(--display); font-weight: 700; font-size: 13px; margin: 0 0 10px; color: var(--ink-2); letter-spacing: .04em; }
   .card.flat { background: transparent; border: 0; padding: 0; }
 
-  /* 이번 달 요약 - 이 화면의 주인공이라 유일하게 크게 쓴다 */
   .summary { box-shadow: var(--shadow); padding: 16px 16px 12px; }
   .summary .left-label { font-size: 12px; color: var(--ink-2); letter-spacing: .06em; }
   .summary .left-amount {
-    font-family: var(--mono); font-weight: 700; font-size: 34px; letter-spacing: -.02em;
-    margin: 2px 0 12px; font-variant-numeric: tabular-nums;
+    font-family: var(--mono); font-weight: 700; font-size: 32px; letter-spacing: -.02em;
+    margin: 2px 0 12px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
   }
   .summary .left-amount.minus { color: var(--out); }
+  .summary .left-amount .unit { font-size: 18px; }
   .inout { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .inout div { background: var(--sunk); border-radius: 10px; padding: 8px 10px; }
+  .inout div { background: var(--sunk); border-radius: 10px; padding: 8px 10px; min-width: 0; }
   .inout .k { font-size: 11px; color: var(--ink-2); }
-  .inout .v { font-family: var(--mono); font-weight: 700; font-size: 16px; }
+  .inout .v { font-family: var(--mono); font-weight: 700; font-size: 16px; overflow-wrap: anywhere; }
   .inout .v.plus { color: var(--in); }
   .inout .v.minus { color: var(--out); }
 
-  /* 영수증식 줄: 이름 ...... 금액 */
   .line { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px dashed var(--rule); }
   .line:last-child { border-bottom: 0; }
   .line .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -147,23 +120,29 @@
   .line .meta { font-size: 11px; color: var(--ink-3); }
   .line .day { flex: none; width: 34px; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
 
-  .chip {
-    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px;
-    background: var(--accent-soft); color: var(--accent); font-weight: 700;
-  }
-
-  /* 분류 막대 */
+  .chip { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
   .bar { height: 7px; border-radius: 99px; background: var(--sunk); overflow: hidden; margin-top: 5px; }
   .bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
-
   .empty { color: var(--ink-3); font-size: 13px; padding: 14px 0; text-align: center; }
   .note { font-size: 12px; color: var(--ink-2); line-height: 1.6; }
   .note.warn { color: var(--warn); }
+  .cmd { font-family: var(--mono); font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 
-  /* ---------------------------------------------------------- 탭바 */
+  /* 도구 목록 */
+  .tools { display: grid; gap: 1px; background: var(--rule); border-radius: 12px; overflow: hidden; border: 1px solid var(--rule); }
+  .tools button {
+    border: 0; background: var(--card); text-align: left; padding: 13px 14px; cursor: pointer;
+    display: block; width: 100%; min-height: 54px;
+  }
+  .tools button .t { font-weight: 700; }
+  .tools button .d { font-size: 12px; color: var(--ink-2); display: block; }
+  .tools button .c { font-family: var(--mono); font-size: 11px; color: var(--ink-3); display: block; margin-top: 2px; overflow-wrap: anywhere; }
+  .tools button[disabled] { background: var(--sunk); cursor: default; }
+  .tools button[disabled] .t { color: var(--ink-2); font-weight: 500; }
+
   nav.tabs {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
-    display: grid; grid-template-columns: repeat(3, 1fr);
+    display: grid; grid-template-columns: repeat(4, 1fr);
     background: var(--card); border-top: 1px solid var(--rule);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -182,11 +161,7 @@
     box-shadow: var(--shadow); font-family: var(--mono); font-weight: 500;
   }
 
-  /* ---------------------------------------------------------- 바텀시트 */
-  .veil {
-    position: fixed; inset: 0; z-index: 40; background: rgba(9, 13, 16, .5);
-    display: flex; align-items: flex-end; justify-content: center;
-  }
+  .veil { position: fixed; inset: 0; z-index: 40; background: rgba(9,13,16,.5); display: flex; align-items: flex-end; justify-content: center; }
   .sheet {
     width: 100%; max-width: 560px; background: var(--card);
     border-radius: 18px 18px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
@@ -196,91 +171,81 @@
   .grip { width: 38px; height: 4px; border-radius: 99px; background: var(--rule); margin: 0 auto 10px; }
 
   .seg { display: grid; grid-auto-flow: column; gap: 6px; background: var(--sunk); padding: 4px; border-radius: 12px; }
-  .seg button {
-    border: 0; background: none; padding: 9px 4px; border-radius: 9px; cursor: pointer;
-    font-weight: 700; font-size: 13px; color: var(--ink-2);
-  }
+  .seg button { border: 0; background: none; padding: 9px 4px; border-radius: 9px; cursor: pointer; font-weight: 700; font-size: 13px; color: var(--ink-2); }
   .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
 
   label.f { display: block; margin-top: 12px; }
   label.f > span { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
-  .in {
-    width: 100%; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--rule);
-    background: var(--ground); min-height: 46px;
-  }
-  .in:focus-visible, .stepper:focus-visible, button:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px;
-  }
-  input.money { font-family: var(--mono); font-weight: 700; font-size: 22px; text-align: right; }
+  label.f > span small { color: var(--ink-3); }
+  .in { width: 100%; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--rule); background: var(--ground); min-height: 46px; }
+  .in:focus-visible, .stepper:focus-visible, button:focus-visible, .search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input.money { font-family: var(--mono); font-weight: 700; font-size: 20px; text-align: right; }
+  textarea.in { min-height: 110px; font-family: var(--mono); font-size: 13px; resize: vertical; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chips button {
-    border: 1px solid var(--rule); background: var(--ground); border-radius: 99px;
-    padding: 8px 13px; cursor: pointer; font-size: 13px; min-height: 40px;
-  }
+  .chips button { border: 1px solid var(--rule); background: var(--ground); border-radius: 99px; padding: 8px 13px; cursor: pointer; font-size: 13px; min-height: 40px; }
   .chips button[aria-pressed="true"] { background: var(--accent); color: var(--card); border-color: var(--accent); }
   .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .go {
-    width: 100%; margin-top: 16px; padding: 15px; border-radius: 13px; border: 0;
-    background: var(--accent); color: var(--card); font-weight: 700; font-size: 16px;
-    cursor: pointer; font-family: var(--display);
-  }
-  .ghost {
-    width: 100%; margin-top: 8px; padding: 12px; border-radius: 11px;
-    border: 1px solid var(--rule); background: transparent; color: var(--ink-2);
-    cursor: pointer; font-size: 14px;
-  }
+  .go { width: 100%; margin-top: 16px; padding: 15px; border-radius: 13px; border: 0; background: var(--accent); color: var(--card); font-weight: 700; font-size: 16px; cursor: pointer; font-family: var(--display); }
+  .ghost { width: 100%; margin-top: 8px; padding: 12px; border-radius: 11px; border: 1px solid var(--rule); background: transparent; color: var(--ink-2); cursor: pointer; font-size: 14px; }
   .del { color: var(--out); border-color: var(--out); }
-  textarea.out {
-    width: 100%; height: 150px; font-family: var(--mono); font-size: 11px;
-    border-radius: 11px; border: 1px solid var(--rule); background: var(--ground);
-    padding: 10px; resize: vertical;
-  }
+  textarea.out { width: 100%; height: 150px; font-family: var(--mono); font-size: 11px; border-radius: 11px; border: 1px solid var(--rule); background: var(--ground); padding: 10px; resize: vertical; }
   .toast {
     position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
     bottom: calc(var(--tab-h) + 88px + env(safe-area-inset-bottom, 0px));
     background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 99px;
-    font-size: 13px; font-weight: 700; box-shadow: var(--shadow);
+    font-size: 13px; font-weight: 700; box-shadow: var(--shadow); max-width: 88%; text-align: center;
   }
   @media (prefers-reduced-motion: no-preference) {
     .sheet { animation: rise .18s ease-out; }
     @keyframes rise { from { transform: translateY(14px); } }
   }
-  .tri { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
-  .tri b { font-family: var(--mono); font-size: 17px; }
   dl.kv { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 7px 10px; }
   dl.kv dt { font-size: 13px; color: var(--ink-2); min-width: 0; }
-  dl.kv dd { margin: 0; font-family: var(--mono); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  dl.kv dd { margin: 0; font-family: var(--mono); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   dl.kv dt small { display: block; font-size: 11px; color: var(--ink-3); font-family: var(--body); }
   .total { border-top: 1px solid var(--rule); margin-top: 10px; padding-top: 10px; }
+  .scroll { overflow-x: auto; margin: 0 -14px; padding: 0 14px; }
+  table.grid { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+  table.grid th, table.grid td { padding: 6px 9px; text-align: left; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+  table.grid th { font-size: 11px; color: var(--ink-2); font-weight: 700; }
+  table.grid td.n { font-family: var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
 </style>
 
 <div class="wrap">
   <header class="top">
     <div class="brand">
-      <h1 id="pagetitle">월급과 장부</h1>
-      <span class="sub" id="brandsub">오프라인 · 이 폰에만 저장</span>
+      <button class="back" id="back" hidden aria-label="뒤로">&#8249;</button>
+      <h1 id="pagetitle">손에 든 attools</h1>
+      <span class="sub" id="brandsub">이 폰에만 저장</span>
     </div>
-    <div class="monthbar" id="monthbar">
+    <div class="monthbar" id="monthbar" hidden>
       <button class="stepper" id="prevm" aria-label="지난 달">&#8249;</button>
-      <span class="label num" id="mlabel">2026년 9월</span>
+      <span class="label num" id="mlabel"></span>
       <button class="stepper" id="nextm" aria-label="다음 달">&#8250;</button>
     </div>
+    <div class="search" id="searchbar" hidden>
+      <input class="in" id="q" type="search" placeholder="하려는 일이나 명령 이름으로 찾기" autocomplete="off">
+    </div>
   </header>
-
   <main id="view"></main>
 </div>
 
-<button class="fab" id="fab" aria-label="지출 넣기">+</button>
+<button class="fab" id="fab" hidden aria-label="넣기">+</button>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" id="tab-ledger" aria-selected="true"><span class="ic">&#8361;</span>장부</button>
+  <button role="tab" id="tab-tools" aria-selected="true"><span class="ic">&#8862;</span>도구</button>
+  <button role="tab" id="tab-ledger" aria-selected="false"><span class="ic">&#8361;</span>장부</button>
   <button role="tab" id="tab-fixed" aria-selected="false"><span class="ic">&#8942;&#8942;</span>고정비</button>
-  <button role="tab" id="tab-pay" aria-selected="false"><span class="ic">&#8721;</span>월급</button>
+  <button role="tab" id="tab-me" aria-selected="false"><span class="ic">&#9776;</span>더보기</button>
 </nav>
 
 <div id="modal"></div>
 <div id="toast"></div>
-
+<script>
+// <데이터 시작> - python3 mobile/tools/make_data.py 가 쓴다. 손대지 마세요.
+window.ATDATA = {"명령": [["file", "organize", "확장자/날짜별로 분류해 옮기기"], ["file", "sweep", "여러 폴더를 한꺼번에 훑어 쓰임새별로 묶기·정리"], ["file", "docs", "워드·엑셀·슬라이드·한글·PDF 속성 목록 (누가 만든 문서인가)"], ["file", "pdf", "사진·스캔 이미지를 PDF 한 장으로 묶기"], ["file", "pdfcut", "PDF 에서 필요한 쪽만 뽑기 (나누기)"], ["file", "eml", "받은 메일(.eml) 훑기·첨부 꺼내기"], ["file", "pdftext", "PDF 에서 글자 꺼내기 (찾기·붙여넣기)"], ["file", "pdfimg", "PDF 안에 든 그림 꺼내기 (사진·도표)"], ["file", "pdfblank", "스캔본에서 빈 쪽·백지로 보이는 쪽 찾기"], ["file", "pdfstamp", "PDF 에 도장·서명 그림 얹기"], ["file", "pdfnum", "PDF 에 쪽 번호 찍기 (합본 계약서·제출본)"], ["file", "pdfturn", "거꾸로 스캔된 쪽 돌리기·쪽 차례 바로잡기"], ["file", "pdfjoin", "여러 PDF 를 준 차례대로 합치기"], ["file", "exif", "사진에 남은 촬영 정보 보기·지우기 (위치·기기)"], ["file", "sync", "원본에서 백업 폴더로 새것·바뀐 것만 넣기"], ["file", "scrub", "문서 속성에서 사람·회사 이름 지우기 (밖으로 보내기 전)"], ["file", "list", "파일 목록을 표로 (엑셀에 붙일 자료 목록)"], ["file", "photos", "사진을 촬영 날짜별로 (EXIF)"], ["file", "fixname", "한글 자모 분리·특수문자 파일명 정리"], ["file", "rename", "규칙에 맞춰 이름 일괄 변경"], ["file", "dupes", "내용이 같은 중복 파일 찾기"], ["file", "watch", "파일이 바뀌면 명령을 실행"], ["file", "tree", "프로젝트 구조 - .gitignore 를 그대로 따른다"], ["file", "recent", "최근에 손댄 파일 (오늘·어제별로)"], ["file", "big", "용량 차지하는 디렉터리/파일 찾기"], ["file", "audit", "받은 폴더 한 번에 훑기 (구성·이름·중복·찌꺼기)"], ["file", "pack", "메일 첨부 한도에 맞춰 여러 zip 으로 나눠 담기"], ["file", "archive", "오래된 파일을 zip 으로 보관"], ["file", "unzip", "한글 이름이 깨지는 zip 을 제대로 풀기"], ["file", "image", "이미지 크기·용량 훑기 (png·jpg·gif·bmp·webp)"], ["file", "route", "규칙 파일대로 폴더에 나눠 담기"], ["file", "flatten", "하위 폴더의 파일을 한 곳으로 모으기"], ["file", "hash", "체크섬 만들기·검증 (배포·백업 무결성)"], ["file", "diff", "두 디렉터리 비교 (배포·백업 검증)"], ["file", "undo", "organize/fixname 되돌리기"], ["dev", "env", ".env 와 .env.example 대조"], ["dev", "port", "포트 점유 프로세스 확인/종료"], ["dev", "deps", "의존성 파일 훑기 - 개수·고정 여부·충돌"], ["dev", "ports", "열려 있는 포트 전부 보기"], ["dev", "jwt", "JWT 내용 확인 (서명 검증 안 함)"], ["dev", "time", "epoch <-> KST/UTC 변환"], ["dev", "wait", "포트/URL 이 열릴 때까지 대기"], ["dev", "re", "정규식 걸어 보기 - 매치·그룹·치환 미리보기"], ["dev", "cron", "cron 표현식 해석과 다음 실행 시각"], ["dev", "gen", "비밀번호·토큰·UUID 생성"], ["dev", "url", "주소 뜯어 보기 - 쿼리 파라미터·비밀값 가리기"], ["dev", "enc", "base64/hex/URL 인코딩·디코딩 한 번에"], ["dev", "bench", "명령 실행 시간 측정·비교"], ["dev", "log", "로그 레벨 집계·시간대 분포·반복 에러 묶기"], ["dev", "slow", "로그의 응답 시간 - 경로별 p50/p95 와 느린 요청"], ["dev", "retry", "성공할 때까지 명령 다시 돌리기 (배로 늘려 기다림)"], ["dev", "db", "sqlite 파일 훑기 (읽기 전용)"], ["dev", "api", "OpenAPI(json) 문서 훑기 - 엔드포인트·인자·응답"], ["dev", "health", "여러 주소를 한 번에 두드려 상태·시간 보기 (배포 뒤 점검)"], ["dev", "mock", "OpenAPI 문서로 가짜 API 서버 띄우기 (백엔드 없이)"], ["dev", "fake", "시험용 가짜 표 만들기 (한글 이름·전화·주소)"], ["dev", "lock", "잠금 파일 두 개를 비교 - 어떤 패키지가 얼마나 바뀌었나"], ["dev", "timeline", "여러 로그를 시각 순으로 한 줄기로 (서비스 사이 순서)"], ["dev", "pyver", "이 코드가 어느 파이썬부터 도는지 (낮은 판 지원 확인)"], ["dev", "unused", "안 쓰는 import 찾기 (파이썬)"], ["dev", "twice", "두 번 정의된 이름 찾기 (중복 정의 - 뒤엣것이 앞엣것을 가린다)"], ["dev", "calls", ".http 파일의 요청을 차례대로 부르기 (로그인 -> 목록)"], ["dev", "docker", "Dockerfile 훑기 - 태그·캐시·root·비밀값"], ["dev", "http", "HTTP 한 번 부르기 - 상태·시간·본문 (한글 안 깨짐)"], ["dev", "cert", "서버 인증서 만료일·이름 확인 (https)"], ["dev", "doctor", "새로 받은 저장소 훑기 - 무엇으로 만들었나, 뭐부터 하나"], ["dev", "imports", "모듈 import 관계 - 누가 누구를 부르나, 고리는 없나"], ["dev", "loc", "줄 수 세기 - 언어별 코드·주석·빈 줄"], ["dev", "outline", "파이썬 소스 구조 - 파일별 클래스·함수·긴 함수"], ["dev", "mask", "로그의 개인정보·시크릿 가리기"], ["git", "branches", "브랜치 목록 - 마지막 커밋·사람·원격 차이"], ["git", "sweep", "병합 끝난 브랜치, 원격 사라진 브랜치 정리"], ["git", "todo", "코드의 TODO·FIXME 를 작성자·방치 기간과 함께 모으기"], ["git", "stats", "커밋 통계와 자주 바뀌는 파일"], ["git", "owners", "어느 자리를 누가 주로 만졌나 (물어볼 사람)"], ["git", "release", "태그 사이 커밋으로 변경 로그 초안 만들기"], ["git", "scan", "코드에 하드코딩된 시크릿·개인정보 찾기"], ["git", "conflicts", "충돌 표시가 남은 자리 찾기"], ["git", "mine", "내가 한 일 - 날짜별 커밋 목록 (주간보고)"], ["git", "history", "한 파일의 이력 - 누가 언제 무엇을 (이름 바꿔도 따라감)"], ["git", "hook", "커밋 전 점검을 git 훅으로 걸기"], ["git", "ready", "커밋 전 점검 - 시크릿·충돌·디버그 흔적·큰 파일"], ["git", "heavy", "저장소를 무겁게 하는 파일 (히스토리 포함)"], ["life", "dday", "D-day, 만 나이, 기념일"], ["life", "split", "더치페이 정산"], ["life", "loan", "대출 상환액 계산"], ["life", "weekly", "주휴수당 - 시급과 1주 소정근로시간으로"], ["life", "wage", "한 달 급여 명세 - 월급·시급·일급·도급 (생산직 실수령액)"], ["life", "hourly", "통상시급과 연장·야간·휴일 가산 수당 (근로기준법 제56조)"], ["life", "severance", "퇴직금 계산 (평균임금 기준, 세전)"], ["life", "annual", "연차 일수 - 입사일 기준 (근로기준법 제60조)"], ["life", "workday", "영업일 계산과 공휴일 목록"], ["life", "unit", "단위 변환 (평/㎡, 근/돈, 마일, 화씨…)"], ["life", "insure", "4대보험 공제액 - 월급에서 얼마나 빠지나"], ["life", "tax", "부가세 계산과 원천징수 실수령액"], ["life", "save", "적금·예금 만기 수령액"], ["life", "cal", "달력 - 공휴일과 그 달 영업일 수"], ["life", "tz", "시차 - 여러 도시의 같은 시각, 겹치는 근무 시간"], ["life", "rent", "전월세 전환 - 보증금 <-> 월세"], ["life", "won", "금액을 한글로 (계약서·영수증 표기)"], ["life", "time", "시간 계산 - 근무 시간, 시각 더하기"], ["sheet", "peek", "열 구성·타입·결측 훑어보기"], ["sheet", "row", "한 행을 세로로 보기 (열이 많은 표)"], ["sheet", "check", "중복 키·결측·타입 혼재 검증"], ["sheet", "clean", "공백·숫자·날짜 정리"], ["sheet", "find", "여러 파일에서 값 찾기 (어느 파일 몇 행)"], ["sheet", "book", "여러 파일을 한 엑셀의 여러 시트로"], ["sheet", "sheets", "엑셀 안의 시트 목록과 머리글"], ["sheet", "format", "열 표기 통일 (전화·사업자번호·날짜)"], ["sheet", "mask", "개인정보 가린 사본 만들기 (밖으로 보낼 때)"], ["sheet", "from-md", "마크다운 문서 안의 표를 엑셀·csv 로"], ["sheet", "to-sql", "표를 INSERT 문으로 (개발 DB 에 넣기)"], ["sheet", "from-vcard", "받은 연락처(vcf)를 표로"], ["sheet", "from-ics", "받은 일정(ics)을 표로"], ["sheet", "vcard", "명단을 연락처 파일(vcf)로"], ["sheet", "ics", "일정표를 캘린더 파일(ics)로"], ["sheet", "from-docx", "워드 문서 안의 표를 엑셀·csv 로"], ["sheet", "from-hwpx", "한글 문서(hwpx) 안의 표를 엑셀·csv 로"], ["sheet", "from-pptx", "슬라이드(pptx) 안의 표를 엑셀·csv 로"], ["sheet", "forms", "받은 파일들의 열 구성 견주기 (합치기 전 서식 점검)"], ["sheet", "form", "양식 파일(xlsx)의 칸에 값 채워 내보내기"], ["sheet", "collect", "같은 양식 파일들에서 같은 칸만 뽑기 (취합)"], ["sheet", "merge", "여러 파일을 세로로 합치기 (폴더도 된다)"], ["sheet", "diff", "두 파일을 키 기준으로 비교"], ["sheet", "pivot", "그룹별 집계·교차표"], ["sheet", "melt", "넓은 표를 긴 표로 (pivot 의 반대)"], ["sheet", "transpose", "행과 열 바꾸기"], ["sheet", "expand", "한 열을 구분자로 갈라 여러 열로"], ["sheet", "combine", "여러 열을 한 열로 합치기 (expand 의 반대)"], ["sheet", "rename", "열 이름 바꾸기 (합치기 전에 맞추기)"], ["sheet", "cut", "열 고르기 · 빼기"], ["sheet", "where", "조건에 맞는 행만"], ["sheet", "sort", "정렬"], ["sheet", "sample", "표본 뽑기"], ["sheet", "audit", "받은 표 한 번에 훑기 (빈 칸·타입·중복·드문 값·개인정보)"], ["sheet", "outliers", "숫자 열에서 드문 값 찾기 (입력 실수 검수)"], ["sheet", "replace", "표 안의 값 찾아 바꾸기 (엑셀의 모두 바꾸기)"], ["sheet", "dday", "마감일 열에서 남은 일수·상태 만들기 (일정표)"], ["sheet", "dates", "날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비)"], ["sheet", "labels", "명단을 주소 라벨 인쇄용 HTML 로 (우편물 붙이기)"], ["sheet", "gaps", "번호·날짜 열에서 빠진 것 찾기 (전표 누락·미제출)"], ["sheet", "worktime", "출근·퇴근 열에서 근무 시간 세기 (근태 취합)"], ["sheet", "ledger", "거래 내역을 달마다·분류마다 모으기 (가계부 기록)"], ["sheet", "budget", "구독료·할부·생활비를 한 달 기준으로 모으기 (가계부)"], ["sheet", "leave", "입사일 열에서 연차 일수 세기 (연차 대장·퇴직 정산)"], ["sheet", "age", "생년월일 열에서 만 나이·연령대 열 만들기 (명단 집계)"], ["sheet", "filldown", "빈 칸을 바로 위 값으로 채우기 (병합 셀 푼 표)"], ["sheet", "total", "맨 아래에 합계 줄 붙이기"], ["sheet", "split", "여러 파일로 나누기"], ["sheet", "unbook", "엑셀의 시트들을 파일로 나누기 (book 의 반대)"], ["sheet", "mail", "명단 + 본문 틀 -> 사람마다 메일 초안 파일(.eml)"], ["sheet", "fill", "명단 + 틀 -> 개인별 문서 (메일 머지)"], ["sheet", "from-json", "JSON 배열을 표로 (API 응답 -> 엑셀)"], ["sheet", "to-json", "표를 JSON 배열로 (엑셀 -> API)"], ["sheet", "validate", "규칙으로 검증 (납품·수령 데이터)"], ["sheet", "fx", "수식으로 계산한 열 붙이기"], ["sheet", "similar", "같은 곳으로 보이는 값 찾기 (거래처 표기 흔들림)"], ["sheet", "dedupe", "키가 같은 행 중 하나만 남기기"], ["sheet", "match", "청구-입금 대사 (키 없이 금액·날짜로 짝짓기)"], ["sheet", "join", "두 표를 키로 합치기 (VLOOKUP 대신)"], ["sheet", "chart", "표를 그림 파일(SVG) 하나로"], ["sheet", "report", "표를 HTML 보고서로 (요약·그래프·표)"], ["sheet", "convert", "csv <-> xlsx 변환 (인코딩 정리)"], ["text", "count", "글자 수 세기 (공백 포함·제외, 원고지 매수)"], ["text", "pick", "이메일·전화·금액·날짜 뽑아내기 (정규식 없이)"], ["text", "privacy", "문서에 개인정보가 들어 있는지 훑기 (밖으로 보내기 전)"], ["text", "kbd", "한/영 자판을 잘못 눌러 깨진 글 되살리기"], ["text", "find", "여러 파일에서 찾기만 (고치지 않는다)"], ["text", "replace", "여러 파일에서 찾아 바꾸기"], ["text", "encoding", "cp949 등을 utf-8 로 통일"], ["text", "eol", "줄바꿈을 LF/CRLF 로 통일"], ["text", "trim", "줄 끝 공백·파일 끝 개행 정리"], ["text", "lines", "줄 단위 정리·대조 (명단 맞춰보기)"], ["text", "diff", "두 글을 줄·문장·문단 단위로 대조"], ["text", "typo", "흔한 한글 표기 오류 찾기 (며칠, 웬만, 됐…)"], ["text", "wrap", "긴 줄을 폭에 맞춰 접기 (한글 두 칸으로 셈)"], ["text", "repeat", "똑같이 반복되는 문장 찾기 (복붙 흔적·중복 설명)"], ["text", "extract", "정규식으로 뽑아 표 만들기"], ["text", "undo", "text 명령 되돌리기"], ["doc", "toc", "제목에서 목차 만들기·갱신"], ["doc", "links", "깨진 상대 링크·앵커 찾기"], ["doc", "stats", "문서 크기 - 글자 수·읽는 시간·표·링크"], ["doc", "todo", "문서에 적어 둔 할 일 모으기 (회의록의 - [ ] 줄)"], ["doc", "check", "제목 단계 건너뜀·중복 점검"], ["doc", "merge", "쪼개 둔 문서를 하나로 (split 의 반대)"], ["doc", "split", "긴 문서를 제목 단위 파일로 쪼개기"], ["doc", "table", "마크다운 표의 칸 너비 맞추기 (한글 두 칸)"], ["doc", "tables", "문서 안의 표를 csv·xlsx 로 뽑기"], ["doc", "images", "문서가 쓰는 이미지 점검 - 없는 파일·큰 그림·고아 파일"], ["doc", "terms", "용어 표기 흔들림 - API/api, 데이터 베이스/데이터베이스"], ["doc", "lint", "문서 점검 한 번에 - 링크·이미지·제목·표·용어"], ["doc", "html", "마크다운을 HTML 한 장으로 (인쇄·공유용)"], ["doc", "slides", "마크다운을 넘겨 보는 슬라이드 HTML 로"], ["doc", "index", "문서 디렉터리의 목록 만들기 (제목·첫 문단)"], ["doc", "from-html", "HTML 을 마크다운으로 (웹 문서 옮기기)"], ["doc", "from-docx", "워드 문서를 마크다운으로 (받은 문서 열기)"], ["doc", "from-hwpx", "한글 문서(hwpx)를 마크다운으로 (받은 문서 열기)"], ["doc", "from-pptx", "슬라이드(pptx)를 마크다운으로 (받은 발표자료 열기)"], ["doc", "form", "워드·한글 양식에 값 채우기 (위촉장·공문·계약서)"], ["doc", "docx", "마크다운을 워드 문서로 (보고서 제출용)"], ["json", "show", "한글 안 깨지게 예쁘게 출력"], ["json", "schema", "키 경로·타입·선택 여부 요약"], ["json", "diff", "두 JSON 을 경로 단위로 비교"], ["json", "get", "경로가 가리키는 값 하나 꺼내기"], ["json", "set", "경로의 값 바꾸기 (설정 파일 편집)"], ["json", "flat", "경로=값 한 줄씩 (grep 하기 좋게)"], ["json", "merge", "설정 JSON 겹치기 (뒤엣것이 이긴다)"], ["json", "types", "표본 JSON 에서 타입 정의 만들기 (dataclass·interface)"], ["keys", "", "단축키 찾기 (한글·Word·엑셀·PPT·구글)"], ["novel", "stats", "분량 집계 (원고지·단행본 환산)"], ["novel", "check", "반복·상투구·긴 문장 점검"], ["novel", "names", "인물·지명 표기 흔들림과 이름 뒤 조사 오류"], ["novel", "outline", "장면 목록 - 분량·대사 비율·등장인물·첫 문장"], ["novel", "find", "원고에서 문맥과 함께 찾기 (복선·소재 추적)"], ["novel", "timeline", "시간 표현 모아 보기와 장면 안 시간 충돌"], ["novel", "style", "화별 문체 지표 비교 - 튀는 화 찾기"], ["novel", "pov", "시점·시제 흔들림 - 과거/현재 섞임, 1인칭/3인칭"], ["novel", "thread", "복선·소재 추적 - 어느 화에 나오고 언제부터 안 나오나"], ["novel", "export", "여러 화를 한 파일로 - 투고·인쇄용"], ["novel", "dialogue", "인물별 대사량과 말투 (존댓말·어미)"], ["novel", "wordlist", "어휘 목록 - 빈도·처음 나온 화·고유 어휘"], ["novel", "snap", "원고 스냅샷 저장/목록"], ["novel", "pace", "스냅샷으로 집필 속도·마감 계산"], ["novel", "cast", "화별 인물 등장 흐름 - 언제 나오고 언제 사라지는지"], ["novel", "rename", "인물 이름 바꾸기 - 뒤에 붙은 조사까지 맞춘다"], ["novel", "tidy", "원고 파일 정리 - 문단 사이 빈 줄, 들여쓰기, 장면 구분선"], ["novel", "punct", "문장 부호 점검·통일 (줄임표·줄표·빈칸)"], ["novel", "quote", "따옴표 짝 점검 - 안 닫힌 대사, 섞인 표기"], ["novel", "split", "한 파일에 몰아 쓴 원고를 화 단위로 나누기"], ["novel", "say", "대사만 뽑아 이어 보기 (말투 점검·낭독용)"], ["novel", "notes", "원고에 남긴 메모 모으기 ([[ ]], ※, TODO:, 주석)"]], "레시피": [["취합", "부서에서 받은 엑셀 여러 개를 한 표로 합치기", ["at sheet forms 제출/", "at sheet merge 제출/ -o 취합.xlsx"], "합치기 전에 forms 로 열 구성부터 본다. 열 이름이 다르면 값이 엉뚱한 열로 들어간다."], ["취합", "같은 양식으로 받은 파일에서 같은 칸만 뽑기", ["at sheet collect 제출/ --cell B3=담당자 --cell C7=금액 -o 취합.xlsx"], "양식의 칸이 합쳐져 있어도 값이 든 칸을 따라간다."], ["취합", "폴더 안 csv·엑셀에서 값이 어디 있는지 찾기", ["at sheet find 한빛상사 제출/"], "어느 파일 어느 시트 몇 행인지 알려 준다."], ["취합", "월별로 쪼개진 파일을 한 엑셀의 여러 시트로", ["at sheet book 1월.xlsx 2월.xlsx 3월.xlsx -o 분기.xlsx"], "반대로 시트를 파일로 나누려면 at sheet unbook."], ["취합", "두 표를 키로 붙이기 (VLOOKUP 대신)", ["at sheet join 명단.xlsx 연락처.xlsx --on 사번 -o 붙임.xlsx"], "키가 겹치거나 없는 행이 몇 개인지 함께 알려 준다."], ["계산", "생산직 한 달 실수령액 - 월급·시급·일급·도급", ["at life wage --type 계약직 --monthly 280만 --overtime 20 --meal 20만", "at life wage --type 일용직 --daily 18만 --days 15", "at life wage --type 도급 --amount 360만"], "정규직과 계약직은 셈법이 같다 - 기간의 정함만 다르다. 근로소득세는 간이세액표를 봐야 해서 안 센다. 명세서의 세금을 --tax 로 주면 뺀다."], ["계산", "카드·통장 내역으로 지난달 얼마 썼는지 보기", ["at sheet ledger 카드내역.csv --date 날짜 --amount 금액 --name 가맹점 --group 분류", "at sheet ledger 통장.csv --date 거래일 --name 적요 --in 입금액 --out 출금액"], "달마다 수입·지출, 분류별 지난달 대비, 큰 지출을 낸다. 달마다 되풀이된 결제도 찾아 준다 - 잊고 있던 구독이 여기서 걸린다. 앞으로 매달 얼마 나갈지는 at sheet budget 이다."], ["계산", "구독료·할부·생활비를 모아 한 달에 얼마 나가는지 보기", ["at sheet budget 지출.csv --amount 금액 --period 주기 --group 분류 --end 종료 --income 280만"], "달·해·주·분기가 섞여 있어도 월로 환산해 더한다. 한 번 나가는 구매는 따로 센다. 할부는 몇 달 뒤 끝나고 얼마가 여유로워지는지 알려 준다."], ["계산", "직원 명단의 연차 일수를 한꺼번에 세기", ["at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx"], "근로기준법 제60조대로 센다. 회계연도로 운영하면 --fiscal 을 붙인다 - 퇴직 정산 때 견주라고 입사일 기준 누적도 함께 낸다. 근태 자료가 없어 개근·출근율 80퍼센트는 채운 것으로 본다."], ["점검", "청구한 돈이 들어왔는지 통장 내역과 맞춰 보기", ["at sheet match 청구.xlsx 통장.csv --amount 금액 --right-amount 입금액 --name 거래처 --right-name 적요 --date 청구일 --right-date 입금일 -o 대사.xlsx"], "통장에는 청구서 번호가 없어 금액으로 먼저 맞춘다. 이름이 달라도 (대표자 개인명) 금액과 날짜가 맞으면 짝으로 본다. 이체 수수료는 --tol 1000 으로 감안한다."], ["취합", "합치기 전에 열 이름 맞추기", ["at sheet rename 2팀.xlsx --map 성명=이름 -o 맞춤.xlsx"], "이름·성명처럼 한 글자만 달라도 다른 열이 된다."], ["점검", "남이 보낸 표, 뭐부터 봐야 하나", ["at sheet audit 받은표.xlsx", "at sheet audit 받은표.xlsx --all"], "--all 은 엑셀 안의 시트를 한 줄씩 전부 훑는다."], ["점검", "표에 적힌 합계가 맞는지 검산", ["at sheet total 정산서.xlsx --check", "at sheet total 정산서.xlsx --check --tol 1"], "행을 끼워 넣고 합계 식을 안 고친 표를 잡는다. 원 단위 절사는 --tol."], ["점검", "명세서의 «수량 x 단가 = 금액» 검산", ["at sheet validate 명세서.xlsx --calc '금액=수량*단가'", "at sheet validate 계산서.xlsx --calc '세액=공급가액*0.1' --calc-tol 1"], "안 맞는 줄마다 적힌 값과 셈한 값을 나란히 보여 준다."], ["점검", "중복·빈 칸·타입 섞임 찾기", ["at sheet check 명단.xlsx", "at sheet clean 명단.xlsx -o 정리본.xlsx"], "check 는 찾기만, clean 은 고친 사본을 만든다."], ["점검", "전표 번호나 날짜가 빠진 곳 찾기", ["at sheet gaps 전표.xlsx -c 전표번호"], "빠진 것이 있으면 종료 코드 1 이라 점검 스크립트에 걸 수 있다."], ["점검", "금액에 0 하나 더 붙은 줄 찾기", ["at sheet outliers 매출.xlsx -c 금액"], "지우지 않고 어느 행인지만 알려 준다."], ["점검", "거래처 이름이 제각각인 것 모으기", ["at sheet similar 거래처.xlsx -c 업체명"], "«(주)한빛»과 «한빛상사»처럼 같은 곳으로 보이는 값을 묶는다."], ["점검", "규칙에 맞는 자료인지 한 번에 보기", ["at sheet validate 납품.csv --required 이름 --unique 사번 --format 연락처=휴대폰"], "규칙을 파일로 두려면 --rules 규칙.json."], ["점검", "두 판을 견줘 무엇이 바뀌었는지", ["at sheet diff 지난달.xlsx 이번달.xlsx --key 사번"], "추가·삭제·바뀐 값을 갈라 보여 준다. -o 로 표로 저장."], ["내보내기", "보낼 폴더에 개인정보가 있는지 먼저 훑기", ["at text privacy 보낼폴더/", "at text privacy 보낼폴더/ --detail"], "워드·한글·PDF·엑셀 안까지 본다. 찾은 값은 가려서 보여 준다."], ["내보내기", "명단에서 개인정보 가린 사본 만들기", ["at sheet mask 명단.xlsx --auto -o 공유본.xlsx", "at sheet mask 보낼폴더 --auto -o 가린것 --apply"], "--auto 는 짐작이다. 무엇을 골랐는지 보고 빠진 것은 --name 으로 준다."], ["내보내기", "문서 속성에 남은 사람·회사 이름 지우기", ["at file docs 보낼폴더/", "at file scrub 보낼폴더/ --apply"], "원본은 두고 «(이름지움)» 사본을 만든다."], ["내보내기", "사진에 남은 위치 정보 지우기", ["at file exif 사진/", "at file exif 사진/ --strip --apply"], "찍어 그대로 보낸 사진에는 집·사무실 좌표가 들어 있다."], ["내보내기", "메일 첨부 한도에 맞춰 나눠 담기", ["at file pack 자료/ --max 20MB -o 보낼것 --apply"], "한 파일이 한도보다 크면 그 사실을 알린다."], ["내보내기", "받은 csv 무더기를 한글 안 깨지게 엑셀로", ["at sheet convert 받은자료 --to xlsx -o 엑셀본 --apply"], "cp949 로 온 파일도 알아서 읽는다."], ["내보내기", "표를 보고서 한 장으로", ["at sheet report 매출.xlsx -o 보고서.html --by 부서 --value 금액"], "브라우저로 열어 인쇄하면 그대로 제출본이 된다."], ["만들기", "거래처마다 견적서 한 장씩 만들기", ["at sheet form 견적서양식.xlsx --data 거래처.xlsx --cell B3=업체 --cell C7=금액 --name '{업체}_견적서.xlsx' -o 보낼것 --apply"], "양식의 서식·수식·그림은 그대로 두고 칸 값만 바꾼다."], ["만들기", "위촉장·수료증을 사람마다 한 장씩 (워드 양식)", ["at doc form 위촉장.docx --set 이름=김민수 -o 위촉장_김민수.docx", "at doc form 위촉장.docx --data 명단.xlsx --set 직책=자문위원 --name '{이름}_위촉장.docx' -o 결과 --apply"], "양식의 글꼴·표·머리글·도장 그림은 그대로 두고 «{이름}» 자리만 바꾼다."], ["만들기", "명단으로 사람마다 메일 초안 만들기", ["at sheet mail 명단.xlsx -t 본문.txt --subject '{이름}님 안내' --to 이메일 -o 초안 --apply"], "보내지는 않는다. .eml 파일을 만들어 메일 프로그램에서 열어 본다."], ["만들기", "명단으로 사람마다 문서 만들기", ["at sheet fill 명단.xlsx -t 틀.md --name '{이름}.md' -o 결과 --apply"], "틀에 {이름} 처럼 열 이름을 적으면 채워진다."], ["만들기", "우편물 주소 라벨 인쇄용 만들기", ["at sheet labels 명단.xlsx --line '{이름}' --line '{주소}' -o 라벨.html"], "브라우저에서 열어 라벨지에 인쇄한다."], ["만들기", "명단을 휴대폰 연락처로", ["at sheet vcard 명단.xlsx --name 이름 --mobile 연락처 -o 연락처.vcf"], "일정은 at sheet ics 로 캘린더 파일이 된다."], ["만들기", "그룹별 집계·교차표", ["at sheet pivot 매출.xlsx --row 부서 --value 금액 --agg sum", "at sheet pivot 매출.xlsx --row 부서 --col 월 --value 금액 --agg sum"], "글자로 든 숫자도 읽고, 못 읽은 칸은 몇 개인지 알려 준다."], ["만들기", "표에 계산 열 붙이기", ["at sheet fx 급여.xlsx --add '월급=연봉/12' --round 0 -o 계산본.xlsx"], "--formula 를 주면 값 대신 엑셀 수식을 넣는다."], ["만들기", "표를 그림 한 장으로", ["at sheet chart 매출.xlsx --label 부서 --value 금액 -o 그림.svg"], "문서에 붙일 때 쓴다."], ["파일", "다운로드 폴더 한 번에 정리", ["at file sweep", "at file sweep --to 정리함 --apply"], "쓰임새(문서·사진·설치파일·스크린샷)별로 묶는다. 되돌리기는 at file undo."], ["파일", "확장자·날짜별로 폴더에 나눠 담기", ["at file organize 자료/ --by ext-date", "at file organize 자료/ --by ext-date --apply"], "미리보기가 기본이다. --apply 뒤에는 at file undo 로 되돌린다."], ["파일", "한글 파일명 깨짐·자모 분리 고치기", ["at file fixname 자료/", "at file fixname 자료/ --apply"], "맥에서 온 파일 이름이 «ㅎㅏㄴㄱㅡㄹ» 로 보일 때."], ["파일", "한글 이름이 깨지는 zip 제대로 풀기", ["at file unzip 받은자료.zip -o 푼것"], "윈도우에서 만든 zip 의 cp949 이름을 알아서 읽는다."], ["파일", "내용이 같은 중복 파일 찾기·치우기", ["at file dupes 사진/", "at file dupes 사진/ --collect 중복함 --apply"], "지우지 않고 한곳에 모은다. at file undo 로 되돌아온다."], ["파일", "용량 차지하는 것 찾기", ["at file big .", "at file archive 자료/ --older 365 --apply"], "오래된 파일은 zip 으로 묶어 보관한다."], ["파일", "받은 폴더 한 번에 훑기", ["at file audit 받은자료/"], "구성·이름 규칙·중복·찌꺼기 파일을 한 번에 본다."], ["파일", "백업 폴더에 새것·바뀐 것만 넣기", ["at file sync 원본/ 백업/", "at file sync 원본/ 백업/ --apply"], "지우지는 않는다. 두 폴더가 같은지는 at file diff."], ["파일", "받은 메일(.eml) 훑고 첨부 꺼내기", ["at file eml 메일/", "at file eml 메일/ -o 첨부 --apply"], "보내지는 않는다. 읽기만 한다."], ["PDF", "필요한 쪽만 뽑기", ["at file pdfcut 계약서.pdf --pages 1-3 -o 앞부분.pdf", "at file pdfcut 보고서.pdf --drop 1 -o 표지뺀것.pdf"], "눌린 자료를 그대로 옮겨 화질이 그대로다."], ["PDF", "여러 PDF 를 차례대로 합치기", ["at file pdfjoin 앞.pdf 본문.pdf 뒤.pdf -o 합본.pdf", "at file pdfnum 합본.pdf --skip 1 -o 번호붙임.pdf"], "합본에 쪽 번호까지 찍으면 제출본이 된다."], ["PDF", "거꾸로 스캔된 쪽 바로잡기", ["at file pdfturn 스캔본.pdf --rotate 180 --even -o 바로잡은.pdf", "at file pdfturn 스캔본.pdf --reverse -o 차례대로.pdf"], "낱장 급지로 양면을 뜨면 뒷면만 뒤집혀 들어온다."], ["PDF", "도장·서명 얹기", ["at file pdfstamp 계약서.pdf --image 도장.png --where bottom-right -o 날인본.pdf"], "인쇄해서 찍고 다시 스캔하지 않아도 된다."], ["PDF", "PDF 에서 글자·그림 꺼내기", ["at file pdftext 자료.pdf", "at file pdfimg 자료.pdf -o 그림 --apply"], "스캔본은 글자가 없다 - 그때는 빈 쪽으로 알려 준다."], ["PDF", "사진·스캔 이미지를 PDF 한 장으로", ["at file pdf 사진/ -o 묶음.pdf"], "JPEG 은 다시 그리지 않고 그대로 넣어 화질이 그대로다."], ["PDF", "스캔본에서 백지 쪽 찾기", ["at file pdfblank 스캔본.pdf"], "짐작이므로 열어 보고 at file pdfcut --drop 으로 뺀다."], ["문서", "받은 워드·한글·슬라이드를 글로 열기", ["at doc from-docx 보고서.docx -o 보고서.md", "at doc from-hwpx 공문.hwpx -o 공문.md"], "옛 .hwp 는 못 읽는다 - 한글에서 hwpx 로 저장해야 한다."], ["문서", "문서 안의 표만 엑셀로 뽑기", ["at sheet from-docx 보고서.docx -o 표.xlsx", "at doc tables 문서.md -o 표.csv"], "표가 여럿이면 --index 로 고른다."], ["문서", "마크다운을 워드·HTML 로 내기", ["at doc docx 보고서.md -o 보고서.docx", "at doc html 보고서.md -o 보고서.html"], "제출본은 워드, 공유는 HTML 이 편하다."], ["문서", "문서 점검 한 번에", ["at doc lint 문서/", "at doc toc README.md --apply"], "깨진 링크·없는 그림·제목 건너뜀·용어 흔들림을 본다."], ["문서", "회의록에 적어 둔 할 일 모으기", ["at doc todo 회의록/"], "«- [ ]» 로 적은 줄을 모은다."], ["계산", "월급에서 4대보험이 얼마나 빠지나", ["at life insure 300만", "at life insure 4800만 --annual --tax 84850"], "근로소득세는 간이세액표를 봐야 해서 세지 않는다."], ["계산", "퇴직금·연차·주휴수당", ["at life severance 2020-03-02 2026-09-01 --pay 1500만", "at life annual 2020-03-02", "at life weekly 10030 --hours 20"], "모두 세전이고, 회사 규정이 우선이다."], ["계산", "영업일·마감일 세기", ["at life workday 2026-09-17 +10", "at life cal 2026-10"], "설날·추석은 음력이라 계산하지 않고 경고를 띄운다."], ["계산", "부가세·원천징수", ["at life tax 1100000", "at life tax 300만 --withhold-rate 8"], "사업소득 3.3%, 기타소득 8.8%."], ["계산", "근무 시간과 수당", ["at life time 09:00-18:30 --break 60", "at life hourly 300만 --overtime 10"], "연장·야간 가산은 근로기준법 제56조 기준이다."], ["개발", "API 를 순서대로 불러 보기", ["at dev calls api.http", "at dev calls api.http --run --var user=kim"], "기본은 미리보기다. POST·DELETE 는 한 번 더 묻는다."], ["개발", "HTTP 한 번 부르기", ["at dev http localhost:8080/api/users", "at dev http api.example.com/orders --json '{\"수량\":2}'"], "4xx·5xx 도 결과로 보여 준다."], ["개발", "Dockerfile 훑기", ["at dev docker .", "at dev docker . --strict"], "latest 태그·root 실행·캐시를 깨는 COPY 차례를 짚는다."], ["개발", "로그에서 무슨 일이 있었는지", ["at dev log app.log", "at dev slow access.log"], "반복 에러를 묶고 응답 시간 백분위를 낸다."], ["개발", "커밋 전 점검", ["at git ready", "at git scan"], "시크릿·충돌 표시·디버그 자국을 본다."], ["개발", "새로 받은 저장소 훑기", ["at dev doctor .", "at dev loc ."], "무엇으로 만들었고 시험은 어떻게 돌리는지 알려 준다."], ["개발", "가짜 자료·가짜 API 로 시험하기", ["at dev fake -c 이름 -c 연락처=전화 -n 200 -o 시험자료.xlsx", "at dev mock openapi.json"], "한글 이름·전화·주소로 만든다."], ["집필", "원고 분량 세기", ["at novel stats 원고/", "at text count 원고/ -g '*.md'"], "원고지 매수와 단행본 쪽수로 환산해 준다."], ["집필", "퇴고 점검 한 번에", ["at novel check 원고/", "at novel pov 원고/", "at novel punct 원고/"], "반복·상투구·긴 문장, 시제 혼용, 문장 부호를 본다."], ["집필", "인물 이름 바꾸기 (조사까지)", ["at novel rename 리안 세하 원고/", "at novel rename 리안 세하 원고/ --apply"], "«리안은» → «세하는» 처럼 뒤에 붙은 조사까지 맞춘다."], ["집필", "복선이 회수됐는지 보기", ["at novel thread 원고/ -w 목걸이 -w 편지", "at novel cast 원고/"], "소재와 인물이 어느 화부터 안 나오는지 짚는다."], ["집필", "투고본 만들기", ["at novel export 원고/ -o 투고본.docx", "at novel export 원고/ -o 원고.epub"], "화 차례는 파일 이름 순이다."]], "단축키": [{"id": "doc", "name": "문서", "apps": [{"id": "hwp", "name": "한글"}, {"id": "word", "name": "Word"}, {"id": "gdocs", "name": "Google 문서"}], "items": [{"name": "저장", "cat": "파일", "keys": {"hwp": "Alt+S", "word": "Ctrl+S", "gdocs": "자동 저장"}}, {"name": "다른 이름으로 저장", "cat": "파일", "keys": {"hwp": "Alt+V", "word": "F12", "gdocs": "없음"}}, {"name": "새 문서", "cat": "파일", "keys": {"hwp": "Alt+N", "word": "Ctrl+N", "gdocs": "없음"}}, {"name": "불러오기", "cat": "파일", "keys": {"hwp": "Alt+O", "word": "Ctrl+O", "gdocs": "Ctrl+O"}}, {"name": "인쇄", "cat": "파일", "keys": {"hwp": "Alt+P", "word": "Ctrl+P", "gdocs": "Ctrl+P"}}, {"name": "되돌리기", "cat": "편집", "keys": {"hwp": "Ctrl+Z", "word": "Ctrl+Z", "gdocs": "Ctrl+Z"}}, {"name": "다시 실행", "cat": "편집", "keys": {"hwp": "Ctrl+Shift+Z", "word": "Ctrl+Y", "gdocs": "Ctrl+Shift+Z"}}, {"name": "복사", "cat": "편집", "keys": {"hwp": "Ctrl+C", "word": "Ctrl+C", "gdocs": "Ctrl+C"}}, {"name": "잘라내기", "cat": "편집", "keys": {"hwp": "Ctrl+X", "word": "Ctrl+X", "gdocs": "Ctrl+X"}}, {"name": "붙여넣기", "cat": "편집", "keys": {"hwp": "Ctrl+V", "word": "Ctrl+V", "gdocs": "Ctrl+V"}}, {"name": "서식 없이 붙여넣기", "cat": "편집", "keys": {"hwp": "Ctrl+Alt+V", "word": "Ctrl+Alt+V", "gdocs": "Ctrl+Shift+V"}}, {"name": "모두 선택", "cat": "편집", "keys": {"hwp": "Ctrl+A", "word": "Ctrl+A", "gdocs": "Ctrl+A"}}, {"name": "찾기", "cat": "편집", "keys": {"hwp": "Ctrl+F", "word": "Ctrl+F", "gdocs": "Ctrl+F"}}, {"name": "찾아 바꾸기", "cat": "편집", "keys": {"hwp": "Ctrl+H", "word": "Ctrl+H", "gdocs": "Ctrl+H"}}, {"name": "블록 설정", "cat": "편집", "keys": {"hwp": "F3", "word": "F8", "gdocs": "없음"}}, {"name": "진하게", "cat": "서식", "keys": {"hwp": "Ctrl+B", "word": "Ctrl+B", "gdocs": "Ctrl+B"}}, {"name": "기울임", "cat": "서식", "keys": {"hwp": "Ctrl+I", "word": "Ctrl+I", "gdocs": "Ctrl+I"}}, {"name": "밑줄", "cat": "서식", "keys": {"hwp": "Ctrl+U", "word": "Ctrl+U", "gdocs": "Ctrl+U"}}, {"name": "글자 모양", "cat": "서식", "keys": {"hwp": "Alt+L", "word": "Ctrl+D", "gdocs": "없음"}}, {"name": "문단 모양", "cat": "서식", "keys": {"hwp": "Alt+T", "word": "없음", "gdocs": "없음"}}, {"name": "스타일", "cat": "서식", "keys": {"hwp": "F6", "word": "Ctrl+Shift+S", "gdocs": "없음"}}, {"name": "글자 크게", "cat": "서식", "keys": {"hwp": "Ctrl+]", "word": "Ctrl+]", "gdocs": "Ctrl+Shift+."}}, {"name": "글자 작게", "cat": "서식", "keys": {"hwp": "Ctrl+[", "word": "Ctrl+[", "gdocs": "Ctrl+Shift+,"}}, {"name": "왼쪽 정렬", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+L", "word": "Ctrl+L", "gdocs": "Ctrl+Shift+L"}}, {"name": "가운데 정렬", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+C", "word": "Ctrl+E", "gdocs": "Ctrl+Shift+E"}}, {"name": "오른쪽 정렬", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+R", "word": "Ctrl+R", "gdocs": "Ctrl+Shift+R"}}, {"name": "양쪽 정렬", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+M", "word": "Ctrl+J", "gdocs": "Ctrl+Shift+J"}}, {"name": "표 만들기", "cat": "삽입", "keys": {"hwp": "Ctrl+N,T", "word": "없음", "gdocs": "없음"}}, {"name": "하이퍼링크", "cat": "삽입", "keys": {"hwp": "Ctrl+K,H", "word": "Ctrl+K", "gdocs": "Ctrl+K"}}, {"name": "각주", "cat": "삽입", "keys": {"hwp": "Ctrl+N,N", "word": "Ctrl+Alt+F", "gdocs": "Ctrl+Alt+F"}}, {"name": "쪽 나눔", "cat": "삽입", "keys": {"hwp": "Ctrl+Enter", "word": "Ctrl+Enter", "gdocs": "Ctrl+Enter"}}, {"name": "문자표 · 특수문자", "cat": "삽입", "keys": {"hwp": "Ctrl+F10", "word": "없음", "gdocs": "없음"}}, {"name": "한자 변환", "cat": "입력", "keys": {"hwp": "F9", "word": "없음", "gdocs": "없음"}}, {"name": "맞춤법 검사", "cat": "검토", "keys": {"hwp": "F8", "word": "F7", "gdocs": "Ctrl+Alt+X"}}, {"name": "댓글 달기", "cat": "검토", "keys": {"hwp": "없음", "word": "Ctrl+Alt+M", "gdocs": "Ctrl+Alt+M"}}, {"name": "편집 용지", "cat": "설정", "keys": {"hwp": "F7", "word": "없음", "gdocs": "없음"}}, {"name": "문서 처음으로", "cat": "이동", "keys": {"hwp": "Ctrl+Page Up", "word": "Ctrl+Home", "gdocs": "Ctrl+Home"}}, {"name": "문서 끝으로", "cat": "이동", "keys": {"hwp": "Ctrl+Page Down", "word": "Ctrl+End", "gdocs": "Ctrl+End"}}, {"name": "제목 스타일 적용", "cat": "서식", "keys": {"hwp": null, "word": "Ctrl+Alt+1~3", "gdocs": "Ctrl+Alt+1~6"}}, {"name": "본문 스타일로", "cat": "서식", "keys": {"hwp": null, "word": "Ctrl+Shift+N", "gdocs": "Ctrl+Alt+0"}}, {"name": "위 첨자", "cat": "서식", "keys": {"hwp": "Alt+Shift+P", "word": "Ctrl+Shift+=", "gdocs": "Ctrl+."}}, {"name": "아래 첨자", "cat": "서식", "keys": {"hwp": "Alt+Shift+S", "word": "Ctrl+=", "gdocs": "Ctrl+,"}}, {"name": "서식 지우기", "cat": "서식", "keys": {"hwp": "Alt+Shift+C", "word": "Ctrl+Space", "gdocs": "Ctrl+\\"}}, {"name": "취소선", "cat": "서식", "keys": {"hwp": "없음", "word": "없음", "gdocs": "Alt+Shift+5"}}, {"name": "서식 복사", "cat": "서식", "keys": {"hwp": "Alt+C", "word": "Ctrl+Shift+C", "gdocs": "Ctrl+Alt+C"}}, {"name": "서식 붙여넣기", "cat": "서식", "keys": {"hwp": "F3→Alt+C", "word": "Ctrl+Shift+V", "gdocs": "Ctrl+Alt+V"}}, {"name": "대소문자 전환", "cat": "서식", "keys": {"hwp": "없음", "word": "Shift+F3", "gdocs": "없음"}}, {"name": "글머리 기호 목록", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+Delete", "word": "없음", "gdocs": "Ctrl+Shift+8"}}, {"name": "번호 매기기 목록", "cat": "서식", "keys": {"hwp": "Ctrl+Shift+Insert", "word": "없음", "gdocs": "Ctrl+Shift+7"}}, {"name": "단어 수 세기", "cat": "검토", "keys": {"hwp": "Ctrl+Q,I", "word": null, "gdocs": "Ctrl+Shift+C"}}, {"name": "유니코드 코드 → 문자", "cat": "입력", "keys": {"hwp": "없음", "word": "Alt+X", "gdocs": "없음"}}, {"name": "단축키 목록 열기", "cat": "도움", "keys": {"hwp": "없음", "word": "없음", "gdocs": "Ctrl+/"}}]}, {"id": "slide", "name": "슬라이드", "apps": [{"id": "ppt", "name": "PowerPoint"}, {"id": "gslides", "name": "Google 슬라이드"}], "items": [{"name": "저장", "cat": "파일", "keys": {"ppt": "Ctrl+S", "gslides": "자동 저장"}}, {"name": "인쇄", "cat": "파일", "keys": {"ppt": "Ctrl+P", "gslides": "Ctrl+P"}}, {"name": "새 슬라이드", "cat": "편집", "keys": {"ppt": "Ctrl+M", "gslides": "Ctrl+M"}}, {"name": "복제", "cat": "편집", "keys": {"ppt": "Ctrl+D", "gslides": "Ctrl+D"}}, {"name": "되돌리기", "cat": "편집", "keys": {"ppt": "Ctrl+Z", "gslides": "Ctrl+Z"}}, {"name": "서식 없이 붙여넣기", "cat": "편집", "keys": {"ppt": "Ctrl+Shift+V", "gslides": "Ctrl+Shift+V"}}, {"name": "서식 복사", "cat": "서식", "keys": {"ppt": "Ctrl+Shift+C", "gslides": "Ctrl+Alt+C"}}, {"name": "서식 붙여넣기", "cat": "서식", "keys": {"ppt": "Ctrl+Shift+V", "gslides": "Ctrl+Alt+V"}}, {"name": "그룹 묶기", "cat": "개체", "keys": {"ppt": "Ctrl+G", "gslides": "Ctrl+Alt+G"}}, {"name": "그룹 풀기", "cat": "개체", "keys": {"ppt": "Ctrl+Shift+G", "gslides": "Ctrl+Alt+Shift+G"}}, {"name": "맨 앞으로 가져오기", "cat": "개체", "keys": {"ppt": "Ctrl+Shift+]", "gslides": "Ctrl+Shift+↑"}}, {"name": "맨 뒤로 보내기", "cat": "개체", "keys": {"ppt": "Ctrl+Shift+[", "gslides": "Ctrl+Shift+↓"}}, {"name": "개체 복제하며 이동", "cat": "개체", "keys": {"ppt": "Ctrl+드래그", "gslides": "Ctrl+드래그"}}, {"name": "직선·정비율로 그리기", "cat": "개체", "keys": {"ppt": "Shift+드래그", "gslides": "Shift+드래그"}}, {"name": "슬라이드쇼 시작", "cat": "발표", "keys": {"ppt": "F5", "gslides": "Ctrl+F5"}}, {"name": "현재 슬라이드부터 시작", "cat": "발표", "keys": {"ppt": "Shift+F5", "gslides": null}}, {"name": "발표자 보기", "cat": "발표", "keys": {"ppt": "Alt+F5", "gslides": null}}, {"name": "쇼 끝내기", "cat": "발표", "keys": {"ppt": "Esc", "gslides": "Esc"}}, {"name": "화면 검게", "cat": "발표", "keys": {"ppt": "B", "gslides": "B"}}, {"name": "화면 희게", "cat": "발표", "keys": {"ppt": "W", "gslides": "W"}}, {"name": "특정 슬라이드로", "cat": "발표", "keys": {"ppt": "숫자 + Enter", "gslides": "숫자 + Enter"}}, {"name": "하이퍼링크", "cat": "삽입", "keys": {"ppt": "Ctrl+K", "gslides": "Ctrl+K"}}, {"name": "확대 · 축소", "cat": "보기", "keys": {"ppt": "Ctrl+휠", "gslides": "Ctrl+휠"}}]}, {"id": "calc", "name": "스프레드시트", "apps": [{"id": "excel", "name": "Excel"}, {"id": "gsheets", "name": "Google 시트"}], "items": [{"name": "저장", "cat": "파일", "keys": {"excel": "Ctrl+S", "gsheets": "자동 저장"}}, {"name": "셀 편집", "cat": "입력", "keys": {"excel": "F2", "gsheets": "F2 또는 Enter"}}, {"name": "줄 바꿈(셀 안)", "cat": "입력", "keys": {"excel": "Alt+Enter", "gsheets": "Alt+Enter"}}, {"name": "오늘 날짜", "cat": "입력", "keys": {"excel": "Ctrl+;", "gsheets": "Ctrl+;"}}, {"name": "현재 시각", "cat": "입력", "keys": {"excel": "Ctrl+Shift+;", "gsheets": "Ctrl+Shift+;"}}, {"name": "아래로 채우기", "cat": "입력", "keys": {"excel": "Ctrl+D", "gsheets": "Ctrl+D"}}, {"name": "오른쪽으로 채우기", "cat": "입력", "keys": {"excel": "Ctrl+R", "gsheets": "Ctrl+R"}}, {"name": "값만 붙여넣기", "cat": "편집", "keys": {"excel": "Ctrl+Alt+V", "gsheets": "Ctrl+Shift+V"}}, {"name": "행·열 삽입", "cat": "편집", "keys": {"excel": "Ctrl+Shift++", "gsheets": "Ctrl+Alt+="}}, {"name": "행·열 삭제", "cat": "편집", "keys": {"excel": "Ctrl+-", "gsheets": "Ctrl+Alt+-"}}, {"name": "찾기", "cat": "편집", "keys": {"excel": "Ctrl+F", "gsheets": "Ctrl+F"}}, {"name": "찾아 바꾸기", "cat": "편집", "keys": {"excel": "Ctrl+H", "gsheets": "Ctrl+H"}}, {"name": "자동 합계", "cat": "수식", "keys": {"excel": "Alt+=", "gsheets": "없음"}}, {"name": "절대 참조 전환", "cat": "수식", "keys": {"excel": "F4", "gsheets": "F4"}}, {"name": "수식 표시", "cat": "수식", "keys": {"excel": "Ctrl+`", "gsheets": "Ctrl+~"}}, {"name": "데이터 끝으로 이동", "cat": "이동", "keys": {"excel": "Ctrl+방향키", "gsheets": "Ctrl+방향키"}}, {"name": "데이터 범위 선택", "cat": "이동", "keys": {"excel": "Ctrl+Shift+방향키", "gsheets": "Ctrl+Shift+방향키"}}, {"name": "전체 선택", "cat": "이동", "keys": {"excel": "Ctrl+A", "gsheets": "Ctrl+A"}}, {"name": "A1으로 이동", "cat": "이동", "keys": {"excel": "Ctrl+Home", "gsheets": "Ctrl+Home"}}, {"name": "시트 이동", "cat": "이동", "keys": {"excel": "Ctrl+PageUp / PageDown", "gsheets": "Alt+↑ / ↓"}}, {"name": "새 시트", "cat": "시트", "keys": {"excel": "Shift+F11", "gsheets": "Shift+F11"}}, {"name": "셀 서식", "cat": "서식", "keys": {"excel": "Ctrl+1", "gsheets": "없음"}}, {"name": "통화 서식", "cat": "서식", "keys": {"excel": "Ctrl+Shift+4", "gsheets": "Ctrl+Shift+4"}}, {"name": "백분율 서식", "cat": "서식", "keys": {"excel": "Ctrl+Shift+5", "gsheets": "Ctrl+Shift+5"}}, {"name": "날짜 서식", "cat": "서식", "keys": {"excel": "Ctrl+Shift+3", "gsheets": "Ctrl+Shift+3"}}, {"name": "필터", "cat": "데이터", "keys": {"excel": "Ctrl+Shift+L", "gsheets": "없음"}}, {"name": "표로 만들기", "cat": "데이터", "keys": {"excel": "Ctrl+T", "gsheets": "Ctrl+Alt+T"}}, {"name": "하이퍼링크", "cat": "삽입", "keys": {"excel": "Ctrl+K", "gsheets": "Ctrl+K"}}, {"name": "메모 · 댓글", "cat": "검토", "keys": {"excel": "Shift+F2", "gsheets": "Ctrl+Alt+M"}}, {"name": "취소선", "cat": "서식", "keys": {"excel": "Ctrl+5", "gsheets": "Alt+Shift+5"}}, {"name": "셀 병합", "cat": "서식", "keys": {"excel": "Alt → H → M → M", "gsheets": "없음"}}, {"name": "틀 고정", "cat": "보기", "keys": {"excel": "Alt → W → F → F", "gsheets": "없음"}}]}, {"id": "os", "name": "공통", "apps": [{"id": "win", "name": "Windows"}, {"id": "mac", "name": "macOS"}], "items": [{"name": "복사 · 붙여넣기", "cat": "편집", "keys": {"win": "Ctrl+C / Ctrl+V", "mac": "Cmd+C / Cmd+V"}}, {"name": "되돌리기", "cat": "편집", "keys": {"win": "Ctrl+Z", "mac": "Cmd+Z"}}, {"name": "모두 선택", "cat": "편집", "keys": {"win": "Ctrl+A", "mac": "Cmd+A"}}, {"name": "저장", "cat": "편집", "keys": {"win": "Ctrl+S", "mac": "Cmd+S"}}, {"name": "찾기", "cat": "편집", "keys": {"win": "Ctrl+F", "mac": "Cmd+F"}}, {"name": "창 전환", "cat": "창", "keys": {"win": "Alt+Tab", "mac": "Cmd+Tab"}}, {"name": "창 닫기 · 종료", "cat": "창", "keys": {"win": "Alt+F4", "mac": "Cmd+Q"}}, {"name": "탭 닫기", "cat": "창", "keys": {"win": "Ctrl+W", "mac": "Cmd+W"}}, {"name": "닫은 탭 되살리기", "cat": "창", "keys": {"win": "Ctrl+Shift+T", "mac": "Cmd+Shift+T"}}, {"name": "새로고침", "cat": "창", "keys": {"win": "F5 또는 Ctrl+R", "mac": "Cmd+R"}}, {"name": "확대 · 축소 · 원래대로", "cat": "창", "keys": {"win": "Ctrl+= / Ctrl+- / Ctrl+0", "mac": "Cmd+= / Cmd+- / Cmd+0"}}, {"name": "영역 스크린샷", "cat": "화면", "keys": {"win": "Win+Shift+S", "mac": "Cmd+Shift+4"}}, {"name": "전체 스크린샷", "cat": "화면", "keys": {"win": "Win+PrintScreen", "mac": "Cmd+Shift+3"}}, {"name": "화면 잠금", "cat": "시스템", "keys": {"win": "Win+L", "mac": "Ctrl+Cmd+Q"}}, {"name": "파일 탐색기 · Finder", "cat": "시스템", "keys": {"win": "Win+E", "mac": "Cmd+Option+Space"}}, {"name": "작업 관리자 · 강제 종료", "cat": "시스템", "keys": {"win": "Ctrl+Shift+Esc", "mac": "Cmd+Option+Esc"}}, {"name": "이모지 입력", "cat": "입력", "keys": {"win": "Win+.", "mac": "Ctrl+Cmd+Space"}}, {"name": "가상 데스크톱 전환", "cat": "창", "keys": {"win": "Win+Ctrl+← / →", "mac": "Ctrl+← / →"}}, {"name": "클립보드 기록", "cat": "편집", "keys": {"win": "Win+V", "mac": "없음"}}]}]};
+// <데이터 끝>
+</script>
 <script>
 "use strict";
 
@@ -303,40 +268,72 @@ function 쓰기() {
   try { localStorage.setItem(KEY, JSON.stringify(DB)); }
   catch (e) { 알림("저장하지 못했습니다. 브라우저 저장공간을 확인하세요."); }
 }
+function 적어두기(키, 값) { try { localStorage.setItem(KEY + "." + 키, 값); } catch (e) {} }
+function 꺼내기(키) { try { return localStorage.getItem(KEY + "." + 키); } catch (e) { return null; } }
 
 /* =============================================================== 날짜 */
 const 오늘 = new Date();
-function 달키(d) { return d.slice(0, 7); }
 function 날짜글(d) {
   const p = (n) => String(n).padStart(2, "0");
   return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
 }
-let 보는달 = 날짜글(오늘).slice(0, 7);
-function 달글(key) {
-  const [y, m] = key.split("-");
-  return Number(y) + "년 " + Number(m) + "월";
+function 날짜읽기(s) {
+  const m = String(s || "").match(/(\d{4})\D*(\d{1,2})\D*(\d{1,2})/);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return isNaN(d.getTime()) ? null : d;
 }
+let 보는달 = 날짜글(오늘).slice(0, 7);
+function 달글(key) { const [y, m] = key.split("-"); return Number(y) + "년 " + Number(m) + "월"; }
 function 달더하기(key, n) {
   let [y, m] = key.split("-").map(Number);
-  m += n;
-  y += Math.floor((m - 1) / 12);
-  m = ((m - 1) % 12 + 12) % 12 + 1;
+  m += n; y += Math.floor((m - 1) / 12); m = ((m - 1) % 12 + 12) % 12 + 1;
   return y + "-" + String(m).padStart(2, "0");
 }
 function 달차이(a, b) {
   const [ay, am] = a.split("-").map(Number), [by, bm] = b.split("-").map(Number);
   return (by - ay) * 12 + (bm - am);
 }
+const 요일글 = ["일", "월", "화", "수", "목", "금", "토"];
+function 날더하기(d, n) { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
+function 날차이(a, b) {
+  return Math.round((새날(b) - 새날(a)) / 86400000);
+}
+function 새날(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 
 /* =============================================================== 숫자 */
-function 돈(n) {
-  const v = Math.round(Number(n) || 0);
-  return v.toLocaleString("ko-KR");
+function 돈(n) { return Math.round(Number(n) || 0).toLocaleString("ko-KR"); }
+function 수(n, 자리) {
+  const v = Number(n) || 0;
+  return v.toLocaleString("ko-KR", { maximumFractionDigits: 자리 === undefined ? 2 : 자리 });
 }
-function 숫자만(s) { return String(s).replace(/[^0-9-]/g, ""); }
-function 금액읽기(s) { return Number(숫자만(s)) || 0; }
+function 금액읽기(s) {
+  const t = String(s == null ? "" : s).replace(/,/g, "").trim();
+  const m = t.match(/^(-?[\d.]+)\s*(억|만|천)?\s*원?$/);
+  if (m) {
+    const 배 = { "억": 1e8, "만": 1e4, "천": 1e3 }[m[2]] || 1;
+    return (Number(m[1]) || 0) * 배;
+  }
+  return Number(t.replace(/[^0-9.-]/g, "")) || 0;
+}
+
+/* =============================================================== 한글 */
+function 받침(글) {
+  const 끝 = String(글 || "").trim().slice(-1);
+  const code = 끝.charCodeAt(0);
+  if (!(code >= 0xac00 && code <= 0xd7a3)) return null;   // 한글이 아니면 모름
+  return (code - 0xac00) % 28;                            // 0 이면 받침 없음
+}
+function 조사(글, 짝) {
+  const [있, 없] = 짝;
+  const j = 받침(글);
+  if (j === null) return 있;                              // 모르면 받침 있는 쪽
+  if (짝[0] === "으로") return j === 0 || j === 8 ? "로" : "으로";  // ㄹ 받침은 «로»
+  return j ? 있 : 없;
+}
 
 /* =============================================================== 예시 */
+function 아이디() { return Math.random().toString(36).slice(2, 10); }
 function 예시넣기() {
   const 이번 = 보는달, 지난 = 달더하기(이번, -1), 지지난 = 달더하기(이번, -2);
   const 거래 = [];
@@ -355,7 +352,6 @@ function 예시넣기() {
     { id: 아이디(), 이름: "넷플릭스", 분류: "구독", 금액: 17000, 주기: "월", 끝: "" },
   ];
 }
-function 아이디() { return Math.random().toString(36).slice(2, 10); }
 
 /* =============================================================== 장부 셈 */
 function 이달거래(m) { return DB.거래.filter((t) => t.날짜.slice(0, 7) === m); }
@@ -367,16 +363,13 @@ function 달합(m) {
 function 분류별(m) {
   const 모음 = {};
   이달거래(m).filter((t) => !t.수입).forEach((t) => {
-    const k = t.분류 || "기타";
-    모음[k] = (모음[k] || 0) + t.금액;
+    const k = t.분류 || "기타"; 모음[k] = (모음[k] || 0) + t.금액;
   });
   return Object.entries(모음).sort((a, b) => b[1] - a[1]);
 }
 function 되풀이찾기(least) {
   const 모음 = {};
-  DB.거래.filter((t) => !t.수입 && t.내용).forEach((t) => {
-    (모음[t.내용] = 모음[t.내용] || []).push(t);
-  });
+  DB.거래.filter((t) => !t.수입 && t.내용).forEach((t) => { (모음[t.내용] = 모음[t.내용] || []).push(t); });
   const out = [];
   for (const [이름, 건들] of Object.entries(모음)) {
     const 달 = [...new Set(건들.map((t) => t.날짜.slice(0, 7)))].sort();
@@ -387,15 +380,14 @@ function 되풀이찾기(least) {
       길게 = Math.max(길게, 이어서);
     }
     if (길게 < least) continue;
-    const 값 = 건들.map((t) => t.금액);
-    const 셈 = {};
+    const 값 = 건들.map((t) => t.금액), 셈 = {};
     값.forEach((v) => { 셈[v] = (셈[v] || 0) + 1; });
     const 흔한 = Number(Object.entries(셈).sort((a, b) => b[1] - a[1])[0][0]);
     const 흔들림 = 셈[흔한] < 값.length;
     out.push({
       이름, 달수: 길게, 흔들림,
       금액: 흔들림 ? 값.reduce((a, b) => a + b, 0) / 값.length : 흔한,
-      낮 : Math.min(...값), 높: Math.max(...값),
+      낮: Math.min(...값), 높: Math.max(...값),
       이미: DB.고정비.some((f) => f.이름 === 이름),
     });
   }
@@ -411,10 +403,7 @@ function 고정비셈() {
     const 끝난 = f.끝 && f.끝.slice(0, 7) < 이번;
     const 환산 = 끝난 ? 0 : f.금액 * (주기배수[f.주기] || 1);
     월 += 환산;
-    return {
-      ...f, 환산, 끝난,
-      남은달: f.끝 && !끝난 ? Math.max(달차이(이번, f.끝.slice(0, 7)), 0) : null,
-    };
+    return { ...f, 환산, 끝난, 남은달: f.끝 && !끝난 ? Math.max(달차이(이번, f.끝.slice(0, 7)), 0) : null };
   }).sort((a, b) => b.환산 - a.환산);
   return { 줄, 월, 해: 월 * 12 };
 }
@@ -427,77 +416,69 @@ const 요율 = [
   ["장기요양", 0.9448, "건강보험료의 13.14%"],
   ["고용보험", 1.8, "실업급여 몫"],
 ];
-function 가산단가(시급) {
-  return { 연장: Math.floor(시급 * 1.5), 야간: Math.floor(시급 * 0.5), 휴일: Math.floor(시급 * 1.5) };
+const 식대한도 = 200000, 일용공제 = 150000, 일용세율 = 0.027, 도급세율 = 0.03;
+
+function 보험공제(보수) {
+  return 요율.map(([이름, r, 설명]) => {
+    let 몫;
+    if (이름 === "장기요양") 몫 = Math.floor(Math.floor(보수 * 7.19 / 100) * 13.14 / 100 / 2);
+    else if (이름 === "고용보험") 몫 = Math.floor(보수 * 0.9 / 100);
+    else 몫 = Math.floor(보수 * r / 100 / 2);
+    return [이름, 몫, 설명];
+  });
 }
 function 급여셈(v) {
   const 받 = [], 뺀 = [], 말 = [], 경고 = [];
-  let 시급 = 0, 비과세 = Math.min(v.식대 || 0, 200000);
+  let 시급 = 0;
+  const 비과세 = Math.min(v.식대 || 0, 식대한도);
 
   if (v.형태 === "도급") {
     받.push(["도급 지급액", v.금액]);
-    const 소득 = Math.floor(v.금액 * 0.03);
+    const 소득 = Math.floor(v.금액 * 도급세율);
     뺀.push(["소득세", 소득, "사업소득 3%"]);
     뺀.push(["지방소득세", Math.floor(소득 * 0.1), "소득세의 10%"]);
     말.push("근로자가 아니라 4대보험·주휴수당·연장 가산이 없습니다.");
     경고.push("회사가 정한 시간에 지시를 받으며 일한다면 이름이 도급이어도 근로자일 수 있습니다(위장도급). 그때는 4대보험·연장 가산·퇴직금·연차가 생깁니다.");
     return 묶기(받, 뺀, 말, 경고, 0, 0);
   }
-
   if (v.형태 === "일급") {
-    const 합 = v.일급 * v.일수;
-    받.push(["일급 " + 돈(v.일급) + "원 x " + v.일수 + "일", 합]);
-    const 하루 = Math.floor(Math.max(v.일급 - 150000, 0) * 0.027);
+    받.push(["일급 " + 돈(v.일급) + "원 x " + 수(v.일수) + "일", Math.floor(v.일급 * v.일수)]);
+    const 하루 = Math.floor(Math.max(v.일급 - 일용공제, 0) * 일용세율);
     if (하루 < 1000) {
       말.push("하루치 소득세가 1,000원보다 적어 떼지 않습니다(소액부징수). 일급 187,000원 아래면 0원입니다.");
     } else {
-      뺀.push(["소득세", 하루 * v.일수, "(일급 - 150,000) x 2.7%"]);
-      뺀.push(["지방소득세", Math.floor(하루 * v.일수 * 0.1), "소득세의 10%"]);
+      const 합 = Math.floor(하루 * v.일수);
+      뺀.push(["소득세", 합, "(일급 - 150,000) x 2.7%"]);
+      뺀.push(["지방소득세", Math.floor(합 * 0.1), "소득세의 10%"]);
     }
-    말.push("4대보험은 보험별로 가입 기준이 달라 세지 않았습니다 - 산재는 하루만 일해도 적용되고, 국민연금·건강보험은 «1개월 이상 + 월 8일 이상» 을 봅니다.");
+    if (v.보험) 보험공제(Math.floor(v.일급 * v.일수)).forEach((one) => 뺀.push(one));
+    else 말.push("4대보험은 보험별로 가입 기준이 달라 세지 않았습니다 - 산재는 하루만 일해도 적용되고, 국민연금·건강보험은 «1개월 이상 + 월 8일 이상» 을 봅니다.");
     return 묶기(받, 뺀, 말, 경고, 0, 0);
   }
-
   if (v.형태 === "시급") {
     시급 = v.시급;
     const 주 = Math.min(v.주시간, 40);
-    받.push(["기본급 (주 " + v.주시간 + "시간)", Math.floor(v.시급 * v.주시간 * 주수)]);
-    if (v.주시간 >= 15) {
-      받.push(["주휴수당", Math.floor(v.시급 * (주 / 40) * 8 * 주수)]);
-    } else {
-      말.push("1주 소정근로시간이 15시간 미만이라 주휴수당이 없습니다.");
-    }
+    받.push(["기본급 (주 " + 수(v.주시간) + "시간)", Math.floor(v.시급 * v.주시간 * 주수)]);
+    if (v.주시간 >= 15) 받.push(["주휴수당", Math.floor(v.시급 * (주 / 40) * 8 * 주수), "주 " + 수(주 / 40 * 8) + "시간분"]);
+    else 말.push("1주 소정근로시간이 15시간 미만이라 주휴수당이 없습니다.");
   } else {
-    시급 = Math.floor(v.월급 / 월시간);
-    받.push(["기본급 (소정근로 209시간)", v.월급, "통상시급 " + 돈(시급) + "원"]);
+    시급 = Math.floor(v.월급 / (v.소정 || 월시간));
+    받.push(["기본급 (소정근로 " + 수(v.소정 || 월시간) + "시간)", v.월급, "통상시급 " + 돈(시급) + "원"]);
   }
-
-  const 단가 = 가산단가(시급);
-  if (v.연장) 받.push(["연장 " + v.연장 + "시간", Math.floor(단가.연장 * v.연장), "1.5배 " + 돈(단가.연장) + "원"]);
-  if (v.야간) 받.push(["야간 " + v.야간 + "시간", Math.floor(단가.야간 * v.야간), "0.5배 " + 돈(단가.야간) + "원"]);
+  const 연 = Math.floor(시급 * 1.5), 야 = Math.floor(시급 * 0.5);
+  if (v.연장) 받.push(["연장 " + 수(v.연장) + "시간", Math.floor(연 * v.연장), "1.5배 " + 돈(연) + "원"]);
+  if (v.야간) 받.push(["야간 " + 수(v.야간) + "시간", Math.floor(야 * v.야간), "0.5배 " + 돈(야) + "원"]);
   if (v.휴일) {
     const 여덟 = Math.min(v.휴일, 8);
-    받.push(["휴일 " + 여덟 + "시간", Math.floor(단가.휴일 * 여덟), "1.5배"]);
-    if (v.휴일 > 8) 받.push(["휴일 초과 " + (v.휴일 - 8) + "시간", Math.floor(시급 * 2 * (v.휴일 - 8)), "2배"]);
+    받.push(["휴일 " + 수(여덟) + "시간", Math.floor(연 * 여덟), "1.5배"]);
+    if (v.휴일 > 8) 받.push(["휴일 초과 " + 수(v.휴일 - 8) + "시간", Math.floor(시급 * 2 * (v.휴일 - 8)), "2배"]);
   }
   if (비과세) 받.push(["식대 (비과세)", 비과세, "월 200,000원까지"]);
 
   const 세전 = 받.reduce((a, b) => a + b[1], 0);
-  const 보수 = Math.max(세전 - 비과세, 1);
-  요율.forEach(([이름, r, 설명]) => {
-    let 몫;
-    if (이름 === "장기요양") {
-      몫 = Math.floor(Math.floor(보수 * 7.19 / 100) * 13.14 / 100 / 2);
-    } else if (이름 === "고용보험") {
-      몫 = Math.floor(보수 * 0.9 / 100);
-    } else {
-      몫 = Math.floor(보수 * r / 100 / 2);
-    }
-    뺀.push([이름, 몫, 설명]);
-  });
+  보험공제(Math.max(세전 - 비과세, 1)).forEach((one) => 뺀.push(one));
   if (v.세금) 뺀.push(["소득세+지방소득세", v.세금, "넣은 값 그대로"]);
-  else 말.push("근로소득세는 간이세액표를 봐야 해서 세지 않았습니다. 급여명세서의 소득세+지방소득세를 넣으면 뺍니다.");
-
+  else 말.push("근로소득세는 간이세액표를 봐야 해서 세지 않았습니다 - 요율로 셀 수 없습니다.");
   if (시급 && 시급 < 최저시급) {
     경고.push("통상시급 " + 돈(시급) + "원은 " + 최저해 + "년 최저임금 " + 돈(최저시급) + "원보다 적습니다. 다만 최저임금 위반 판단은 산입되는 임금 범위가 따로 있어 이 수만으로 단정할 수 없습니다.");
   }
@@ -509,23 +490,1074 @@ function 묶기(받, 뺀, 말, 경고, 시급, 비과세) {
   return { 받, 뺀, 말, 경고, 시급, 비과세, 세전, 공제, 실수령: 세전 - 공제 };
 }
 
+/* =============================================================== 공휴일 */
+const 고정공휴일 = [[1, 1, "신정"], [3, 1, "삼일절"], [5, 5, "어린이날"], [6, 6, "현충일"],
+  [8, 15, "광복절"], [10, 3, "개천절"], [10, 9, "한글날"], [12, 25, "성탄절"]];
+const 대체대상 = ["삼일절", "어린이날", "광복절", "개천절", "한글날"];
+function 공휴일(해) {
+  const 기본 = {};
+  고정공휴일.forEach(([m, d, 이름]) => { 기본[날짜글(new Date(해, m - 1, d))] = 이름; });
+  const out = Object.assign({}, 기본);
+  Object.keys(기본).sort().forEach((키) => {
+    const 이름 = 기본[키];
+    if (대체대상.indexOf(이름) < 0) return;
+    const d = 날짜읽기(키);
+    if (d.getDay() !== 0 && d.getDay() !== 6) return;
+    let 후보 = 날더하기(d, 1);
+    while (후보.getDay() === 0 || 후보.getDay() === 6 || out[날짜글(후보)]) 후보 = 날더하기(후보, 1);
+    out[날짜글(후보)] = 이름 + " 대체공휴일";
+  });
+  return out;
+}
+const 음력공휴일말 = "설날·추석·부처님오신날은 음력이라 세지 않았습니다. 그 날은 직접 빼고 보세요.";
+function 영업일인가(d, 휴) { return d.getDay() !== 0 && d.getDay() !== 6 && !휴[날짜글(d)]; }
+
+/* =============================================================== 단위 */
+const 단위표 = {
+  "넓이": { "㎡": 1, "m2": 1, "제곱미터": 1, "평": 400 / 121, "ha": 10000, "헥타르": 10000, "에이커": 4046.8564224 },
+  "길이": { "m": 1, "미터": 1, "cm": 0.01, "mm": 0.001, "km": 1000, "인치": 0.0254, "in": 0.0254,
+            "피트": 0.3048, "ft": 0.3048, "야드": 0.9144, "마일": 1609.344, "자": 0.303, "치": 0.0303 },
+  "무게": { "g": 1, "kg": 1000, "mg": 0.001, "t": 1e6, "톤": 1e6, "근": 600, "관": 3750, "돈": 3.75,
+            "냥": 37.5, "파운드": 453.59237, "lb": 453.59237, "온스": 28.349523125, "oz": 28.349523125 },
+  "부피": { "L": 1, "l": 1, "리터": 1, "mL": 0.001, "ml": 0.001, "되": 1.8039, "말": 18.039,
+            "홉": 0.18039, "갤런": 3.785411784, "gal": 3.785411784 },
+};
+function 단위바꾸기(글) {
+  const t = String(글 || "").trim();
+  const 온도 = t.match(/^(-?\d+(?:\.\d+)?)\s*(?:도)?\s*([cCfF])$/);
+  if (온도) {
+    const v = Number(온도[1]);
+    return 온도[2].toLowerCase() === "c"
+      ? { 그룹: "온도", 값: v, 단위: "C", 결과: [["F", v * 9 / 5 + 32]] }
+      : { 그룹: "온도", 값: v, 단위: "F", 결과: [["C", (v - 32) * 5 / 9]] };
+  }
+  const m = t.match(/^(-?\d+(?:\.\d+)?)\s*([^\d\s]+)$/);
+  if (!m) return null;
+  const 값 = Number(m[1]), 단위 = m[2];
+  for (const [그룹, 표] of Object.entries(단위표)) {
+    if (!(단위 in 표)) continue;
+    const 기준 = 값 * 표[단위];
+    const 결과 = Object.entries(표)
+      .filter(([이름]) => 이름 !== 단위)
+      .map(([이름, 배]) => [이름, 기준 / 배]);
+    const 본것 = [];
+    return { 그룹, 값, 단위, 결과: 결과.filter(([이름]) => {
+      if (본것.indexOf(이름.toLowerCase()) >= 0) return false;
+      본것.push(이름.toLowerCase()); return true;
+    }) };
+  }
+  return null;
+}
+
+/* =============================================================== 금액 한글 */
+const 한글숫자 = "영일이삼사오육칠팔구";
+const 작은단위 = ["", "십", "백", "천"];
+const 큰단위 = ["", "만", "억", "조", "경"];
+function 한글금액(값, 정식) {
+  let n = Math.floor(Math.abs(Number(값) || 0));
+  if (!n) return "영";
+  const 조각 = [];
+  let 자리 = 0;
+  while (n > 0 && 자리 < 큰단위.length) {
+    const 묶음 = n % 10000;
+    if (묶음) {
+      let 글 = "";
+      String(묶음).split("").reverse().forEach((c, i) => {
+        const d = Number(c);
+        if (!d) return;
+        글 = 한글숫자[d] + 작은단위[i] + 글;
+        if (d === 1 && i > 0 && !정식) 글 = 작은단위[i] + 글.slice(2);
+      });
+      조각.unshift(글 + 큰단위[자리]);
+    }
+    n = Math.floor(n / 10000); 자리++;
+  }
+  return (Number(값) < 0 ? "마이너스 " : "") + 조각.join(" ");
+}
+
+/* =============================================================== 시간 */
+function 분읽기(글) {
+  const t = String(글 || "").trim();
+  let m = t.match(/^(\d{1,2})\s*:\s*(\d{1,2})$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  m = t.match(/^(\d{1,4})$/);
+  if (m && t.length >= 3) return Number(t.slice(0, -2)) * 60 + Number(t.slice(-2));
+  m = t.match(/^(?:(\d+)\s*시간?)?\s*(?:(\d+)\s*분)?$/);
+  if (m && (m[1] || m[2])) return (Number(m[1]) || 0) * 60 + (Number(m[2]) || 0);
+  return null;
+}
+function 분글(분) {
+  const s = 분 < 0 ? "-" : "";
+  const v = Math.abs(Math.round(분));
+  return s + Math.floor(v / 60) + "시간 " + String(v % 60).padStart(2, "0") + "분";
+}
+
+/* =============================================================== 도구들 */
+// 폼 한 벌로 모든 도구를 그린다. 도구는 «무엇을 묻고 무엇을 내는지» 만 적는다.
+// 종류: 돈 수 글 날짜 여러줄 고르기.  보임(값) 으로 조건부 칸을 만든다.
+function 빈값(t) { return { 큰: null, 줄: [], 표: null, 말: [], 경고: [], 제목: t }; }
+
+const 도구들 = [
+/* ---------------------------------------------------------------- 계산 */
+{
+  id: "wage", 갈래: "계산", 이름: "월급 실수령", 말: "월급·시급·일급·도급", 명령: "at life wage",
+  폼: [
+    { 키: "형태", 이름: "임금 형태", 종류: "고르기", 고르기: ["월급", "시급", "일급", "도급"], 기본: "월급",
+      도움: "정규직·계약직은 셈법이 같습니다. 기간의 정함만 다릅니다." },
+    { 키: "월급", 이름: "월 통상임금", 종류: "돈", 기본: 2800000, 보임: (v) => v.형태 === "월급" },
+    { 키: "소정", 이름: "한 달 소정근로시간", 종류: "수", 기본: 209, 보임: (v) => v.형태 === "월급" },
+    { 키: "시급", 이름: "시급", 종류: "돈", 기본: 10320, 보임: (v) => v.형태 === "시급" },
+    { 키: "주시간", 이름: "1주 소정근로시간", 종류: "수", 기본: 40, 보임: (v) => v.형태 === "시급" },
+    { 키: "일급", 이름: "일급", 종류: "돈", 기본: 180000, 보임: (v) => v.형태 === "일급" },
+    { 키: "일수", 이름: "일한 날", 종류: "수", 기본: 20, 보임: (v) => v.형태 === "일급" },
+    { 키: "보험", 이름: "4대보험에 가입돼 있다", 종류: "고르기", 고르기: ["아니오", "예"], 기본: "아니오", 보임: (v) => v.형태 === "일급" },
+    { 키: "금액", 이름: "도급 지급액", 종류: "돈", 기본: 3600000, 보임: (v) => v.형태 === "도급" },
+    { 키: "연장", 이름: "연장 시간", 종류: "수", 기본: 0, 보임: (v) => v.형태 === "월급" || v.형태 === "시급" },
+    { 키: "야간", 이름: "야간 시간", 종류: "수", 기본: 0, 보임: (v) => v.형태 === "월급" || v.형태 === "시급" },
+    { 키: "휴일", 이름: "휴일 시간", 종류: "수", 기본: 0, 보임: (v) => v.형태 === "월급" || v.형태 === "시급" },
+    { 키: "식대", 이름: "식대 (비과세)", 종류: "돈", 기본: 200000, 보임: (v) => v.형태 === "월급" || v.형태 === "시급" },
+    { 키: "세금", 이름: "명세서의 소득세+지방소득세", 종류: "돈", 기본: 0, 보임: (v) => v.형태 === "월급" || v.형태 === "시급" },
+  ],
+  셈: (v) => {
+    const r = 급여셈(Object.assign({}, v, { 보험: v.보험 === "예" }));
+    const out = 빈값();
+    out.큰 = ["실수령액", 돈(r.실수령), "원"];
+    out.표 = [["받는 것", "금액"], ...r.받.map((one) => [one[0] + (one[2] ? "\n" + one[2] : ""), 돈(one[1])]),
+              ["세전 합계", 돈(r.세전)]];
+    if (r.뺀.length) out.줄 = r.뺀.map((one) => [one[0], 돈(one[1]), one[2]]).concat([["공제 합계", 돈(r.공제), ""]]);
+    if (r.시급) out.줄.push(["통상시급", 돈(r.시급), 최저해 + "년 최저임금 " + 돈(최저시급) + "원"]);
+    out.말 = r.말.concat(["회사 규정과 급여명세서가 우선입니다. 여기 수는 법정 최소치를 기준으로 한 어림입니다."]);
+    out.경고 = r.경고;
+    DB.급여 = Object.assign({}, v, { 실수령: r.실수령 }); 쓰기();
+    return out;
+  },
+},
+{
+  id: "dday", 갈래: "계산", 이름: "D-day · 만 나이", 말: "그날까지 며칠, 그날부터 며칠", 명령: "at life dday",
+  폼: [{ 키: "날", 이름: "그 날", 종류: "날짜", 기본: "" },
+       { 키: "기준", 이름: "기준일", 종류: "날짜", 기본: "" }],
+  셈: (v) => {
+    const a = 날짜읽기(v.날), b = 날짜읽기(v.기준) || 오늘;
+    if (!a) return { 오류: "날짜를 넣어 주세요." };
+    const 차 = 날차이(b, a);
+    const out = 빈값();
+    out.큰 = [차 === 0 ? "오늘입니다" : 차 > 0 ? "남았습니다" : "지났습니다",
+              (차 > 0 ? "D-" : 차 < 0 ? "D+" : "D-") + Math.abs(차), "일"];
+    out.줄 = [
+      ["그 날", 날짜글(a) + " (" + 요일글[a.getDay()] + ")", ""],
+      ["기준일", 날짜글(b) + " (" + 요일글[b.getDay()] + ")", ""],
+      ["주로 세면", 수(Math.abs(차) / 7, 1) + "주", ""],
+      ["만 나이", String(만나이(a, b)) + "세", "그 날을 생일로 보았을 때"],
+    ];
+    const 백 = 날더하기(a, 99), 천 = 날더하기(a, 999);
+    out.줄.push(["100일", 날짜글(백), ""], ["1000일", 날짜글(천), ""]);
+    return out;
+  },
+},
+{
+  id: "split", 갈래: "계산", 이름: "더치페이", 말: "누가 얼마 냈나 -> 누가 누구에게", 명령: "at life split",
+  폼: [{ 키: "낸것", 이름: "낸 사람과 금액", 종류: "여러줄", 기본: "가=30000\n나=10000\n다=0",
+         도움: "한 줄에 하나씩. «이름=금액»" }],
+  셈: (v) => {
+    const 낸 = {};
+    String(v.낸것 || "").split("\n").forEach((줄) => {
+      const m = 줄.split("=");
+      if (m.length < 2 || !m[0].trim()) return;
+      낸[m[0].trim()] = (낸[m[0].trim()] || 0) + 금액읽기(m[1]);
+    });
+    const 이름들 = Object.keys(낸);
+    if (!이름들.length) return { 오류: "«이름=금액» 으로 한 줄씩 적어 주세요." };
+    const 총 = 이름들.reduce((a, n) => a + 낸[n], 0);
+    const 몫 = 총 / 이름들.length;
+    const 잔 = {}; 이름들.forEach((n) => { 잔[n] = Math.round(낸[n] - 몫); });
+    const 받 = 이름들.filter((n) => 잔[n] > 0).sort((a, b) => 잔[b] - 잔[a]);
+    const 줄돈 = 이름들.filter((n) => 잔[n] < 0).sort((a, b) => 잔[a] - 잔[b]);
+    const 보냄 = [];
+    let i = 0, j = 0, 빚 = 줄돈.map((n) => -잔[n]), 받을 = 받.map((n) => 잔[n]);
+    while (i < 줄돈.length && j < 받.length) {
+      const 액 = Math.min(빚[i], 받을[j]);
+      if (액 >= 1) 보냄.push([줄돈[i] + " -> " + 받[j], 돈(액)]);
+      빚[i] -= 액; 받을[j] -= 액;
+      if (빚[i] < 1) i++;
+      if (받을[j] < 1) j++;
+    }
+    const out = 빈값();
+    out.큰 = ["1인당", 돈(몫), "원"];
+    out.줄 = 이름들.map((n) => [n, 돈(낸[n]), (잔[n] > 0 ? "+" : "") + 돈(잔[n]) + " 남음"]);
+    out.표 = 보냄.length ? [["보낼 곳", "금액"], ...보냄] : null;
+    out.말 = ["모두 " + 돈(총) + "원을 " + 이름들.length + "명이 나눴습니다."];
+    if (!보냄.length) out.말.push("주고받을 것이 없습니다.");
+    return out;
+  },
+},
+{
+  id: "loan", 갈래: "계산", 이름: "대출 상환", 말: "매달 얼마, 이자는 얼마", 명령: "at life loan",
+  폼: [
+    { 키: "원금", 이름: "빌린 돈", 종류: "돈", 기본: 300000000, 도움: "3억 처럼 적어도 됩니다" },
+    { 키: "이율", 이름: "연 이율 (%)", 종류: "수", 기본: 4.2 },
+    { 키: "해", 이름: "기간 (년)", 종류: "수", 기본: 30 },
+    { 키: "방식", 이름: "갚는 방식", 종류: "고르기", 고르기: ["원리금균등", "원금균등", "만기일시"], 기본: "원리금균등" },
+    { 키: "거치", 이름: "거치 기간 (개월)", 종류: "수", 기본: 0, 도움: "이 동안은 이자만 냅니다" },
+  ],
+  셈: (v) => {
+    const 개월 = Math.round(v.해 * 12);
+    if (!v.원금 || 개월 <= 0) return { 오류: "빌린 돈과 기간을 넣어 주세요." };
+    if (v.거치 >= 개월) return { 오류: "거치 기간이 전체 기간보다 깁니다." };
+    const r = v.이율 / 100 / 12;
+    let 잔 = v.원금; const 줄들 = [];
+    for (let n = 1; n <= v.거치; n++) { const 이 = 잔 * r; 줄들.push([n, 이, 이, 0, 잔]); }
+    const 남은개월 = 개월 - v.거치;
+    if (v.방식 === "원리금균등") {
+      const 낼 = r ? 잔 * r / (1 - Math.pow(1 + r, -남은개월)) : 잔 / 남은개월;
+      for (let n = v.거치 + 1; n <= 개월; n++) {
+        const 이 = 잔 * r; let 원 = 낼 - 이, 실 = 낼;
+        if (n === 개월) { 원 = 잔; 실 = 잔 + 이; }
+        잔 -= 원; 줄들.push([n, 실, 이, 원, Math.max(잔, 0)]);
+      }
+    } else if (v.방식 === "원금균등") {
+      const 원 = 잔 / 남은개월;
+      for (let n = v.거치 + 1; n <= 개월; n++) { const 이 = 잔 * r; 잔 -= 원; 줄들.push([n, 원 + 이, 이, 원, Math.max(잔, 0)]); }
+    } else {
+      for (let n = v.거치 + 1; n <= 개월; n++) {
+        const 이 = 잔 * r;
+        if (n === 개월) 줄들.push([n, 잔 + 이, 이, 잔, 0]); else 줄들.push([n, 이, 이, 0, 잔]);
+      }
+    }
+    const 총이자 = 줄들.reduce((a, b) => a + b[2], 0);
+    const 첫 = 줄들[v.거치] || 줄들[0];
+    const out = 빈값();
+    out.큰 = ["매달", 돈(첫[1]), "원"];
+    out.줄 = [
+      ["첫 달 이자", 돈(첫[2]), ""], ["첫 달 원금", 돈(첫[3]), ""],
+      ["총 이자", 돈(총이자), ""], ["총 갚는 돈", 돈(v.원금 + 총이자), ""],
+      ["기간", 개월 + "개월", v.방식],
+    ];
+    const 볼 = [1, 12, 24, 60, 120, 개월].filter((n, i, a) => n <= 개월 && a.indexOf(n) === i);
+    out.표 = [["회차", "내는 돈", "이자", "원금", "남은 원금"],
+              ...볼.map((n) => { const one = 줄들[n - 1]; return [n + "회", 돈(one[1]), 돈(one[2]), 돈(one[3]), 돈(one[4])]; })];
+    if (v.방식 === "원금균등") out.말 = ["원금균등은 갈수록 내는 돈이 줍니다. 위 «매달» 은 첫 달입니다."];
+    return out;
+  },
+},
+{
+  id: "save", 갈래: "계산", 이름: "적금·예금", 말: "만기에 얼마 받나", 명령: "at life save",
+  폼: [
+    { 키: "종류", 이름: "무엇", 종류: "고르기", 고르기: ["적금", "예금"], 기본: "적금" },
+    { 키: "금액", 이름: "매달 넣는 돈", 종류: "돈", 기본: 500000, 보임: (v) => v.종류 === "적금" },
+    { 키: "목돈", 이름: "한 번에 넣는 돈", 종류: "돈", 기본: 10000000, 보임: (v) => v.종류 === "예금" },
+    { 키: "개월", 이름: "기간 (개월)", 종류: "수", 기본: 12 },
+    { 키: "이율", 이름: "연 이율 (%)", 종류: "수", 기본: 3.5 },
+    { 키: "세율", 이름: "이자소득세 (%)", 종류: "수", 기본: 15.4 },
+  ],
+  셈: (v) => {
+    if (v.개월 <= 0) return { 오류: "기간은 1개월 이상이어야 합니다." };
+    const r = v.이율 / 100 / 12;
+    let 원금, 이자;
+    if (v.종류 === "적금") {
+      원금 = Math.round(v.금액) * v.개월;
+      이자 = Math.round(v.금액) * r * v.개월 * (v.개월 + 1) / 2;
+    } else { 원금 = Math.round(v.목돈); 이자 = 원금 * r * v.개월; }
+    이자 = Math.floor(이자);
+    const 세 = Math.floor(이자 * v.세율 / 100);
+    const out = 빈값();
+    out.큰 = ["만기에", 돈(원금 + 이자 - 세), "원"];
+    out.줄 = [["원금", 돈(원금), ""], ["이자 (세전)", 돈(이자), ""],
+              ["이자소득세", "-" + 돈(세), v.세율 + "%"], ["세후 이자", 돈(이자 - 세), ""]];
+    if (원금) out.줄.push(["원금 대비", 수((이자 - 세) / 원금 * (12 / v.개월) * 100, 2) + "%", "세후 연 환산"]);
+    out.말 = ["은행이 표시하는 금리 기준의 단리 계산입니다. 복리 상품은 다릅니다.",
+              "적금 이자는 먼저 넣은 돈이 더 오래 붙어 «월 이자 x n(n+1)/2» 입니다."];
+    return out;
+  },
+},
+{
+  id: "insure", 갈래: "계산", 이름: "4대보험", 말: "월급에서 얼마나 빠지나", 명령: "at life insure",
+  폼: [{ 키: "보수", 이름: "월 보수 (세전)", 종류: "돈", 기본: 3000000 },
+       { 키: "세금", 이름: "명세서의 소득세+지방소득세", 종류: "돈", 기본: 0 }],
+  셈: (v) => {
+    if (!v.보수) return { 오류: "월 보수를 넣어 주세요." };
+    const 줄 = 보험공제(v.보수);
+    const 합 = 줄.reduce((a, b) => a + b[1], 0);
+    const out = 빈값();
+    out.큰 = ["빼고 남는 돈", 돈(v.보수 - 합 - v.세금), "원"];
+    out.줄 = 줄.map((one) => [one[0], 돈(one[1]), one[2]]);
+    out.줄.push(["4대보험 합계", 돈(합), ""]);
+    if (v.세금) out.줄.push(["소득세+지방소득세", 돈(v.세금), "넣은 값"]);
+    out.말 = [최저해 + "년 요율입니다. 사업주는 이만큼을 더 냅니다(고용보험은 더 냅니다).",
+              "근로소득세는 간이세액표를 봐야 해서 세지 않습니다."];
+    return out;
+  },
+},
+{
+  id: "tax", 갈래: "계산", 이름: "부가세 · 원천징수", 말: "10% 붙이기·빼기, 3.3%", 명령: "at life tax",
+  폼: [
+    { 키: "무엇", 이름: "무엇을", 종류: "고르기", 고르기: ["부가세 별도", "부가세 포함", "원천징수"], 기본: "부가세 포함" },
+    { 키: "금액", 이름: "금액", 종류: "돈", 기본: 1100000 },
+    { 키: "요율", 이름: "소득세율 (%)", 종류: "수", 기본: 3, 보임: (v) => v.무엇 === "원천징수",
+      도움: "사업소득 3, 기타소득 8" },
+  ],
+  셈: (v) => {
+    const out = 빈값();
+    if (v.무엇 === "원천징수") {
+      const 소득 = Math.floor(v.금액 * v.요율 / 100), 지방 = Math.floor(소득 * 0.1);
+      out.큰 = ["실수령", 돈(v.금액 - 소득 - 지방), "원"];
+      out.줄 = [["지급액", 돈(v.금액), ""], ["소득세", "-" + 돈(소득), v.요율 + "%"],
+                ["지방소득세", "-" + 돈(지방), "소득세의 10%"],
+                ["합계 공제", 돈(소득 + 지방), 수(v.요율 * 1.1, 2) + "%"]];
+      return out;
+    }
+    let 공급, 세액;
+    if (v.무엇 === "부가세 포함") { 공급 = Math.round(v.금액 / 1.1); 세액 = v.금액 - 공급; }
+    else { 공급 = Math.round(v.금액); 세액 = Math.round(공급 * 0.1); }
+    out.큰 = ["합계", 돈(공급 + 세액), "원"];
+    out.줄 = [["공급가액", 돈(공급), ""], ["부가세", 돈(세액), "10%"]];
+    out.말 = ["계산서에 적는 것은 공급가액과 세액입니다."];
+    return out;
+  },
+},
+{
+  id: "hourly", 갈래: "계산", 이름: "통상시급 · 가산수당", 말: "연장 1.5, 야간 0.5, 휴일 1.5/2.0", 명령: "at life hourly",
+  폼: [{ 키: "월급", 이름: "월 통상임금", 종류: "돈", 기본: 3000000 },
+       { 키: "소정", 이름: "한 달 소정근로시간", 종류: "수", 기본: 209 },
+       { 키: "연장", 이름: "연장 시간", 종류: "수", 기본: 0 },
+       { 키: "야간", 이름: "야간 시간", 종류: "수", 기본: 0 },
+       { 키: "휴일", 이름: "휴일 시간", 종류: "수", 기본: 0 }],
+  셈: (v) => {
+    if (!v.월급 || !v.소정) return { 오류: "월 통상임금과 소정근로시간을 넣어 주세요." };
+    const 시 = Math.floor(v.월급 / v.소정);
+    const out = 빈값();
+    out.큰 = ["통상시급", 돈(시), "원"];
+    out.표 = [["무엇", "1시간", "배수"],
+      ["통상시급", 돈(시), "1.0"], ["연장근로", 돈(Math.floor(시 * 1.5)), "1.5"],
+      ["야간 가산분", 돈(Math.floor(시 * 0.5)), "0.5"],
+      ["휴일 8시간까지", 돈(Math.floor(시 * 1.5)), "1.5"],
+      ["휴일 8시간 넘게", 돈(시 * 2), "2.0"]];
+    const 더 = Math.floor(시 * 1.5) * v.연장 + Math.floor(시 * 0.5) * v.야간
+      + Math.floor(시 * 1.5) * Math.min(v.휴일, 8) + 시 * 2 * Math.max(v.휴일 - 8, 0);
+    if (더) { out.큰 = ["이번 달 가산수당", 돈(더), "원"]; out.줄 = [["통상시급", 돈(시), v.소정 + "시간 기준"]]; }
+    out.말 = ["209시간은 주 40시간 + 주휴 8시간을 환산한 흔한 값이지 법이 정한 값이 아닙니다."];
+    return out;
+  },
+},
+{
+  id: "weekly", 갈래: "계산", 이름: "주휴수당", 말: "주 15시간 넘으면 생긴다", 명령: "at life weekly",
+  폼: [{ 키: "시급", 이름: "시급", 종류: "돈", 기본: 10320 },
+       { 키: "주시간", 이름: "1주 소정근로시간", 종류: "수", 기본: 20 }],
+  셈: (v) => {
+    if (!v.시급) return { 오류: "시급을 넣어 주세요." };
+    const 받나 = v.주시간 >= 15;
+    const 센시간 = Math.min(v.주시간, 40);
+    const 주휴시간 = 받나 ? 센시간 / 40 * 8 : 0;
+    const 주휴 = Math.floor(주휴시간 * v.시급);
+    const 일함 = Math.floor(v.주시간 * v.시급);
+    const out = 빈값();
+    out.큰 = ["한 주에", 돈(일함 + 주휴), "원"];
+    out.줄 = [["일한 시간 임금", 돈(일함), 수(v.주시간) + "시간"],
+              ["주휴수당", 돈(주휴), 받나 ? 수(주휴시간, 2) + "시간분" : "없음"],
+              ["한 달 어림", 돈(Math.floor((일함 + 주휴) * 주수)), "4.345주 환산"]];
+    out.말 = 받나 ? ["개근이 조건입니다. 결근한 주에는 나오지 않습니다."]
+      : ["1주 소정근로시간이 15시간 미만이라 주휴일을 주지 않아도 됩니다."];
+    return out;
+  },
+},
+{
+  id: "severance", 갈래: "계산", 이름: "퇴직금", 말: "평균임금 기준, 세전", 명령: "at life severance",
+  폼: [{ 키: "입사", 이름: "입사일", 종류: "날짜", 기본: "" },
+       { 키: "퇴사", 이름: "퇴직일", 종류: "날짜", 기본: "", 도움: "마지막 근무일의 다음 날" },
+       { 키: "임금", 이름: "퇴직 전 3개월 임금 총액", 종류: "돈", 기본: 0 },
+       { 키: "상여", 이름: "연간 상여금", 종류: "돈", 기본: 0, 도움: "3/12 만 더합니다" },
+       { 키: "연차", 이름: "전년도 연차수당", 종류: "돈", 기본: 0, 도움: "3/12 만 더합니다" }],
+  셈: (v) => {
+    const a = 날짜읽기(v.입사), b = 날짜읽기(v.퇴사);
+    if (!a || !b) return { 오류: "입사일과 퇴직일을 넣어 주세요." };
+    if (b <= a) return { 오류: "퇴직일이 입사일보다 뒤여야 합니다." };
+    if (!v.임금) return { 오류: "퇴직 전 3개월 임금 총액을 넣어 주세요." };
+    const 일한날 = 날차이(a, b);
+    const 창시작 = new Date(b.getFullYear(), b.getMonth() - 3, Math.min(b.getDate(), 28));
+    const 창 = 날차이(창시작, b);
+    const 총 = v.임금 + v.상여 * 3 / 12 + v.연차 * 3 / 12;
+    const 하루 = 창 ? 총 / 창 : 0;
+    const 받나 = 일한날 >= 365;
+    const 돈액 = 받나 ? 하루 * 30 * 일한날 / 365 : 0;
+    const out = 빈값();
+    out.큰 = ["퇴직금 (세전)", 돈(돈액), "원"];
+    out.줄 = [["일한 날", 수(일한날) + "일", 수(일한날 / 365, 1) + "년"],
+              ["3개월 임금 총액", 돈(총), 창 + "일로 나눔"],
+              ["1일 평균임금", 돈(하루), ""]];
+    out.말 = ["실제 지급액은 회사 규정·퇴직연금 운용에 따라 다릅니다.",
+              "퇴직소득세는 근속연수공제가 얽혀 있어 여기서 빼지 않습니다."];
+    if (!받나) out.경고 = ["계속근로 1년 미만이라 법정 퇴직금은 생기지 않습니다."];
+    if (v.상여 || v.연차) out.말.unshift("연간 상여금과 연차수당은 3/12 만 더했습니다.");
+    return out;
+  },
+},
+{
+  id: "annual", 갈래: "계산", 이름: "연차", 말: "입사일 기준 · 회계연도 기준", 명령: "at life annual · at sheet leave",
+  폼: [{ 키: "입사", 이름: "입사일", 종류: "날짜", 기본: "" },
+       { 키: "기준", 이름: "기준일", 종류: "날짜", 기본: "" },
+       { 키: "회계", 이름: "회계연도 기준도 본다", 종류: "고르기", 고르기: ["아니오", "예"], 기본: "아니오" }],
+  셈: (v) => {
+    const a = 날짜읽기(v.입사), b = 날짜읽기(v.기준) || 오늘;
+    if (!a) return { 오류: "입사일을 넣어 주세요." };
+    if (b < a) return { 오류: "기준일이 입사일보다 앞섭니다." };
+    const 해 = 근속연수(a, b);
+    const 이번 = 해 >= 1 ? Math.min(15 + Math.max(0, Math.floor((해 - 1) / 2)), 25)
+      : Math.min(개월차(a, b), 11);
+    const 누적 = 연차누적(a, b, false);
+    const out = 빈값();
+    out.큰 = ["올해 연차", String(이번), "일"];
+    out.줄 = [["근속", 해 >= 1 ? 해 + "년" : 개월차(a, b) + "개월", ""],
+              ["누적 발생", 누적 + "일", "입사 이후 전부"]];
+    if (해 >= 1) {
+      const 다음 = new Date(a.getFullYear() + 해 + 1, a.getMonth(), a.getDate());
+      out.줄.push(["다음 발생", 날짜글(다음), Math.min(15 + Math.max(0, Math.floor(해 / 2)), 25) + "일"]);
+    }
+    if (v.회계 === "예") {
+      const 회 = 연차누적(a, b, true);
+      out.줄.push(["회계연도 기준 누적", 회 + "일", 회 < 누적 ? "입사일 기준이 " + (누적 - 회) + "일 많음" : ""]);
+      out.말 = ["회계연도 기준은 법이 아니라 회사 관행입니다. 첫 해 몫은 «15일 x 재직일수 / 365» 를 올림했습니다.",
+                "퇴직 정산은 입사일 기준으로 다시 세어 많은 쪽을 줘야 합니다."];
+    }
+    out.말 = (out.말 || []).concat(["근태 자료가 없어 개근과 출근율 80% 는 채운 것으로 봅니다.",
+      "1년(365일)만 채우고 그만두면 11일입니다 (대법원 2021다227100)."]);
+    return out;
+  },
+},
+{
+  id: "workday", 갈래: "계산", 이름: "영업일 · 공휴일", 말: "며칟날 되나, 그 해 쉬는 날", 명령: "at life workday",
+  폼: [{ 키: "시작", 이름: "시작일", 종류: "날짜", 기본: "" },
+       { 키: "무엇", 이름: "무엇을", 종류: "고르기", 고르기: ["영업일 더하기", "사이 영업일 세기", "그 해 공휴일"], 기본: "영업일 더하기" },
+       { 키: "일수", 이름: "더할 영업일", 종류: "수", 기본: 5, 보임: (v) => v.무엇 === "영업일 더하기" },
+       { 키: "끝", 이름: "끝나는 날", 종류: "날짜", 기본: "", 보임: (v) => v.무엇 === "사이 영업일 세기" }],
+  셈: (v) => {
+    const a = 날짜읽기(v.시작) || 오늘;
+    const 휴 = Object.assign({}, 공휴일(a.getFullYear()), 공휴일(a.getFullYear() + 1));
+    const out = 빈값();
+    if (v.무엇 === "그 해 공휴일") {
+      const 그해 = 공휴일(a.getFullYear());
+      out.큰 = [a.getFullYear() + "년 공휴일", String(Object.keys(그해).length), "일"];
+      out.표 = [["날짜", "요일", "무엇"], ...Object.keys(그해).sort().map((k) => {
+        const d = 날짜읽기(k); return [k, 요일글[d.getDay()], 그해[k]];
+      })];
+      out.경고 = [음력공휴일말];
+      return out;
+    }
+    if (v.무엇 === "사이 영업일 세기") {
+      const b = 날짜읽기(v.끝);
+      if (!b) return { 오류: "끝나는 날을 넣어 주세요." };
+      let d = 새날(a), 센 = 0, 쉰 = 0;
+      const 끝 = 새날(b);
+      while (d <= 끝) { if (영업일인가(d, 휴)) 센++; else 쉰++; d = 날더하기(d, 1); }
+      out.큰 = ["영업일", String(센), "일"];
+      out.줄 = [["모든 날", 날차이(a, b) + 1 + "일", ""], ["쉬는 날", 쉰 + "일", "주말과 공휴일"]];
+      out.경고 = [음력공휴일말];
+      return out;
+    }
+    let d = 새날(a), 남 = Math.round(v.일수);
+    const 뒤로 = 남 < 0; 남 = Math.abs(남);
+    while (남 > 0) { d = 날더하기(d, 뒤로 ? -1 : 1); if (영업일인가(d, 휴)) 남--; }
+    out.큰 = [수(v.일수) + "영업일 " + (뒤로 ? "앞" : "뒤"), 날짜글(d), 요일글[d.getDay()] + "요일"];
+    out.줄 = [["시작", 날짜글(새날(a)) + " (" + 요일글[a.getDay()] + ")", ""],
+              ["달력으로", 날차이(a, d) + "일", ""]];
+    out.경고 = [음력공휴일말];
+    return out;
+  },
+},
+{
+  id: "rent", 갈래: "계산", 이름: "전월세 전환", 말: "보증금 <-> 월세", 명령: "at life rent",
+  폼: [{ 키: "쪽", 이름: "어느 쪽으로", 종류: "고르기", 고르기: ["보증금 -> 월세", "월세 -> 보증금"], 기본: "보증금 -> 월세" },
+       { 키: "전세", 이름: "전세보증금", 종류: "돈", 기본: 300000000, 보임: (v) => v.쪽 === "보증금 -> 월세" },
+       { 키: "남길", 이름: "남길 보증금", 종류: "돈", 기본: 100000000, 보임: (v) => v.쪽 === "보증금 -> 월세" },
+       { 키: "월세", 이름: "월세", 종류: "돈", 기본: 800000, 보임: (v) => v.쪽 === "월세 -> 보증금" },
+       { 키: "기본", 이름: "지금 보증금", 종류: "돈", 기본: 50000000, 보임: (v) => v.쪽 === "월세 -> 보증금" },
+       { 키: "전환율", 이름: "연 전환율 (%)", 종류: "수", 기본: 5.5 }],
+  셈: (v) => {
+    if (v.전환율 <= 0) return { 오류: "전환율은 0보다 커야 합니다." };
+    const out = 빈값();
+    if (v.쪽 === "보증금 -> 월세") {
+      if (v.남길 > v.전세) return { 오류: "남길 보증금이 전세보증금보다 큽니다." };
+      const 옮 = v.전세 - v.남길;
+      const 월 = Math.floor(옮 * v.전환율 / 100 / 12);
+      out.큰 = ["월세", 돈(월), "원"];
+      out.줄 = [["남는 보증금", 돈(v.남길), ""], ["월세로 돌린 돈", 돈(옮), ""],
+                ["1년치 월세", 돈(월 * 12), ""]];
+    } else {
+      const 옮 = Math.floor(v.월세 * 12 / (v.전환율 / 100));
+      out.큰 = ["보증금", 돈(v.기본 + 옮), "원"];
+      out.줄 = [["지금 보증금", 돈(v.기본), ""], ["월세를 돌린 돈", 돈(옮), ""], ["월세", "0", ""]];
+    }
+    out.말 = ["법정 전환율 상한은 «기준금리 + 2%» 와 10% 중 낮은 쪽입니다. 계약 전에 확인하세요."];
+    return out;
+  },
+},
+{
+  id: "unit", 갈래: "계산", 이름: "단위 변환", 말: "평/㎡, 근/돈, 마일, 화씨", 명령: "at life unit",
+  폼: [{ 키: "값", 이름: "바꿀 값", 종류: "글", 기본: "84㎡", 도움: "«84㎡», «3근», «5마일», «25도C»" }],
+  셈: (v) => {
+    const r = 단위바꾸기(v.값);
+    if (!r) return { 오류: "«84㎡» 처럼 숫자와 단위를 붙여 적어 주세요." };
+    const out = 빈값();
+    out.큰 = [r.그룹, 수(r.값, 4) + " " + r.단위, ""];
+    out.줄 = r.결과.map(([이름, 값]) => [이름, 수(값, 4), ""]);
+    return out;
+  },
+},
+{
+  id: "won", 갈래: "계산", 이름: "금액 한글", 말: "계약서·영수증에 적을 때", 명령: "at life won",
+  폼: [{ 키: "금액", 이름: "금액", 종류: "돈", 기본: 1234000 },
+       { 키: "정식", 이름: "정식 표기", 종류: "고르기", 고르기: ["보통", "정식"], 기본: "보통",
+         도움: "정식은 «일십» 처럼 1을 적습니다" }],
+  셈: (v) => {
+    const out = 빈값();
+    const 글 = 한글금액(v.금액, v.정식 === "정식");
+    out.큰 = ["한글로", 글, ""];
+    out.줄 = [["숫자", 돈(v.금액) + "원", ""],
+              ["계약서 꼴", "금 " + 글.replace(/ /g, "") + "원정", ""]];
+    return out;
+  },
+},
+{
+  id: "time", 갈래: "계산", 이름: "시간 계산", 말: "근무 시간, 시각 더하기", 명령: "at life time",
+  폼: [{ 키: "구간", 이름: "시각 구간", 종류: "여러줄", 기본: "09:00-18:00",
+         도움: "한 줄에 하나씩. «09:00-18:00». 자정을 넘겨도 됩니다" },
+       { 키: "휴게", 이름: "휴게 시간 (분)", 종류: "수", 기본: 60 }],
+  셈: (v) => {
+    const 줄들 = String(v.구간 || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    if (!줄들.length) return { 오류: "«09:00-18:00» 처럼 적어 주세요." };
+    let 합 = 0; const 본 = [];
+    for (const 한줄 of 줄들) {
+      const m = 한줄.split(/\s*[-~]\s*/);
+      if (m.length < 2) return { 오류: "읽지 못한 줄: " + 한줄 };
+      const a = 분읽기(m[0]), b = 분읽기(m[1]);
+      if (a === null || b === null) return { 오류: "읽지 못한 줄: " + 한줄 };
+      const 걸림 = b >= a ? b - a : b + 1440 - a;
+      합 += 걸림; 본.push([한줄, 분글(걸림), b < a ? "자정 넘김" : ""]);
+    }
+    const 실 = 합 - Math.max(v.휴게, 0);
+    const out = 빈값();
+    out.큰 = ["일한 시간", 분글(실), ""];
+    out.줄 = 본.concat([["머문 시간", 분글(합), ""], ["휴게", "-" + 분글(Math.max(v.휴게, 0)), ""]]);
+    out.줄.push(["소수로", 수(실 / 60, 2) + "시간", "임금 계산에 쓰는 꼴"]);
+    if (실 > 480) out.줄.push(["8시간 넘은 시간", 분글(실 - 480), "연장근로 후보"]);
+    return out;
+  },
+},
+{
+  id: "tz", 갈래: "계산", 이름: "시차", 말: "여기가 이 시각이면 거기는", 명령: "at life tz",
+  폼: [{ 키: "시각", 이름: "여기 시각", 종류: "글", 기본: "", 도움: "«14:30». 비우면 지금" },
+       { 키: "도시", 이름: "볼 곳", 종류: "여러줄", 기본: "서울\n뉴욕\n런던\n베를린\n싱가포르" }],
+  셈: (v) => {
+    const 이름표 = {
+      "서울": "Asia/Seoul", "한국": "Asia/Seoul", "도쿄": "Asia/Tokyo", "일본": "Asia/Tokyo",
+      "베이징": "Asia/Shanghai", "상하이": "Asia/Shanghai", "중국": "Asia/Shanghai",
+      "싱가포르": "Asia/Singapore", "인도": "Asia/Kolkata", "두바이": "Asia/Dubai",
+      "런던": "Europe/London", "파리": "Europe/Paris", "베를린": "Europe/Berlin",
+      "암스테르담": "Europe/Amsterdam", "모스크바": "Europe/Moscow",
+      "뉴욕": "America/New_York", "시카고": "America/Chicago", "덴버": "America/Denver",
+      "샌프란시스코": "America/Los_Angeles", "로스앤젤레스": "America/Los_Angeles",
+      "시애틀": "America/Los_Angeles", "밴쿠버": "America/Vancouver", "토론토": "America/Toronto",
+      "상파울루": "America/Sao_Paulo", "시드니": "Australia/Sydney",
+      "오클랜드": "Pacific/Auckland", "호놀룰루": "Pacific/Honolulu", "UTC": "UTC",
+    };
+    let 때 = new Date();
+    const 분 = 분읽기(v.시각);
+    if (분 !== null) { 때 = new Date(); 때.setHours(Math.floor(분 / 60), 분 % 60, 0, 0); }
+    const 곳 = String(v.도시 || "").split("\n").map((s) => s.trim()).filter(Boolean);
+    const 줄 = [], 모름 = [];
+    곳.forEach((이름) => {
+      const 존 = 이름표[이름] || 이름;
+      try {
+        const 글 = new Intl.DateTimeFormat("ko-KR", {
+          timeZone: 존, dateStyle: "short", timeStyle: "short",
+        }).format(때);
+        줄.push([이름, 글, 존]);
+      } catch (e) { 모름.push(이름); }
+    });
+    if (!줄.length) return { 오류: "아는 곳이 없습니다. 서울·뉴욕처럼 적거나 Asia/Seoul 로 적어 주세요." };
+    const out = 빈값();
+    out.큰 = ["기준", new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short" }).format(때), ""];
+    out.줄 = 줄.map((one) => [one[0], one[1], one[2]]);
+    if (모름.length) out.경고 = ["모르는 곳: " + 모름.join(", ")];
+    return out;
+  },
+},
+/* ---------------------------------------------------------------- 글 */
+{
+  id: "josa", 갈래: "글", 이름: "조사 고르기", 말: "은/는, 이/가, 으로/로", 명령: "at sheet fill",
+  폼: [{ 키: "말", 이름: "낱말", 종류: "글", 기본: "서울" }],
+  셈: (v) => {
+    const 낱 = String(v.말 || "").trim();
+    if (!낱) return { 오류: "낱말을 넣어 주세요." };
+    const 짝 = [["은", "는"], ["이", "가"], ["을", "를"], ["과", "와"], ["으로", "로"], ["이라", "라"], ["아", "야"]];
+    const out = 빈값();
+    out.큰 = ["붙이면", 낱 + 조사(낱, 짝[0]), ""];
+    out.줄 = 짝.map((p) => [p.join("/"), 낱 + 조사(낱, p), ""]);
+    const j = 받침(낱);
+    out.말 = [j === null ? "한글이 아니라 받침을 알 수 없어 받침이 있는 쪽으로 붙였습니다."
+      : j ? "받침이 있습니다." : "받침이 없습니다.",
+      "«으로/로» 은 ㄹ 받침일 때만 «로» 입니다."];
+    return out;
+  },
+},
+{
+  id: "count", 갈래: "글", 이름: "글자수 · 원고지", 말: "공백 포함·제외, 읽는 시간", 명령: "at doc stats · at novel stats",
+  폼: [{ 키: "글", 이름: "글", 종류: "여러줄", 기본: "" }],
+  셈: (v) => {
+    const 글 = String(v.글 || "");
+    if (!글.trim()) return { 오류: "글을 넣어 주세요." };
+    const 공백뺀 = 글.replace(/\s/g, "");
+    const 낱말 = 글.trim().split(/\s+/).filter(Boolean).length;
+    const 줄 = 글.split("\n").length;
+    const 문단 = 글.split(/\n\s*\n/).filter((s) => s.trim()).length;
+    const out = 빈값();
+    out.큰 = ["글자 (공백 포함)", 돈(글.length), "자"];
+    out.줄 = [["공백 뺀 글자", 돈(공백뺀.length), ""], ["낱말", 돈(낱말), ""],
+              ["줄", 돈(줄), ""], ["문단", 돈(문단), ""],
+              ["원고지", 돈(Math.ceil(글.length / 200)) + "매", "200자 기준"],
+              ["읽는 시간", 수(Math.ceil(낱말 / 250)) + "분", "1분에 250낱말"],
+              ["소리내 읽기", 수(Math.ceil(글.length / 350)) + "분", "1분에 350자"]];
+    return out;
+  },
+},
+{
+  id: "json", 갈래: "글", 이름: "JSON 훑기", 말: "키·타입·개수", 명령: "at json schema",
+  폼: [{ 키: "글", 이름: "JSON", 종류: "여러줄", 기본: "" }],
+  셈: (v) => {
+    let 값;
+    try { 값 = JSON.parse(String(v.글 || "")); }
+    catch (e) { return { 오류: "JSON 으로 읽지 못했습니다: " + e.message }; }
+    const 줄 = [];
+    (function 걷기(x, 길) {
+      const t = Array.isArray(x) ? "array" : x === null ? "null" : typeof x;
+      if (t === "array") {
+        줄.push([길 || "(뿌리)", "array[" + x.length + "]", ""]);
+        if (x.length) 걷기(x[0], (길 || "") + "[0]");
+      } else if (t === "object") {
+        줄.push([길 || "(뿌리)", "object{" + Object.keys(x).length + "}", ""]);
+        Object.keys(x).forEach((k) => 걷기(x[k], 길 ? 길 + "." + k : k));
+      } else {
+        줄.push([길, t, String(x).slice(0, 24)]);
+      }
+    })(값, "");
+    const out = 빈값();
+    out.큰 = ["칸", String(줄.length), "개"];
+    out.줄 = 줄.slice(0, 120);
+    if (줄.length > 120) out.말 = [줄.length - 120 + "칸 더 있습니다. PC 에서 at json schema 를 쓰세요."];
+    return out;
+  },
+},
+/* ---------------------------------------------------------------- 표 */
+{
+  id: "csv", 갈래: "표", 이름: "표 훑어보기 · 검증", 말: "붙여넣은 csv 의 열·결측·중복·집계", 명령: "at sheet peek · check · pivot",
+  폼: [{ 키: "글", 이름: "csv 붙여넣기", 종류: "여러줄", 기본: "", 도움: "첫 줄이 머리글입니다" },
+       { 키: "무엇", 이름: "무엇을", 종류: "고르기", 고르기: ["훑어보기", "검증", "집계"], 기본: "훑어보기" },
+       { 키: "묶을", 이름: "묶을 열", 종류: "글", 기본: "", 보임: (v) => v.무엇 === "집계" },
+       { 키: "셀", 이름: "셀 열", 종류: "글", 기본: "", 보임: (v) => v.무엇 === "집계", 도움: "비우면 건수" }],
+  셈: (v) => {
+    const 표 = csv읽기(String(v.글 || ""));
+    if (!표) return { 오류: "머리글과 한 줄 이상이 있어야 합니다." };
+    const out = 빈값();
+    if (v.무엇 === "집계") {
+      const gi = 표.머리.indexOf(v.묶을);
+      if (gi < 0) return { 오류: "그 열이 없습니다. 있는 열: " + 표.머리.join(", ") };
+      const vi = v.셀 ? 표.머리.indexOf(v.셀) : -1;
+      if (v.셀 && vi < 0) return { 오류: "그 열이 없습니다: " + v.셀 };
+      const 모 = {};
+      표.줄.forEach((r) => {
+        const k = (r[gi] || "").trim() || "(빈 칸)";
+        const n = vi < 0 ? 1 : 금액읽기(r[vi]);
+        모[k] = (모[k] || 0) + n;
+      });
+      const 쌍 = Object.entries(모).sort((a, b) => b[1] - a[1]);
+      out.큰 = [v.묶을 + " " + 쌍.length + "가지", 돈(쌍.reduce((a, b) => a + b[1], 0)), vi < 0 ? "건" : ""];
+      out.표 = [[v.묶을, vi < 0 ? "건수" : v.셀], ...쌍.map(([k, n]) => [k, 돈(n)])];
+      return out;
+    }
+    if (v.무엇 === "검증") {
+      const 줄 = [];
+      표.머리.forEach((h, i) => {
+        const 값 = 표.줄.map((r) => (r[i] || "").trim());
+        const 빈 = 값.filter((s) => !s).length;
+        const 고유 = new Set(값.filter(Boolean)).size;
+        const 숫자 = 값.filter((s) => s && !isNaN(Number(s.replace(/,/g, "")))).length;
+        const 찬 = 값.length - 빈;
+        const 말 = [];
+        if (빈) 말.push("빈 칸 " + 빈);
+        if (찬 && 고유 === 찬) 말.push("모두 다름 (키 후보)");
+        else if (찬 && 고유 < 찬) 말.push("겹침 " + (찬 - 고유));
+        if (찬 && 숫자 && 숫자 < 찬) 말.push("숫자·글자 섞임");
+        줄.push([h, (찬 ? 고유 : 0) + "가지", 말.join(" · ") || "괜찮음"]);
+      });
+      out.큰 = ["행", 돈(표.줄.length), "줄"];
+      out.줄 = 줄;
+      out.말 = ["자세한 검증(키 중복·타입 혼재·개인정보)은 PC 에서 at sheet audit 을 쓰세요."];
+      return out;
+    }
+    out.큰 = ["표", 표.줄.length + "행 x " + 표.머리.length + "열", ""];
+    out.표 = [표.머리, ...표.줄.slice(0, 30).map((r) => 표.머리.map((_h, i) => r[i] || ""))];
+    if (표.줄.length > 30) out.말 = [표.줄.length - 30 + "행 더 있습니다."];
+    return out;
+  },
+},
+];
+
+/* --------------------------------------------------- 도구가 쓰는 잔 셈들 */
+function 만나이(태어난, 오늘날) {
+  let 해 = 오늘날.getFullYear() - 태어난.getFullYear();
+  const 지났나 = (오늘날.getMonth() > 태어난.getMonth())
+    || (오늘날.getMonth() === 태어난.getMonth() && 오늘날.getDate() >= 태어난.getDate());
+  if (!지났나) 해 -= 1;
+  return 해;
+}
+function 근속연수(입사, 기준) { return Math.max(만나이(입사, 기준), 0); }
+function 개월차(입사, 기준) {
+  let m = (기준.getFullYear() - 입사.getFullYear()) * 12 + 기준.getMonth() - 입사.getMonth();
+  if (기준.getDate() < 입사.getDate()) m -= 1;
+  return Math.max(m, 0);
+}
+function 연차누적(입사, 기준, 회계) {
+  let 합 = 0;
+  for (let k = 1; k <= 11; k++) {
+    const d = new Date(입사.getFullYear(), 입사.getMonth() + k, 입사.getDate());
+    if (d > 기준) break;
+    합 += 1;
+  }
+  if (!회계) {
+    for (let n = 1; ; n++) {
+      const d = new Date(입사.getFullYear() + n, 입사.getMonth(), 입사.getDate());
+      if (d > 기준) break;
+      합 += Math.min(15 + Math.max(0, Math.floor((n - 1) / 2)), 25);
+    }
+    return 합;
+  }
+  let 첫 = new Date(입사.getFullYear(), 0, 1);
+  if (첫 <= 입사) 첫 = new Date(입사.getFullYear() + 1, 0, 1);
+  for (let step = 0; ; step++) {
+    const d = new Date(첫.getFullYear() + step, 0, 1);
+    if (d > 기준) break;
+    if (step === 0) {
+      const 잰날 = Math.round((d - 새날(입사)) / 86400000);
+      합 += Math.min(Math.ceil(15 * 잰날 / 365), 15);
+    } else {
+      const 해 = Math.max(근속연수(입사, d), 1);
+      합 += Math.min(15 + Math.max(0, Math.floor((해 - 1) / 2)), 25);
+    }
+  }
+  return 합;
+}
+function csv읽기(글) {
+  const 줄 = 글.split(/\r?\n/).filter((s) => s.trim());
+  if (줄.length < 2) return null;
+  const 쪼개 = (s) => {
+    const out = []; let 칸 = "", 따옴 = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (따옴) {
+        if (c === '"' && s[i + 1] === '"') { 칸 += '"'; i++; }
+        else if (c === '"') 따옴 = false;
+        else 칸 += c;
+      } else if (c === '"') 따옴 = true;
+      else if (c === "," || c === "\t") { out.push(칸); 칸 = ""; }
+      else 칸 += c;
+    }
+    out.push(칸);
+    return out.map((x) => x.trim());
+  };
+  return { 머리: 쪼개(줄[0]), 줄: 줄.slice(1).map(쪼개) };
+}
+
 /* =============================================================== 그리기 */
 const view = document.getElementById("view");
-const 화면 = { 이름: "ledger" };
+const modal = document.getElementById("modal");
+const 화면 = { 탭: "tools", 도구: null, 찾기: "", 단축키: null };
+const 값들 = {};        // 도구마다 마지막으로 넣은 값
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-function 그리기() {
-  document.getElementById("mlabel").textContent = 달글(보는달);
-  document.getElementById("monthbar").hidden = 화면.이름 === "pay";
-  document.getElementById("fab").hidden = 화면.이름 === "pay";
-  if (화면.이름 === "ledger") 장부그리기();
-  else if (화면.이름 === "fixed") 고정비그리기();
-  else 급여그리기();
+function 줄바꿈(s) { return esc(s).replace(/\n/g, "<br>"); }
+function 알림(말) {
+  const t = document.getElementById("toast");
+  t.innerHTML = '<div class="toast">' + esc(말) + '</div>';
+  setTimeout(() => { t.innerHTML = ""; }, 2400);
 }
 
+function 그리기() {
+  const 도구탭 = 화면.탭 === "tools";
+  document.getElementById("monthbar").hidden = !(화면.탭 === "ledger" || 화면.탭 === "fixed");
+  document.getElementById("searchbar").hidden = !(도구탭 && !화면.도구);
+  document.getElementById("back").hidden = !화면.도구;
+  document.getElementById("fab").hidden = !(화면.탭 === "ledger" || 화면.탭 === "fixed");
+  document.getElementById("mlabel").textContent = 달글(보는달);
+
+  const 이름 = { tools: "손에 든 attools", ledger: "장부", fixed: "고정비", me: "더보기" }[화면.탭];
+  const 도구 = 화면.도구 ? 도구들.find((t) => t.id === 화면.도구) : null;
+  document.getElementById("pagetitle").textContent =
+    화면.도구 === "keys" ? "단축키" : 화면.도구 === "find" ? "명령 찾기" : 도구 ? 도구.이름 : 이름;
+  document.getElementById("brandsub").textContent =
+    도구 ? 도구.명령 : 화면.도구 === "keys" ? "at keys" : 화면.도구 === "find" ? "at find" : "이 폰에만 저장";
+
+  if (화면.탭 === "ledger") 장부그리기();
+  else if (화면.탭 === "fixed") 고정비그리기();
+  else if (화면.탭 === "me") 더보기그리기();
+  else if (화면.도구 === "keys") 단축키그리기();
+  else if (화면.도구 === "find") 명령찾기그리기();
+  else if (도구) 도구그리기(도구);
+  else 목록그리기();
+}
+
+/* ------------------------------------------------------------ 도구 목록 */
+function 목록그리기() {
+  const q = 화면.찾기.trim().toLowerCase();
+  const 맞나 = (s) => !q || String(s).toLowerCase().indexOf(q) >= 0;
+  let h = "";
+
+  const 갈래들 = [...new Set(도구들.map((t) => t.갈래))];
+  갈래들.forEach((갈래) => {
+    const 안 = 도구들.filter((t) => t.갈래 === 갈래
+      && (맞나(t.이름) || 맞나(t.말) || 맞나(t.명령) || 맞나(t.갈래)));
+    if (!안.length) return;
+    h += '<section class="card"><h2>' + esc(갈래) + '</h2><div class="tools">'
+      + 안.map(도구단추).join("") + '</div></section>';
+  });
+
+  // 단축키·명령찾기는 폼이 아니라 따로 그린다
+  const 별도 = [["keys", "단축키 찾기", "한글·Word·엑셀·PPT·구글", "at keys"],
+                ["find", "명령 찾기 · 레시피", "PC 에서 쓸 명령 231개와 «이럴 땐 이렇게»", "at find · at how"]];
+  const 보일별도 = 별도.filter(([, 이름, 말, 명]) => 맞나(이름) || 맞나(말) || 맞나(명));
+  if (보일별도.length) {
+    h += '<section class="card"><h2>찾기</h2><div class="tools">'
+      + 보일별도.map(([id, 이름, 말, 명]) =>
+        '<button data-open="' + id + '"><span class="t">' + esc(이름) + '</span>'
+        + '<span class="d">' + esc(말) + '</span>'
+        + '<span class="c">' + esc(명) + '</span></button>').join("")
+      + '</div></section>';
+  }
+
+  if (q && !h) h = '<p class="empty">찾는 것이 없습니다. 명령 이름으로도 찾아 보세요.</p>';
+  if (!q) {
+    h += '<p class="note" style="margin-top:14px">폴더 정리·git·서버처럼 브라우저에서 못 하는 것은 '
+      + '«명령 찾기» 에 명령만 담았습니다. PC 에서 그대로 치면 됩니다.</p>';
+  }
+  view.innerHTML = h;
+}
+function 도구단추(t) {
+  return '<button data-tool="' + t.id + '"><span class="t">' + esc(t.이름) + '</span>'
+    + '<span class="d">' + esc(t.말) + '</span>'
+    + '<span class="c">' + esc(t.명령) + '</span></button>';
+}
+
+/* ------------------------------------------------------------ 도구 화면 */
+function 값가져오기(t) {
+  if (!값들[t.id]) {
+    const v = {};
+    t.폼.forEach((f) => { v[f.키] = f.기본; });
+    if (t.id === "wage" && DB.급여) Object.assign(v, DB.급여);
+    값들[t.id] = v;
+  }
+  return 값들[t.id];
+}
+function 도구그리기(t) {
+  const v = 값가져오기(t);
+  view.innerHTML = '<div id="result"></div>'
+    + '<section class="card"><h2>' + esc(t.말) + '</h2><div id="form"></div></section>';
+  폼그리기(t, v);
+  셈하기(t, v);
+}
+function 폼그리기(t, v) {
+  const 자리 = document.getElementById("form");
+  let h = "";
+  t.폼.forEach((f) => {
+    if (f.보임 && !f.보임(v)) return;
+    const 도움 = f.도움 ? ' <small>' + esc(f.도움) + '</small>' : "";
+    if (f.종류 === "고르기") {
+      h += '<label class="f"><span>' + esc(f.이름) + 도움 + '</span></label>'
+        + '<div class="chips" data-chips="' + f.키 + '">'
+        + f.고르기.map((c) => '<button type="button" data-v="' + esc(c) + '" aria-pressed="'
+          + (String(v[f.키]) === String(c)) + '">' + esc(c) + '</button>').join("")
+        + '</div>';
+    } else if (f.종류 === "여러줄") {
+      h += '<label class="f"><span>' + esc(f.이름) + 도움 + '</span>'
+        + '<textarea class="in" data-k="' + f.키 + '">' + esc(v[f.키] || "") + '</textarea></label>';
+    } else {
+      const 종 = f.종류 === "날짜" ? "date" : "text";
+      const 모드 = f.종류 === "돈" || f.종류 === "수" ? ' inputmode="decimal"' : "";
+      const 값 = f.종류 === "돈" ? (v[f.키] ? 돈(v[f.키]) : "") : (v[f.키] === 0 ? "0" : (v[f.키] || ""));
+      h += '<label class="f"><span>' + esc(f.이름) + 도움 + '</span>'
+        + '<input class="in' + (f.종류 === "돈" ? " money" : "") + '" type="' + 종 + '"'
+        + 모드 + ' data-k="' + f.키 + '" data-t="' + f.종류 + '" value="' + esc(값) + '"></label>';
+    }
+  });
+  자리.innerHTML = h;
+  자리.querySelectorAll("input.money").forEach((el) => {
+    el.addEventListener("input", () => { const n = 금액읽기(el.value); el.value = n ? 돈(n) : el.value.replace(/[^\d.,억만천-]/g, ""); });
+  });
+  let 늦게 = null;
+  자리.addEventListener("input", () => {
+    clearTimeout(늦게);
+    늦게 = setTimeout(() => { const 지금 = 도구들.find((x) => x.id === 화면.도구); 셈하기(지금, 폼읽기(지금)); }, 220);
+  });
+}
+function 폼읽기(t) {
+  const v = 값들[t.id];
+  document.querySelectorAll("#form [data-k]").forEach((el) => {
+    const 키 = el.dataset.k, 종 = el.dataset.t;
+    if (종 === "돈") v[키] = 금액읽기(el.value);
+    else if (종 === "수") v[키] = Number(String(el.value).replace(/,/g, "")) || 0;
+    else v[키] = el.value;
+  });
+  return v;
+}
+function 셈하기(t, v) {
+  const 자리 = document.getElementById("result");
+  let r;
+  try { r = t.셈(v); }
+  catch (e) { r = { 오류: "셈하지 못했습니다: " + e.message }; }
+  if (r.오류) {
+    자리.innerHTML = '<section class="card"><p class="note warn">' + esc(r.오류) + '</p></section>';
+    return;
+  }
+  let h = "";
+  if (r.큰) {
+    h += '<section class="card summary"><div class="left-label">' + esc(r.큰[0]) + '</div>'
+      + '<div class="left-amount num">' + esc(r.큰[1])
+      + (r.큰[2] ? '<span class="unit"> ' + esc(r.큰[2]) + '</span>' : "") + '</div></section>';
+  }
+  if (r.줄 && r.줄.length) {
+    h += '<section class="card"><dl class="kv">'
+      + r.줄.map((one) => '<dt>' + esc(one[0]) + (one[2] ? '<small>' + esc(one[2]) + '</small>' : "")
+        + '</dt><dd>' + esc(one[1]) + '</dd>').join("")
+      + '</dl></section>';
+  }
+  if (r.표 && r.표.length > 1) {
+    h += '<section class="card"><div class="scroll"><table class="grid"><thead><tr>'
+      + r.표[0].map((c) => '<th>' + esc(c) + '</th>').join("") + '</tr></thead><tbody>'
+      + r.표.slice(1).map((row) => '<tr>' + row.map((c, i) =>
+        '<td' + (i && /^[\d,.\-+]+$/.test(String(c)) ? ' class="n"' : "") + '>' + 줄바꿈(c) + '</td>').join("")
+        + '</tr>').join("")
+      + '</tbody></table></div></section>';
+  }
+  if ((r.말 && r.말.length) || (r.경고 && r.경고.length)) {
+    h += '<section class="card"><h2>알아 둘 것</h2>'
+      + (r.말 || []).map((n) => '<p class="note" style="margin:0 0 8px">· ' + esc(n) + '</p>').join("")
+      + (r.경고 || []).map((n) => '<p class="note warn" style="margin:0 0 8px">주의: ' + esc(n) + '</p>').join("")
+      + '</section>';
+  }
+  자리.innerHTML = h;
+}
+
+/* ------------------------------------------------------------ 단축키 */
+function 단축키그리기() {
+  const 자료 = (window.ATDATA && window.ATDATA.단축키) || [];
+  const q = 화면.찾기.trim().toLowerCase();
+  let h = '<section class="card"><label class="f" style="margin:0"><span>찾을 말</span>'
+    + '<input class="in" id="kq" value="' + esc(화면.찾기) + '" placeholder="저장, 찾기, 표"></label></section>';
+  자료.forEach((묶) => {
+    const 항 = 묶.items.filter((i) => !q || (i.name + " " + (i.cat || "")).toLowerCase().indexOf(q) >= 0);
+    if (!항.length) return;
+    h += '<section class="card"><h2>' + esc(묶.name) + '</h2><div class="scroll">'
+      + '<table class="grid"><thead><tr><th>하는 일</th>'
+      + 묶.apps.map((a) => '<th>' + esc(a.name) + '</th>').join("") + '</tr></thead><tbody>'
+      + 항.slice(0, 60).map((i) => '<tr><td>' + esc(i.name) + '</td>'
+        + 묶.apps.map((a) => {
+          const k = i.keys[a.id];
+          return '<td>' + (k === null || k === undefined ? "?" : k === "없음" ? "&#8212;" : esc(k)) + '</td>';
+        }).join("") + '</tr>').join("")
+      + '</tbody></table></div></section>';
+  });
+  if (h.indexOf("<tbody>") < 0) h += '<p class="empty">찾는 단축키가 없습니다.</p>';
+  h += '<p class="note" style="margin-top:12px">«?» 는 아직 확인하지 못한 칸, «&#8212;» 는 기본 단축키가 없는 기능입니다. '
+    + '값은 윈도우 기준입니다.</p>';
+  view.innerHTML = h;
+  const el = document.getElementById("kq");
+  el.addEventListener("input", () => {
+    화면.찾기 = el.value;
+    const 자리 = el.selectionStart;
+    단축키그리기();
+    const 새el = document.getElementById("kq");
+    새el.focus(); 새el.setSelectionRange(자리, 자리);
+  });
+}
+
+/* ------------------------------------------------------------ 명령 찾기 */
+function 명령찾기그리기() {
+  const 자료 = window.ATDATA || { 명령: [], 레시피: [] };
+  const q = 화면.찾기.trim().toLowerCase();
+  const 맞나 = (s) => !q || String(s).toLowerCase().indexOf(q) >= 0;
+  let h = '<section class="card"><label class="f" style="margin:0"><span>찾을 말</span>'
+    + '<input class="in" id="cq" value="' + esc(화면.찾기) + '" placeholder="합치기, pdf, 중복"></label></section>';
+
+  const 레 = 자료.레시피.filter(([주제, 제목, 명령들, 말]) =>
+    맞나(제목) || 맞나(주제) || 맞나(말) || 명령들.some(맞나));
+  if (레.length) {
+    h += '<section class="card"><h2>이럴 땐 이렇게 ' + 레.length + '가지</h2>';
+    레.slice(0, 12).forEach(([주제, 제목, 명령들, 말]) => {
+      h += '<div style="padding:9px 0;border-bottom:1px dashed var(--rule)">'
+        + '<div><span class="chip">' + esc(주제) + '</span> <b>' + esc(제목) + '</b></div>'
+        + 명령들.map((c) => '<div class="cmd">' + esc(c) + '</div>').join("")
+        + (말 ? '<p class="note" style="margin:4px 0 0">' + esc(말) + '</p>' : "") + '</div>';
+    });
+    if (레.length > 12) h += '<p class="note" style="margin-top:8px">' + (레.length - 12) + '가지 더 있습니다.</p>';
+    h += '</section>';
+  }
+
+  const 명 = 자료.명령.filter(([갈래, 이름, 말]) => 맞나(갈래 + " " + 이름) || 맞나(말));
+  if (명.length) {
+    const 묶 = {};
+    명.forEach(([갈래, 이름, 말]) => { (묶[갈래] = 묶[갈래] || []).push([이름, 말]); });
+    h += '<section class="card"><h2>명령 ' + 명.length + '개</h2>';
+    Object.keys(묶).forEach((갈래) => {
+      h += '<div style="margin-top:8px"><b class="cmd" style="color:var(--accent)">at ' + esc(갈래) + '</b>';
+      묶[갈래].forEach(([이름, 말]) => {
+        h += '<div class="line"><span class="name cmd">' + esc(이름) + '</span>'
+          + '<span class="dots"></span><span class="meta">' + esc(말) + '</span></div>';
+      });
+      h += '</div>';
+    });
+    h += '</section>';
+  }
+  if (!레.length && !명.length) h += '<p class="empty">찾는 명령이 없습니다.</p>';
+  h += '<p class="note" style="margin-top:12px">PC 에서 <span class="cmd">at how &lt;말&gt;</span> 과 '
+    + '<span class="cmd">at find &lt;말&gt;</span> 이 같은 것을 보여 줍니다.</p>';
+  view.innerHTML = h;
+  const el = document.getElementById("cq");
+  el.addEventListener("input", () => {
+    화면.찾기 = el.value;
+    const 자리 = el.selectionStart;
+    명령찾기그리기();
+    const 새el = document.getElementById("cq");
+    새el.focus(); 새el.setSelectionRange(자리, 자리);
+  });
+}
+
+/* ------------------------------------------------------------ 더보기 */
+function 더보기그리기() {
+  const 건 = DB.거래.length, 고 = DB.고정비.length;
+  let h = '<section class="card"><h2>담긴 것</h2><dl class="kv">'
+    + '<dt>거래</dt><dd>' + 돈(건) + '</dd>'
+    + '<dt>고정비</dt><dd>' + 돈(고) + '</dd>'
+    + '<dt>도구</dt><dd>' + 돈(도구들.length) + '</dd>'
+    + '<dt>명령 목록</dt><dd>' + 돈((window.ATDATA && window.ATDATA.명령.length) || 0) + '</dd>'
+    + '</dl></section>';
+  h += '<section class="card"><h2>내보내기</h2>'
+    + '<p class="note">이 앱은 이 폰에만 저장합니다. 옮겨 두지 않으면 브라우저 데이터를 지울 때 같이 지워집니다.</p>'
+    + '<button class="go" id="export">거래를 csv 로 복사</button>'
+    + '<button class="ghost" id="exportall">전부를 백업용 json 으로 복사</button></section>';
+  h += '<section class="card"><h2>들여오기</h2>'
+    + '<p class="note">백업해 둔 json 을 붙여넣으면 지금 것을 덮어씁니다.</p>'
+    + '<button class="ghost" id="import">json 붙여넣어 되살리기</button></section>';
+  h += '<section class="card"><h2>비우기</h2>'
+    + '<button class="ghost del" id="clear">거래와 고정비를 모두 지우기</button></section>';
+  h += '<section class="card"><h2>이것은</h2>'
+    + '<p class="note">attools 를 폰에서 쓰려고 만든 화면입니다. 셈법은 터미널의 '
+    + '<span class="cmd">at</span> 과 같은 수를 씁니다. 폴더 정리·git·서버처럼 브라우저가 '
+    + '못 하는 것은 «명령 찾기» 에 명령만 담았습니다.</p>'
+    + '<p class="note" style="margin-top:8px">' + esc(최저해) + '년 최저임금 ' + 돈(최저시급)
+    + '원, 4대보험 요율 기준입니다.</p></section>';
+  view.innerHTML = h;
+}
+
+/* ------------------------------------------------------------ 장부 */
 function 장부그리기() {
   const s = 달합(보는달);
   const 분류 = 분류별(보는달);
@@ -536,7 +1568,7 @@ function 장부그리기() {
 
   let h = '<section class="card summary">'
     + '<div class="left-label">남은 돈</div>'
-    + '<div class="left-amount num' + (s.남음 < 0 ? " minus" : "") + '">' + 돈(s.남음) + '<span style="font-size:19px">원</span></div>'
+    + '<div class="left-amount num' + (s.남음 < 0 ? " minus" : "") + '">' + 돈(s.남음) + '<span class="unit">원</span></div>'
     + '<div class="inout">'
     + '<div><div class="k">수입</div><div class="v plus num">' + 돈(s.수입) + '</div></div>'
     + '<div><div class="k">지출</div><div class="v minus num">' + 돈(s.지출) + '</div></div>'
@@ -548,8 +1580,7 @@ function 장부그리기() {
       const 차 = 지난[이름] == null ? null : 값 - 지난[이름];
       const 꼬리 = 차 === null || Math.round(차) === 0 ? ""
         : '<span class="meta"> ' + (차 > 0 ? "+" : "") + 돈(차) + '</span>';
-      h += '<div style="padding:8px 0">'
-        + '<div class="line" style="border:0;padding:0">'
+      h += '<div style="padding:8px 0"><div class="line" style="border:0;padding:0">'
         + '<span class="name">' + esc(이름) + '</span><span class="dots"></span>'
         + '<span class="amt num">' + 돈(값) + '</span>' + 꼬리 + '</div>'
         + '<div class="bar"><i style="width:' + Math.max(값 / 최대 * 100, 3) + '%"></i></div></div>';
@@ -558,38 +1589,30 @@ function 장부그리기() {
   }
 
   h += '<section class="card"><h2>이 달 내역 ' + 건.length + '건</h2>';
-  if (!건.length) {
-    h += '<p class="empty">아래 + 를 눌러 한 건 넣어 보세요.</p>';
-  } else {
-    건.forEach((t) => {
-      h += '<div class="line" data-edit="' + t.id + '" role="button" tabindex="0">'
-        + '<span class="day">' + t.날짜.slice(8) + '일</span>'
-        + '<span class="name">' + esc(t.내용 || "이름 없음")
-        + ' <span class="chip">' + esc(t.분류 || "기타") + '</span></span>'
-        + '<span class="dots"></span>'
-        + '<span class="amt num ' + (t.수입 ? "plus" : "minus") + '">'
-        + (t.수입 ? "+" : "-") + 돈(t.금액) + '</span></div>';
-    });
-  }
+  if (!건.length) h += '<p class="empty">아래 + 를 눌러 한 건 넣어 보세요.</p>';
+  else 건.forEach((t) => {
+    h += '<div class="line" data-edit="' + t.id + '" role="button" tabindex="0">'
+      + '<span class="day">' + t.날짜.slice(8) + '일</span>'
+      + '<span class="name">' + esc(t.내용 || "이름 없음")
+      + ' <span class="chip">' + esc(t.분류 || "기타") + '</span></span><span class="dots"></span>'
+      + '<span class="amt num ' + (t.수입 ? "plus" : "minus") + '">'
+      + (t.수입 ? "+" : "-") + 돈(t.금액) + '</span></div>';
+  });
   h += '</section>';
 
   if (되.length) {
     h += '<section class="card"><h2>달마다 되풀이된 지출</h2>';
     되.slice(0, 6).forEach((r) => {
-      h += '<div class="line">'
-        + '<span class="name">' + esc(r.이름)
+      h += '<div class="line"><span class="name">' + esc(r.이름)
         + '<span class="meta"> ' + r.달수 + '달 연속'
         + (r.흔들림 ? " · " + 돈(r.낮) + "~" + 돈(r.높) : "") + '</span></span>'
-        + '<span class="dots"></span>'
-        + '<span class="amt num">' + (r.흔들림 ? "평균 " : "") + 돈(r.금액) + '</span></div>';
+        + '<span class="dots"></span><span class="amt num">'
+        + (r.흔들림 ? "평균 " : "") + 돈(r.금액) + '</span></div>';
     });
-    h += '<p class="note" style="margin:10px 0 0">잊고 있던 구독이 여기서 걸립니다. 고정비 탭으로 옮기면 앞으로 매달 얼마 나갈지 봅니다.</p></section>';
+    h += '<p class="note" style="margin:10px 0 0">잊고 있던 구독이 여기서 걸립니다. 고정비로 옮기면 앞으로 매달 얼마 나갈지 봅니다.</p></section>';
   }
-
-  h += '<section class="card flat"><button class="ghost" id="export">내보내기 · 백업</button></section>';
   if (DB.예시) {
-    h += '<p class="note warn" style="margin-top:10px">지금 보이는 것은 예시입니다. 내 것을 넣기 전에 '
-      + '<button class="ghost" id="clear" style="display:inline;width:auto;padding:4px 10px;margin:0">예시 지우기</button> 를 누르세요.</p>';
+    h += '<p class="note warn" style="margin-top:12px">지금 보이는 것은 예시입니다. «더보기» 에서 지울 수 있습니다.</p>';
   }
   view.innerHTML = h;
 }
@@ -601,26 +1624,22 @@ function 고정비그리기() {
 
   let h = '<section class="card summary">'
     + '<div class="left-label">되풀이되는 돈 (한 달)</div>'
-    + '<div class="left-amount num">' + 돈(g.월) + '<span style="font-size:19px">원</span></div>'
+    + '<div class="left-amount num">' + 돈(g.월) + '<span class="unit">원</span></div>'
     + '<div class="inout">'
     + '<div><div class="k">1년이면</div><div class="v num">' + 돈(g.해) + '</div></div>'
-    + '<div><div class="k">수입에서 빼면</div><div class="v num ' + (수입 - g.월 < 0 ? "out" : "in") + '">'
-    + (수입 ? 돈(수입 - g.월) : "-") + '</div></div>'
-    + '</div></section>';
+    + '<div><div class="k">수입에서 빼면</div><div class="v num ' + (수입 - g.월 < 0 ? "minus" : "plus") + '">'
+    + (수입 ? 돈(수입 - g.월) : "-") + '</div></div></div></section>';
 
   h += '<section class="card"><h2>고정비 ' + g.줄.length + '건</h2>';
-  if (!g.줄.length) {
-    h += '<p class="empty">아래 + 를 눌러 구독이나 할부를 넣어 보세요.</p>';
-  } else {
-    g.줄.forEach((f) => {
-      h += '<div class="line" data-fix="' + f.id + '" role="button" tabindex="0">'
-        + '<span class="name">' + esc(f.이름) + ' <span class="chip">' + esc(f.주기) + '</span>'
-        + (f.끝난 ? '<span class="meta"> 끝남</span>'
-          : f.남은달 !== null ? '<span class="meta"> ' + f.남은달 + '달 남음</span>' : "")
-        + '</span><span class="dots"></span>'
-        + '<span class="amt num" style="' + (f.끝난 ? "opacity:.45" : "") + '">' + 돈(f.환산) + '</span></div>';
-    });
-  }
+  if (!g.줄.length) h += '<p class="empty">아래 + 를 눌러 구독이나 할부를 넣어 보세요.</p>';
+  else g.줄.forEach((f) => {
+    h += '<div class="line" data-fix="' + f.id + '" role="button" tabindex="0">'
+      + '<span class="name">' + esc(f.이름) + ' <span class="chip">' + esc(f.주기) + '</span>'
+      + (f.끝난 ? '<span class="meta"> 끝남</span>'
+        : f.남은달 !== null ? '<span class="meta"> ' + f.남은달 + '달 남음</span>' : "")
+      + '</span><span class="dots"></span>'
+      + '<span class="amt num" style="' + (f.끝난 ? "opacity:.45" : "") + '">' + 돈(f.환산) + '</span></div>';
+  });
   h += '<p class="note" style="margin:10px 0 0">금액은 한 달로 환산한 값입니다. 연 단위는 12로 나눕니다.</p></section>';
 
   if (곧.length) {
@@ -635,53 +1654,7 @@ function 고정비그리기() {
   view.innerHTML = h;
 }
 
-function 급여그리기() {
-  const v = DB.급여 || { 형태: "월급", 월급: 2800000, 시급: 최저시급, 주시간: 40, 일급: 180000, 일수: 20, 금액: 3600000, 연장: 0, 야간: 0, 휴일: 0, 식대: 200000, 세금: 0 };
-  const r = 급여셈(v);
-  const 부름 = { "월급": "정규직·계약직 (월급제)", "시급": "시급제 · 단시간", "일급": "일용직 (일급제)", "도급": "도급 · 사업소득 3.3%" }[v.형태];
-
-  let h = '<section class="card summary">'
-    + '<div class="left-label">실수령액 (한 달)</div>'
-    + '<div class="left-amount num">' + 돈(r.실수령) + '<span style="font-size:19px">원</span></div>'
-    + '<div class="inout">'
-    + '<div><div class="k">세전</div><div class="v num">' + 돈(r.세전) + '</div></div>'
-    + '<div><div class="k">공제</div><div class="v minus num">' + 돈(r.공제) + '</div></div>'
-    + '</div></section>';
-
-  h += '<section class="card"><h2>' + esc(부름) + '</h2>'
-    + '<button class="go" id="editpay" style="margin-top:0">숫자 바꾸기</button></section>';
-
-  h += '<section class="card"><h2>받는 것</h2><dl class="kv">';
-  r.받.forEach(([이름, 값, 설명]) => {
-    h += '<dt>' + esc(이름) + (설명 ? '<small>' + esc(설명) + '</small>' : "") + '</dt><dd>' + 돈(값) + '</dd>';
-  });
-  h += '</dl><dl class="kv total"><dt><b>세전 합계</b></dt><dd>' + 돈(r.세전) + '</dd></dl></section>';
-
-  if (r.뺀.length) {
-    h += '<section class="card"><h2>빼는 것</h2><dl class="kv">';
-    r.뺀.forEach(([이름, 값, 설명]) => {
-      h += '<dt>' + esc(이름) + (설명 ? '<small>' + esc(설명) + '</small>' : "") + '</dt><dd>' + 돈(값) + '</dd>';
-    });
-    h += '</dl><dl class="kv total"><dt><b>공제 합계</b></dt><dd>' + 돈(r.공제) + '</dd></dl></section>';
-  }
-
-  if (r.시급) {
-    h += '<section class="card"><h2>시급</h2><dl class="kv">'
-      + '<dt>통상시급</dt><dd>' + 돈(r.시급) + '</dd>'
-      + '<dt>' + 최저해 + '년 최저임금</dt><dd>' + 돈(최저시급) + '</dd></dl></section>';
-  }
-
-  if (r.말.length || r.경고.length) {
-    h += '<section class="card"><h2>알아 둘 것</h2>';
-    r.말.forEach((n) => { h += '<p class="note" style="margin:0 0 8px">· ' + esc(n) + '</p>'; });
-    r.경고.forEach((n) => { h += '<p class="note warn" style="margin:0 0 8px">주의: ' + esc(n) + '</p>'; });
-    h += '<p class="note" style="margin:8px 0 0;color:var(--ink-3)">회사 규정과 급여명세서가 우선입니다. 여기 수는 법정 최소치를 기준으로 한 어림입니다.</p></section>';
-  }
-  view.innerHTML = h;
-}
-
 /* =============================================================== 시트 */
-const modal = document.getElementById("modal");
 function 시트닫기() { modal.innerHTML = ""; }
 function 시트(내용) {
   modal.innerHTML = '<div class="veil" id="veil"><div class="sheet" role="dialog" aria-modal="true">'
@@ -690,40 +1663,31 @@ function 시트(내용) {
     if (e.target.id === "veil") 시트닫기();
   });
 }
-function 알림(말) {
-  const t = document.getElementById("toast");
-  t.innerHTML = '<div class="toast">' + esc(말) + '</div>';
-  setTimeout(() => { t.innerHTML = ""; }, 2200);
-}
 
 function 거래시트(id) {
   const 있 = id ? DB.거래.find((t) => t.id === id) : null;
   const t = 있 || { 날짜: 날짜글(오늘), 내용: "", 분류: "식비", 수입: false, 금액: 0 };
   if (!id && 보는달 !== 날짜글(오늘).slice(0, 7)) t.날짜 = 보는달 + "-01";
-
   시트('<h2>' + (id ? "고치기" : "한 건 넣기") + '</h2>'
     + '<div class="seg" id="seg-kind">'
     + '<button data-k="지출" aria-pressed="' + (!t.수입) + '">지출</button>'
     + '<button data-k="수입" aria-pressed="' + (!!t.수입) + '">수입</button></div>'
     + '<label class="f"><span>금액</span>'
-    + '<input class="in money" id="f-amt" inputmode="numeric" enterkeyhint="done" value="' + (t.금액 ? 돈(t.금액) : "") + '" placeholder="0"></label>'
+    + '<input class="in money" id="f-amt" inputmode="numeric" enterkeyhint="done" value="'
+    + (t.금액 ? 돈(t.금액) : "") + '" placeholder="0"></label>'
     + '<label class="f"><span>분류</span></label>'
-    + '<div class="chips" id="f-cat">' + DB.분류.concat(t.수입 ? ["급여"] : []).map((c) =>
+    + '<div class="chips" id="f-cat">' + DB.분류.concat(["급여"]).map((c) =>
       '<button data-c="' + esc(c) + '" aria-pressed="' + (c === t.분류) + '">' + esc(c) + '</button>').join("") + '</div>'
     + '<div class="row2">'
     + '<label class="f"><span>내용</span><input class="in" id="f-name" value="' + esc(t.내용) + '" placeholder="예: 장보기"></label>'
-    + '<label class="f"><span>날짜</span><input class="in" id="f-date" type="date" value="' + t.날짜 + '"></label>'
-    + '</div>'
+    + '<label class="f"><span>날짜</span><input class="in" id="f-date" type="date" value="' + t.날짜 + '"></label></div>'
     + '<button class="go" id="f-save">' + (id ? "고치기" : "넣기") + '</button>'
     + (id ? '<button class="ghost del" id="f-del">지우기</button>' : "")
     + '<button class="ghost" id="f-cancel">닫기</button>');
 
   let 수입 = !!t.수입, 분류 = t.분류;
   const amt = document.getElementById("f-amt");
-  amt.addEventListener("input", () => {
-    const n = 금액읽기(amt.value);
-    amt.value = n ? 돈(n) : "";
-  });
+  amt.addEventListener("input", () => { const n = 금액읽기(amt.value); amt.value = n ? 돈(n) : ""; });
   document.getElementById("seg-kind").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     수입 = b.dataset.k === "수입";
@@ -742,14 +1706,10 @@ function 거래시트(id) {
     const 값 = 금액읽기(amt.value);
     if (!값) { amt.focus(); 알림("금액을 넣어 주세요"); return; }
     const 날짜 = document.getElementById("f-date").value || 날짜글(오늘);
-    const 새 = {
-      id: id || 아이디(), 금액: Math.abs(값), 수입, 분류,
-      내용: document.getElementById("f-name").value.trim(), 날짜,
-    };
-    if (id) DB.거래 = DB.거래.map((x) => (x.id === id ? 새 : x));
-    else DB.거래.push(새);
-    DB.예시 = false;
-    쓰기(); 시트닫기(); 보는달 = 날짜.slice(0, 7); 그리기();
+    const 새 = { id: id || 아이디(), 금액: Math.abs(값), 수입, 분류,
+      내용: document.getElementById("f-name").value.trim(), 날짜 };
+    if (id) DB.거래 = DB.거래.map((x) => (x.id === id ? 새 : x)); else DB.거래.push(새);
+    DB.예시 = false; 쓰기(); 시트닫기(); 보는달 = 날짜.slice(0, 7); 그리기();
     알림(id ? "고쳤습니다" : "넣었습니다");
   });
   setTimeout(() => amt.focus(), 60);
@@ -766,8 +1726,7 @@ function 고정비시트(id) {
       '<button data-p="' + p + '" aria-pressed="' + (p === f.주기) + '">' + p + '마다</button>').join("") + '</div>'
     + '<div class="row2">'
     + '<label class="f"><span>이름</span><input class="in" id="g-name" value="' + esc(f.이름) + '" placeholder="예: 넷플릭스"></label>'
-    + '<label class="f"><span>분류</span><input class="in" id="g-cat" value="' + esc(f.분류) + '" placeholder="구독"></label>'
-    + '</div>'
+    + '<label class="f"><span>분류</span><input class="in" id="g-cat" value="' + esc(f.분류) + '" placeholder="구독"></label></div>'
     + '<label class="f"><span>끝나는 날 (할부라면)</span><input class="in" id="g-end" type="date" value="' + esc(f.끝) + '"></label>'
     + '<button class="go" id="g-save">' + (id ? "고치기" : "넣기") + '</button>'
     + (id ? '<button class="ghost del" id="g-del">지우기</button>' : "")
@@ -788,128 +1747,106 @@ function 고정비시트(id) {
   document.getElementById("g-save").addEventListener("click", () => {
     const 값 = 금액읽기(amt.value);
     if (!값) { amt.focus(); 알림("금액을 넣어 주세요"); return; }
-    const 새 = {
-      id: id || 아이디(), 금액: Math.abs(값), 주기,
+    const 새 = { id: id || 아이디(), 금액: Math.abs(값), 주기,
       이름: document.getElementById("g-name").value.trim() || "이름 없음",
-      분류: document.getElementById("g-cat").value.trim(), 끝: document.getElementById("g-end").value,
-    };
-    if (id) DB.고정비 = DB.고정비.map((x) => (x.id === id ? 새 : x));
-    else DB.고정비.push(새);
-    DB.예시 = false;
-    쓰기(); 시트닫기(); 그리기(); 알림(id ? "고쳤습니다" : "넣었습니다");
+      분류: document.getElementById("g-cat").value.trim(),
+      끝: document.getElementById("g-end").value };
+    if (id) DB.고정비 = DB.고정비.map((x) => (x.id === id ? 새 : x)); else DB.고정비.push(새);
+    DB.예시 = false; 쓰기(); 시트닫기(); 그리기(); 알림(id ? "고쳤습니다" : "넣었습니다");
   });
   setTimeout(() => amt.focus(), 60);
 }
 
-function 급여시트() {
-  const v = DB.급여 || { 형태: "월급", 월급: 2800000, 시급: 최저시급, 주시간: 40, 일급: 180000, 일수: 20, 금액: 3600000, 연장: 0, 야간: 0, 휴일: 0, 식대: 200000, 세금: 0 };
-  const 칸 = (id, 이름, 값, mono) =>
-    '<label class="f"><span>' + 이름 + '</span><input class="in' + (mono ? " money" : "") + '" id="' + id + '" inputmode="numeric" value="' + (값 || "") + '"></label>';
-
-  function 몸통(형태) {
-    if (형태 === "월급") return 칸("p-wol", "월 통상임금", 돈(v.월급), 1);
-    if (형태 === "시급") return 칸("p-si", "시급", 돈(v.시급), 1) + 칸("p-ju", "1주 소정근로시간", v.주시간);
-    if (형태 === "일급") return 칸("p-il", "일급", 돈(v.일급), 1) + 칸("p-day", "일한 날", v.일수);
-    return 칸("p-do", "도급 지급액", 돈(v.금액), 1);
-  }
-  function 시간들(형태) {
-    if (형태 === "도급") return "";
-    return '<div class="row2">' + 칸("p-ot", "연장 시간", v.연장) + 칸("p-nt", "야간 시간", v.야간) + '</div>'
-      + '<div class="row2">' + 칸("p-hd", "휴일 시간", v.휴일) + 칸("p-meal", "식대 (비과세)", 돈(v.식대), 1) + '</div>'
-      + (형태 === "일급" ? "" : 칸("p-tax", "명세서의 소득세+지방소득세", 돈(v.세금), 1));
-  }
-
-  function 채우기(형태) {
-    document.getElementById("p-body").innerHTML = 몸통(형태) + 시간들(형태);
-    modal.querySelectorAll("input.money").forEach((el) => {
-      el.addEventListener("input", () => { const n = 금액읽기(el.value); el.value = n ? 돈(n) : ""; });
-    });
-  }
-
-  시트('<h2>급여 숫자</h2>'
-    + '<div class="seg" id="p-kind" style="grid-auto-flow:column">'
-    + ["월급", "시급", "일급", "도급"].map((k) =>
-      '<button data-k="' + k + '" aria-pressed="' + (k === v.형태) + '">' + k + '</button>').join("")
-    + '</div>'
-    + '<p class="note" style="margin:10px 0 0">정규직·계약직은 셈법이 같습니다. 기간의 정함만 다르고 근로기준법은 똑같이 적용됩니다.</p>'
-    + '<div id="p-body"></div>'
-    + '<button class="go" id="p-save">셈하기</button>'
-    + '<button class="ghost" id="p-cancel">닫기</button>');
-
-  let 형태 = v.형태;
-  채우기(형태);
-  document.getElementById("p-kind").addEventListener("click", (e) => {
-    const b = e.target.closest("button"); if (!b) return;
-    형태 = b.dataset.k;
-    [...e.currentTarget.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-    채우기(형태);
-  });
-  document.getElementById("p-cancel").addEventListener("click", 시트닫기);
-  document.getElementById("p-save").addEventListener("click", () => {
-    const g = (id) => { const el = document.getElementById(id); return el ? 금액읽기(el.value) : 0; };
-    const 새 = {
-      형태,
-      월급: g("p-wol") || v.월급, 시급: g("p-si") || v.시급, 주시간: g("p-ju") || 40,
-      일급: g("p-il") || v.일급, 일수: g("p-day") || 20, 금액: g("p-do") || v.금액,
-      연장: g("p-ot"), 야간: g("p-nt"), 휴일: g("p-hd"),
-      식대: g("p-meal"), 세금: g("p-tax"),
-    };
-    새.실수령 = 급여셈(새).실수령;
-    DB.급여 = 새; 쓰기(); 시트닫기(); 그리기();
-  });
-}
-
-function 내보내기시트() {
-  const 줄 = ["날짜,내용,분류,구분,금액"];
-  DB.거래.slice().sort((a, b) => a.날짜.localeCompare(b.날짜)).forEach((t) => {
-    줄.push([t.날짜, (t.내용 || "").replace(/,/g, " "), (t.분류 || "").replace(/,/g, " "),
-      t.수입 ? "수입" : "지출", t.금액].join(","));
-  });
-  const csv = 줄.join("\n");
-  시트('<h2>내보내기 · 백업</h2>'
-    + '<p class="note">이 앱은 이 폰에만 저장합니다. 아래 글을 복사해 메모나 메일로 옮겨 두면 백업이 됩니다.</p>'
-    + '<p class="note" style="margin-top:8px">PC 에서 <span class="num">at sheet ledger</span> 에 그대로 물릴 수 있는 csv 입니다.</p>'
-    + '<textarea class="out" id="x-text" readonly>' + esc(csv) + '</textarea>'
-    + '<button class="go" id="x-copy">복사하기</button>'
+function 글시트(제목, 안내, 글, 읽기전용) {
+  시트('<h2>' + esc(제목) + '</h2><p class="note">' + esc(안내) + '</p>'
+    + '<textarea class="out" id="x-text"' + (읽기전용 ? " readonly" : "") + '>' + esc(글) + '</textarea>'
+    + '<button class="go" id="x-go">' + (읽기전용 ? "복사하기" : "되살리기") + '</button>'
     + '<button class="ghost" id="x-cancel">닫기</button>');
   document.getElementById("x-cancel").addEventListener("click", 시트닫기);
-  document.getElementById("x-copy").addEventListener("click", () => {
+  document.getElementById("x-go").addEventListener("click", () => {
     const el = document.getElementById("x-text");
+    if (!읽기전용) { 되살리기(el.value); return; }
     el.select(); el.setSelectionRange(0, 999999);
     let 됐 = false;
     try { 됐 = document.execCommand("copy"); } catch (e) { 됐 = false; }
     if (됐) { 알림("복사했습니다"); return; }
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(el.value)
-        .then(() => 알림("복사했습니다"))
+      navigator.clipboard.writeText(el.value).then(() => 알림("복사했습니다"))
         .catch(() => 알림("길게 눌러 직접 복사해 주세요"));
-    } else { 알림("길게 눌러 직접 복사해 주세요"); }
+    } else 알림("길게 눌러 직접 복사해 주세요");
   });
+}
+function csv내보내기() {
+  const 줄 = ["날짜,내용,분류,구분,금액"];
+  DB.거래.slice().sort((a, b) => a.날짜.localeCompare(b.날짜)).forEach((t) => {
+    줄.push([t.날짜, (t.내용 || "").replace(/,/g, " "), (t.분류 || "").replace(/,/g, " "),
+      t.수입 ? "수입" : "지출", t.금액].join(","));
+  });
+  글시트("거래 csv", "PC 에서 at sheet ledger 에 그대로 물릴 수 있는 꼴입니다.", 줄.join("\n"), true);
+}
+function 되살리기(글) {
+  let 새;
+  try { 새 = JSON.parse(글); } catch (e) { 알림("json 으로 읽지 못했습니다"); return; }
+  if (!새 || !Array.isArray(새.거래)) { 알림("이 앱이 백업한 json 이 아닙니다"); return; }
+  DB = Object.assign({}, 기본, 새); DB.예시 = false;
+  쓰기(); 시트닫기(); 그리기(); 알림("되살렸습니다");
 }
 
 /* =============================================================== 배선 */
+function 탭가기(이름) {
+  화면.탭 = 이름; 화면.도구 = null; 화면.찾기 = "";
+  const id = { tools: "tab-tools", ledger: "tab-ledger", fixed: "tab-fixed", me: "tab-me" }[이름];
+  document.querySelectorAll("nav.tabs button").forEach((b) =>
+    b.setAttribute("aria-selected", String(b.id === id)));
+  적어두기("tab", 이름);
+  const q = document.getElementById("q"); if (q) q.value = "";
+  그리기(); window.scrollTo(0, 0);
+}
 document.getElementById("prevm").addEventListener("click", () => { 보는달 = 달더하기(보는달, -1); 그리기(); });
 document.getElementById("nextm").addEventListener("click", () => { 보는달 = 달더하기(보는달, 1); 그리기(); });
 document.getElementById("fab").addEventListener("click", () => {
-  if (화면.이름 === "fixed") 고정비시트(null); else 거래시트(null);
+  if (화면.탭 === "fixed") 고정비시트(null); else 거래시트(null);
 });
-[["tab-ledger", "ledger"], ["tab-fixed", "fixed"], ["tab-pay", "pay"]].forEach(([id, 이름]) => {
-  document.getElementById(id).addEventListener("click", () => {
-    화면.이름 = 이름;
-    document.querySelectorAll('nav.tabs button').forEach((b) =>
-      b.setAttribute("aria-selected", String(b.id === id)));
-    try { localStorage.setItem(KEY + ".tab", 이름); } catch (e) {}
-    그리기();
-    window.scrollTo(0, 0);
+document.getElementById("back").addEventListener("click", () => {
+  화면.도구 = null; 화면.찾기 = ""; 그리기(); window.scrollTo(0, 0);
+});
+[["tab-tools", "tools"], ["tab-ledger", "ledger"], ["tab-fixed", "fixed"], ["tab-me", "me"]]
+  .forEach(([id, 이름]) => {
+    document.getElementById(id).addEventListener("click", () => 탭가기(이름));
   });
+document.getElementById("q").addEventListener("input", (e) => {
+  화면.찾기 = e.target.value; 목록그리기();
 });
+
 view.addEventListener("click", (e) => {
+  const 도 = e.target.closest("[data-tool]");
+  if (도) { 화면.도구 = 도.dataset.tool; 화면.찾기 = ""; 그리기(); window.scrollTo(0, 0); return; }
+  const 열 = e.target.closest("[data-open]");
+  if (열) { 화면.도구 = 열.dataset.open; 화면.찾기 = ""; 그리기(); window.scrollTo(0, 0); return; }
   const 줄 = e.target.closest("[data-edit]");
   if (줄) { 거래시트(줄.dataset.edit); return; }
   const 고 = e.target.closest("[data-fix]");
   if (고) { 고정비시트(고.dataset.fix); return; }
-  if (e.target.id === "export") { 내보내기시트(); return; }
-  if (e.target.id === "editpay") { 급여시트(); return; }
+  const 칩 = e.target.closest("[data-chips] button");
+  if (칩) {
+    const 통 = 칩.closest("[data-chips]");
+    const t = 도구들.find((x) => x.id === 화면.도구);
+    [...통.children].forEach((x) => x.setAttribute("aria-pressed", String(x === 칩)));
+    const v = 폼읽기(t);
+    v[통.dataset.chips] = 칩.dataset.v;
+    폼그리기(t, v); 셈하기(t, v);
+    return;
+  }
+  if (e.target.id === "export") { csv내보내기(); return; }
+  if (e.target.id === "exportall") {
+    글시트("백업 json", "이 글을 메모나 메일에 붙여 두면 통째로 되살릴 수 있습니다.",
+      JSON.stringify(DB), true);
+    return;
+  }
+  if (e.target.id === "import") {
+    글시트("백업 되살리기", "백업해 둔 json 을 붙여넣고 «되살리기» 를 누르세요. 지금 것은 사라집니다.", "", false);
+    return;
+  }
   if (e.target.id === "clear") {
     DB.거래 = []; DB.고정비 = []; DB.예시 = false; 쓰기(); 그리기(); 알림("비웠습니다");
   }
@@ -924,16 +1861,9 @@ view.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") 시트닫기(); });
 
 읽기();
-try {
-  const 탭 = localStorage.getItem(KEY + ".tab");
-  if (탭) {
-    화면.이름 = 탭;
-    const id = { ledger: "tab-ledger", fixed: "tab-fixed", pay: "tab-pay" }[탭];
-    document.querySelectorAll('nav.tabs button').forEach((b) =>
-      b.setAttribute("aria-selected", String(b.id === id)));
-  }
-} catch (e) {}
-그리기();
+const 옛탭 = 꺼내기("tab");
+if (옛탭 && ["tools", "ledger", "fixed", "me"].indexOf(옛탭) >= 0) 탭가기(옛탭);
+else 그리기();
 </script>
 
 <script>

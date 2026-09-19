@@ -17,6 +17,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from attools import life, sheet
 
 여기 = Path(__file__).resolve().parents[1] / "mobile"
+sys.path.insert(0, str(여기 / "tools"))
+
+
+def 만드는이():
+    """데이터를 만드는 그 코드를 그대로 불러 본다."""
+    import make_data
+
+    return make_data
+
 앱 = (여기 / "index.html").read_text(encoding="utf-8")
 
 
@@ -110,6 +119,42 @@ class SameNumbersTest(unittest.TestCase):
 
     def test_repeat_threshold_matches(self):
         self.assertIn("되풀이찾기(3)", 앱)
+
+
+class EmbeddedDataTest(unittest.TestCase):
+    """화면 안에 끼운 명령·레시피·단축키가 지금 저장소와 같아야 한다.
+
+    명령을 더하고 make_data.py 를 안 돌리면 폰의 «명령 찾기» 가 조용히 옛것이
+    된다. 여기서 세어 본다.
+    """
+
+    def setUp(self):
+        찾음 = re.search(r"window\.ATDATA = (\{.*?\});\n", 앱, re.S)
+        self.assertIsNotNone(찾음, "끼운 데이터를 찾지 못했습니다")
+        self.데이터 = json.loads(찾음.group(1))
+
+    def test_command_list_matches_the_parser(self):
+        self.assertEqual(self.데이터["명령"], 만드는이().commands())
+
+    def test_recipes_match(self):
+        self.assertEqual(self.데이터["레시피"], 만드는이().cookbook())
+
+    def test_shortcuts_match(self):
+        self.assertEqual(self.데이터["단축키"], 만드는이().shortcuts())
+
+    def test_every_tool_names_a_real_command(self):
+        """도구가 적어 둔 «짝이 되는 명령» 이 진짜 있는 명령이어야 한다."""
+        있는 = {갈래 + " " + 이름 for 갈래, 이름, _말 in self.데이터["명령"]}
+        for 한줄 in re.findall(r'명령: "([^"]+)"', 앱):
+            for 하나 in 한줄.split(" · "):
+                말 = 하나.replace("at ", "").strip()
+                if " " not in 말:
+                    continue
+                갈래 = 말.split()[0]
+                for 이름 in 말.split()[1:]:
+                    if 이름.startswith("("):
+                        continue
+                    self.assertIn(갈래 + " " + 이름, 있는, 한줄)
 
 
 if __name__ == "__main__":
