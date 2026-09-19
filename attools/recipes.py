@@ -54,6 +54,14 @@ RECIPES: list[Recipe] = [
            ["at sheet join 명단.xlsx 연락처.xlsx --on 사번 -o 붙임.xlsx"],
            "키가 겹치거나 없는 행이 몇 개인지 함께 알려 준다.",
            "브이룩업 vlookup 조인"),
+    Recipe("점검", "청구한 돈이 들어왔는지 통장 내역과 맞춰 보기",
+           ["at sheet match 청구.xlsx 통장.csv --amount 금액 "
+            "--right-amount 입금액 --name 거래처 --right-name 적요 "
+            "--date 청구일 --right-date 입금일 -o 대사.xlsx"],
+           "통장에는 청구서 번호가 없어 금액으로 먼저 맞춘다. 이름이 달라도 "
+           "(대표자 개인명) 금액과 날짜가 맞으면 짝으로 본다. 이체 수수료는 "
+           "--tol 1000 으로 감안한다.",
+           "대사 미수금 미입금 수금 외상 채권 입금확인 reconcile"),
     Recipe("취합", "합치기 전에 열 이름 맞추기",
            ["at sheet rename 2팀.xlsx --map 성명=이름 -o 맞춤.xlsx"],
            "이름·성명처럼 한 글자만 달라도 다른 열이 된다.",

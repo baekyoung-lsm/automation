@@ -3875,6 +3875,289 @@ def find_similar(table: Table, column: str, *, threshold: float = 0.85,
     return pairs, cut
 
 
+# ------------------------------------------------------- 입출금 대사(對査)
+
+MATCH_CAP = 4000          # 이보다 많으면 나눠 들어온 것 찾기는 건너뛴다
+
+
+@dataclass
+class MatchRow:
+    """대사 결과 한 줄."""
+
+    status: str                 # 맞음 | 금액 다름 | 나눠 들어옴 | 안 들어옴 | 짝 없는 입금
+    left_row: int = 0           # 머리글을 1행으로 센 줄 번호. 0 이면 왼쪽에 없다
+    right_rows: list = field(default_factory=list)
+    name: str = ""
+    right_name: str = ""
+    amount: float | None = None
+    right_amount: float | None = None
+    days: int | None = None     # 오른쪽 날짜 - 왼쪽 날짜
+    why: str = ""
+
+    @property
+    def gap(self) -> float | None:
+        """오른쪽 - 왼쪽. 모자라면 음수다."""
+        if self.amount is None or self.right_amount is None:
+            return None
+        return self.right_amount - self.amount
+
+
+@dataclass
+class MatchReport:
+    rows: list = field(default_factory=list)
+    left_total: int = 0
+    right_total: int = 0
+    skipped_left: int = 0       # 금액을 못 읽어 뺀 줄
+    skipped_right: int = 0
+    split_skipped: bool = False  # 너무 커서 나눠 들어온 것을 안 찾았나
+
+    def count(self, status: str) -> int:
+        return sum(1 for r in self.rows if r.status == status)
+
+
+@dataclass
+class _Entry:
+    row: int
+    amount: float
+    name: str
+    key: str
+    when: object = None
+
+
+def _match_entries(table: Table, amount: str, name: str | None,
+                   when: str | None) -> tuple[list, int]:
+    """대사에 쓸 줄만 추린다. 금액을 못 읽는 줄은 세어서 따로 알린다."""
+    money = table.index_of(amount)
+    who = table.index_of(name) if name else -1
+    day = table.index_of(when) if when else -1
+    out, skipped = [], 0
+    for line, row in enumerate(table.rows, 2):
+        value = number_of(row[money]) if money < len(row) else None
+        if value is None:
+            skipped += 1
+            continue
+        raw = to_text(row[who]) if 0 <= who < len(row) else ""
+        stamp = _as_date(row[day]) if 0 <= day < len(row) else None
+        out.append(_Entry(line, value, raw.strip(), normalize_name(raw), stamp))
+    return out, skipped
+
+
+def _name_score(a: str, b: str) -> float:
+    """다듬은 이름끼리 얼마나 닮았나. 한쪽이 비면 0.0 - 모르는 것은 0 이다."""
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    if a in b or b in a:
+        return 0.9
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _day_gap(left: _Entry, right: _Entry) -> int | None:
+    if left.when is None or right.when is None:
+        return None
+    return (right.when - left.when).days
+
+
+def _match_why(score: float, gap: int | None, *, named: bool = True,
+               split: bool = False) -> str:
+    """왜 이 둘을 짝으로 봤는지. 사람이 보고 고치려면 근거가 있어야 한다."""
+    parts = ["금액 나눠 맞음" if split else "금액 같음"]
+    if not named:
+        pass                      # 이름 열을 안 줬거나 비어 있으면 말하지 않는다
+    elif score >= 0.999:
+        parts.append("이름 같음")
+    elif score >= 0.6:
+        parts.append("이름 비슷")
+    else:
+        parts.append("이름 다름")
+    if gap is not None:
+        parts.append("같은 날" if gap == 0 else f"{abs(gap)}일 {'뒤' if gap > 0 else '앞'}")
+    return " · ".join(parts)
+
+
+def _take_exact(lefts: list, rights: list, *, tolerance: float, days: int,
+                floor: float) -> tuple[list, list, list]:
+    """금액이 맞는 짝을 가져간다. (짝, 남은 왼쪽, 남은 오른쪽)
+
+    floor 는 이름이 얼마나 닮아야 여기서 집을지다. 확실한 짝을 먼저 집고
+    남은 것을 다시 훑으려고 나눠 두었다.
+    """
+    candidates = []
+    for one in lefts:
+        for other in rights:
+            if abs(other.amount - one.amount) > tolerance:
+                continue
+            gap = _day_gap(one, other)
+            if gap is not None and abs(gap) > days:
+                continue
+            score = _name_score(one.key, other.key)
+            if score < floor:
+                continue
+            candidates.append((-score, abs(gap) if gap is not None else 0,
+                               one.row, other.row, one, other))
+    candidates.sort(key=lambda c: c[:4])
+
+    used_left, used_right, out = set(), set(), []
+    for score, _near, _lr, _rr, one, other in candidates:
+        if one.row in used_left or other.row in used_right:
+            continue
+        used_left.add(one.row)
+        used_right.add(other.row)
+        gap = _day_gap(one, other)
+        out.append(MatchRow("맞음", one.row, [other.row], one.name, other.name,
+                            one.amount, other.amount, gap,
+                            _match_why(-score, gap,
+                                       named=bool(one.key and other.key))))
+    return (out,
+            [e for e in lefts if e.row not in used_left],
+            [e for e in rights if e.row not in used_right])
+
+
+def reconcile(left: Table, right: Table, *, amount: str,
+              right_amount: str | None = None, name: str | None = None,
+              right_name: str | None = None, when: str | None = None,
+              right_when: str | None = None, days: int = 30,
+              tolerance: float = 0.0, split: bool = True) -> MatchReport:
+    """청구서와 입금 내역처럼 키가 없는 두 표를 금액·날짜·이름으로 짝짓는다.
+
+    통장 내역에는 청구서 번호가 없다. 입금자 이름도 대표자 개인 이름이거나
+    은행이 잘라 놓은 여섯 글자인 일이 흔해서, 이름만으로는 못 맞춘다.
+    그래서 금액을 먼저 맞추고 날짜와 이름은 여럿 중 하나를 고르는 데만 쓴다.
+    이름이 달라도 금액과 날짜가 맞으면 짝으로 본다 - 실제로 그렇게 들어온다.
+
+    짝은 한 번씩만 쓴다. 같은 금액이 여럿이면 이름이 닮고 날짜가 가까운
+    쪽부터 가져간다. 사람이 보고 고치라고 «근거» 를 함께 적는다.
+    """
+    pairs_left, skipped_left = _match_entries(left, amount, name, when)
+    pairs_right, skipped_right = _match_entries(
+        right, right_amount or amount, right_name or name, right_when or when)
+    report = MatchReport(left_total=len(pairs_left), right_total=len(pairs_right),
+                         skipped_left=skipped_left, skipped_right=skipped_right)
+
+    taken = []
+    rest_left, rest_right = pairs_left, pairs_right
+
+    # 1) 이름까지 닮은 짝부터 가져간다. 이름이 영 다른 짝을 먼저 집으면
+    #    나눠 들어온 돈의 한쪽을 엉뚱한 줄이 물고 가, 제대로 낸 거래처가
+    #    «덜 냈다» 로 찍힌다. 그래서 확실한 것 -> 나눠 들어온 것 -> 나머지
+    #    차례로 본다.
+    found, rest_left, rest_right = _take_exact(
+        rest_left, rest_right, tolerance=tolerance, days=days, floor=0.6)
+    taken += found
+
+    # 2) 나눠 들어온 것. 두 건까지만 본다 - 세 건 이상은 조합이 터진다.
+    if split and rest_left and rest_right:
+        if len(rest_left) * len(rest_right) > MATCH_CAP:
+            report.split_skipped = True
+        else:
+            done_left, done_right = set(), set()
+            for one in rest_left:
+                if one.row in done_left:
+                    continue
+                found = None
+                for i, a in enumerate(rest_right):
+                    if a.row in done_right:
+                        continue
+                    for b in rest_right[i + 1:]:
+                        if b.row in done_right:
+                            continue
+                        if abs(a.amount + b.amount - one.amount) > tolerance:
+                            continue
+                        gaps = [g for g in (_day_gap(one, a), _day_gap(one, b))
+                                if g is not None]
+                        if gaps and max(abs(g) for g in gaps) > days:
+                            continue
+                        found = (a, b, max(gaps, key=abs) if gaps else None)
+                        break
+                    if found:
+                        break
+                if not found:
+                    continue
+                a, b, gap = found
+                done_left.add(one.row)
+                done_right.update({a.row, b.row})
+                score = max(_name_score(one.key, a.key), _name_score(one.key, b.key))
+                taken.append(MatchRow(
+                    "나눠 들어옴", one.row, [a.row, b.row], one.name,
+                    a.name if _name_score(one.key, a.key) >= score else b.name,
+                    one.amount, a.amount + b.amount, gap,
+                    _match_why(score, gap, split=True,
+                               named=bool(one.key and (a.key or b.key)))))
+            rest_left = [e for e in rest_left if e.row not in done_left]
+            rest_right = [e for e in rest_right if e.row not in done_right]
+
+    # 3) 이름이 안 닮아도 금액과 날짜가 맞으면 짝으로 본다. 은행이 이름을
+    #    잘라 놓거나 대표자 개인 이름으로 넣은 자리가 여기서 걸린다.
+    found, rest_left, rest_right = _take_exact(
+        rest_left, rest_right, tolerance=tolerance, days=days, floor=0.0)
+    taken += found
+
+    # 4) 이름은 같은데 금액이 다른 것. 실수로 덜 넣거나 수수료를 뗀 자리다.
+    if name:
+        done_left, done_right = set(), set()
+        for one in rest_left:
+            best = None
+            for other in rest_right:
+                if other.row in done_right or not one.key or not other.key:
+                    continue
+                score = _name_score(one.key, other.key)
+                if score < 0.85:
+                    continue
+                gap = _day_gap(one, other)
+                if gap is not None and abs(gap) > days:
+                    continue
+                mark = (-score, abs(gap) if gap is not None else 0, other.row)
+                if best is None or mark < best[0]:
+                    best = (mark, other, gap)
+            if best is None:
+                continue
+            _mark, other, gap = best
+            done_left.add(one.row)
+            done_right.add(other.row)
+            taken.append(MatchRow("금액 다름", one.row, [other.row], one.name,
+                                  other.name, one.amount, other.amount, gap,
+                                  "이름으로 찾음 · 금액이 다름"))
+        rest_left = [e for e in rest_left if e.row not in done_left]
+        rest_right = [e for e in rest_right if e.row not in done_right]
+
+    for one in rest_left:
+        taken.append(MatchRow("안 들어옴", one.row, [], one.name, "",
+                              one.amount, None, None, ""))
+    for other in rest_right:
+        taken.append(MatchRow("짝 없는 입금", 0, [other.row], "", other.name,
+                              None, other.amount, None, ""))
+
+    order = {"금액 다름": 0, "안 들어옴": 1, "짝 없는 입금": 2,
+             "나눠 들어옴": 3, "맞음": 4}
+    taken.sort(key=lambda r: (order[r.status], r.left_row or 10 ** 9,
+                              r.right_rows[0] if r.right_rows else 0))
+    report.rows = taken
+    return report
+
+
+def match_table(report: MatchReport) -> Table:
+    """대사 결과를 표로. 엑셀로 내보내 그대로 확인 목록으로 쓴다."""
+    headers = ["상태", "왼쪽 줄", "이름", "금액", "오른쪽 줄", "입금자",
+               "입금액", "차액", "날짜차", "근거"]
+    rows = []
+    for one in report.rows:
+        gap = one.gap
+        rows.append([
+            one.status,
+            one.left_row or "",
+            one.name,
+            one.amount if one.amount is not None else "",
+            ", ".join(str(r) for r in one.right_rows),
+            one.right_name,
+            one.right_amount if one.right_amount is not None else "",
+            gap if gap else "",
+            one.days if one.days is not None else "",
+            one.why,
+        ])
+    return Table(headers, rows, source="대사")
+
+
 # --------------------------------------------------------- 워드 표 꺼내기
 
 def tables_from_docx(path: Path) -> list[Table]:

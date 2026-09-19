@@ -959,6 +959,28 @@ class SmokeTest(unittest.TestCase):
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
         self.assertIn("홍길동은", text)
 
+    def test_sheet_match(self):
+        청구 = self.path("청구.csv")
+        입금 = self.path("입금.csv")
+        Path(청구).write_text(
+            "거래처,금액,청구일\n가나테크,1350000,2026-08-01\n"
+            "다라상사,880000,2026-08-03\n마바물산,2400000,2026-08-05\n",
+            encoding="utf-8")
+        Path(입금).write_text(
+            "적요,입금액,입금일\n가나테크,1350000,2026-08-20\n"
+            "홍길동,880000,2026-08-25\n마바물산,1400000,2026-08-22\n",
+            encoding="utf-8")
+        결과 = self.path("대사.xlsx")
+        말 = self.run_cli("sheet", "match", 청구, 입금, "--amount", "금액",
+                          "--right-amount", "입금액", "--name", "거래처",
+                          "--right-name", "적요", "--date", "청구일",
+                          "--right-date", "입금일", "--days", "60",
+                          "-o", 결과)
+        self.assertIn("금액 다름", 말)
+        self.assertIn("덜 들어온 돈: 1,000,000", 말)
+        self.assertTrue(Path(결과).is_file())
+        self.assertIn("상태", self.run_cli("sheet", "peek", 결과))
+
     def test_sheet_fill_with_binary_template(self):
         """틀 자리에 엑셀을 넣어도 역추적 대신 안내가 나온다."""
         엑셀 = self.path("명단.xlsx")

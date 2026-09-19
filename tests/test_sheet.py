@@ -3862,3 +3862,133 @@ class GuessPrivateTest(unittest.TestCase):
     def test_an_empty_table_guesses_by_header_only(self):
         table = sheet.Table(["이름", "금액"], [])
         self.assertEqual(self.guessed(table), {"이름": ("이름", "열 이름")})
+
+
+class ReconcileTest(unittest.TestCase):
+    """청구-입금 대사. 통장에는 청구서 번호가 없어 금액으로 맞춘다."""
+
+    def 청구(self, rows):
+        return sheet.Table(["거래처", "금액", "청구일"], rows)
+
+    def 입금(self, rows):
+        return sheet.Table(["적요", "입금액", "입금일"], rows)
+
+    def 대사(self, left, right, **kw):
+        kw.setdefault("amount", "금액")
+        kw.setdefault("right_amount", "입금액")
+        kw.setdefault("name", "거래처")
+        kw.setdefault("right_name", "적요")
+        kw.setdefault("when", "청구일")
+        kw.setdefault("right_when", "입금일")
+        kw.setdefault("days", 60)
+        return sheet.reconcile(left, right, **kw)
+
+    def 상태(self, report):
+        return sorted((r.status, r.name or r.right_name) for r in report.rows)
+
+    def test_same_amount_and_name_matches(self):
+        report = self.대사(self.청구([["(주)가나", 100000, "2026-08-01"]]),
+                           self.입금([["가나", 100000, "2026-08-05"]]))
+        one = report.rows[0]
+        self.assertEqual(one.status, "맞음")
+        self.assertIn("이름 같음", one.why)
+        self.assertEqual(one.days, 4)
+
+    def test_different_depositor_name_still_matches(self):
+        """대표자 개인 이름으로 넣는 일이 흔하다. 금액이 맞으면 짝으로 본다."""
+        report = self.대사(self.청구([["다라상사", 880000, "2026-08-03"]]),
+                           self.입금([["홍길동", 880000, "2026-08-25"]]))
+        self.assertEqual(report.rows[0].status, "맞음")
+        self.assertIn("이름 다름", report.rows[0].why)
+
+    def test_missing_payment_and_unknown_deposit(self):
+        report = self.대사(self.청구([["사아공업", 500000, "2026-08-07"]]),
+                           self.입금([["모르는곳", 330000, "2026-08-30"]]))
+        self.assertEqual(self.상태(report),
+                         [("안 들어옴", "사아공업"), ("짝 없는 입금", "모르는곳")])
+
+    def test_short_payment_is_reported_with_gap(self):
+        report = self.대사(self.청구([["마바물산", 2400000, "2026-08-05"]]),
+                           self.입금([["마바물산", 1400000, "2026-08-22"]]))
+        one = report.rows[0]
+        self.assertEqual(one.status, "금액 다름")
+        self.assertEqual(one.gap, -1000000)
+
+    def test_two_deposits_add_up_to_one_invoice(self):
+        report = self.대사(self.청구([["자차유통", 1200000, "2026-08-09"]]),
+                           self.입금([["자차유통", 700000, "2026-08-21"],
+                                      ["자차유통", 500000, "2026-08-28"]]))
+        one = report.rows[0]
+        self.assertEqual(one.status, "나눠 들어옴")
+        self.assertEqual(one.right_rows, [2, 3])
+
+    def test_no_split_leaves_them_apart(self):
+        report = self.대사(self.청구([["자차유통", 1200000, "2026-08-09"]]),
+                           self.입금([["자차유통", 700000, "2026-08-21"],
+                                      ["자차유통", 500000, "2026-08-28"]]),
+                           split=False)
+        self.assertEqual(report.count("나눠 들어옴"), 0)
+        self.assertEqual(report.count("금액 다름"), 1)
+
+    def test_named_match_wins_over_amount_only_match(self):
+        """이름이 영 다른 짝을 먼저 집으면 나눠 들어온 돈 한쪽을 물고 간다."""
+        report = self.대사(
+            self.청구([["사아공업", 500000, "2026-08-07"],
+                       ["자차유통", 1200000, "2026-08-09"]]),
+            self.입금([["자차유통", 700000, "2026-08-21"],
+                       ["자차유통", 500000, "2026-08-28"]]))
+        self.assertEqual(self.상태(report),
+                         [("나눠 들어옴", "자차유통"), ("안 들어옴", "사아공업")])
+
+    def test_tolerance_absorbs_transfer_fee(self):
+        left = self.청구([["카타기획", 330000, "2026-08-11"]])
+        right = self.입금([["카타기획", 329000, "2026-08-30"]])
+        self.assertEqual(self.대사(left, right).rows[0].status, "금액 다름")
+        느슨 = self.대사(left, right, tolerance=1000)
+        self.assertEqual(느슨.rows[0].status, "맞음")
+        self.assertEqual(느슨.rows[0].gap, -1000)
+
+    def test_day_window_rejects_far_deposit(self):
+        left = self.청구([["가나", 100000, "2026-01-01"]])
+        right = self.입금([["가나", 100000, "2026-12-01"]])
+        self.assertEqual(self.대사(left, right, days=30).count("맞음"), 0)
+        self.assertEqual(self.대사(left, right, days=400).count("맞음"), 1)
+
+    def test_each_row_is_used_once(self):
+        report = self.대사(
+            self.청구([["가나", 100000, "2026-08-01"],
+                       ["가나", 100000, "2026-08-02"]]),
+            self.입금([["가나", 100000, "2026-08-03"]]))
+        self.assertEqual(report.count("맞음"), 1)
+        self.assertEqual(report.count("안 들어옴"), 1)
+
+    def test_unreadable_amount_rows_are_counted_not_matched(self):
+        report = self.대사(self.청구([["가나", "미정", "2026-08-01"]]),
+                           self.입금([["가나", 100000, "2026-08-03"]]))
+        self.assertEqual(report.skipped_left, 1)
+        self.assertEqual(report.left_total, 0)
+        self.assertEqual(report.count("짝 없는 입금"), 1)
+
+    def test_works_without_name_or_date_columns(self):
+        report = sheet.reconcile(
+            sheet.Table(["금액"], [[100000], [200000]]),
+            sheet.Table(["입금액"], [[200000]]),
+            amount="금액", right_amount="입금액")
+        self.assertEqual(report.count("맞음"), 1)
+        self.assertEqual(report.rows[0].status, "안 들어옴")
+        self.assertEqual([r.why for r in report.rows if r.status == "맞음"],
+                         ["금액 같음"])
+
+    def test_match_table_has_one_row_per_result(self):
+        report = self.대사(self.청구([["가나", 100000, "2026-08-01"]]),
+                           self.입금([["가나", 100000, "2026-08-03"]]))
+        table = sheet.match_table(report)
+        self.assertEqual(table.headers[0], "상태")
+        self.assertEqual(len(table.rows), 1)
+        self.assertEqual(table.rows[0][4], "2")
+
+    def test_missing_column_name_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            self.대사(self.청구([["가나", 100000, "2026-08-01"]]),
+                      self.입금([["가나", 100000, "2026-08-03"]]),
+                      amount="없는열")

@@ -2726,6 +2726,75 @@ def cmd_sheet_report(a) -> int:
     return 0
 
 
+def _won(value) -> str:
+    """돈을 사람이 읽는 꼴로. 1350000.0 은 «1,350,000» 이다."""
+    if value is None or value == "":
+        return ""
+    return f"{int(value):,}" if float(value).is_integer() else f"{value:,.2f}"
+
+
+def cmd_sheet_match(a) -> int:
+    left = _load(a, a.left)
+    right = _load(a, a.right)
+    if left is None or right is None:
+        return 1
+
+    try:
+        report = sheet.reconcile(
+            left, right, amount=a.amount, right_amount=a.right_amount or None,
+            name=a.name or None, right_name=a.right_name or None,
+            when=a.date or None, right_when=a.right_date or None,
+            days=a.days, tolerance=a.tol, split=not a.no_split)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    _p(f"{Path(a.left).name} {report.left_total:,}건  <->  "
+       f"{Path(a.right).name} {report.right_total:,}건")
+    if report.skipped_left or report.skipped_right:
+        _p(f"  금액을 못 읽어 뺀 줄: 왼쪽 {report.skipped_left:,}  "
+           f"오른쪽 {report.skipped_right:,}")
+
+    구분 = ["맞음", "나눠 들어옴", "금액 다름", "안 들어옴", "짝 없는 입금"]
+    _p("  " + "  ·  ".join(f"{name} {report.count(name):,}" for name in 구분))
+    if report.split_skipped:
+        _p("  짝을 못 찾은 줄이 많아 «나눠 들어옴» 은 찾지 않았습니다.")
+    _p("")
+
+    볼것 = [r for r in report.rows if a.all or r.status != "맞음"]
+    if not 볼것:
+        _p("모두 맞았습니다. 전부 보려면 --all 을 붙이세요.")
+    else:
+        _grid(["상태", "왼쪽 줄", "이름", "금액", "오른쪽 줄", "입금자", "입금액",
+               "차액", "날짜차", "근거"],
+              [[r.status, str(r.left_row or ""), _cut(r.name, 14),
+                _won(r.amount), ", ".join(str(x) for x in r.right_rows),
+                _cut(r.right_name, 14), _won(r.right_amount),
+                _won(r.gap) if r.gap else "",
+                f"{r.days:+d}" if r.days is not None else "", r.why]
+               for r in 볼것[:a.rows]], limit=a.width)
+        if len(볼것) > a.rows:
+            _p(f"  ... {len(볼것) - a.rows:,}줄 더")
+
+    안들어옴 = sum(r.amount or 0 for r in report.rows if r.status == "안 들어옴")
+    모자람 = sum(-(r.gap or 0) for r in report.rows
+                 if r.status == "금액 다름" and (r.gap or 0) < 0)
+    if 안들어옴 or 모자람:
+        _p("")
+        if 안들어옴:
+            _p(f"안 들어온 돈: {_won(안들어옴)}")
+        if 모자람:
+            _p(f"덜 들어온 돈: {_won(모자람)}")
+    _p("\n짝은 금액으로 먼저 맞추고 날짜·이름은 여럿 중 하나를 고르는 데만 "
+       "씁니다. 근거를 보고 사람이 확인하세요.")
+
+    if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
+        _p(f"\n저장: {sheet.save(sheet.match_table(report), Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_join(a) -> int:
     left = _load(a, a.left)
     right = _load(a, a.right)
@@ -3812,6 +3881,33 @@ def add_commands(sub) -> None:
                     help="지운 행을 따로 저장한다 (.csv, .xlsx)")
     dd.add_argument("--limit", type=int, default=15)
     dd.set_defaults(func=cmd_sheet_dedupe)
+
+    mt = common(sh.add_parser("match",
+                              help="청구-입금 대사 (키 없이 금액·날짜로 짝짓기)"))
+    mt.add_argument("left", metavar="청구파일")
+    mt.add_argument("right", metavar="입금파일")
+    mt.add_argument("--amount", required=True, metavar="열", help="금액 열")
+    mt.add_argument("--right-amount", default="", metavar="열",
+                    help="입금 쪽 금액 열 이름이 다를 때")
+    mt.add_argument("--name", default="", metavar="열",
+                    help="거래처·이름 열 (짝을 고르는 데만 쓴다)")
+    mt.add_argument("--right-name", default="", metavar="열",
+                    help="입금 쪽 이름 열 (통장 적요)")
+    mt.add_argument("--date", default="", metavar="열", help="청구일 열")
+    mt.add_argument("--right-date", default="", metavar="열", help="입금일 열")
+    mt.add_argument("--days", type=int, default=30, metavar="일",
+                    help="며칠 안에 들어온 것까지 짝으로 볼지 (기본 30)")
+    mt.add_argument("--tol", type=float, default=0.0, metavar="원",
+                    help="이만큼 차이는 같은 금액으로 본다 (이체 수수료)")
+    mt.add_argument("--no-split", action="store_true",
+                    help="나눠 들어온 것(두 건 합)을 찾지 않는다")
+    mt.add_argument("--all", action="store_true", help="맞은 줄까지 전부 보기")
+    mt.add_argument("-o", "--out", metavar="파일", help="대사 결과를 표로 저장")
+    mt.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    mt.add_argument("--rows", type=int, default=30, metavar="개")
+    mt.add_argument("--width", type=int, default=22, metavar="칸")
+    mt.set_defaults(func=cmd_sheet_match)
 
     jn = common(sh.add_parser("join", help="두 표를 키로 합치기 (VLOOKUP 대신)"))
     jn.add_argument("left", metavar="왼쪽파일")

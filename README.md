@@ -1464,6 +1464,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등). **지운 행을 함께 보여 주고** `--dropped` 로 따로 저장 |
 | `at sheet join <왼쪽> <오른쪽> --on <열>` | 두 표를 키로 합친다 (VLOOKUP 대신) |
+| `at sheet match <청구> <입금> --amount <열>` | **키 없이** 금액·날짜·이름으로 짝지어 대사한다. 안 들어온 것·덜 들어온 것·나눠 들어온 것·짝 없는 입금을 가른다. `--tol` 로 이체 수수료만큼은 같게 |
 | `at sheet report <파일>` | 요약·그래프·표를 담은 HTML 보고서 |
 | `at sheet chart <파일> --label <열>` | 표를 그림 파일(SVG) 하나로 (보고서·슬라이드에 붙일 때) |
 | `at sheet fill <명단> -t <틀>` | 행마다 틀을 채워 개인별 문서를 만든다 (메일 머지) |
@@ -1565,6 +1566,9 @@ at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 -o 최신.csv
 at sheet dedupe 명부.csv -k 사번 --keep max --by 수정일 --dropped 뺀행.csv -o 최신.csv
 at sheet join 직원.xlsx 급여.csv --on 사번 -o 통합.xlsx
 at sheet join 주문.csv 고객.csv --on 고객번호 --how inner -o 매칭본.csv
+at sheet match 청구.xlsx 통장.csv --amount 금액 --right-amount 입금액 \
+    --name 거래처 --right-name 적요 --date 청구일 --right-date 입금일
+at sheet match 청구.xlsx 통장.csv --amount 금액 --tol 1000 -o 대사.xlsx   # 수수료 감안
 at sheet report 주문.csv --by 지역 --value 금액 --date 주문일 -o 보고서.html
 at sheet chart 매출.xlsx --label 부서 --value 금액 --unit 원 -o 부서별.svg
 at sheet fill 명단.csv -t 안내문틀.md -o 안내문/ --name '{사번}_{이름}.md' --apply
