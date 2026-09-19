@@ -952,6 +952,61 @@ def cmd_sheet_gaps(a) -> int:
     return 1
 
 
+def cmd_sheet_leave(a) -> int:
+    """명단의 입사일 열에서 연차 일수를 한꺼번에 센다."""
+    from datetime import date as _date
+
+    t = _load(a)
+    if t is None:
+        return 1
+    on = None
+    if a.on:
+        on = sheet.parse_date(a.on)
+        if on is None:
+            _p(f"날짜로 읽지 못했습니다: {a.on}")
+            return 1
+
+    fiscal = None
+    if a.fiscal:
+        parts = a.fiscal.replace("/", "-").split("-")
+        try:
+            fiscal = (int(parts[0]), int(parts[1]))
+            _date(2000, *fiscal)
+        except (ValueError, IndexError):
+            _p(f"회계연도 시작일을 «월-일» 로 주세요 (예: 01-01): {a.fiscal}")
+            return 1
+
+    try:
+        result, notes = sheet.add_leave(t, a.column, on=on, used=a.used or None,
+                                        left=a.left or None, fiscal=fiscal,
+                                        rounding=a.round)
+    except (sheet.SheetError, ValueError) as e:
+        _p(str(e))
+        return 1
+
+    기준 = f"회계연도 {fiscal[0]:02d}-{fiscal[1]:02d} 기준" if fiscal else "입사일 기준"
+    code = _sheet_result(a, result, f"{a.column} -> 연차 ({기준})")
+
+    볼것 = [n for n in notes if n.note]
+    if 볼것:
+        _p("")
+        for one in 볼것[:a.limit]:
+            _p(f"  {one.row}행  {_cut(one.name, 12)}  {one.note}")
+        if len(볼것) > a.limit:
+            _p(f"  ... {len(볼것) - a.limit:,}줄 더")
+
+    _p(f"\n기준일 {on or _date.today()}  ·  근로기준법 제60조")
+    _p("  근태 자료가 없어 개근과 출근율 80% 는 채운 것으로 봅니다. "
+       "결근·휴직이 있으면 실제 일수는 줄어듭니다.")
+    _p("  «남음» 은 올해 몫에서 뺀 값입니다. 연차는 원칙적으로 1년 안에 써야 "
+       "해서 «누적 발생» 이 그대로 남아 있지는 않습니다.")
+    if fiscal:
+        _p("  회계연도 기준은 법이 아니라 회사 관행입니다. 첫 해 몫은 "
+           f"«15일 x 재직일수 / 365» 를 {a.round} 한 값입니다.")
+        _p("  퇴직 정산은 입사일 기준으로 다시 세어 많은 쪽을 줘야 합니다.")
+    return code
+
+
 def cmd_sheet_age(a) -> int:
     """생년월일 열에서 만 나이·연령대·성별 열을 만든다. 명단 집계 전에."""
     from datetime import date as _date
@@ -3686,6 +3741,21 @@ def add_commands(sub) -> None:
                     help="주 기준 시간 (기본 40)")
     wt.add_argument("--limit", type=int, default=10, metavar="개")
     wt.set_defaults(func=cmd_sheet_worktime)
+
+    lv = sheet_out(common(sh.add_parser(
+        "leave", help="입사일 열에서 연차 일수 세기 (연차 대장·퇴직 정산)")))
+    lv.add_argument("file")
+    lv.add_argument("-c", "--column", required=True, metavar="열", help="입사일 열")
+    lv.add_argument("--on", metavar="날짜", help="기준일 (기본 오늘)")
+    lv.add_argument("--used", default="", metavar="열", help="이미 쓴 일수 열")
+    lv.add_argument("--left", default="", metavar="열",
+                    help="퇴사일 열 (있으면 그 날로 센다)")
+    lv.add_argument("--fiscal", nargs="?", const="01-01", metavar="월-일",
+                    help="회계연도 기준으로도 센다 (기본 01-01). 회사 관행이다")
+    lv.add_argument("--round", default="올림", choices=list(life.FISCAL_ROUND),
+                    help="회계연도 첫 해 비례분의 소수점 (기본 올림)")
+    lv.add_argument("--limit", type=int, default=10, metavar="개")
+    lv.set_defaults(func=cmd_sheet_leave)
 
     ag = sheet_out(common(sh.add_parser(
         "age", help="생년월일 열에서 만 나이·연령대 열 만들기 (명단 집계)")))

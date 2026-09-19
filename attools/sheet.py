@@ -16,7 +16,7 @@ from pathlib import Path
 
 from .hangul import josa
 
-from . import docx, hwpx, xlsx
+from . import docx, hwpx, life, xlsx
 
 CSV_SUFFIXES = {".csv", ".tsv", ".txt"}
 XLSX_SUFFIXES = {".xlsx", ".xlsm"}
@@ -4156,6 +4156,136 @@ def match_table(report: MatchReport) -> Table:
             one.why,
         ])
     return Table(headers, rows, source="대사")
+
+
+# ------------------------------------------------------------- 연차 대장
+
+
+@dataclass
+class LeaveNote:
+    """사람이 봐야 할 줄. 읽지 못한 입사일이나 눈에 띄는 셈이 여기 담긴다."""
+
+    row: int
+    name: str = ""
+    note: str = ""
+
+
+def _leave_period(joined: date, on: date, fiscal: tuple | None) -> tuple:
+    """지금이 속한 연차 해의 (시작, 끝). 이 사이에 생긴 것이 «올해 연차» 다."""
+    if fiscal is None:
+        years = on.year - joined.year - \
+            ((on.month, on.day) < (joined.month, joined.day))
+        start = life.add_years(joined, years) if years >= 1 else joined
+        return start, life.add_years(joined, years + 1)
+
+    first = date(joined.year, fiscal[0], fiscal[1])
+    if first <= joined:
+        first = life.add_years(first, 1)
+    if on < first:                       # 아직 첫 회계연도가 오지 않았다
+        return joined, first
+    step = on.year - first.year
+    start = life.add_years(first, step)
+    if start > on:
+        start = life.add_years(first, step - 1)
+    return start, life.add_years(start, 1)
+
+
+def _in_period(grants: list, start: date, end: date) -> int:
+    return sum(g.days for g in grants if start <= g.when < end)
+
+
+def add_leave(table: Table, column: str, *, on: date | None = None,
+              used: str | None = None, left: str | None = None,
+              fiscal: tuple | None = None,
+              rounding: str = "올림") -> tuple[Table, list]:
+    """명단에 연차 열을 붙인다. (새 표, 사람이 봐야 할 줄)
+
+    한 사람씩 계산기를 두드리던 일을 없애려는 것이다. 근태 자료가 없으므로
+    개근·출근율 80% 는 채운 것으로 본다 - 결근이 있으면 실제 일수는 줄어든다.
+    퇴사일 열을 주면 그 날로 셈한다.
+
+    «올해 연차» 는 지금 속한 연차 해에 생긴 몫이고 «누적 발생» 은 입사 이후
+    전부다. 남은 일수는 올해 몫에서 뺀다 - 연차는 원칙적으로 1년 안에 써야
+    해서 누적이 그대로 남아 있지 않다. 누적은 퇴직 정산 때 보는 수다.
+
+    fiscal 을 주면 회계연도 기준으로 세고, 입사일 기준 누적을 함께 낸다.
+    퇴직할 때는 입사일 기준으로 다시 세어 많은 쪽을 줘야 해서다.
+    """
+    on = on or date.today()
+    joined_at = table.index_of(column)
+    used_at = table.index_of(used) if used else -1
+    left_at = table.index_of(left) if left else -1
+    # 알림 줄에 사번만 찍히면 누구 이야기인지 모른다. 이름 열을 먼저 찾는다.
+    name_at = next((i for i, h in enumerate(table.headers)
+                    if h.strip() in ("이름", "성명", "직원명", "사원명")), 0)
+
+    headers = list(table.headers) + ["근속", "올해 연차"]
+    if used:
+        headers += ["사용", "남음"]
+    headers.append("누적 발생")
+    if fiscal:
+        headers.append("입사일 기준 누적")
+    headers.append("비고")
+    blanks = len(headers) - table.width - 1
+
+    rows, notes = [], []
+    for line, row in enumerate(table.rows, 2):
+        cell = row[joined_at] if joined_at < len(row) else None
+        day = _as_date(cell)
+        end, 떠남 = on, False
+        if 0 <= left_at < len(row):
+            gone = _as_date(row[left_at])
+            if gone is not None:
+                end, 떠남 = gone, True
+        머리 = to_text(row[name_at]) if name_at < len(row) else ""
+
+        if day is None or end < day:
+            까닭 = "입사일을 읽지 못함" if day is None else "기준일이 입사일보다 앞섬"
+            rows.append(list(row) + [""] * blanks + [까닭])
+            notes.append(LeaveNote(line, 머리, 까닭))
+            continue
+
+        legal = life.annual_grants(day, end)
+        grants = legal if fiscal is None else life.fiscal_grants(
+            day, end, month=fiscal[0], day=fiscal[1], rounding=rounding)
+        begins, ends = _leave_period(day, end, fiscal)
+        this_year = _in_period(grants, begins, ends)
+        total = life.granted_days(grants)
+
+        years = end.year - day.year - ((end.month, end.day) < (day.month, day.day))
+        made = list(row) + [f"{years}년" if years else
+                            f"{(end.year - day.year) * 12 + end.month - day.month}개월",
+                            this_year]
+        말 = []
+        if years == 0:
+            말.append("1년 미만 - 한 달 개근마다 하루")
+        elif this_year >= life.MAX_ANNUAL:
+            말.append("25일 한도")
+        elif this_year > life.MAX_ANNUAL_BASE:
+            말.append(f"가산 {this_year - life.MAX_ANNUAL_BASE}일")
+
+        if used:
+            spent = number_of(row[used_at]) if used_at < len(row) else None
+            spent = 0 if spent is None else spent
+            spent = int(spent) if float(spent).is_integer() else spent
+            made += [spent, this_year - spent]
+            if spent > this_year:
+                말.append("쓴 날이 올해 생긴 날보다 많음")
+        made.append(total)
+        if fiscal:
+            법정 = life.granted_days(legal)
+            made.append(법정)
+            # 회계연도 기준은 대개 입사일 기준보다 조금 적게 나온다. 재직자
+            # 전원에게 이 말을 붙이면 잡음이라, 정산이 실제로 벌어지는
+            # 퇴사자에게만 알린다.
+            if 떠남 and 법정 > total:
+                말.append(f"입사일 기준이 {법정 - total}일 많음 - 퇴직 정산은 많은 쪽")
+        made.append(" · ".join(말))
+        rows.append(made)
+        if 말:
+            notes.append(LeaveNote(line, 머리, " · ".join(말)))
+
+    return Table(headers, rows, source=table.source, sheet=table.sheet), notes
 
 
 # --------------------------------------------------------- 워드 표 꺼내기

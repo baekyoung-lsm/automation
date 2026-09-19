@@ -3992,3 +3992,98 @@ class ReconcileTest(unittest.TestCase):
             self.대사(self.청구([["가나", 100000, "2026-08-01"]]),
                       self.입금([["가나", 100000, "2026-08-03"]]),
                       amount="없는열")
+
+
+class AddLeaveTest(unittest.TestCase):
+    """명단에 연차 열 붙이기. 근태 자료가 없으니 개근으로 본다."""
+
+    def setUp(self):
+        from datetime import date
+
+        self.date = date
+        self.today = date(2026, 9, 19)
+
+    def 명단(self, rows, headers=("이름", "입사일")):
+        return sheet.Table(list(headers), rows)
+
+    def 붙임(self, rows, headers=("이름", "입사일"), **kw):
+        kw.setdefault("on", self.today)
+        return sheet.add_leave(self.명단(rows, headers), "입사일", **kw)
+
+    def 값(self, table, header, line=0):
+        return table.rows[line][table.headers.index(header)]
+
+    def test_adds_columns_after_the_original_ones(self):
+        table, _ = self.붙임([["홍길동", "2020-07-01"]])
+        self.assertEqual(table.headers[:2], ["이름", "입사일"])
+        self.assertIn("올해 연차", table.headers)
+        self.assertIn("누적 발생", table.headers)
+
+    def test_this_year_and_total_differ(self):
+        table, _ = self.붙임([["홍길동", "2020-07-01"]])
+        self.assertEqual(self.값(table, "올해 연차"), 17)
+        self.assertEqual(self.값(table, "누적 발생"), 107)
+
+    def test_less_than_a_year_counts_months(self):
+        table, notes = self.붙임([["박신입", "2026-08-01"]])
+        self.assertEqual(self.값(table, "근속"), "1개월")
+        self.assertEqual(self.값(table, "올해 연차"), 1)
+        self.assertIn("1년 미만", notes[0].note)
+
+    def test_twenty_five_days_is_the_ceiling(self):
+        table, notes = self.붙임([["이영희", "1998-01-05"]])
+        self.assertEqual(self.값(table, "올해 연차"), 25)
+        self.assertIn("25일 한도", notes[0].note)
+
+    def test_used_days_are_taken_from_this_year_not_the_total(self):
+        """연차는 1년 안에 써야 한다. 누적에서 빼면 28년치가 남은 것처럼 보인다."""
+        table, _ = self.붙임([["홍길동", "2020-07-01", 5]],
+                             headers=("이름", "입사일", "쓴날"), used="쓴날")
+        self.assertEqual(self.값(table, "남음"), 12)
+        self.assertEqual(self.값(table, "누적 발생"), 107)
+
+    def test_using_more_than_this_year_is_flagged(self):
+        _table, notes = self.붙임([["홍길동", "2026-08-01", 9]],
+                                  headers=("이름", "입사일", "쓴날"), used="쓴날")
+        self.assertIn("쓴 날이 올해 생긴 날보다 많음", notes[0].note)
+
+    def test_leaving_date_ends_the_count(self):
+        table, _ = self.붙임([["최퇴사", "2023-02-15", "2026-06-30"]],
+                             headers=("이름", "입사일", "퇴사일"), left="퇴사일")
+        self.assertEqual(self.값(table, "근속"), "3년")
+
+    def test_fiscal_adds_a_legal_column_for_comparison(self):
+        table, _ = self.붙임([["홍길동", "2020-07-01"]], fiscal=(1, 1))
+        self.assertEqual(self.값(table, "누적 발생"), 98)
+        self.assertEqual(self.값(table, "입사일 기준 누적"), 107)
+
+    def test_fiscal_difference_is_flagged_only_for_leavers(self):
+        """재직자 전원에게 붙이면 잡음이다. 정산이 실제로 벌어질 때만 알린다."""
+        _t, 재직 = self.붙임([["홍길동", "2020-07-01", ""]],
+                             headers=("이름", "입사일", "퇴사일"),
+                             left="퇴사일", fiscal=(1, 1))
+        _t2, 퇴사 = self.붙임([["최퇴사", "2020-07-01", "2026-08-31"]],
+                              headers=("이름", "입사일", "퇴사일"),
+                              left="퇴사일", fiscal=(1, 1))
+        self.assertNotIn("퇴직 정산", " ".join(n.note for n in 재직))
+        self.assertIn("퇴직 정산", " ".join(n.note for n in 퇴사))
+
+    def test_unreadable_hire_date_is_left_blank(self):
+        table, notes = self.붙임([["오류", "몰라"]])
+        self.assertEqual(self.값(table, "올해 연차"), "")
+        self.assertEqual(notes[0].note, "입사일을 읽지 못함")
+        self.assertEqual(notes[0].name, "오류")
+
+    def test_future_hire_date_is_reported(self):
+        _table, notes = self.붙임([["미래", "2030-01-01"]])
+        self.assertIn("앞섬", notes[0].note)
+
+    def test_notes_use_the_name_column_not_the_first_one(self):
+        _table, notes = self.붙임([["1001", "홍길동", "2026-08-01"]],
+                                  headers=("사번", "이름", "입사일"))
+        self.assertEqual(notes[0].name, "홍길동")
+
+    def test_missing_column_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.add_leave(self.명단([["홍길동", "2020-07-01"]]), "없는열",
+                            on=self.today)

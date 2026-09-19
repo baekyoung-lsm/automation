@@ -907,6 +907,7 @@ def work_minutes(spans: list[Span], *, rest: int = 0) -> int:
 # ------------------------------------------------------------------- 연차
 
 MAX_ANNUAL = 25          # 근로기준법 제60조 제4항: 가산해도 25일을 넘지 않는다
+MAX_ANNUAL_BASE = 15     # 1년 이상 출근율 80% 이상이면 기본 15일
 MAX_MONTHLY = 11         # 1년 미만일 때 월마다 하루씩, 열한 번까지
 
 
@@ -972,6 +973,113 @@ def annual_leave(joined: date, on: date | None = None) -> Annual:
     return Annual(joined, on, 0, months, months,
                   f"1년 미만 - 한 달 개근마다 하루 (최대 {MAX_MONTHLY}일)",
                   nxt, months + 1 if months < MAX_MONTHLY else annual_days(1))
+
+
+
+@dataclass
+class Grant:
+    """연차가 한 번 생긴 자리."""
+
+    when: date
+    days: int
+    why: str
+
+
+FISCAL_ROUND = ("올림", "반올림", "버림")
+
+
+def _rounded(value: float, how: str) -> int:
+    if how == "버림":
+        return int(value)
+    if how == "반올림":
+        return int(value + 0.5)
+    return -int(-value // 1)          # 올림
+
+
+def annual_grants(joined: date, on: date | None = None) -> list[Grant]:
+    """입사일부터 기준일까지 생긴 연차를 생긴 차례로. 퇴직 정산에 쓴다.
+
+    한 시점의 일수만 보는 annual_leave 와 달리 누적을 센다. 연차 대장을
+    만들거나 퇴직할 때 미사용 수당을 셈하려면 «지금 며칠» 이 아니라
+    «여태 며칠 생겼나» 가 필요하다.
+
+    2021.10.14. 대법원 2021다227100 판결에 따라 1년(365일)만 채우고 그만둔
+    사람에게는 15일이 생기지 않는다. 입사 1주년 그날 근로관계가 살아 있어야
+    한다 - 여기서는 기준일이 1주년 당일이면 생긴 것으로 센다.
+    """
+    on = on or date.today()
+    if on < joined:
+        raise ValueError("기준일이 입사일보다 앞섭니다.")
+
+    out: list[Grant] = []
+    for month in range(1, MAX_MONTHLY + 1):
+        when = _add_months(joined, month)
+        if when > on:
+            break
+        out.append(Grant(when, 1, f"1년 미만 {month}개월 개근"))
+
+    year = 1
+    while True:
+        when = add_years(joined, year)
+        if when > on:
+            break
+        out.append(Grant(when, annual_days(year), f"근속 {year}년"))
+        year += 1
+    return out
+
+
+def fiscal_grants(joined: date, on: date | None = None, *, month: int = 1,
+                  day: int = 1, rounding: str = "올림") -> list[Grant]:
+    """회계연도 기준 연차. 법이 아니라 회사 관행이다.
+
+    법은 입사일 기준이지만 실제로는 회계연도(대개 1월 1일)에 맞춰 한꺼번에
+    주는 회사가 더 많다. 입사 첫 해 몫은 «15일 x 입사일부터 회계연도 끝까지
+    재직일수 / 365» 로 비례해 주는 것이 널리 쓰이는 셈법이다.
+
+    소수점을 올릴지 반올릴지, 가산 연차를 어느 쪽 근속으로 셀지는 회사마다
+    다르다. 여기서는 올림·입사일 기준 근속으로 세고, 그 둘을 옵션으로 둔다.
+    퇴직할 때는 입사일 기준으로 다시 세어 많은 쪽을 줘야 하므로
+    annual_grants 와 견주어 보아야 한다.
+    """
+    on = on or date.today()
+    if on < joined:
+        raise ValueError("기준일이 입사일보다 앞섭니다.")
+    if rounding not in FISCAL_ROUND:
+        raise ValueError(f"반올림 방식은 {', '.join(FISCAL_ROUND)} 중 하나입니다.")
+
+    out: list[Grant] = []
+    for step in range(1, MAX_MONTHLY + 1):
+        when = _add_months(joined, step)
+        if when > on:
+            break
+        out.append(Grant(when, 1, f"1년 미만 {step}개월 개근"))
+
+    first = date(joined.year, month, day)
+    if first <= joined:
+        first = add_years(first, 1)
+
+    step = 0
+    while True:
+        when = add_years(first, step)
+        if when > on:
+            break
+        if step == 0:
+            stayed = (when - joined).days          # 입사일부터 회계연도 끝까지
+            days = min(_rounded(MAX_ANNUAL_BASE * stayed / 365, rounding),
+                       MAX_ANNUAL_BASE)
+            out.append(Grant(when, days, f"비례 - 첫 해 {stayed}일 재직"))
+        else:
+            years = when.year - joined.year - \
+                ((when.month, when.day) < (joined.month, joined.day))
+            out.append(Grant(when, annual_days(max(years, 1)),
+                             f"회계연도 - 근속 {years}년"))
+        step += 1
+    out.sort(key=lambda g: g.when)
+    return out
+
+
+def granted_days(grants: list[Grant]) -> int:
+    return sum(g.days for g in grants)
 
 
 # ----------------------------------------------------------------- 퇴직금

@@ -594,3 +594,72 @@ class InsuranceTest(unittest.TestCase):
             for one in got.rows:
                 self.assertEqual(one.worker + one.company,
                                  int(one.base * one.rate / 100), one.name)
+
+
+class LeaveLedgerTest(unittest.TestCase):
+    """누적 연차. 한 시점 일수가 아니라 여태 며칠 생겼나를 센다."""
+
+    def setUp(self):
+        from datetime import date
+
+        self.date = date
+
+    def days(self, joined, on, **kw):
+        maker = life.fiscal_grants if kw.pop("fiscal", False) else life.annual_grants
+        return life.granted_days(maker(self.date(*joined), self.date(*on), **kw))
+
+    def test_first_year_is_monthly_only(self):
+        self.assertEqual(self.days((2026, 1, 1), (2026, 12, 31)), 11)
+
+    def test_one_more_day_turns_eleven_into_twenty_six(self):
+        """대법원 2021다227100 - 365일만 채우면 11일, 1주년 당일까지면 26일."""
+        self.assertEqual(self.days((2026, 1, 1), (2026, 12, 31)), 11)
+        self.assertEqual(self.days((2026, 1, 1), (2027, 1, 1)), 26)
+
+    def test_monthly_leave_stops_at_eleven(self):
+        grants = life.annual_grants(self.date(2020, 1, 1), self.date(2026, 1, 1))
+        월차 = [g for g in grants if "개근" in g.why]
+        self.assertEqual(len(월차), 11)
+
+    def test_extra_days_start_at_three_years(self):
+        self.assertEqual([life.annual_days(n) for n in (1, 2, 3, 4, 5, 21, 23)],
+                         [15, 15, 16, 16, 17, 25, 25])
+
+    def test_fiscal_first_year_is_prorated(self):
+        """15일 x 입사일부터 회계연도 끝까지 재직일수 / 365 (관행)."""
+        grants = life.fiscal_grants(self.date(2020, 7, 1), self.date(2021, 1, 1))
+        비례 = [g for g in grants if "비례" in g.why]
+        self.assertEqual([g.days for g in 비례], [8])       # 15 x 184/365 = 7.56
+        self.assertEqual(비례[0].when, self.date(2021, 1, 1))
+
+    def test_fiscal_rounding_choices(self):
+        def 비례(how):
+            grants = life.fiscal_grants(self.date(2020, 7, 1), self.date(2021, 1, 1),
+                                        rounding=how)
+            return [g.days for g in grants if "비례" in g.why][0]
+        self.assertEqual((비례("올림"), 비례("반올림"), 비례("버림")), (8, 8, 7))
+
+    def test_fiscal_proration_never_passes_fifteen(self):
+        grants = life.fiscal_grants(self.date(2020, 1, 1), self.date(2021, 1, 1))
+        self.assertEqual([g.days for g in grants if "비례" in g.why], [15])
+
+    def test_which_basis_is_bigger_flips_during_the_year(self):
+        """그래서 법이 퇴직할 때 둘을 견주어 많은 쪽을 주라고 한다."""
+        입사 = (2020, 7, 1)
+        # 회계연도 몫은 1월 1일에 미리 들어오고, 입사일 몫은 7월 1일에 들어온다
+        self.assertGreater(self.days(입사, (2026, 6, 30), fiscal=True),
+                           self.days(입사, (2026, 6, 30)))
+        self.assertGreater(self.days(입사, (2026, 9, 19)),
+                           self.days(입사, (2026, 9, 19), fiscal=True))
+
+    def test_joining_on_the_fiscal_day_gets_a_full_first_year(self):
+        grants = life.fiscal_grants(self.date(2020, 1, 1), self.date(2021, 1, 1))
+        self.assertEqual(life.granted_days(grants), 26)
+
+    def test_unknown_rounding_is_an_error(self):
+        with self.assertRaises(ValueError):
+            life.fiscal_grants(self.date(2020, 1, 1), self.date(2021, 1, 1), rounding="대충")
+
+    def test_date_before_joining_is_an_error(self):
+        with self.assertRaises(ValueError):
+            life.annual_grants(self.date(2026, 3, 1), self.date(2026, 2, 28))

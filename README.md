@@ -1459,6 +1459,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet fx <파일> --add <새열=수식>` | 수식으로 계산한 열 붙이기 (엑셀 수식 대신). `--formula` 면 값 대신 엑셀 수식으로 |
 | `at sheet dates <파일> -c <열>` | 날짜 열에서 요일·월·분기·주차 열 만들기 (피벗 준비) |
 | `at sheet age <파일> -c <열>` | 생년월일·주민번호 열에서 만 나이·연령대·성별 열 만들기 |
+| `at sheet leave <명단> -c <입사일열>` | 명단 전체의 **연차 일수**를 한꺼번에 센다 (근로기준법 제60조). 올해 몫·누적 발생·남은 일수. `--fiscal` 이면 **회계연도 기준**(회사 관행)으로도 세고 퇴직 정산용으로 입사일 기준과 나란히 보여 준다 |
 | `at sheet worktime <파일>` | 출근·퇴근 열에서 근무 시간 세기 (휴게·주 40시간·자정 넘김). `--hourly` 면 임금·연장·야간 가산까지 |
 | `at sheet dday <파일> -c <열>` | 마감일 열에서 남은 일수·상태 만들기 (일정표) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
@@ -1557,6 +1558,8 @@ at sheet fx 급여.csv --add '월급=연봉/12' --add '실수령=월급*0.88' --
 at sheet fx 견적.xlsx --add '금액=수량*단가' --formula -o 견적본.xlsx
 at sheet dates 주문.xlsx -c 주문일 --add 연월 --add 요일 -o 피벗용.xlsx
 at sheet age 명단.xlsx -c 생년월일 --group -o 연령대.xlsx  # 연령대별 집계 전에
+at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx
+at sheet leave 직원.xlsx -c 입사일 --left 퇴사일 --fiscal   # 회계연도로 운영하는 회사
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --date 날짜 -o 집계.xlsx
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --hourly 10030   # 임금까지
 at sheet dday 일정.xlsx -c 마감일 --sort -o 정리본.xlsx

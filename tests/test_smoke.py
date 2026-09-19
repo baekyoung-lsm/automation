@@ -959,6 +959,23 @@ class SmokeTest(unittest.TestCase):
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
         self.assertIn("홍길동은", text)
 
+    def test_sheet_leave(self):
+        직원 = self.path("직원.csv")
+        Path(직원).write_text(
+            "사번,이름,입사일,퇴사일,쓴날\n"
+            "1001,홍길동,2020-07-01,,5\n"
+            "1002,박신입,2026-08-01,,0\n"
+            "1003,최퇴사,2020-07-01,2026-08-31,12\n", encoding="utf-8")
+        결과 = self.path("연차대장.xlsx")
+        말 = self.run_cli("sheet", "leave", 직원, "-c", "입사일", "--used", "쓴날",
+                          "--left", "퇴사일", "--on", "2026-09-19", "--fiscal",
+                          "-o", 결과)
+        self.assertIn("회계연도 01-01 기준", 말)
+        self.assertIn("퇴직 정산은 많은 쪽", 말)
+        self.assertIn("근로기준법 제60조", 말)
+        self.assertTrue(Path(결과).is_file())
+        self.assertIn("누적 발생", self.run_cli("sheet", "peek", 결과))
+
     def test_sheet_match(self):
         청구 = self.path("청구.csv")
         입금 = self.path("입금.csv")

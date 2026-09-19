@@ -54,6 +54,12 @@ RECIPES: list[Recipe] = [
            ["at sheet join 명단.xlsx 연락처.xlsx --on 사번 -o 붙임.xlsx"],
            "키가 겹치거나 없는 행이 몇 개인지 함께 알려 준다.",
            "브이룩업 vlookup 조인"),
+    Recipe("계산", "직원 명단의 연차 일수를 한꺼번에 세기",
+           ["at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx"],
+           "근로기준법 제60조대로 센다. 회계연도로 운영하면 --fiscal 을 붙인다 "
+           "- 퇴직 정산 때 견주라고 입사일 기준 누적도 함께 낸다. 근태 자료가 "
+           "없어 개근·출근율 80퍼센트는 채운 것으로 본다.",
+           "연차 휴가 대장 근속 연차수당 인사 총무"),
     Recipe("점검", "청구한 돈이 들어왔는지 통장 내역과 맞춰 보기",
            ["at sheet match 청구.xlsx 통장.csv --amount 금액 "
             "--right-amount 입금액 --name 거래처 --right-name 적요 "
