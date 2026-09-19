@@ -89,6 +89,10 @@ attools/
   keys.py keytui.py keyhtml.py   단축키 데이터·터미널 화면·HTML 내보내기
   life.py           금액·D-day·정산·대출·단위·공휴일·세금·시차
   data/shortcuts.json
+mobile/           폰에 까는 한 화면 (PWA). 터미널 없이 장부·고정비·월급을 본다
+  index.html      한 파일이다. 셈법은 attools 쪽과 같은 수를 쓴다
+  sw.js manifest.webmanifest   오프라인·홈 화면 설치. 판을 올리면 CACHE 이름을 바꾼다
+  tools/make_icons.py          아이콘 png 를 표준 라이브러리로 직접 쓴다
 tests/
   test_<그룹>.py   모듈별 단위 시험 (test_sheet, test_novel …)
   test_cli.py     모든 하위 명령의 배선과 --help
@@ -125,7 +129,10 @@ tests/
    파일을 바꾸거나 새로 내는 동작은 `form.command(...)` 로 같은 일을 하는
    터미널 명령을 함께 돌려준다. 그 명령이 진짜 되는 명령인지는 시험에서
    파서에 걸어 확인한다(`tests/test_webui.py` 의 CommandHintTest).
-5. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
+5. 폰 화면(`mobile/`)에도 같은 셈이 있으면 거기 수도 같이 고친다.
+   `tests/test_mobile.py` 가 최저임금·보험 요율·주기 배수처럼 양쪽에 적힌
+   수가 어긋나면 걸어 준다 - 한쪽만 고치면 폰과 PC 가 다른 답을 낸다.
+6. README 표와 예시에 한 줄 더한다. 그 뒤 `at doc toc README.md --apply`.
    사람이 «하고 싶은 일» 로 찾을 만한 명령이면 `attools/recipes.py` 에 레시피도
    한 줄 더한다(`at how`). 거기 적은 명령은 시험이 파서에 걸어 보므로 옵션
    이름이 하나만 틀려도 걸린다.

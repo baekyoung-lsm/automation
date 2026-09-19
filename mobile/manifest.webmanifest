@@ -1,0 +1,17 @@
+{
+  "name": "월급과 장부",
+  "short_name": "장부",
+  "description": "폰에서 쓰는 장부·고정비·월급 계산기",
+  "lang": "ko",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eff1f3",
+  "theme_color": "#1b4b6b",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

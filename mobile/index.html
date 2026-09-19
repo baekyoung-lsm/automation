@@ -1,0 +1,949 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>월급과 장부</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@500;700;800&family=Noto+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b4b6b" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14181b" media="(prefers-color-scheme: dark)">
+<meta name="description" content="폰에서 쓰는 장부·고정비·월급 계산기. 이 폰에만 저장한다.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { color-scheme: light dark;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px); }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<style>
+  :root {
+    --ground: #eff1f3;
+    --card: #ffffff;
+    --sunk: #e6e9ec;
+    --ink: #15191c;
+    --ink-2: #5a646e;
+    --ink-3: #8b959e;
+    --rule: #d5dbe0;
+    --accent: #1b4b6b;
+    --accent-soft: #dce8f0;
+    --out: #c2402b;
+    --in: #0f6e5c;
+    --warn: #8a5a12;
+    --shadow: 0 1px 2px rgba(21, 25, 28, .07), 0 6px 18px rgba(21, 25, 28, .06);
+    --body: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --display: "Gothic A1", "Noto Sans KR", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "Menlo", monospace;
+    --tab-h: 62px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #14181b;
+      --card: #1c2226;
+      --sunk: #232b30;
+      --ink: #e8ecef;
+      --ink-2: #94a2ac;
+      --ink-3: #6d7a83;
+      --rule: #2c353b;
+      --accent: #7fb2d4;
+      --accent-soft: #223440;
+      --out: #e8705a;
+      --in: #46b79e;
+      --warn: #d9a340;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #14181b;
+    --card: #1c2226;
+    --sunk: #232b30;
+    --ink: #e8ecef;
+    --ink-2: #94a2ac;
+    --ink-3: #6d7a83;
+    --rule: #2c353b;
+    --accent: #7fb2d4;
+    --accent-soft: #223440;
+    --out: #e8705a;
+    --in: #46b79e;
+    --warn: #d9a340;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 18px rgba(0, 0, 0, .3);
+  }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--body); font-size: 15px; line-height: 1.55;
+    -webkit-text-size-adjust: 100%; overscroll-behavior-y: none;
+  }
+  * { box-sizing: border-box; }
+  button, input, select { font: inherit; color: inherit; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------------------------------------------------------- 뼈대 */
+  .wrap { min-height: 100%; padding: 0 16px calc(var(--tab-h) + 26px); max-width: 560px; margin: 0 auto; }
+  header.top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    background: var(--ground); padding-block: 12px 8px;
+    border-bottom: 1px solid var(--rule); margin: 0 -16px; padding-inline: 16px;
+  }
+  .brand { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .brand h1 {
+    font-family: var(--display); font-weight: 800; font-size: 19px;
+    margin: 0; letter-spacing: -.02em;
+  }
+  .brand .sub { font-size: 11px; color: var(--ink-3); letter-spacing: .08em; }
+  .monthbar { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+  .monthbar .label {
+    flex: 1; text-align: center; font-family: var(--display); font-weight: 700;
+    font-size: 16px;
+  }
+  .stepper {
+    width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--rule);
+    background: var(--card); cursor: pointer; font-size: 17px; line-height: 1;
+    color: var(--ink-2);
+  }
+  .stepper:disabled { opacity: .35; }
+
+  /* ---------------------------------------------------------- 카드 */
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 14px;
+    padding: 14px; margin-top: 12px;
+  }
+  .card > h2 {
+    font-family: var(--display); font-weight: 700; font-size: 13px; margin: 0 0 10px;
+    color: var(--ink-2); letter-spacing: .04em;
+  }
+  .card.flat { background: transparent; border: 0; padding: 0; }
+
+  /* 이번 달 요약 - 이 화면의 주인공이라 유일하게 크게 쓴다 */
+  .summary { box-shadow: var(--shadow); padding: 16px 16px 12px; }
+  .summary .left-label { font-size: 12px; color: var(--ink-2); letter-spacing: .06em; }
+  .summary .left-amount {
+    font-family: var(--mono); font-weight: 700; font-size: 34px; letter-spacing: -.02em;
+    margin: 2px 0 12px; font-variant-numeric: tabular-nums;
+  }
+  .summary .left-amount.minus { color: var(--out); }
+  .inout { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .inout div { background: var(--sunk); border-radius: 10px; padding: 8px 10px; }
+  .inout .k { font-size: 11px; color: var(--ink-2); }
+  .inout .v { font-family: var(--mono); font-weight: 700; font-size: 16px; }
+  .inout .v.plus { color: var(--in); }
+  .inout .v.minus { color: var(--out); }
+
+  /* 영수증식 줄: 이름 ...... 금액 */
+  .line { display: flex; align-items: baseline; gap: 8px; padding: 9px 0; border-bottom: 1px dashed var(--rule); }
+  .line:last-child { border-bottom: 0; }
+  .line .name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .line .dots { flex: 1 1 auto; border-bottom: 1px dotted var(--rule); transform: translateY(-4px); min-width: 12px; }
+  .line .amt { flex: none; font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .line .amt.plus { color: var(--in); }
+  .line .amt.minus { color: var(--out); }
+  .line .meta { font-size: 11px; color: var(--ink-3); }
+  .line .day { flex: none; width: 34px; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+  .chip {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700;
+  }
+
+  /* 분류 막대 */
+  .bar { height: 7px; border-radius: 99px; background: var(--sunk); overflow: hidden; margin-top: 5px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+
+  .empty { color: var(--ink-3); font-size: 13px; padding: 14px 0; text-align: center; }
+  .note { font-size: 12px; color: var(--ink-2); line-height: 1.6; }
+  .note.warn { color: var(--warn); }
+
+  /* ---------------------------------------------------------- 탭바 */
+  nav.tabs {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    background: var(--card); border-top: 1px solid var(--rule);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  nav.tabs button {
+    border: 0; background: none; height: var(--tab-h); cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 3px; color: var(--ink-3); font-size: 11px; font-weight: 700;
+  }
+  nav.tabs button .ic { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+  nav.tabs button[aria-selected="true"] { color: var(--accent); }
+  .fab {
+    position: fixed; right: 16px; z-index: 31;
+    bottom: calc(var(--tab-h) + 16px + env(safe-area-inset-bottom, 0px));
+    width: 58px; height: 58px; border-radius: 18px; border: 0; cursor: pointer;
+    background: var(--accent); color: var(--card); font-size: 27px; line-height: 1;
+    box-shadow: var(--shadow); font-family: var(--mono); font-weight: 500;
+  }
+
+  /* ---------------------------------------------------------- 바텀시트 */
+  .veil {
+    position: fixed; inset: 0; z-index: 40; background: rgba(9, 13, 16, .5);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .sheet {
+    width: 100%; max-width: 560px; background: var(--card);
+    border-radius: 18px 18px 0 0; padding: 14px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+    max-height: 88%; overflow-y: auto;
+  }
+  .sheet h2 { font-family: var(--display); font-size: 17px; margin: 2px 0 12px; }
+  .grip { width: 38px; height: 4px; border-radius: 99px; background: var(--rule); margin: 0 auto 10px; }
+
+  .seg { display: grid; grid-auto-flow: column; gap: 6px; background: var(--sunk); padding: 4px; border-radius: 12px; }
+  .seg button {
+    border: 0; background: none; padding: 9px 4px; border-radius: 9px; cursor: pointer;
+    font-weight: 700; font-size: 13px; color: var(--ink-2);
+  }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: var(--shadow); }
+
+  label.f { display: block; margin-top: 12px; }
+  label.f > span { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 5px; }
+  .in {
+    width: 100%; padding: 12px 13px; border-radius: 11px; border: 1px solid var(--rule);
+    background: var(--ground); min-height: 46px;
+  }
+  .in:focus-visible, .stepper:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  input.money { font-family: var(--mono); font-weight: 700; font-size: 22px; text-align: right; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chips button {
+    border: 1px solid var(--rule); background: var(--ground); border-radius: 99px;
+    padding: 8px 13px; cursor: pointer; font-size: 13px; min-height: 40px;
+  }
+  .chips button[aria-pressed="true"] { background: var(--accent); color: var(--card); border-color: var(--accent); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .go {
+    width: 100%; margin-top: 16px; padding: 15px; border-radius: 13px; border: 0;
+    background: var(--accent); color: var(--card); font-weight: 700; font-size: 16px;
+    cursor: pointer; font-family: var(--display);
+  }
+  .ghost {
+    width: 100%; margin-top: 8px; padding: 12px; border-radius: 11px;
+    border: 1px solid var(--rule); background: transparent; color: var(--ink-2);
+    cursor: pointer; font-size: 14px;
+  }
+  .del { color: var(--out); border-color: var(--out); }
+  textarea.out {
+    width: 100%; height: 150px; font-family: var(--mono); font-size: 11px;
+    border-radius: 11px; border: 1px solid var(--rule); background: var(--ground);
+    padding: 10px; resize: vertical;
+  }
+  .toast {
+    position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
+    bottom: calc(var(--tab-h) + 88px + env(safe-area-inset-bottom, 0px));
+    background: var(--ink); color: var(--ground); padding: 10px 16px; border-radius: 99px;
+    font-size: 13px; font-weight: 700; box-shadow: var(--shadow);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .sheet { animation: rise .18s ease-out; }
+    @keyframes rise { from { transform: translateY(14px); } }
+  }
+  .tri { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; }
+  .tri b { font-family: var(--mono); font-size: 17px; }
+  dl.kv { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 7px 10px; }
+  dl.kv dt { font-size: 13px; color: var(--ink-2); min-width: 0; }
+  dl.kv dd { margin: 0; font-family: var(--mono); font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  dl.kv dt small { display: block; font-size: 11px; color: var(--ink-3); font-family: var(--body); }
+  .total { border-top: 1px solid var(--rule); margin-top: 10px; padding-top: 10px; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1 id="pagetitle">월급과 장부</h1>
+      <span class="sub" id="brandsub">오프라인 · 이 폰에만 저장</span>
+    </div>
+    <div class="monthbar" id="monthbar">
+      <button class="stepper" id="prevm" aria-label="지난 달">&#8249;</button>
+      <span class="label num" id="mlabel">2026년 9월</span>
+      <button class="stepper" id="nextm" aria-label="다음 달">&#8250;</button>
+    </div>
+  </header>
+
+  <main id="view"></main>
+</div>
+
+<button class="fab" id="fab" aria-label="지출 넣기">+</button>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" id="tab-ledger" aria-selected="true"><span class="ic">&#8361;</span>장부</button>
+  <button role="tab" id="tab-fixed" aria-selected="false"><span class="ic">&#8942;&#8942;</span>고정비</button>
+  <button role="tab" id="tab-pay" aria-selected="false"><span class="ic">&#8721;</span>월급</button>
+</nav>
+
+<div id="modal"></div>
+<div id="toast"></div>
+
+<script>
+"use strict";
+
+/* =============================================================== 저장 */
+const KEY = "attools.jangbu.v1";
+const 기본 = {
+  거래: [], 고정비: [], 급여: null, 예시: true,
+  분류: ["식비", "주거", "교통", "통신", "구독", "생활", "의료", "경조사", "기타"],
+};
+let DB = 기본;
+
+function 읽기() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) DB = Object.assign({}, 기본, JSON.parse(raw));
+  } catch (e) { DB = 기본; }
+  if (DB.예시 && !DB.거래.length && !DB.고정비.length) 예시넣기();
+}
+function 쓰기() {
+  try { localStorage.setItem(KEY, JSON.stringify(DB)); }
+  catch (e) { 알림("저장하지 못했습니다. 브라우저 저장공간을 확인하세요."); }
+}
+
+/* =============================================================== 날짜 */
+const 오늘 = new Date();
+function 달키(d) { return d.slice(0, 7); }
+function 날짜글(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+}
+let 보는달 = 날짜글(오늘).slice(0, 7);
+function 달글(key) {
+  const [y, m] = key.split("-");
+  return Number(y) + "년 " + Number(m) + "월";
+}
+function 달더하기(key, n) {
+  let [y, m] = key.split("-").map(Number);
+  m += n;
+  y += Math.floor((m - 1) / 12);
+  m = ((m - 1) % 12 + 12) % 12 + 1;
+  return y + "-" + String(m).padStart(2, "0");
+}
+function 달차이(a, b) {
+  const [ay, am] = a.split("-").map(Number), [by, bm] = b.split("-").map(Number);
+  return (by - ay) * 12 + (bm - am);
+}
+
+/* =============================================================== 숫자 */
+function 돈(n) {
+  const v = Math.round(Number(n) || 0);
+  return v.toLocaleString("ko-KR");
+}
+function 숫자만(s) { return String(s).replace(/[^0-9-]/g, ""); }
+function 금액읽기(s) { return Number(숫자만(s)) || 0; }
+
+/* =============================================================== 예시 */
+function 예시넣기() {
+  const 이번 = 보는달, 지난 = 달더하기(이번, -1), 지지난 = 달더하기(이번, -2);
+  const 거래 = [];
+  [지지난, 지난, 이번].forEach((m) => {
+    거래.push({ id: 아이디(), 날짜: m + "-25", 내용: "월급", 분류: "급여", 수입: true, 금액: 2810000 });
+    거래.push({ id: 아이디(), 날짜: m + "-01", 내용: "월세", 분류: "주거", 수입: false, 금액: 450000 });
+    거래.push({ id: 아이디(), 날짜: m + "-03", 내용: "넷플릭스", 분류: "구독", 수입: false, 금액: 17000 });
+  });
+  거래.push({ id: 아이디(), 날짜: 이번 + "-07", 내용: "장보기", 분류: "식비", 수입: false, 금액: 131000 });
+  거래.push({ id: 아이디(), 날짜: 이번 + "-12", 내용: "주유", 분류: "교통", 수입: false, 금액: 60000 });
+  DB.거래 = 거래;
+  DB.고정비 = [
+    { id: 아이디(), 이름: "월세", 분류: "주거", 금액: 450000, 주기: "월", 끝: "" },
+    { id: 아이디(), 이름: "휴대폰 할부", 분류: "할부", 금액: 41000, 주기: "월", 끝: 달더하기(이번, 5) + "-28" },
+    { id: 아이디(), 이름: "자동차보험", 분류: "보험", 금액: 780000, 주기: "년", 끝: "" },
+    { id: 아이디(), 이름: "넷플릭스", 분류: "구독", 금액: 17000, 주기: "월", 끝: "" },
+  ];
+}
+function 아이디() { return Math.random().toString(36).slice(2, 10); }
+
+/* =============================================================== 장부 셈 */
+function 이달거래(m) { return DB.거래.filter((t) => t.날짜.slice(0, 7) === m); }
+function 달합(m) {
+  let 수입 = 0, 지출 = 0;
+  이달거래(m).forEach((t) => { if (t.수입) 수입 += t.금액; else 지출 += t.금액; });
+  return { 수입, 지출, 남음: 수입 - 지출 };
+}
+function 분류별(m) {
+  const 모음 = {};
+  이달거래(m).filter((t) => !t.수입).forEach((t) => {
+    const k = t.분류 || "기타";
+    모음[k] = (모음[k] || 0) + t.금액;
+  });
+  return Object.entries(모음).sort((a, b) => b[1] - a[1]);
+}
+function 되풀이찾기(least) {
+  const 모음 = {};
+  DB.거래.filter((t) => !t.수입 && t.내용).forEach((t) => {
+    (모음[t.내용] = 모음[t.내용] || []).push(t);
+  });
+  const out = [];
+  for (const [이름, 건들] of Object.entries(모음)) {
+    const 달 = [...new Set(건들.map((t) => t.날짜.slice(0, 7)))].sort();
+    if (달.length < least) continue;
+    let 길게 = 1, 이어서 = 1;
+    for (let i = 1; i < 달.length; i++) {
+      이어서 = 달차이(달[i - 1], 달[i]) === 1 ? 이어서 + 1 : 1;
+      길게 = Math.max(길게, 이어서);
+    }
+    if (길게 < least) continue;
+    const 값 = 건들.map((t) => t.금액);
+    const 셈 = {};
+    값.forEach((v) => { 셈[v] = (셈[v] || 0) + 1; });
+    const 흔한 = Number(Object.entries(셈).sort((a, b) => b[1] - a[1])[0][0]);
+    const 흔들림 = 셈[흔한] < 값.length;
+    out.push({
+      이름, 달수: 길게, 흔들림,
+      금액: 흔들림 ? 값.reduce((a, b) => a + b, 0) / 값.length : 흔한,
+      낮 : Math.min(...값), 높: Math.max(...값),
+      이미: DB.고정비.some((f) => f.이름 === 이름),
+    });
+  }
+  return out.sort((a, b) => b.금액 - a.금액);
+}
+
+/* =============================================================== 고정비 셈 */
+const 주기배수 = { "월": 1, "년": 1 / 12, "주": 365 / 12 / 7, "분기": 1 / 3, "반기": 1 / 6 };
+function 고정비셈() {
+  const 이번 = 보는달;
+  let 월 = 0;
+  const 줄 = DB.고정비.map((f) => {
+    const 끝난 = f.끝 && f.끝.slice(0, 7) < 이번;
+    const 환산 = 끝난 ? 0 : f.금액 * (주기배수[f.주기] || 1);
+    월 += 환산;
+    return {
+      ...f, 환산, 끝난,
+      남은달: f.끝 && !끝난 ? Math.max(달차이(이번, f.끝.slice(0, 7)), 0) : null,
+    };
+  }).sort((a, b) => b.환산 - a.환산);
+  return { 줄, 월, 해: 월 * 12 };
+}
+
+/* =============================================================== 급여 셈 */
+const 최저시급 = 10320, 최저해 = 2026, 월시간 = 209, 주수 = 4.345;
+const 요율 = [
+  ["국민연금", 9.5, "9.5% 중 절반"],
+  ["건강보험", 7.19, "7.19% 중 절반"],
+  ["장기요양", 0.9448, "건강보험료의 13.14%"],
+  ["고용보험", 1.8, "실업급여 몫"],
+];
+function 가산단가(시급) {
+  return { 연장: Math.floor(시급 * 1.5), 야간: Math.floor(시급 * 0.5), 휴일: Math.floor(시급 * 1.5) };
+}
+function 급여셈(v) {
+  const 받 = [], 뺀 = [], 말 = [], 경고 = [];
+  let 시급 = 0, 비과세 = Math.min(v.식대 || 0, 200000);
+
+  if (v.형태 === "도급") {
+    받.push(["도급 지급액", v.금액]);
+    const 소득 = Math.floor(v.금액 * 0.03);
+    뺀.push(["소득세", 소득, "사업소득 3%"]);
+    뺀.push(["지방소득세", Math.floor(소득 * 0.1), "소득세의 10%"]);
+    말.push("근로자가 아니라 4대보험·주휴수당·연장 가산이 없습니다.");
+    경고.push("회사가 정한 시간에 지시를 받으며 일한다면 이름이 도급이어도 근로자일 수 있습니다(위장도급). 그때는 4대보험·연장 가산·퇴직금·연차가 생깁니다.");
+    return 묶기(받, 뺀, 말, 경고, 0, 0);
+  }
+
+  if (v.형태 === "일급") {
+    const 합 = v.일급 * v.일수;
+    받.push(["일급 " + 돈(v.일급) + "원 x " + v.일수 + "일", 합]);
+    const 하루 = Math.floor(Math.max(v.일급 - 150000, 0) * 0.027);
+    if (하루 < 1000) {
+      말.push("하루치 소득세가 1,000원보다 적어 떼지 않습니다(소액부징수). 일급 187,000원 아래면 0원입니다.");
+    } else {
+      뺀.push(["소득세", 하루 * v.일수, "(일급 - 150,000) x 2.7%"]);
+      뺀.push(["지방소득세", Math.floor(하루 * v.일수 * 0.1), "소득세의 10%"]);
+    }
+    말.push("4대보험은 보험별로 가입 기준이 달라 세지 않았습니다 - 산재는 하루만 일해도 적용되고, 국민연금·건강보험은 «1개월 이상 + 월 8일 이상» 을 봅니다.");
+    return 묶기(받, 뺀, 말, 경고, 0, 0);
+  }
+
+  if (v.형태 === "시급") {
+    시급 = v.시급;
+    const 주 = Math.min(v.주시간, 40);
+    받.push(["기본급 (주 " + v.주시간 + "시간)", Math.floor(v.시급 * v.주시간 * 주수)]);
+    if (v.주시간 >= 15) {
+      받.push(["주휴수당", Math.floor(v.시급 * (주 / 40) * 8 * 주수)]);
+    } else {
+      말.push("1주 소정근로시간이 15시간 미만이라 주휴수당이 없습니다.");
+    }
+  } else {
+    시급 = Math.floor(v.월급 / 월시간);
+    받.push(["기본급 (소정근로 209시간)", v.월급, "통상시급 " + 돈(시급) + "원"]);
+  }
+
+  const 단가 = 가산단가(시급);
+  if (v.연장) 받.push(["연장 " + v.연장 + "시간", Math.floor(단가.연장 * v.연장), "1.5배 " + 돈(단가.연장) + "원"]);
+  if (v.야간) 받.push(["야간 " + v.야간 + "시간", Math.floor(단가.야간 * v.야간), "0.5배 " + 돈(단가.야간) + "원"]);
+  if (v.휴일) {
+    const 여덟 = Math.min(v.휴일, 8);
+    받.push(["휴일 " + 여덟 + "시간", Math.floor(단가.휴일 * 여덟), "1.5배"]);
+    if (v.휴일 > 8) 받.push(["휴일 초과 " + (v.휴일 - 8) + "시간", Math.floor(시급 * 2 * (v.휴일 - 8)), "2배"]);
+  }
+  if (비과세) 받.push(["식대 (비과세)", 비과세, "월 200,000원까지"]);
+
+  const 세전 = 받.reduce((a, b) => a + b[1], 0);
+  const 보수 = Math.max(세전 - 비과세, 1);
+  요율.forEach(([이름, r, 설명]) => {
+    let 몫;
+    if (이름 === "장기요양") {
+      몫 = Math.floor(Math.floor(보수 * 7.19 / 100) * 13.14 / 100 / 2);
+    } else if (이름 === "고용보험") {
+      몫 = Math.floor(보수 * 0.9 / 100);
+    } else {
+      몫 = Math.floor(보수 * r / 100 / 2);
+    }
+    뺀.push([이름, 몫, 설명]);
+  });
+  if (v.세금) 뺀.push(["소득세+지방소득세", v.세금, "넣은 값 그대로"]);
+  else 말.push("근로소득세는 간이세액표를 봐야 해서 세지 않았습니다. 급여명세서의 소득세+지방소득세를 넣으면 뺍니다.");
+
+  if (시급 && 시급 < 최저시급) {
+    경고.push("통상시급 " + 돈(시급) + "원은 " + 최저해 + "년 최저임금 " + 돈(최저시급) + "원보다 적습니다. 다만 최저임금 위반 판단은 산입되는 임금 범위가 따로 있어 이 수만으로 단정할 수 없습니다.");
+  }
+  return 묶기(받, 뺀, 말, 경고, 시급, 비과세);
+}
+function 묶기(받, 뺀, 말, 경고, 시급, 비과세) {
+  const 세전 = 받.reduce((a, b) => a + b[1], 0);
+  const 공제 = 뺀.reduce((a, b) => a + b[1], 0);
+  return { 받, 뺀, 말, 경고, 시급, 비과세, 세전, 공제, 실수령: 세전 - 공제 };
+}
+
+/* =============================================================== 그리기 */
+const view = document.getElementById("view");
+const 화면 = { 이름: "ledger" };
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function 그리기() {
+  document.getElementById("mlabel").textContent = 달글(보는달);
+  document.getElementById("monthbar").hidden = 화면.이름 === "pay";
+  document.getElementById("fab").hidden = 화면.이름 === "pay";
+  if (화면.이름 === "ledger") 장부그리기();
+  else if (화면.이름 === "fixed") 고정비그리기();
+  else 급여그리기();
+}
+
+function 장부그리기() {
+  const s = 달합(보는달);
+  const 분류 = 분류별(보는달);
+  const 최대 = 분류.length ? 분류[0][1] : 1;
+  const 건 = 이달거래(보는달).slice().sort((a, b) => b.날짜.localeCompare(a.날짜) || b.금액 - a.금액);
+  const 지난 = Object.fromEntries(분류별(달더하기(보는달, -1)));
+  const 되 = 되풀이찾기(3).filter((r) => !r.이미);
+
+  let h = '<section class="card summary">'
+    + '<div class="left-label">남은 돈</div>'
+    + '<div class="left-amount num' + (s.남음 < 0 ? " minus" : "") + '">' + 돈(s.남음) + '<span style="font-size:19px">원</span></div>'
+    + '<div class="inout">'
+    + '<div><div class="k">수입</div><div class="v plus num">' + 돈(s.수입) + '</div></div>'
+    + '<div><div class="k">지출</div><div class="v minus num">' + 돈(s.지출) + '</div></div>'
+    + '</div></section>';
+
+  if (분류.length) {
+    h += '<section class="card"><h2>분류별 지출</h2>';
+    분류.forEach(([이름, 값]) => {
+      const 차 = 지난[이름] == null ? null : 값 - 지난[이름];
+      const 꼬리 = 차 === null || Math.round(차) === 0 ? ""
+        : '<span class="meta"> ' + (차 > 0 ? "+" : "") + 돈(차) + '</span>';
+      h += '<div style="padding:8px 0">'
+        + '<div class="line" style="border:0;padding:0">'
+        + '<span class="name">' + esc(이름) + '</span><span class="dots"></span>'
+        + '<span class="amt num">' + 돈(값) + '</span>' + 꼬리 + '</div>'
+        + '<div class="bar"><i style="width:' + Math.max(값 / 최대 * 100, 3) + '%"></i></div></div>';
+    });
+    h += '<p class="note" style="margin:10px 0 0">지난달과 견준 값입니다.</p></section>';
+  }
+
+  h += '<section class="card"><h2>이 달 내역 ' + 건.length + '건</h2>';
+  if (!건.length) {
+    h += '<p class="empty">아래 + 를 눌러 한 건 넣어 보세요.</p>';
+  } else {
+    건.forEach((t) => {
+      h += '<div class="line" data-edit="' + t.id + '" role="button" tabindex="0">'
+        + '<span class="day">' + t.날짜.slice(8) + '일</span>'
+        + '<span class="name">' + esc(t.내용 || "이름 없음")
+        + ' <span class="chip">' + esc(t.분류 || "기타") + '</span></span>'
+        + '<span class="dots"></span>'
+        + '<span class="amt num ' + (t.수입 ? "plus" : "minus") + '">'
+        + (t.수입 ? "+" : "-") + 돈(t.금액) + '</span></div>';
+    });
+  }
+  h += '</section>';
+
+  if (되.length) {
+    h += '<section class="card"><h2>달마다 되풀이된 지출</h2>';
+    되.slice(0, 6).forEach((r) => {
+      h += '<div class="line">'
+        + '<span class="name">' + esc(r.이름)
+        + '<span class="meta"> ' + r.달수 + '달 연속'
+        + (r.흔들림 ? " · " + 돈(r.낮) + "~" + 돈(r.높) : "") + '</span></span>'
+        + '<span class="dots"></span>'
+        + '<span class="amt num">' + (r.흔들림 ? "평균 " : "") + 돈(r.금액) + '</span></div>';
+    });
+    h += '<p class="note" style="margin:10px 0 0">잊고 있던 구독이 여기서 걸립니다. 고정비 탭으로 옮기면 앞으로 매달 얼마 나갈지 봅니다.</p></section>';
+  }
+
+  h += '<section class="card flat"><button class="ghost" id="export">내보내기 · 백업</button></section>';
+  if (DB.예시) {
+    h += '<p class="note warn" style="margin-top:10px">지금 보이는 것은 예시입니다. 내 것을 넣기 전에 '
+      + '<button class="ghost" id="clear" style="display:inline;width:auto;padding:4px 10px;margin:0">예시 지우기</button> 를 누르세요.</p>';
+  }
+  view.innerHTML = h;
+}
+
+function 고정비그리기() {
+  const g = 고정비셈();
+  const 곧 = g.줄.filter((f) => f.남은달 !== null && f.남은달 <= 12).sort((a, b) => a.남은달 - b.남은달);
+  const 수입 = (DB.급여 && DB.급여.실수령) || 달합(보는달).수입;
+
+  let h = '<section class="card summary">'
+    + '<div class="left-label">되풀이되는 돈 (한 달)</div>'
+    + '<div class="left-amount num">' + 돈(g.월) + '<span style="font-size:19px">원</span></div>'
+    + '<div class="inout">'
+    + '<div><div class="k">1년이면</div><div class="v num">' + 돈(g.해) + '</div></div>'
+    + '<div><div class="k">수입에서 빼면</div><div class="v num ' + (수입 - g.월 < 0 ? "out" : "in") + '">'
+    + (수입 ? 돈(수입 - g.월) : "-") + '</div></div>'
+    + '</div></section>';
+
+  h += '<section class="card"><h2>고정비 ' + g.줄.length + '건</h2>';
+  if (!g.줄.length) {
+    h += '<p class="empty">아래 + 를 눌러 구독이나 할부를 넣어 보세요.</p>';
+  } else {
+    g.줄.forEach((f) => {
+      h += '<div class="line" data-fix="' + f.id + '" role="button" tabindex="0">'
+        + '<span class="name">' + esc(f.이름) + ' <span class="chip">' + esc(f.주기) + '</span>'
+        + (f.끝난 ? '<span class="meta"> 끝남</span>'
+          : f.남은달 !== null ? '<span class="meta"> ' + f.남은달 + '달 남음</span>' : "")
+        + '</span><span class="dots"></span>'
+        + '<span class="amt num" style="' + (f.끝난 ? "opacity:.45" : "") + '">' + 돈(f.환산) + '</span></div>';
+    });
+  }
+  h += '<p class="note" style="margin:10px 0 0">금액은 한 달로 환산한 값입니다. 연 단위는 12로 나눕니다.</p></section>';
+
+  if (곧.length) {
+    h += '<section class="card"><h2>곧 끝나는 것</h2>';
+    곧.forEach((f) => {
+      h += '<div class="line"><span class="name">' + esc(f.이름)
+        + '<span class="meta"> ' + f.끝 + '</span></span><span class="dots"></span>'
+        + '<span class="amt num plus">+' + 돈(f.환산) + '</span></div>';
+    });
+    h += '<p class="note" style="margin:10px 0 0">끝나면 그만큼 매달 숨통이 트입니다.</p></section>';
+  }
+  view.innerHTML = h;
+}
+
+function 급여그리기() {
+  const v = DB.급여 || { 형태: "월급", 월급: 2800000, 시급: 최저시급, 주시간: 40, 일급: 180000, 일수: 20, 금액: 3600000, 연장: 0, 야간: 0, 휴일: 0, 식대: 200000, 세금: 0 };
+  const r = 급여셈(v);
+  const 부름 = { "월급": "정규직·계약직 (월급제)", "시급": "시급제 · 단시간", "일급": "일용직 (일급제)", "도급": "도급 · 사업소득 3.3%" }[v.형태];
+
+  let h = '<section class="card summary">'
+    + '<div class="left-label">실수령액 (한 달)</div>'
+    + '<div class="left-amount num">' + 돈(r.실수령) + '<span style="font-size:19px">원</span></div>'
+    + '<div class="inout">'
+    + '<div><div class="k">세전</div><div class="v num">' + 돈(r.세전) + '</div></div>'
+    + '<div><div class="k">공제</div><div class="v minus num">' + 돈(r.공제) + '</div></div>'
+    + '</div></section>';
+
+  h += '<section class="card"><h2>' + esc(부름) + '</h2>'
+    + '<button class="go" id="editpay" style="margin-top:0">숫자 바꾸기</button></section>';
+
+  h += '<section class="card"><h2>받는 것</h2><dl class="kv">';
+  r.받.forEach(([이름, 값, 설명]) => {
+    h += '<dt>' + esc(이름) + (설명 ? '<small>' + esc(설명) + '</small>' : "") + '</dt><dd>' + 돈(값) + '</dd>';
+  });
+  h += '</dl><dl class="kv total"><dt><b>세전 합계</b></dt><dd>' + 돈(r.세전) + '</dd></dl></section>';
+
+  if (r.뺀.length) {
+    h += '<section class="card"><h2>빼는 것</h2><dl class="kv">';
+    r.뺀.forEach(([이름, 값, 설명]) => {
+      h += '<dt>' + esc(이름) + (설명 ? '<small>' + esc(설명) + '</small>' : "") + '</dt><dd>' + 돈(값) + '</dd>';
+    });
+    h += '</dl><dl class="kv total"><dt><b>공제 합계</b></dt><dd>' + 돈(r.공제) + '</dd></dl></section>';
+  }
+
+  if (r.시급) {
+    h += '<section class="card"><h2>시급</h2><dl class="kv">'
+      + '<dt>통상시급</dt><dd>' + 돈(r.시급) + '</dd>'
+      + '<dt>' + 최저해 + '년 최저임금</dt><dd>' + 돈(최저시급) + '</dd></dl></section>';
+  }
+
+  if (r.말.length || r.경고.length) {
+    h += '<section class="card"><h2>알아 둘 것</h2>';
+    r.말.forEach((n) => { h += '<p class="note" style="margin:0 0 8px">· ' + esc(n) + '</p>'; });
+    r.경고.forEach((n) => { h += '<p class="note warn" style="margin:0 0 8px">주의: ' + esc(n) + '</p>'; });
+    h += '<p class="note" style="margin:8px 0 0;color:var(--ink-3)">회사 규정과 급여명세서가 우선입니다. 여기 수는 법정 최소치를 기준으로 한 어림입니다.</p></section>';
+  }
+  view.innerHTML = h;
+}
+
+/* =============================================================== 시트 */
+const modal = document.getElementById("modal");
+function 시트닫기() { modal.innerHTML = ""; }
+function 시트(내용) {
+  modal.innerHTML = '<div class="veil" id="veil"><div class="sheet" role="dialog" aria-modal="true">'
+    + '<div class="grip"></div>' + 내용 + '</div></div>';
+  document.getElementById("veil").addEventListener("click", (e) => {
+    if (e.target.id === "veil") 시트닫기();
+  });
+}
+function 알림(말) {
+  const t = document.getElementById("toast");
+  t.innerHTML = '<div class="toast">' + esc(말) + '</div>';
+  setTimeout(() => { t.innerHTML = ""; }, 2200);
+}
+
+function 거래시트(id) {
+  const 있 = id ? DB.거래.find((t) => t.id === id) : null;
+  const t = 있 || { 날짜: 날짜글(오늘), 내용: "", 분류: "식비", 수입: false, 금액: 0 };
+  if (!id && 보는달 !== 날짜글(오늘).slice(0, 7)) t.날짜 = 보는달 + "-01";
+
+  시트('<h2>' + (id ? "고치기" : "한 건 넣기") + '</h2>'
+    + '<div class="seg" id="seg-kind">'
+    + '<button data-k="지출" aria-pressed="' + (!t.수입) + '">지출</button>'
+    + '<button data-k="수입" aria-pressed="' + (!!t.수입) + '">수입</button></div>'
+    + '<label class="f"><span>금액</span>'
+    + '<input class="in money" id="f-amt" inputmode="numeric" enterkeyhint="done" value="' + (t.금액 ? 돈(t.금액) : "") + '" placeholder="0"></label>'
+    + '<label class="f"><span>분류</span></label>'
+    + '<div class="chips" id="f-cat">' + DB.분류.concat(t.수입 ? ["급여"] : []).map((c) =>
+      '<button data-c="' + esc(c) + '" aria-pressed="' + (c === t.분류) + '">' + esc(c) + '</button>').join("") + '</div>'
+    + '<div class="row2">'
+    + '<label class="f"><span>내용</span><input class="in" id="f-name" value="' + esc(t.내용) + '" placeholder="예: 장보기"></label>'
+    + '<label class="f"><span>날짜</span><input class="in" id="f-date" type="date" value="' + t.날짜 + '"></label>'
+    + '</div>'
+    + '<button class="go" id="f-save">' + (id ? "고치기" : "넣기") + '</button>'
+    + (id ? '<button class="ghost del" id="f-del">지우기</button>' : "")
+    + '<button class="ghost" id="f-cancel">닫기</button>');
+
+  let 수입 = !!t.수입, 분류 = t.분류;
+  const amt = document.getElementById("f-amt");
+  amt.addEventListener("input", () => {
+    const n = 금액읽기(amt.value);
+    amt.value = n ? 돈(n) : "";
+  });
+  document.getElementById("seg-kind").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    수입 = b.dataset.k === "수입";
+    [...e.currentTarget.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+  document.getElementById("f-cat").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    분류 = b.dataset.c;
+    [...e.currentTarget.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+  document.getElementById("f-cancel").addEventListener("click", 시트닫기);
+  if (id) document.getElementById("f-del").addEventListener("click", () => {
+    DB.거래 = DB.거래.filter((x) => x.id !== id); 쓰기(); 시트닫기(); 그리기(); 알림("지웠습니다");
+  });
+  document.getElementById("f-save").addEventListener("click", () => {
+    const 값 = 금액읽기(amt.value);
+    if (!값) { amt.focus(); 알림("금액을 넣어 주세요"); return; }
+    const 날짜 = document.getElementById("f-date").value || 날짜글(오늘);
+    const 새 = {
+      id: id || 아이디(), 금액: Math.abs(값), 수입, 분류,
+      내용: document.getElementById("f-name").value.trim(), 날짜,
+    };
+    if (id) DB.거래 = DB.거래.map((x) => (x.id === id ? 새 : x));
+    else DB.거래.push(새);
+    DB.예시 = false;
+    쓰기(); 시트닫기(); 보는달 = 날짜.slice(0, 7); 그리기();
+    알림(id ? "고쳤습니다" : "넣었습니다");
+  });
+  setTimeout(() => amt.focus(), 60);
+}
+
+function 고정비시트(id) {
+  const 있 = id ? DB.고정비.find((f) => f.id === id) : null;
+  const f = 있 || { 이름: "", 분류: "구독", 금액: 0, 주기: "월", 끝: "" };
+  시트('<h2>' + (id ? "고정비 고치기" : "고정비 넣기") + '</h2>'
+    + '<label class="f"><span>금액</span>'
+    + '<input class="in money" id="g-amt" inputmode="numeric" value="' + (f.금액 ? 돈(f.금액) : "") + '" placeholder="0"></label>'
+    + '<label class="f"><span>얼마마다</span></label>'
+    + '<div class="chips" id="g-per">' + Object.keys(주기배수).map((p) =>
+      '<button data-p="' + p + '" aria-pressed="' + (p === f.주기) + '">' + p + '마다</button>').join("") + '</div>'
+    + '<div class="row2">'
+    + '<label class="f"><span>이름</span><input class="in" id="g-name" value="' + esc(f.이름) + '" placeholder="예: 넷플릭스"></label>'
+    + '<label class="f"><span>분류</span><input class="in" id="g-cat" value="' + esc(f.분류) + '" placeholder="구독"></label>'
+    + '</div>'
+    + '<label class="f"><span>끝나는 날 (할부라면)</span><input class="in" id="g-end" type="date" value="' + esc(f.끝) + '"></label>'
+    + '<button class="go" id="g-save">' + (id ? "고치기" : "넣기") + '</button>'
+    + (id ? '<button class="ghost del" id="g-del">지우기</button>' : "")
+    + '<button class="ghost" id="g-cancel">닫기</button>');
+
+  let 주기 = f.주기;
+  const amt = document.getElementById("g-amt");
+  amt.addEventListener("input", () => { const n = 금액읽기(amt.value); amt.value = n ? 돈(n) : ""; });
+  document.getElementById("g-per").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    주기 = b.dataset.p;
+    [...e.currentTarget.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  });
+  document.getElementById("g-cancel").addEventListener("click", 시트닫기);
+  if (id) document.getElementById("g-del").addEventListener("click", () => {
+    DB.고정비 = DB.고정비.filter((x) => x.id !== id); 쓰기(); 시트닫기(); 그리기(); 알림("지웠습니다");
+  });
+  document.getElementById("g-save").addEventListener("click", () => {
+    const 값 = 금액읽기(amt.value);
+    if (!값) { amt.focus(); 알림("금액을 넣어 주세요"); return; }
+    const 새 = {
+      id: id || 아이디(), 금액: Math.abs(값), 주기,
+      이름: document.getElementById("g-name").value.trim() || "이름 없음",
+      분류: document.getElementById("g-cat").value.trim(), 끝: document.getElementById("g-end").value,
+    };
+    if (id) DB.고정비 = DB.고정비.map((x) => (x.id === id ? 새 : x));
+    else DB.고정비.push(새);
+    DB.예시 = false;
+    쓰기(); 시트닫기(); 그리기(); 알림(id ? "고쳤습니다" : "넣었습니다");
+  });
+  setTimeout(() => amt.focus(), 60);
+}
+
+function 급여시트() {
+  const v = DB.급여 || { 형태: "월급", 월급: 2800000, 시급: 최저시급, 주시간: 40, 일급: 180000, 일수: 20, 금액: 3600000, 연장: 0, 야간: 0, 휴일: 0, 식대: 200000, 세금: 0 };
+  const 칸 = (id, 이름, 값, mono) =>
+    '<label class="f"><span>' + 이름 + '</span><input class="in' + (mono ? " money" : "") + '" id="' + id + '" inputmode="numeric" value="' + (값 || "") + '"></label>';
+
+  function 몸통(형태) {
+    if (형태 === "월급") return 칸("p-wol", "월 통상임금", 돈(v.월급), 1);
+    if (형태 === "시급") return 칸("p-si", "시급", 돈(v.시급), 1) + 칸("p-ju", "1주 소정근로시간", v.주시간);
+    if (형태 === "일급") return 칸("p-il", "일급", 돈(v.일급), 1) + 칸("p-day", "일한 날", v.일수);
+    return 칸("p-do", "도급 지급액", 돈(v.금액), 1);
+  }
+  function 시간들(형태) {
+    if (형태 === "도급") return "";
+    return '<div class="row2">' + 칸("p-ot", "연장 시간", v.연장) + 칸("p-nt", "야간 시간", v.야간) + '</div>'
+      + '<div class="row2">' + 칸("p-hd", "휴일 시간", v.휴일) + 칸("p-meal", "식대 (비과세)", 돈(v.식대), 1) + '</div>'
+      + (형태 === "일급" ? "" : 칸("p-tax", "명세서의 소득세+지방소득세", 돈(v.세금), 1));
+  }
+
+  function 채우기(형태) {
+    document.getElementById("p-body").innerHTML = 몸통(형태) + 시간들(형태);
+    modal.querySelectorAll("input.money").forEach((el) => {
+      el.addEventListener("input", () => { const n = 금액읽기(el.value); el.value = n ? 돈(n) : ""; });
+    });
+  }
+
+  시트('<h2>급여 숫자</h2>'
+    + '<div class="seg" id="p-kind" style="grid-auto-flow:column">'
+    + ["월급", "시급", "일급", "도급"].map((k) =>
+      '<button data-k="' + k + '" aria-pressed="' + (k === v.형태) + '">' + k + '</button>').join("")
+    + '</div>'
+    + '<p class="note" style="margin:10px 0 0">정규직·계약직은 셈법이 같습니다. 기간의 정함만 다르고 근로기준법은 똑같이 적용됩니다.</p>'
+    + '<div id="p-body"></div>'
+    + '<button class="go" id="p-save">셈하기</button>'
+    + '<button class="ghost" id="p-cancel">닫기</button>');
+
+  let 형태 = v.형태;
+  채우기(형태);
+  document.getElementById("p-kind").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    형태 = b.dataset.k;
+    [...e.currentTarget.children].forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    채우기(형태);
+  });
+  document.getElementById("p-cancel").addEventListener("click", 시트닫기);
+  document.getElementById("p-save").addEventListener("click", () => {
+    const g = (id) => { const el = document.getElementById(id); return el ? 금액읽기(el.value) : 0; };
+    const 새 = {
+      형태,
+      월급: g("p-wol") || v.월급, 시급: g("p-si") || v.시급, 주시간: g("p-ju") || 40,
+      일급: g("p-il") || v.일급, 일수: g("p-day") || 20, 금액: g("p-do") || v.금액,
+      연장: g("p-ot"), 야간: g("p-nt"), 휴일: g("p-hd"),
+      식대: g("p-meal"), 세금: g("p-tax"),
+    };
+    새.실수령 = 급여셈(새).실수령;
+    DB.급여 = 새; 쓰기(); 시트닫기(); 그리기();
+  });
+}
+
+function 내보내기시트() {
+  const 줄 = ["날짜,내용,분류,구분,금액"];
+  DB.거래.slice().sort((a, b) => a.날짜.localeCompare(b.날짜)).forEach((t) => {
+    줄.push([t.날짜, (t.내용 || "").replace(/,/g, " "), (t.분류 || "").replace(/,/g, " "),
+      t.수입 ? "수입" : "지출", t.금액].join(","));
+  });
+  const csv = 줄.join("\n");
+  시트('<h2>내보내기 · 백업</h2>'
+    + '<p class="note">이 앱은 이 폰에만 저장합니다. 아래 글을 복사해 메모나 메일로 옮겨 두면 백업이 됩니다.</p>'
+    + '<p class="note" style="margin-top:8px">PC 에서 <span class="num">at sheet ledger</span> 에 그대로 물릴 수 있는 csv 입니다.</p>'
+    + '<textarea class="out" id="x-text" readonly>' + esc(csv) + '</textarea>'
+    + '<button class="go" id="x-copy">복사하기</button>'
+    + '<button class="ghost" id="x-cancel">닫기</button>');
+  document.getElementById("x-cancel").addEventListener("click", 시트닫기);
+  document.getElementById("x-copy").addEventListener("click", () => {
+    const el = document.getElementById("x-text");
+    el.select(); el.setSelectionRange(0, 999999);
+    let 됐 = false;
+    try { 됐 = document.execCommand("copy"); } catch (e) { 됐 = false; }
+    if (됐) { 알림("복사했습니다"); return; }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(el.value)
+        .then(() => 알림("복사했습니다"))
+        .catch(() => 알림("길게 눌러 직접 복사해 주세요"));
+    } else { 알림("길게 눌러 직접 복사해 주세요"); }
+  });
+}
+
+/* =============================================================== 배선 */
+document.getElementById("prevm").addEventListener("click", () => { 보는달 = 달더하기(보는달, -1); 그리기(); });
+document.getElementById("nextm").addEventListener("click", () => { 보는달 = 달더하기(보는달, 1); 그리기(); });
+document.getElementById("fab").addEventListener("click", () => {
+  if (화면.이름 === "fixed") 고정비시트(null); else 거래시트(null);
+});
+[["tab-ledger", "ledger"], ["tab-fixed", "fixed"], ["tab-pay", "pay"]].forEach(([id, 이름]) => {
+  document.getElementById(id).addEventListener("click", () => {
+    화면.이름 = 이름;
+    document.querySelectorAll('nav.tabs button').forEach((b) =>
+      b.setAttribute("aria-selected", String(b.id === id)));
+    try { localStorage.setItem(KEY + ".tab", 이름); } catch (e) {}
+    그리기();
+    window.scrollTo(0, 0);
+  });
+});
+view.addEventListener("click", (e) => {
+  const 줄 = e.target.closest("[data-edit]");
+  if (줄) { 거래시트(줄.dataset.edit); return; }
+  const 고 = e.target.closest("[data-fix]");
+  if (고) { 고정비시트(고.dataset.fix); return; }
+  if (e.target.id === "export") { 내보내기시트(); return; }
+  if (e.target.id === "editpay") { 급여시트(); return; }
+  if (e.target.id === "clear") {
+    DB.거래 = []; DB.고정비 = []; DB.예시 = false; 쓰기(); 그리기(); 알림("비웠습니다");
+  }
+});
+view.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const 줄 = e.target.closest("[data-edit],[data-fix]");
+  if (!줄) return;
+  e.preventDefault();
+  if (줄.dataset.edit) 거래시트(줄.dataset.edit); else 고정비시트(줄.dataset.fix);
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") 시트닫기(); });
+
+읽기();
+try {
+  const 탭 = localStorage.getItem(KEY + ".tab");
+  if (탭) {
+    화면.이름 = 탭;
+    const id = { ledger: "tab-ledger", fixed: "tab-fixed", pay: "tab-pay" }[탭];
+    document.querySelectorAll('nav.tabs button').forEach((b) =>
+      b.setAttribute("aria-selected", String(b.id === id)));
+  }
+} catch (e) {}
+그리기();
+</script>
+
+<script>
+// 오프라인으로 쓰려면 서비스 워커가 있어야 한다. file:// 로 열면 등록되지 않는다
+// - 그때도 앱은 그냥 돈다. 오프라인 저장만 안 될 뿐이다.
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  });
+}
+</script>
+</body>
+</html>
