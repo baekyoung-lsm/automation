@@ -959,6 +959,26 @@ class SmokeTest(unittest.TestCase):
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
         self.assertIn("홍길동은", text)
 
+    def test_sheet_ledger(self):
+        내역 = self.path("내역.csv")
+        줄 = ["날짜,내용,분류,구분,금액"]
+        for 달 in (7, 8, 9):
+            줄 += [f"2026-0{달}-25,월급,급여,수입,3139138",
+                   f"2026-0{달}-01,월세,주거,지출,450000",
+                   f"2026-0{달}-03,넷플릭스,구독,지출,17000"]
+        줄.append("2026-09-05,노트북,구매,지출,1500000")
+        Path(내역).write_text("\n".join(줄) + "\n", encoding="utf-8")
+        결과 = self.path("가계부기록.xlsx")
+        말 = self.run_cli("sheet", "ledger", 내역, "--date", "날짜",
+                          "--amount", "금액", "--name", "내용",
+                          "--group", "분류", "--kind", "구분", "-o", 결과)
+        self.assertIn("달마다", 말)
+        self.assertIn("2026-08 대비", 말)
+        self.assertIn("되풀이된 지출", 말)
+        self.assertIn("노트북", 말)
+        self.assertTrue(Path(결과).is_file())
+        self.assertIn("구분", self.run_cli("sheet", "peek", 결과))
+
     def test_sheet_budget(self):
         지출 = self.path("지출.csv")
         Path(지출).write_text(

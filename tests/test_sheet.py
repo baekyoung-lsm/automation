@@ -4191,3 +4191,135 @@ class BudgetTest(unittest.TestCase):
     def test_missing_column_is_an_error(self):
         with self.assertRaises(sheet.SheetError):
             self.셈([["월세", "주거", 450000, "월", "", ""]], amount="없는열")
+
+
+class LedgerTest(unittest.TestCase):
+    """가계부 기록. 카드·통장·손입력이 저마다 달라 준 대로 읽는다."""
+
+    def 표(self, rows, headers):
+        return sheet.Table(list(headers), rows)
+
+    def 기본(self, rows):
+        return sheet.ledger(
+            self.표(rows, ("날짜", "내용", "분류", "구분", "금액")),
+            when="날짜", amount="금액", name="내용", group="분류", kind="구분")
+
+    def test_months_are_summed_oldest_first(self):
+        got = self.기본([["2026-08-01", "월세", "주거", "지출", 450000],
+                         ["2026-09-01", "월세", "주거", "지출", 450000],
+                         ["2026-09-25", "월급", "급여", "수입", 3000000]])
+        달 = got.months()
+        self.assertEqual([one.key for one in 달], ["2026-08", "2026-09"])
+        self.assertEqual((달[1].income, 달[1].expense, 달[1].left),
+                         (3000000, 450000, 2550000))
+
+    def test_income_words_are_recognised(self):
+        got = self.기본([["2026-09-25", "월급", "급여", "입금", 3000000]])
+        self.assertTrue(got.entries[0].income)
+
+    def test_everything_is_spending_when_nothing_says_otherwise(self):
+        """카드 내역은 출금만 있다. 틀렸을 때 눈에 띄는 쪽으로 둔다."""
+        table = self.표([["2026-09-01", "월세", 450000]], ("날짜", "내용", "금액"))
+        got = sheet.ledger(table, when="날짜", amount="금액", name="내용")
+        self.assertFalse(got.entries[0].income)
+        self.assertEqual(got.months()[0].expense, 450000)
+
+    def test_signed_amounts_split_income_from_spending(self):
+        table = self.표([["2026-09-01", "월세", -450000],
+                         ["2026-09-05", "환불", 12000]], ("날짜", "내용", "금액"))
+        got = sheet.ledger(table, when="날짜", amount="금액", name="내용",
+                           signed=True)
+        달 = got.months()[0]
+        self.assertEqual((달.income, 달.expense), (12000, 450000))
+
+    def test_two_columns_like_a_bank_statement(self):
+        table = self.표([["2026-09-01", "월세이체", 450000, ""],
+                         ["2026-09-05", "급여", "", 3000000]],
+                        ("거래일", "적요", "출금액", "입금액"))
+        got = sheet.ledger(table, when="거래일", name="적요",
+                           income="입금액", expense="출금액")
+        달 = got.months()[0]
+        self.assertEqual((달.income, 달.expense), (3000000, 450000))
+
+    def test_groups_ignore_income(self):
+        got = self.기본([["2026-09-01", "월세", "주거", "지출", 450000],
+                         ["2026-09-25", "월급", "급여", "수입", 3000000]])
+        self.assertEqual(got.groups("2026-09"), [("주거", 450000, 1)])
+
+    def test_biggest_spending_first(self):
+        got = self.기본([["2026-09-01", "월세", "주거", "지출", 450000],
+                         ["2026-09-05", "노트북", "구매", "지출", 1500000],
+                         ["2026-09-25", "월급", "급여", "수입", 3000000]])
+        self.assertEqual([one.name for one in got.biggest("2026-09")],
+                         ["노트북", "월세"])
+
+    def test_unreadable_date_is_skipped_with_a_reason(self):
+        got = self.기본([["몰라", "월세", "주거", "지출", 450000]])
+        self.assertEqual(got.entries, [])
+        self.assertIn("날짜", got.skipped[0][1])
+
+    def test_blank_row_is_not_reported(self):
+        got = self.기본([["", "", "", "", ""]])
+        self.assertEqual((got.entries, got.skipped), ([], []))
+
+    def test_needs_an_amount_column(self):
+        with self.assertRaises(sheet.SheetError):
+            sheet.ledger(self.표([["2026-09-01"]], ("날짜",)), when="날짜")
+
+
+class RepeatsTest(unittest.TestCase):
+    """달마다 되풀이되는 지출. 모르는 구독을 여기서 본다."""
+
+    def 기록(self, rows):
+        table = sheet.Table(["날짜", "내용", "금액"], rows)
+        return sheet.ledger(table, when="날짜", amount="금액", name="내용")
+
+    def test_three_months_in_a_row_is_a_repeat(self):
+        got = self.기록([["2026-07-03", "넷플릭스", 17000],
+                         ["2026-08-03", "넷플릭스", 17000],
+                         ["2026-09-03", "넷플릭스", 17000]])
+        찾음 = sheet.repeats(got)
+        self.assertEqual([(one.name, one.months, one.varies) for one in 찾음],
+                         [("넷플릭스", 3, False)])
+
+    def test_gaps_break_the_streak(self):
+        """1월·2월·6월은 3달 연속이 아니다."""
+        got = self.기록([["2026-01-03", "넷플릭스", 17000],
+                         ["2026-02-03", "넷플릭스", 17000],
+                         ["2026-06-03", "넷플릭스", 17000]])
+        self.assertEqual(sheet.repeats(got), [])
+
+    def test_wobbly_amounts_report_an_average_and_a_range(self):
+        """«가장 흔한 값» 으로 찍으면 장보기가 매달 8만 8천원이라고 거짓말한다."""
+        got = self.기록([["2026-07-08", "장보기", 88000],
+                         ["2026-08-09", "장보기", 102000],
+                         ["2026-09-07", "장보기", 131000]])
+        one = sheet.repeats(got)[0]
+        self.assertTrue(one.varies)
+        self.assertEqual(round(one.amount), 107000)
+        self.assertEqual((one.low, one.high), (88000, 131000))
+
+    def test_income_is_not_a_repeat(self):
+        table = sheet.Table(["날짜", "내용", "구분", "금액"],
+                            [["2026-07-25", "월급", "수입", 3000000],
+                             ["2026-08-25", "월급", "수입", 3000000],
+                             ["2026-09-25", "월급", "수입", 3000000]])
+        got = sheet.ledger(table, when="날짜", amount="금액", name="내용",
+                           kind="구분")
+        self.assertEqual(sheet.repeats(got), [])
+
+    def test_threshold_can_be_loosened(self):
+        got = self.기록([["2026-08-03", "넷플릭스", 17000],
+                         ["2026-09-03", "넷플릭스", 17000]])
+        self.assertEqual(sheet.repeats(got), [])
+        self.assertEqual(len(sheet.repeats(got, least=2)), 1)
+
+    def test_ledger_table_puts_spending_first_and_biggest_on_top(self):
+        table = sheet.Table(["날짜", "내용", "구분", "금액"],
+                            [["2026-09-25", "월급", "수입", 3000000],
+                             ["2026-09-01", "월세", "지출", 450000],
+                             ["2026-09-03", "커피", "지출", 5000]])
+        got = sheet.ledger(table, when="날짜", amount="금액", name="내용",
+                           kind="구분")
+        만든 = sheet.ledger_table(got)
+        self.assertEqual([row[2] for row in 만든.rows], ["월세", "커피", "월급"])

@@ -952,6 +952,99 @@ def cmd_sheet_gaps(a) -> int:
     return 1
 
 
+def cmd_sheet_ledger(a) -> int:
+    """거래 내역을 달마다·분류마다 모아 본다. 쓴 기록을 보는 쪽이다."""
+    t = _load(a)
+    if t is None:
+        return 1
+    try:
+        got = sheet.ledger(t, when=a.date, amount=a.amount or None,
+                           name=a.name or None, group=a.group or None,
+                           kind=a.kind or None, income=a.cash_in or None,
+                           expense=a.cash_out or None, signed=a.signed)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    달들 = got.months()
+    if not 달들:
+        _p("읽은 거래가 없습니다.")
+        for line, why in got.skipped[:a.limit]:
+            _p(f"  {line}행: {why}")
+        return 1
+
+    _p(f"{Path(a.file).name}  ·  {len(got.entries):,}건  "
+       f"·  {달들[0].key} ~ {달들[-1].key}")
+    if got.skipped:
+        for line, why in got.skipped[:a.limit]:
+            _p(f"  {line}행 건너뜀: {why}")
+        if len(got.skipped) > a.limit:
+            _p(f"  ... {len(got.skipped) - a.limit:,}줄 더")
+
+    이달 = a.month or 달들[-1].key
+    if 이달 not in {one.key for one in 달들}:
+        _p(f"\n{이달} 에는 거래가 없습니다. 있는 달: "
+           + ", ".join(one.key for one in 달들[-6:]))
+        return 1
+
+    _p("\n달마다")
+    _grid(["달", "수입", "지출", "남음", "건수"],
+          [[one.key, f"{one.income:,.0f}" if one.income else "-",
+            f"{one.expense:,.0f}", f"{one.left:,.0f}", f"{one.count}건"]
+           for one in 달들[-a.months:]])
+
+    앞달 = None
+    자리 = [one.key for one in 달들].index(이달)
+    if 자리:
+        앞달 = 달들[자리 - 1].key
+    묶음 = got.groups(이달)
+    이달지출 = sum(money for _n, money, _c in 묶음)
+    if 묶음:
+        앞것 = dict((name, money) for name, money, _c in got.groups(앞달)) \
+            if 앞달 else {}
+        _p(f"\n{이달} 분류별 지출")
+        rows = []
+        for name, money, count in 묶음:
+            차 = money - 앞것.get(name, 0) if 앞달 else None
+            rows.append([name, f"{money:,.0f}",
+                         f"{money / 이달지출 * 100:.0f}%" if 이달지출 else "-",
+                         f"{count}건",
+                         "-" if 차 is None or not round(차) else f"{차:+,.0f}"])
+        _grid(["분류", "금액", "몫", "건수", f"{앞달 or '지난달'} 대비"], rows)
+
+    큰것 = got.biggest(이달, a.limit)
+    if 큰것:
+        _p(f"\n{이달} 큰 지출")
+        _grid(["날짜", "항목", "분류", "금액"],
+              [[sheet.to_text(one.when), one.name or "이름 없음", one.group,
+                f"{one.amount:,.0f}"] for one in 큰것])
+
+    되풀이 = sheet.repeats(got, least=a.repeat)
+    if 되풀이:
+        _p(f"\n{a.repeat}달 넘게 되풀이된 지출  (고정비로 옮길 만한 것)")
+        _grid(["항목", "금액", "이어진 달", "폭"],
+              [[one.name,
+                (f"평균 {one.amount:,.0f}" if one.varies
+                 else f"{one.amount:,.0f}"),
+                f"{one.months}달",
+                (f"{one.low:,.0f} ~ {one.high:,.0f}" if one.varies else "일정")]
+               for one in 되풀이[:a.limit]])
+        if len(되풀이) > a.limit:
+            _p(f"  ... {len(되풀이) - a.limit:,}개 더")
+        _p("  이것들을 지출표로 옮겨 at sheet budget 에 걸면 앞으로 매달 "
+           "얼마 나갈지 봅니다.")
+    elif len(달들) < a.repeat:
+        _p(f"\n되풀이되는 지출은 {a.repeat}달치가 모여야 찾습니다 "
+           f"(지금 {len(달들)}달).")
+
+    if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
+        표 = sheet.ledger_table(got, None if a.all else 이달)
+        _p(f"\n저장: {sheet.save(표, Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_budget(a) -> int:
     """구독료·할부·생활비를 한 달 기준으로 모아 남는 돈을 센다."""
     from datetime import date as _date
@@ -3826,6 +3919,37 @@ def add_commands(sub) -> None:
                     help="주 기준 시간 (기본 40)")
     wt.add_argument("--limit", type=int, default=10, metavar="개")
     wt.set_defaults(func=cmd_sheet_worktime)
+
+    lg = common(sh.add_parser(
+        "ledger", help="거래 내역을 달마다·분류마다 모으기 (가계부 기록)"))
+    lg.add_argument("file")
+    lg.add_argument("--date", required=True, metavar="열", help="날짜 열")
+    lg.add_argument("--amount", default="", metavar="열", help="금액 열")
+    lg.add_argument("--name", default="", metavar="열", help="항목·내용 열")
+    lg.add_argument("--group", default="", metavar="열", help="분류 열")
+    lg.add_argument("--kind", default="", metavar="열",
+                    help="구분 열 - 값이 수입·지출·입금·출금이면 읽는다")
+    lg.add_argument("--in", dest="cash_in", default="", metavar="열",
+                    help="입금액 열 (통장 내역처럼 두 열로 나뉠 때)")
+    lg.add_argument("--out", dest="cash_out", default="", metavar="열",
+                    help="출금액 열")
+    lg.add_argument("--signed", action="store_true",
+                    help="부호로 가른다 (양수 수입, 음수 지출)")
+    lg.add_argument("--month", default="", metavar="YYYY-MM",
+                    help="자세히 볼 달 (기본 마지막 달)")
+    lg.add_argument("--months", type=int, default=12, metavar="개",
+                    help="달마다 표에 몇 달을 보일지 (기본 12)")
+    lg.add_argument("--repeat", type=int, default=3, metavar="달",
+                    help="몇 달 이어지면 되풀이로 볼지 (기본 3)")
+    lg.add_argument("--all", action="store_true",
+                    help="저장할 때 고른 달만이 아니라 전부")
+    lg.add_argument("-o", "--out-file", dest="out", metavar="파일")
+    lg.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    lg.add_argument("--limit", type=int, default=5, metavar="개")
+    lg.add_argument("--rows", type=int, default=30, metavar="개")
+    lg.add_argument("--width", type=int, default=16, metavar="칸")
+    lg.set_defaults(func=cmd_sheet_ledger)
 
     bg = common(sh.add_parser(
         "budget", help="구독료·할부·생활비를 한 달 기준으로 모으기 (가계부)"))

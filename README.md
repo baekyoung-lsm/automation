@@ -1461,7 +1461,8 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet age <파일> -c <열>` | 생년월일·주민번호 열에서 만 나이·연령대·성별 열 만들기 |
 | `at sheet leave <명단> -c <입사일열>` | 명단 전체의 **연차 일수**를 한꺼번에 센다 (근로기준법 제60조). 올해 몫·누적 발생·남은 일수. `--fiscal` 이면 **회계연도 기준**(회사 관행)으로도 세고 퇴직 정산용으로 입사일 기준과 나란히 보여 준다 |
 | `at sheet worktime <파일>` | 출근·퇴근 열에서 근무 시간 세기 (휴게·주 40시간·자정 넘김). `--hourly` 면 임금·연장·야간 가산까지 |
-| `at sheet budget <지출표>` | **가계부** — 구독료·할부·생활비를 한 달 기준으로 모은다. 주기(월·년·주·분기·1회)가 섞여 있어도 월 환산해 더하고, 일회성 구매는 따로 센다. `--income` 이면 남는 돈까지, 할부는 **몇 달 뒤 끝나고 얼마가 여유로워지는지** |
+| `at sheet budget <지출표>` | **고정비 계획** — 구독료·할부·생활비를 한 달 기준으로 모은다. 주기(월·년·주·분기·1회)가 섞여 있어도 월 환산해 더하고, 일회성 구매는 따로 센다. `--income` 이면 남는 돈까지, 할부는 **몇 달 뒤 끝나고 얼마가 여유로워지는지** |
+| `at sheet ledger <거래내역>` | **가계부 기록** — 카드·통장 내역을 달마다·분류마다 모은다. 지난달 대비 증감, 큰 지출, **달마다 되풀이되는 결제**(모르는 구독)까지. 카드(출금만)·통장(입금/출금 두 열)·부호(`--signed`)·구분 열 아무거나 읽는다 |
 | `at sheet dday <파일> -c <열>` | 마감일 열에서 남은 일수·상태 만들기 (일정표) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등). **지운 행을 함께 보여 주고** `--dropped` 로 따로 저장 |
@@ -1563,6 +1564,8 @@ at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx
 at sheet leave 직원.xlsx -c 입사일 --left 퇴사일 --fiscal   # 회계연도로 운영하는 회사
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --date 날짜 -o 집계.xlsx
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --hourly 10030   # 임금까지
+at sheet ledger 카드내역.csv --date 날짜 --amount 금액 --name 가맹점 --group 분류
+at sheet ledger 통장.csv --date 거래일 --name 적요 --in 입금액 --out 출금액
 at sheet budget 지출.csv --amount 금액 --period 주기 --group 분류 --income 280만
 at sheet budget 지출.csv --amount 금액 --period 주기 --end 종료 -o 가계부.xlsx
 at sheet dday 일정.xlsx -c 마감일 --sort -o 정리본.xlsx

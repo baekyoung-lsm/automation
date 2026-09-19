@@ -4453,6 +4453,221 @@ def budget_table(got: Budget) -> Table:
                   "끝나는 날", "남은 달", "비고"], rows, source="가계부")
 
 
+# ------------------------------------------------------- 가계부 (거래 내역)
+
+INCOME_WORDS = ("수입", "입금", "들어온", "급여", "월급", "+", "income", "in")
+EXPENSE_WORDS = ("지출", "출금", "나간", "결제", "-", "expense", "out")
+
+
+@dataclass
+class Entry:
+    """거래 한 건."""
+
+    row: int
+    when: object
+    name: str
+    group: str
+    amount: float            # 언제나 양수
+    income: bool = False
+
+    @property
+    def month(self) -> str:
+        return f"{self.when.year:04d}-{self.when.month:02d}"
+
+
+@dataclass
+class MonthSum:
+    key: str
+    income: float = 0.0
+    expense: float = 0.0
+    count: int = 0
+
+    @property
+    def left(self) -> float:
+        return self.income - self.expense
+
+
+@dataclass
+class Ledger:
+    entries: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)
+
+    def months(self) -> list:
+        """달마다 수입·지출. 옛 달부터."""
+        모음: dict = {}
+        for one in self.entries:
+            got = 모음.setdefault(one.month, MonthSum(one.month))
+            if one.income:
+                got.income += one.amount
+            else:
+                got.expense += one.amount
+            got.count += 1
+        return [모음[key] for key in sorted(모음)]
+
+    def of(self, month: str | None = None) -> list:
+        return [one for one in self.entries
+                if month is None or one.month == month]
+
+    def groups(self, month: str | None = None) -> list:
+        """(분류, 지출, 건수). 큰 것부터. 수입은 세지 않는다."""
+        모음: dict = {}
+        for one in self.of(month):
+            if one.income:
+                continue
+            got = 모음.setdefault(one.group or "기타", [0.0, 0])
+            got[0] += one.amount
+            got[1] += 1
+        return sorted(((name, money, count)
+                       for name, (money, count) in 모음.items()),
+                      key=lambda item: -item[1])
+
+    def biggest(self, month: str | None = None, limit: int = 5) -> list:
+        return sorted((one for one in self.of(month) if not one.income),
+                      key=lambda one: -one.amount)[:limit]
+
+
+def _is_income(cell, name: str) -> bool | None:
+    """구분 칸이 수입인가 지출인가. 모르겠으면 None."""
+    말 = to_text(cell).strip().lower()
+    if not 말:
+        return None
+    for word in INCOME_WORDS:
+        if word in 말:
+            return True
+    for word in EXPENSE_WORDS:
+        if word in 말:
+            return False
+    return None
+
+
+def ledger(table: Table, *, when: str, amount: str | None = None,
+           name: str | None = None, group: str | None = None,
+           kind: str | None = None, income: str | None = None,
+           expense: str | None = None, signed: bool = False) -> Ledger:
+    """거래 내역을 읽는다. 수입인지 지출인지를 알아내는 길이 여럿이다.
+
+    카드 내역은 출금만 있고, 통장 내역은 입금·출금이 두 열로 나뉘며, 손으로
+    적는 가계부는 «구분» 열에 수입·지출을 적는다. 셋 다 실제로 쓰이므로
+    하나로 강요하지 않고 준 대로 읽는다. 아무것도 안 주면 전부 지출로 본다
+    - 카드 내역이 그렇고, 그 편이 틀렸을 때 눈에 띈다.
+    """
+    if not (amount or (income and expense)):
+        raise SheetError("금액 열(amount)이나 입금·출금 두 열이 있어야 합니다.")
+    when_at = table.index_of(when)
+    money_at = table.index_of(amount) if amount else -1
+    name_at = table.index_of(name) if name else -1
+    group_at = table.index_of(group) if group else -1
+    kind_at = table.index_of(kind) if kind else -1
+    in_at = table.index_of(income) if income else -1
+    out_at = table.index_of(expense) if expense else -1
+
+    got = Ledger()
+    for line, row in enumerate(table.rows, 2):
+        def cell(at):
+            return row[at] if 0 <= at < len(row) else None
+
+        빈줄 = not any(to_text(c).strip() for c in row)
+        day = _as_date(cell(when_at))
+        if day is None:
+            if not 빈줄:
+                got.skipped.append((line, "날짜를 읽지 못함"))
+            continue
+
+        이름 = to_text(cell(name_at)).strip() if name_at >= 0 else ""
+        분류 = to_text(cell(group_at)).strip() if group_at >= 0 else ""
+
+        if in_at >= 0 or out_at >= 0:          # 입금·출금 두 열 (통장 내역)
+            들어온 = number_of(cell(in_at)) or 0
+            나간 = number_of(cell(out_at)) or 0
+            if not 들어온 and not 나간:
+                if not 빈줄:
+                    got.skipped.append((line, f"{이름 or '이름 없음'} - 금액이 비었음"))
+                continue
+            if 들어온:
+                got.entries.append(Entry(line, day, 이름, 분류, 들어온, True))
+            if 나간:
+                got.entries.append(Entry(line, day, 이름, 분류, 나간, False))
+            continue
+
+        값 = number_of(cell(money_at))
+        if 값 is None:
+            if not 빈줄:
+                got.skipped.append((line, f"{이름 or '이름 없음'} - 금액을 못 읽음"))
+            continue
+
+        수입 = _is_income(cell(kind_at), 이름) if kind_at >= 0 else None
+        if 수입 is None:
+            # 부호로 가르기로 했으면 양수가 수입이다. 아니면 모두 지출로 본다.
+            수입 = 값 > 0 if signed else False
+        got.entries.append(Entry(line, day, 이름, 분류, abs(값), 수입))
+    return got
+
+
+@dataclass
+class Repeat:
+    """달마다 되풀이되는 결제. 고정비 표로 옮길 후보다."""
+
+    name: str
+    amount: float            # 금액이 일정하면 그 값, 아니면 평균
+    months: int              # 몇 달 연속인가
+    last: object = None
+    varies: bool = False     # 금액이 들쭉날쭉한가
+    low: float = 0.0
+    high: float = 0.0
+
+
+def repeats(got: Ledger, *, least: int = 3) -> list:
+    """달마다 같은 이름으로 나간 지출을 찾는다. 모르는 구독을 여기서 본다.
+
+    이름이 같고 달이 이어지는 것만 본다. 금액이 조금씩 다른 것도 내놓되
+    «들쭉날쭉» 으로 갈라 둔다 - 통신비처럼 매달 조금씩 다른 고정비가 있고,
+    그것까지 빼면 정작 찾으려던 것을 놓친다.
+    """
+    모음: dict = {}
+    for one in got.entries:
+        if one.income or not one.name:
+            continue
+        모음.setdefault(one.name, []).append(one)
+
+    out = []
+    for name, 건들 in 모음.items():
+        달 = sorted({one.month for one in 건들})
+        if len(달) < least:
+            continue
+        # 이어진 달만 센다. 1월·2월·6월은 «3달 연속» 이 아니다.
+        가장길게, 이어서 = 1, 1
+        for 앞, 뒤 in zip(달, 달[1:]):
+            앞해, 앞달 = (int(x) for x in 앞.split("-"))
+            뒤해, 뒤달 = (int(x) for x in 뒤.split("-"))
+            이어짐 = (뒤해 - 앞해) * 12 + 뒤달 - 앞달 == 1
+            이어서 = 이어서 + 1 if 이어짐 else 1
+            가장길게 = max(가장길게, 이어서)
+        if 가장길게 < least:
+            continue
+        값들 = Counter(round(one.amount) for one in 건들)
+        흔한, 몇번 = 값들.most_common(1)[0]
+        흔들림 = 몇번 < len(건들)
+        금액 = [one.amount for one in 건들]
+        # 들쭉날쭉하면 «가장 흔한 값» 은 거짓말이 된다 - 장보기가 매달 8만
+        # 8천원이라고 찍힌다. 그때는 평균과 폭을 함께 낸다.
+        out.append(Repeat(name, sum(금액) / len(금액) if 흔들림 else 흔한,
+                          가장길게, max(one.when for one in 건들),
+                          varies=흔들림, low=min(금액), high=max(금액)))
+    return sorted(out, key=lambda r: (-r.amount, r.name))
+
+
+def ledger_table(got: Ledger, month: str | None = None) -> Table:
+    """거래를 표로. 큰 지출부터 - 줄이려면 거기부터 봐야 한다."""
+    rows = [[one.month, to_text(one.when), one.name, one.group,
+             "수입" if one.income else "지출",
+             int(one.amount) if float(one.amount).is_integer()
+             else round(one.amount, 2)]
+            for one in sorted(got.of(month),
+                              key=lambda e: (e.income, -e.amount))]
+    return Table(["달", "날짜", "항목", "분류", "구분", "금액"], rows,
+                 source="가계부")
+
+
 # --------------------------------------------------------- 워드 표 꺼내기
 
 def tables_from_docx(path: Path) -> list[Table]:
