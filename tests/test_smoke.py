@@ -959,6 +959,25 @@ class SmokeTest(unittest.TestCase):
         text = self.run_cli("sheet", "fill", self.path("명단.csv"), "-t", template)
         self.assertIn("홍길동은", text)
 
+    def test_sheet_budget(self):
+        지출 = self.path("지출.csv")
+        Path(지출).write_text(
+            "항목,분류,금액,주기,시작,종료\n"
+            "월세,주거,450000,월,,\n"
+            "자동차보험,보험,780000,년,,\n"
+            "냉장고 할부,할부,83000,월,2026-01-10,2026-12-10\n"
+            "노트북,구매,1500000,1회,2026-09-05,\n", encoding="utf-8")
+        결과 = self.path("가계부.xlsx")
+        말 = self.run_cli("sheet", "budget", 지출, "--amount", "금액",
+                          "--period", "주기", "--group", "분류",
+                          "--start", "시작", "--end", "종료",
+                          "--income", "300만", "--on", "2026-09-19", "-o", 결과)
+        self.assertIn("되풀이되는 것", 말)
+        self.assertIn("이번 달 한 번  1,500,000원", 말)
+        self.assertIn("2달 뒤", 말)
+        self.assertTrue(Path(결과).is_file())
+        self.assertIn("월 환산", self.run_cli("sheet", "peek", 결과))
+
     def test_sheet_leave(self):
         직원 = self.path("직원.csv")
         Path(직원).write_text(
@@ -1447,6 +1466,15 @@ class SmokeTest(unittest.TestCase):
         self.assertIn("연차", self.run_cli("life", "annual", "2020-03-02",
                                           "--on", "2026-09-07", "--table", "2"))
         self.assertIn("부가세", self.run_cli("life", "tax", "1100000"))
+        급여 = self.run_cli("life", "wage", "--type", "계약직",
+                           "--monthly", "280만", "--overtime", "20",
+                           "--meal", "20만")
+        self.assertIn("실수령액", 급여)
+        self.assertIn("정규직·계약직은 셈법이 같습니다", 급여)
+        self.assertIn("위장도급", self.run_cli("life", "wage", "--type", "도급",
+                                             "--amount", "360만"))
+        self.assertIn("소액부징수", self.run_cli("life", "wage", "--type", "일용직",
+                                              "--daily", "18만", "--days", "15"))
         보험 = self.run_cli("life", "insure", "300만")
         self.assertIn("국민연금", 보험)
         self.assertIn("간이세액표", 보험)      # 세금은 세지 않는다고 말해야 한다

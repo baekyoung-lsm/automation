@@ -54,6 +54,19 @@ RECIPES: list[Recipe] = [
            ["at sheet join 명단.xlsx 연락처.xlsx --on 사번 -o 붙임.xlsx"],
            "키가 겹치거나 없는 행이 몇 개인지 함께 알려 준다.",
            "브이룩업 vlookup 조인"),
+    Recipe("계산", "생산직 한 달 실수령액 - 월급·시급·일급·도급",
+           ["at life wage --type 계약직 --monthly 280만 --overtime 20 --meal 20만",
+            "at life wage --type 일용직 --daily 18만 --days 15",
+            "at life wage --type 도급 --amount 360만"],
+           "정규직과 계약직은 셈법이 같다 - 기간의 정함만 다르다. 근로소득세는 "
+           "간이세액표를 봐야 해서 안 센다. 명세서의 세금을 --tax 로 주면 뺀다.",
+           "월급 급여 실수령 명세서 주휴수당 4대보험 3.3 프리랜서 알바"),
+    Recipe("계산", "구독료·할부·생활비를 모아 한 달에 얼마 나가는지 보기",
+           ["at sheet budget 지출.csv --amount 금액 --period 주기 "
+            "--group 분류 --end 종료 --income 280만"],
+           "달·해·주·분기가 섞여 있어도 월로 환산해 더한다. 한 번 나가는 "
+           "구매는 따로 센다. 할부는 몇 달 뒤 끝나고 얼마가 여유로워지는지 알려 준다.",
+           "가계부 고정비 구독 할부 생활비 지출 예산 남는돈"),
     Recipe("계산", "직원 명단의 연차 일수를 한꺼번에 세기",
            ["at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx"],
            "근로기준법 제60조대로 센다. 회계연도로 운영하면 --fiscal 을 붙인다 "

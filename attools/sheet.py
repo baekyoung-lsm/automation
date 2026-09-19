@@ -4288,6 +4288,171 @@ def add_leave(table: Table, column: str, *, on: date | None = None,
     return Table(headers, rows, source=table.source, sheet=table.sheet), notes
 
 
+# ----------------------------------------------------- 고정비 가계부
+
+# 한 달에 몇 번 나가는가. 주는 4.345주(365/12/7)로 환산한다.
+PERIODS = {
+    "월": 1.0, "매월": 1.0, "달": 1.0, "monthly": 1.0, "month": 1.0,
+    "년": 1 / 12, "연": 1 / 12, "매년": 1 / 12, "해": 1 / 12,
+    "yearly": 1 / 12, "year": 1 / 12, "annual": 1 / 12,
+    "주": 365 / 12 / 7, "매주": 365 / 12 / 7, "weekly": 365 / 12 / 7,
+    "일": 365 / 12, "매일": 365 / 12, "daily": 365 / 12,
+    "분기": 1 / 3, "반기": 1 / 6, "격월": 0.5, "2년": 1 / 24,
+}
+ONCE = {"1회", "한번", "일시", "일회", "한 번", "once", "single"}
+
+
+@dataclass
+class Spend:
+    """나가는 돈 한 줄."""
+
+    row: int
+    name: str
+    group: str
+    amount: float
+    period: str
+    monthly: float = 0.0        # 한 달로 환산한 값. 일회성이면 0
+    once: float = 0.0           # 기준 달에 한 번 나가는 값
+    ends: object = None         # 끝나는 날
+    left: int | None = None     # 몇 달 남았나
+    note: str = ""
+
+
+@dataclass
+class Budget:
+    rows: list = field(default_factory=list)
+    skipped: list = field(default_factory=list)   # (줄, 까닭)
+    income: float = 0.0
+    on: object = None
+
+    @property
+    def monthly(self) -> float:
+        return sum(one.monthly for one in self.rows)
+
+    @property
+    def once(self) -> float:
+        return sum(one.once for one in self.rows)
+
+    @property
+    def spending(self) -> float:
+        """이번 달에 실제로 나갈 돈."""
+        return self.monthly + self.once
+
+    @property
+    def left(self) -> float:
+        return self.income - self.spending
+
+    @property
+    def yearly(self) -> float:
+        """되풀이되는 것만 1년치로. 일회성은 다시 나가지 않으므로 뺀다."""
+        return self.monthly * 12
+
+    def by_group(self) -> list:
+        """(분류, 월 환산, 건수). 큰 것부터."""
+        모음: dict = {}
+        for one in self.rows:
+            got = 모음.setdefault(one.group or "기타", [0.0, 0])
+            got[0] += one.monthly + one.once
+            got[1] += 1
+        return sorted(((name, money, count)
+                       for name, (money, count) in 모음.items()),
+                      key=lambda item: -item[1])
+
+    def ending_soon(self, months: int = 12) -> list:
+        """곧 끝나는 것. 할부가 끝나면 그만큼 숨통이 트인다."""
+        return sorted((one for one in self.rows
+                       if one.left is not None and 0 <= one.left <= months),
+                      key=lambda one: one.left)
+
+
+def _months_between(start: date, end: date) -> int:
+    got = (end.year - start.year) * 12 + end.month - start.month
+    return got - 1 if end.day < start.day else got
+
+
+def budget(table: Table, *, amount: str, name: str | None = None,
+           period: str | None = None, group: str | None = None,
+           start: str | None = None, end: str | None = None,
+           on: date | None = None, income: float = 0.0) -> Budget:
+    """구독료·할부·생활비를 한 달 기준으로 모은다.
+
+    주기가 섞인 것이 문제다. 넷플릭스는 달마다, 자동차 보험은 해마다, 노트북은
+    한 번 나간다. 이것을 눈으로 더하면 연 단위 항목을 빼먹는다. 여기서는
+    되풀이되는 것을 월로 환산하고, 한 번 나가는 것은 따로 센다 - 섞어 더하면
+    «매달 노트북값이 나간다» 는 틀린 그림이 된다.
+
+    시작·끝 날짜가 있으면 기준 달에 살아 있는 것만 센다. 할부가 언제 끝나고
+    그때 얼마가 남는지는 사람이 가장 알고 싶어 하는 값이다.
+    """
+    on = on or date.today()
+    money_at = table.index_of(amount)
+    name_at = table.index_of(name) if name else 0
+    period_at = table.index_of(period) if period else -1
+    group_at = table.index_of(group) if group else -1
+    start_at = table.index_of(start) if start else -1
+    end_at = table.index_of(end) if end else -1
+
+    got = Budget(income=income, on=on)
+    for line, row in enumerate(table.rows, 2):
+        def cell(at):
+            return row[at] if 0 <= at < len(row) else None
+
+        값 = number_of(cell(money_at))
+        이름 = to_text(cell(name_at)).strip()
+        if 값 is None:
+            if 이름 or any(to_text(c).strip() for c in row):
+                got.skipped.append((line, f"{이름 or '이름 없음'} - 금액을 못 읽음"))
+            continue
+
+        주기 = (to_text(cell(period_at)).strip() or "월") if period_at >= 0 else "월"
+        한번 = 주기 in ONCE
+        배수 = PERIODS.get(주기)
+        if 배수 is None and not 한번:
+            got.skipped.append((line, f"{이름} - 모르는 주기 «{주기}»"))
+            continue
+
+        begins = _as_date(cell(start_at)) if start_at >= 0 else None
+        ends = _as_date(cell(end_at)) if end_at >= 0 else None
+        note = ""
+        if begins and (begins.year, begins.month) > (on.year, on.month):
+            note = f"{begins} 부터 - 아직 안 나감"
+        elif ends and (ends.year, ends.month) < (on.year, on.month):
+            note = f"{ends} 에 끝남"
+
+        one = Spend(line, 이름, to_text(cell(group_at)).strip() if group_at >= 0
+                    else "", 값, 주기, ends=ends, note=note)
+        if ends and not note:
+            one.left = max(_months_between(on, ends), 0)
+        if not note:
+            if 한번:
+                # 시작일이 없는 일회성은 이번 달에 나가는 것으로 본다
+                if begins is None or (begins.year, begins.month) == (on.year, on.month):
+                    one.once = 값
+                else:
+                    one.note = f"{begins} 에 한 번 나감"
+            else:
+                one.monthly = 값 * 배수
+        got.rows.append(one)
+    return got
+
+
+def budget_table(got: Budget) -> Table:
+    """가계부 결과를 표로. 월 환산이 큰 것부터."""
+    def 돈(value):
+        return int(value) if float(value).is_integer() else round(value, 2)
+
+    rows = [[one.name, one.group, one.period, 돈(one.amount),
+             round(one.monthly) if one.monthly else "",
+             돈(one.once) if one.once else "",
+             to_text(one.ends) if one.ends else "",
+             one.left if one.left is not None else "",
+             one.note]
+            for one in sorted(got.rows,
+                              key=lambda s: -(s.monthly + s.once))]
+    return Table(["항목", "분류", "주기", "금액", "월 환산", "이번 한 번",
+                  "끝나는 날", "남은 달", "비고"], rows, source="가계부")
+
+
 # --------------------------------------------------------- 워드 표 꺼내기
 
 def tables_from_docx(path: Path) -> list[Table]:

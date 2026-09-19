@@ -1461,6 +1461,7 @@ CSV 는 인코딩(utf-8 / cp949 / euc-kr)을 자동으로 알아내고, 저장�
 | `at sheet age <파일> -c <열>` | 생년월일·주민번호 열에서 만 나이·연령대·성별 열 만들기 |
 | `at sheet leave <명단> -c <입사일열>` | 명단 전체의 **연차 일수**를 한꺼번에 센다 (근로기준법 제60조). 올해 몫·누적 발생·남은 일수. `--fiscal` 이면 **회계연도 기준**(회사 관행)으로도 세고 퇴직 정산용으로 입사일 기준과 나란히 보여 준다 |
 | `at sheet worktime <파일>` | 출근·퇴근 열에서 근무 시간 세기 (휴게·주 40시간·자정 넘김). `--hourly` 면 임금·연장·야간 가산까지 |
+| `at sheet budget <지출표>` | **가계부** — 구독료·할부·생활비를 한 달 기준으로 모은다. 주기(월·년·주·분기·1회)가 섞여 있어도 월 환산해 더하고, 일회성 구매는 따로 센다. `--income` 이면 남는 돈까지, 할부는 **몇 달 뒤 끝나고 얼마가 여유로워지는지** |
 | `at sheet dday <파일> -c <열>` | 마감일 열에서 남은 일수·상태 만들기 (일정표) |
 | `at sheet similar <파일> -c <열>` | 같은 곳으로 보이는 값 찾기 («(주)가나» 와 «주식회사 가나») |
 | `at sheet dedupe <파일> -k <열>` | 키가 같은 행 중 하나만 남긴다 (최신 것만 등). **지운 행을 함께 보여 주고** `--dropped` 로 따로 저장 |
@@ -1562,6 +1563,8 @@ at sheet leave 직원.xlsx -c 입사일 --used 사용일수 -o 연차대장.xlsx
 at sheet leave 직원.xlsx -c 입사일 --left 퇴사일 --fiscal   # 회계연도로 운영하는 회사
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --date 날짜 -o 집계.xlsx
 at sheet worktime 근태.xlsx --start 출근 --end 퇴근 --hourly 10030   # 임금까지
+at sheet budget 지출.csv --amount 금액 --period 주기 --group 분류 --income 280만
+at sheet budget 지출.csv --amount 금액 --period 주기 --end 종료 -o 가계부.xlsx
 at sheet dday 일정.xlsx -c 마감일 --sort -o 정리본.xlsx
 at sheet similar 거래처.xlsx -c 상호 -o 합칠후보.csv
 at sheet similar 명부.csv -c 이름 --threshold 0.9
@@ -1829,6 +1832,7 @@ ChromeOS 는 `Shift+Alt+T` 다). 표 아래에도 그 기준을 적어 둔다.
 | `at life tax <금액>` | 부가세 더하기·빼기와 원천징수 실수령액 |
 | `at life insure <월급>` | 4대보험 공제액 — 국민연금·건강보험·장기요양·고용보험 (근로자·사업주 각각). `--annual` 연봉으로, `--tax` 로 실수령액까지 |
 | `at life hourly <월통상임금>` | 통상시급과 연장·야간·휴일 가산 수당 (근로기준법 제56조) |
+| `at life wage --type <형태>` | **한 달 급여 명세** — 월급·시급·일급·도급을 받는 것/빼는 것으로 갈라 실수령액까지. 4대보험·주휴수당·연장 가산·비과세 식대를 반영하고, 일용직은 일용근로소득세, 도급은 3.3% 원천징수로 센다. 정규직·계약직은 셈법이 같다 |
 | `at life weekly <시급> --hours <주 시간>` | 주휴수당 - 주 15시간 이상일 때, 계산식을 함께 보여 준다 |
 | `at life save --monthly\|--deposit` | 적금·예금 만기 수령액과 세후 수익률 |
 
@@ -1858,6 +1862,10 @@ at life time 09:00 +3h20m               # 12:20
 at life won 1250000                    # 백이십오만 / 일금 일백이십오만원정
 at life tax 1100000                    # 공급가로 볼 때와 합계로 볼 때 둘 다
 at life hourly 300만 --overtime 10 --night 4    # 이번 달 가산 수당
+at life wage --type 계약직 --monthly 280만 --overtime 20 --night 8 --meal 20만
+at life wage --type 시급 --hourly 10320 --weekly 40      # 주휴수당 포함
+at life wage --type 일용직 --daily 18만 --days 15
+at life wage --type 도급 --amount 360만                  # 3.3% 떼고 얼마
 at life weekly 10030 --hours 20                 # 주 20시간 알바의 주휴수당
 at life tax 300만 --withhold-rate 8    # 기타소득 8.8%
 at life insure 300만                    # 월급에서 4대보험이 얼마나

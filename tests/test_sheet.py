@@ -4087,3 +4087,107 @@ class AddLeaveTest(unittest.TestCase):
         with self.assertRaises(sheet.SheetError):
             sheet.add_leave(self.명단([["홍길동", "2020-07-01"]]), "없는열",
                             on=self.today)
+
+
+class BudgetTest(unittest.TestCase):
+    """고정비 가계부. 주기가 섞인 것을 한 달 기준으로 모은다."""
+
+    def setUp(self):
+        from datetime import date
+
+        self.date = date
+        self.on = date(2026, 9, 19)
+
+    def 표(self, rows, headers=("항목", "분류", "금액", "주기", "시작", "종료")):
+        return sheet.Table(list(headers), rows)
+
+    def 셈(self, rows, **kw):
+        kw.setdefault("amount", "금액")
+        kw.setdefault("name", "항목")
+        kw.setdefault("period", "주기")
+        kw.setdefault("group", "분류")
+        kw.setdefault("start", "시작")
+        kw.setdefault("end", "종료")
+        kw.setdefault("on", self.on)
+        return sheet.budget(self.표(rows), **kw)
+
+    def test_yearly_item_is_spread_over_twelve_months(self):
+        got = self.셈([["자동차보험", "보험", 780000, "년", "", ""]])
+        self.assertEqual(round(got.monthly), 65000)
+
+    def test_quarterly_and_weekly_convert_too(self):
+        got = self.셈([["헬스장", "생활", 250000, "분기", "", ""],
+                       ["장보기", "생활", 50000, "주", "", ""]])
+        self.assertEqual(round(got.monthly), 83333 + round(50000 * 365 / 12 / 7))
+
+    def test_one_time_buy_is_kept_apart_from_the_monthly_figure(self):
+        """섞어 더하면 «매달 노트북값이 나간다» 는 틀린 그림이 된다."""
+        got = self.셈([["월세", "주거", 450000, "월", "", ""],
+                       ["노트북", "구매", 1500000, "1회", "2026-09-05", ""]])
+        self.assertEqual(got.monthly, 450000)
+        self.assertEqual(got.once, 1500000)
+        self.assertEqual(got.spending, 1950000)
+        self.assertEqual(got.yearly, 450000 * 12)    # 일회성은 해마다 안 나간다
+
+    def test_one_time_buy_in_another_month_is_not_counted(self):
+        got = self.셈([["노트북", "구매", 1500000, "1회", "2026-03-05", ""]])
+        self.assertEqual(got.once, 0)
+        self.assertIn("한 번 나감", got.rows[0].note)
+
+    def test_item_that_has_not_started_is_skipped(self):
+        got = self.셈([["새 구독", "구독", 10000, "월", "2026-12-01", ""]])
+        self.assertEqual(got.monthly, 0)
+        self.assertIn("아직 안 나감", got.rows[0].note)
+
+    def test_finished_item_is_skipped(self):
+        got = self.셈([["옛 할부", "할부", 50000, "월", "", "2026-03-10"]])
+        self.assertEqual(got.monthly, 0)
+        self.assertIn("끝남", got.rows[0].note)
+
+    def test_months_left_and_the_room_it_frees(self):
+        got = self.셈([["냉장고 할부", "할부", 83000, "월", "", "2026-12-10"]])
+        곧 = got.ending_soon()
+        self.assertEqual([(one.name, one.left) for one in 곧],
+                         [("냉장고 할부", 2)])
+
+    def test_income_gives_what_is_left(self):
+        got = self.셈([["월세", "주거", 450000, "월", "", ""]],
+                      income=3000000)
+        self.assertEqual(got.left, 2550000)
+
+    def test_groups_are_summed_biggest_first(self):
+        got = self.셈([["넷플릭스", "구독", 17000, "월", "", ""],
+                       ["쿠팡", "구독", 7890, "월", "", ""],
+                       ["월세", "주거", 450000, "월", "", ""]])
+        self.assertEqual([name for name, _m, _c in got.by_group()],
+                         ["주거", "구독"])
+        self.assertEqual(got.by_group()[1], ("구독", 24890, 2))
+
+    def test_unknown_period_is_skipped_with_a_reason(self):
+        got = self.셈([["이상한 것", "기타", 10000, "가끔", "", ""]])
+        self.assertEqual(got.rows, [])
+        self.assertIn("모르는 주기", got.skipped[0][1])
+
+    def test_unreadable_amount_is_skipped_with_a_reason(self):
+        got = self.셈([["월세", "주거", "미정", "월", "", ""]])
+        self.assertIn("금액을 못 읽음", got.skipped[0][1])
+
+    def test_blank_row_is_not_reported(self):
+        got = self.셈([["", "", "", "", "", ""]])
+        self.assertEqual((got.rows, got.skipped), ([], []))
+
+    def test_period_column_is_optional(self):
+        table = sheet.Table(["항목", "금액"], [["월세", 450000]])
+        got = sheet.budget(table, amount="금액", on=self.on)
+        self.assertEqual(got.monthly, 450000)
+
+    def test_budget_table_sorts_by_size(self):
+        got = self.셈([["쿠팡", "구독", 7890, "월", "", ""],
+                       ["월세", "주거", 450000, "월", "", ""]])
+        table = sheet.budget_table(got)
+        self.assertEqual([row[0] for row in table.rows], ["월세", "쿠팡"])
+        self.assertEqual(table.rows[0][3], 450000)
+
+    def test_missing_column_is_an_error(self):
+        with self.assertRaises(sheet.SheetError):
+            self.셈([["월세", "주거", 450000, "월", "", ""]], amount="없는열")

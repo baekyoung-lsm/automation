@@ -663,3 +663,100 @@ class LeaveLedgerTest(unittest.TestCase):
     def test_date_before_joining_is_an_error(self):
         with self.assertRaises(ValueError):
             life.annual_grants(self.date(2026, 3, 1), self.date(2026, 2, 28))
+
+
+class PayslipTest(unittest.TestCase):
+    """급여 명세. 임금 형태마다 셈법이 다르고 고용 형태는 셈을 바꾸지 않는다."""
+
+    def 준다(self, kind, **kw):
+        return life.payslip(kind, **kw)
+
+    def test_job_titles_map_to_wage_kinds(self):
+        self.assertEqual(life.wage_kind("계약직"), "월급")
+        self.assertEqual(life.wage_kind("일용직"), "일급")
+        self.assertEqual(life.wage_kind("프리랜서"), "도급")
+        self.assertEqual(life.wage_kind("월급"), "월급")
+
+    def test_regular_and_contract_are_counted_the_same(self):
+        """기간의 정함만 다르고 근로기준법은 똑같이 적용된다."""
+        정규 = self.준다("정규직", monthly=2_800_000)
+        계약 = self.준다("계약직", monthly=2_800_000)
+        self.assertEqual((정규.gross, 정규.net), (계약.gross, 계약.net))
+
+    def test_monthly_pay_adds_overtime_at_one_and_a_half(self):
+        slip = self.준다("월급", monthly=2_090_000, overtime=10)
+        self.assertEqual(slip.hourly, 10_000)
+        연장 = [one for one in slip.earnings if "연장" in one.name][0]
+        self.assertEqual(연장.amount, 150_000)
+
+    def test_holiday_over_eight_hours_doubles(self):
+        slip = self.준다("월급", monthly=2_090_000, holiday=10)
+        금액 = {one.name.split()[0] + one.name.split()[1]: one.amount
+                for one in slip.earnings if "휴일" in one.name}
+        self.assertEqual(sorted(금액.values()), [40_000, 120_000])
+
+    def test_hourly_pay_includes_weekly_holiday_pay(self):
+        slip = self.준다("시급", hourly=10_000, weekly=40)
+        이름 = [one.name for one in slip.earnings]
+        self.assertIn("주휴수당", 이름)
+
+    def test_short_week_has_no_weekly_holiday_pay(self):
+        slip = self.준다("시급", hourly=10_000, weekly=10)
+        self.assertNotIn("주휴수당", [one.name for one in slip.earnings])
+        self.assertTrue(any("주휴수당이 없습니다" in n for n in slip.notes))
+
+    def test_meal_allowance_is_outside_the_insurance_base(self):
+        없음 = self.준다("월급", monthly=3_000_000)
+        있음 = self.준다("월급", monthly=2_800_000, meal=200_000)
+        self.assertEqual(없음.gross, 있음.gross)
+        self.assertLess(있음.taken, 없음.taken)      # 비과세만큼 보험료가 준다
+
+    def test_meal_allowance_is_capped(self):
+        slip = self.준다("월급", monthly=2_800_000, meal=500_000)
+        self.assertEqual(slip.taxfree, life.MEAL_CAP)
+
+    def test_daily_wage_tax_is_two_point_seven_percent_over_the_deduction(self):
+        slip = self.준다("일급", daily=250_000, days=10)
+        소득세 = [one for one in slip.deductions if one.name == "소득세"][0]
+        self.assertEqual(소득세.amount, int((250_000 - 150_000) * 0.027) * 10)
+
+    def test_small_daily_tax_is_waived(self):
+        """일급 187,000원이면 하루치가 999원이라 떼지 않는다 (소액부징수)."""
+        slip = self.준다("일급", daily=187_000, days=20)
+        self.assertEqual(slip.deductions, [])
+        self.assertTrue(any("소액부징수" in n for n in slip.notes))
+
+    def test_daily_wage_skips_insurance_unless_asked(self):
+        그냥 = self.준다("일급", daily=200_000, days=20)
+        넣음 = self.준다("일급", daily=200_000, days=20, insure=True)
+        self.assertTrue(any("4대보험" in n for n in 그냥.notes))
+        self.assertGreater(넣음.taken, 그냥.taken)
+
+    def test_contract_work_withholds_three_point_three(self):
+        slip = self.준다("도급", amount=3_600_000)
+        self.assertEqual(slip.taken, int(3_600_000 * 0.033))
+        self.assertEqual(slip.net, 3_600_000 - slip.taken)
+
+    def test_contract_work_warns_about_disguised_employment(self):
+        slip = self.준다("도급직", amount=1_000_000)
+        self.assertTrue(any("위장도급" in w for w in slip.warnings))
+        self.assertEqual(slip.deductions[0].name, "소득세")
+
+    def test_known_tax_is_subtracted(self):
+        slip = self.준다("월급", monthly=2_800_000, tax=120_000)
+        self.assertIn("소득세+지방소득세", [one.name for one in slip.deductions])
+        self.assertFalse(any("간이세액표" in n for n in slip.notes))
+
+    def test_below_minimum_wage_is_warned(self):
+        slip = self.준다("시급", hourly=9_000, weekly=40)
+        self.assertTrue(any("최저임금" in w for w in slip.warnings))
+
+    def test_unknown_kind_is_an_error(self):
+        with self.assertRaises(ValueError):
+            self.준다("아무거나", monthly=1_000_000)
+
+    def test_missing_numbers_are_errors(self):
+        for kind, kw in (("월급", {}), ("시급", {}), ("일급", {"daily": 100_000}),
+                         ("도급", {})):
+            with self.assertRaises(ValueError):
+                self.준다(kind, **kw)

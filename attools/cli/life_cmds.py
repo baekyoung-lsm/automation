@@ -164,6 +164,68 @@ def cmd_life_weekly(a) -> int:
     return 0
 
 
+def cmd_life_wage(a) -> int:
+    """한 달 급여 명세. 임금 형태마다 셈법이 다르다."""
+    값 = {}
+    for name in ("monthly", "hourly", "daily", "amount", "meal", "tax"):
+        raw = getattr(a, name, None)
+        if raw:
+            try:
+                값[name] = life.parse_amount(raw)
+            except ValueError as e:
+                _p(f"«--{name}» 을 읽지 못했습니다: {e}")
+                return 1
+    try:
+        slip = life.payslip(
+            a.type, days=a.days, hours=a.hours, weekly=a.weekly,
+            overtime=a.overtime, night=a.night, holiday=a.holiday,
+            meal_cap=a.meal_cap, insure=True if a.insure else None, **값)
+    except ValueError as e:
+        _p(str(e))
+        return 1
+
+    부름 = a.type.strip()
+    말 = f"{부름} ({slip.kind}제)" if 부름 != slip.kind else f"{slip.kind}제"
+    _p(f"{말}  ·  한 달 치")
+    if slip.kind == "월급" and 부름 in ("정규직", "계약직", "기간제", "무기계약직"):
+        _p("  정규직·계약직은 셈법이 같습니다. 기간의 정함만 다르고 "
+           "근로기준법은 똑같이 적용됩니다.")
+    _p("")
+
+    _grid(["받는 것", "금액", "어떻게"],
+          [[one.name, f"{one.amount:,}", one.note] for one in slip.earnings],
+          limit=34)
+    _p(f"  세전 합계  {slip.gross:,}원")
+    if slip.taxfree:
+        _p(f"  그중 비과세  {slip.taxfree:,}원 (4대보험·소득세를 안 매긴다)")
+
+    if slip.deductions:
+        _p("")
+        _grid(["빼는 것", "금액", "어떻게"],
+              [[one.name, f"{one.amount:,}", one.note]
+               for one in slip.deductions], limit=34)
+        _p(f"  공제 합계  {slip.taken:,}원")
+
+    _p(f"\n실수령액  {slip.net:,}원  ({life.korean_amount(slip.net)})")
+    if slip.hourly:
+        _p(f"  통상시급 {slip.hourly:,}원  ·  "
+           f"{life.MIN_WAGE_YEAR}년 최저임금 {life.MIN_WAGE:,}원")
+
+    if slip.notes:
+        _p("")
+        for one in slip.notes:
+            _p(f"  - {one}")
+    if not a.tax and slip.kind in ("월급", "시급"):
+        _p("    급여명세서의 소득세+지방소득세를 --tax 로 주면 그것까지 뺍니다.")
+    if slip.kind == "일급" and not a.insure:
+        _p("    4대보험에 가입돼 있으면 --insure 를 붙이세요.")
+    for one in slip.warnings:
+        _p(f"\n주의: {one}")
+    _p("\n회사 규정과 급여명세서가 우선입니다. 여기 수는 법정 최소치를 "
+       "기준으로 한 어림입니다.")
+    return 0
+
+
 def cmd_life_hourly(a) -> int:
     """월 통상임금에서 통상시급과 연장·야간·휴일 가산 수당을 낸다."""
     try:
@@ -710,6 +772,36 @@ def add_commands(sub) -> None:
     wk.epilog = ("예: at life weekly 10030 --hours 20\n"
                  "    at life weekly 12000            # 주 40시간")
     wk.set_defaults(func=cmd_life_weekly)
+
+    wg = lp.add_parser("wage",
+                       help="한 달 급여 명세 - 월급·시급·일급·도급 (생산직 실수령액)")
+    wg.add_argument("--type", default="월급", metavar="형태",
+                    help="월급·시급·일급·도급. 정규직·계약직·일용직·도급직처럼 "
+                         "부르는 이름으로도 됩니다 (at life wage --help 아래 참고)")
+    wg.add_argument("--monthly", metavar="금액", help="월 통상임금 (월급제)")
+    wg.add_argument("--hourly", metavar="금액", help="시급 (시급제)")
+    wg.add_argument("--daily", metavar="금액", help="일급 (일급제)")
+    wg.add_argument("--days", type=float, default=0, metavar="일",
+                    help="일한 날 수 (일급제)")
+    wg.add_argument("--amount", metavar="금액", help="도급 지급액 (도급)")
+    wg.add_argument("--hours", type=float, default=life.MONTHLY_HOURS,
+                    metavar="시간", help="한 달 소정근로시간 (기본 209)")
+    wg.add_argument("--weekly", type=float, default=40, metavar="시간",
+                    help="1주 소정근로시간 (시급제, 기본 40)")
+    wg.add_argument("--overtime", type=float, default=0, metavar="시간",
+                    help="연장근로 시간")
+    wg.add_argument("--night", type=float, default=0, metavar="시간",
+                    help="야간근로(22~06시) 시간")
+    wg.add_argument("--holiday", type=float, default=0, metavar="시간",
+                    help="휴일근로 시간")
+    wg.add_argument("--meal", metavar="금액", help="식대 (비과세로 본다)")
+    wg.add_argument("--meal-cap", type=float, default=life.MEAL_CAP,
+                    metavar="금액", help="식대 비과세 한도 (기본 20만)")
+    wg.add_argument("--tax", metavar="금액",
+                    help="급여명세서의 소득세+지방소득세. 주면 실수령액까지 뺀다")
+    wg.add_argument("--insure", action="store_true",
+                    help="일급제에서도 4대보험을 뗀다 (가입 중일 때)")
+    wg.set_defaults(func=cmd_life_wage)
 
     hr = lp.add_parser("hourly",
                        help="통상시급과 연장·야간·휴일 가산 수당 (근로기준법 제56조)")

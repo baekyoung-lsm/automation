@@ -1264,3 +1264,218 @@ def extra_pay(pay: HourlyPay, *, overtime: float = 0.0, night: float = 0.0,
         out.holiday = int(pay.holiday * 8
                           + pay.holiday_over * (out.holiday_hours - 8))
     return out
+
+
+# ----------------------------------------------------------- 급여 명세 셈
+
+MIN_WAGE_YEAR = 2026
+MIN_WAGE = 10_320                 # 2026년 최저임금 시간급
+MEAL_CAP = 200_000                # 식대 비과세 한도 (월). --meal-cap 으로 바꾼다
+
+DAILY_DEDUCT = 150_000            # 일용근로 1일 근로소득공제 (소득세법)
+DAILY_TAX_RATE = 0.027            # (일급 - 15만) x 6% x (1 - 55%)
+LOCAL_TAX_RATE = 0.1              # 지방소득세 = 소득세의 10%
+SMALL_TAX = 1_000                 # 소액부징수 - 이보다 적으면 떼지 않는다
+FREELANCE_RATE = 3.0              # 사업소득 원천징수 소득세율
+
+# 임금 형태. 고용 형태(정규직·계약직)는 셈법을 바꾸지 않는다 - 기간의 정함만
+# 다를 뿐 근로기준법은 똑같이 적용된다. 그래서 부르는 이름을 형태로 옮긴다.
+WAGE_KINDS = ("월급", "시급", "일급", "도급")
+WAGE_ALIASES = {
+    "정규직": "월급", "계약직": "월급", "기간제": "월급", "파견직": "월급",
+    "무기계약직": "월급", "월급제": "월급",
+    "시급제": "시급", "아르바이트": "시급", "알바": "시급", "단시간": "시급",
+    "일용직": "일급", "일당": "일급", "일급제": "일급",
+    "도급직": "도급", "사업소득": "도급", "프리랜서": "도급", "3.3": "도급",
+}
+
+
+def wage_kind(name: str) -> str:
+    """부르는 이름을 임금 형태로. 모르는 이름이면 그대로 두고 밖에서 걸린다."""
+    key = (name or "").strip()
+    return WAGE_ALIASES.get(key, key)
+
+
+@dataclass
+class PayLine:
+    name: str
+    amount: int
+    note: str = ""
+
+
+@dataclass
+class Payslip:
+    kind: str
+    earnings: list = field(default_factory=list)
+    deductions: list = field(default_factory=list)
+    hourly: int = 0                 # 통상시급 (셀 수 있을 때만)
+    taxfree: int = 0                # 비과세 (식대)
+    notes: list = field(default_factory=list)
+    warnings: list = field(default_factory=list)
+
+    @property
+    def gross(self) -> int:
+        return sum(one.amount for one in self.earnings)
+
+    @property
+    def taken(self) -> int:
+        return sum(one.amount for one in self.deductions)
+
+    @property
+    def net(self) -> int:
+        return self.gross - self.taken
+
+
+def _extra_lines(slip: Payslip, rate: HourlyPay, *, overtime: float,
+                 night: float, holiday: float) -> None:
+    """연장·야간·휴일 가산. 근로기준법 제56조."""
+    if overtime:
+        slip.earnings.append(PayLine(
+            f"연장 {overtime:g}시간", int(rate.overtime * overtime),
+            f"통상시급의 1.5배 {rate.overtime:,}원"))
+    if night:
+        slip.earnings.append(PayLine(
+            f"야간 {night:g}시간", int(rate.night_extra * night),
+            f"22~06시 가산분 0.5배 {rate.night_extra:,}원"))
+    if holiday:
+        eight = min(holiday, 8)
+        slip.earnings.append(PayLine(
+            f"휴일 {eight:g}시간", int(rate.holiday * eight),
+            f"1.5배 {rate.holiday:,}원"))
+        if holiday > 8:
+            over = holiday - 8
+            slip.earnings.append(PayLine(
+                f"휴일 초과 {over:g}시간", int(rate.holiday_over * over),
+                f"8시간 초과분은 2배 {rate.holiday_over:,}원"))
+
+
+def _insurance_lines(slip: Payslip, base: int) -> None:
+    got = insurance(base)
+    for one in got.rows:
+        slip.deductions.append(PayLine(one.name, one.worker,
+                                       one.note or f"{one.rate}% 중 근로자 몫"))
+
+
+def payslip(kind: str, *, monthly: float = 0, hourly: float = 0,
+            daily: float = 0, amount: float = 0, days: float = 0,
+            hours: float = MONTHLY_HOURS, weekly: float = 40.0,
+            overtime: float = 0, night: float = 0, holiday: float = 0,
+            meal: float = 0, meal_cap: float = MEAL_CAP,
+            tax: float = 0, insure: bool | None = None) -> Payslip:
+    """한 달 급여 명세를 센다. 임금 형태마다 셈법이 다르다.
+
+    정규직·계약직·기간제는 셈법이 같다 - 기간의 정함만 다르고 근로기준법은
+    똑같이 적용된다. 셈이 정말 달라지는 것은 임금 형태(월급·시급·일급)와,
+    근로자가 아닌 도급(사업소득)이다.
+
+    근로소득세는 간이세액표를 봐야 해서 요율로 셀 수 없다. 4대보험까지만
+    세고, 아는 세금은 tax 로 받아 뺀다. 일용근로소득세와 사업소득
+    원천징수는 요율이 정해져 있어 여기서 센다.
+    """
+    kind = wage_kind(kind)
+    if kind not in WAGE_KINDS:
+        raise ValueError(f"임금 형태는 {', '.join(WAGE_KINDS)} 중 하나입니다: {kind}")
+    for name, value in (("소정근로시간", hours), ("주 소정근로시간", weekly)):
+        if value < 0:
+            raise ValueError(f"{name}은 0보다 작을 수 없습니다.")
+
+    slip = Payslip(kind)
+    meal = min(max(meal, 0), meal_cap)
+
+    if kind == "도급":
+        if amount <= 0:
+            raise ValueError("도급은 지급액(amount)이 있어야 합니다.")
+        gross = int(amount)
+        slip.earnings.append(PayLine("도급 지급액", gross))
+        income = int(gross * FREELANCE_RATE / 100)
+        slip.deductions.append(PayLine("소득세", income,
+                                       f"사업소득 {FREELANCE_RATE:g}%"))
+        slip.deductions.append(PayLine("지방소득세", int(income * LOCAL_TAX_RATE),
+                                       "소득세의 10%"))
+        slip.notes.append("근로자가 아니라 4대보험·주휴수당·연장 가산이 없습니다.")
+        slip.warnings.append(
+            "회사가 정한 시간에 지시를 받으며 일한다면 이름이 도급이어도 "
+            "근로자일 수 있습니다(위장도급). 그때는 4대보험·연장 가산·"
+            "퇴직금·연차가 생깁니다.")
+        return slip
+
+    if kind == "일급":
+        if daily <= 0 or days <= 0:
+            raise ValueError("일급은 일급(daily)과 일수(days)가 있어야 합니다.")
+        gross = int(daily * days)
+        slip.earnings.append(PayLine(f"일급 {int(daily):,}원 x {days:g}일", gross))
+        per_day = max(daily - DAILY_DEDUCT, 0)
+        income = int(per_day * DAILY_TAX_RATE)
+        if income < SMALL_TAX:
+            slip.notes.append(
+                f"하루치 소득세가 {SMALL_TAX:,}원보다 적어 떼지 않습니다"
+                f"(소액부징수). 일급 {DAILY_DEDUCT + int(SMALL_TAX / DAILY_TAX_RATE):,}원"
+                " 아래면 0원입니다.")
+        else:
+            total = int(income * days)
+            slip.deductions.append(PayLine(
+                "소득세", total,
+                f"(일급 - {DAILY_DEDUCT:,}) x {DAILY_TAX_RATE * 100:g}%"))
+            slip.deductions.append(PayLine("지방소득세", int(total * LOCAL_TAX_RATE),
+                                           "소득세의 10%"))
+        if insure:
+            _insurance_lines(slip, gross - meal)
+        else:
+            slip.notes.append(
+                "4대보험은 보험별로 가입 기준이 달라 세지 않았습니다"
+                " - 산재는 하루를 일해도 적용되고, 국민연금·건강보험은 "
+                "«1개월 이상 + 월 8일 이상» 을 봅니다.")
+        if meal:
+            slip.taxfree = int(meal)
+        return slip
+
+    if kind == "시급":
+        if hourly <= 0:
+            raise ValueError("시급제는 시급(hourly)이 있어야 합니다.")
+        week = weekly_holiday_pay(int(hourly), weekly)
+        work = int(week.work_pay * WEEKS_IN_MONTH)
+        slip.earnings.append(PayLine(
+            f"기본급 (주 {weekly:g}시간)", work,
+            f"시급 {int(hourly):,}원 x 주 {weekly:g}시간 x {WEEKS_IN_MONTH}주"))
+        if week.eligible:
+            slip.earnings.append(PayLine(
+                "주휴수당", int(week.holiday_pay * WEEKS_IN_MONTH),
+                f"주 {week.paid_hours:g}시간분"))
+        else:
+            slip.notes.append(
+                f"1주 소정근로시간이 {WEEKLY_MIN_HOURS}시간 미만이라 "
+                "주휴수당이 없습니다.")
+        rate = hourly_pay(int(hourly), hours=1)   # 시급이 곧 통상시급이다
+        slip.hourly = int(hourly)
+    else:                                                      # 월급
+        if monthly <= 0:
+            raise ValueError("월급제는 월 통상임금(monthly)이 있어야 합니다.")
+        if hours <= 0:
+            raise ValueError("소정근로시간은 0보다 커야 합니다.")
+        rate = hourly_pay(int(monthly), hours=hours)
+        slip.hourly = rate.hourly
+        slip.earnings.append(PayLine(
+            f"기본급 (소정근로 {hours:g}시간)", int(monthly),
+            f"통상시급 {rate.hourly:,}원"))
+
+    _extra_lines(slip, rate, overtime=overtime, night=night, holiday=holiday)
+    if meal:
+        slip.taxfree = int(meal)
+        slip.earnings.append(PayLine("식대 (비과세)", int(meal),
+                                     f"월 {int(meal_cap):,}원까지 비과세"))
+
+    if insure is not False:
+        _insurance_lines(slip, max(slip.gross - slip.taxfree, 1))
+    if tax:
+        slip.deductions.append(PayLine("소득세+지방소득세", int(tax), "준 값 그대로"))
+    else:
+        slip.notes.append(
+            "근로소득세는 간이세액표를 봐야 해서 세지 않았습니다 "
+            "- 요율로 셀 수 없습니다.")
+
+    if slip.hourly and slip.hourly < MIN_WAGE:
+        slip.warnings.append(
+            f"통상시급 {slip.hourly:,}원은 {MIN_WAGE_YEAR}년 최저임금 "
+            f"{MIN_WAGE:,}원보다 적습니다. 다만 최저임금 위반 판단은 "
+            "산입되는 임금 범위가 따로 있어 이 수만으로 단정할 수 없습니다.")
+    return slip

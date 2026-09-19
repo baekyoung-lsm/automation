@@ -952,6 +952,91 @@ def cmd_sheet_gaps(a) -> int:
     return 1
 
 
+def cmd_sheet_budget(a) -> int:
+    """구독료·할부·생활비를 한 달 기준으로 모아 남는 돈을 센다."""
+    from datetime import date as _date
+
+    t = _load(a)
+    if t is None:
+        return 1
+    on = None
+    if a.on:
+        on = sheet.parse_date(a.on)
+        if on is None:
+            _p(f"날짜로 읽지 못했습니다: {a.on}")
+            return 1
+    income = 0.0
+    if a.income:
+        try:
+            income = life.parse_amount(a.income)
+        except ValueError as e:
+            _p(f"«--income» 을 읽지 못했습니다: {e}")
+            return 1
+
+    try:
+        got = sheet.budget(t, amount=a.amount, name=a.name or None,
+                           period=a.period or None, group=a.group or None,
+                           start=a.start or None, end=a.end or None,
+                           on=on, income=income)
+    except sheet.SheetError as e:
+        _p(str(e))
+        return 1
+
+    때 = got.on or _date.today()
+    _p(f"{Path(a.file).name}  ·  {때.year}년 {때.month}월 기준  "
+       f"·  {len(got.rows):,}건")
+    if got.skipped:
+        for line, why in got.skipped[:a.limit]:
+            _p(f"  {line}행 건너뜀: {why}")
+        if len(got.skipped) > a.limit:
+            _p(f"  ... {len(got.skipped) - a.limit:,}줄 더")
+    if not got.rows:
+        _p("셀 것이 없습니다.")
+        return 1
+    _p("")
+
+    표 = sheet.budget_table(got)
+    _grid(표.headers, [[sheet.to_text(v) for v in row]
+                       for row in 표.rows[:a.rows]], limit=a.width)
+    if len(표.rows) > a.rows:
+        _p(f"  ... {len(표.rows) - a.rows:,}줄 더")
+
+    묶음 = got.by_group()
+    if len(묶음) > 1:
+        _p("\n분류별 (이번 달 나갈 돈)")
+        _grid(["분류", "금액", "몫", "건수"],
+              [[name or "기타", f"{round(money):,}",
+                f"{money / got.spending * 100:.0f}%" if got.spending else "-",
+                f"{count}건"] for name, money, count in 묶음])
+
+    _p("")
+    _p(f"되풀이되는 것  {round(got.monthly):,}원/달  "
+       f"·  1년이면 {round(got.yearly):,}원")
+    if got.once:
+        _p(f"이번 달 한 번  {round(got.once):,}원")
+    _p(f"이번 달 나갈 돈  {round(got.spending):,}원")
+    if income:
+        _p(f"수입  {round(income):,}원")
+        남음 = got.left
+        몫 = f"  (수입의 {남음 / income * 100:.0f}%)" if income else ""
+        _p(f"남는 돈  {round(남음):,}원{몫}")
+        if 남음 < 0:
+            _p("  모자랍니다. 분류별에서 큰 것부터 보세요.")
+
+    곧 = got.ending_soon(a.months)
+    if 곧:
+        _p(f"\n{a.months}달 안에 끝나는 것")
+        for one in 곧:
+            여유 = f" - 그때부터 월 {round(one.monthly):,}원 여유" if one.monthly else ""
+            _p(f"  {one.name}  {one.left}달 뒤 ({one.ends}){여유}")
+
+    if a.out:
+        if not _may_write(a, Path(a.out)):
+            return 1
+        _p(f"\n저장: {sheet.save(표, Path(a.out))}")
+    return 0
+
+
 def cmd_sheet_leave(a) -> int:
     """명단의 입사일 열에서 연차 일수를 한꺼번에 센다."""
     from datetime import date as _date
@@ -3741,6 +3826,32 @@ def add_commands(sub) -> None:
                     help="주 기준 시간 (기본 40)")
     wt.add_argument("--limit", type=int, default=10, metavar="개")
     wt.set_defaults(func=cmd_sheet_worktime)
+
+    bg = common(sh.add_parser(
+        "budget", help="구독료·할부·생활비를 한 달 기준으로 모으기 (가계부)"))
+    bg.add_argument("file")
+    bg.add_argument("--amount", required=True, metavar="열", help="금액 열")
+    bg.add_argument("--name", default="", metavar="열",
+                    help="항목 이름 열 (없으면 첫 열)")
+    bg.add_argument("--period", default="", metavar="열",
+                    help="주기 열 - 월·년·주·분기·1회 (없으면 모두 월로 본다)")
+    bg.add_argument("--group", default="", metavar="열",
+                    help="분류 열 (구독·할부·생활…)")
+    bg.add_argument("--start", default="", metavar="열", help="시작일 열")
+    bg.add_argument("--end", default="", metavar="열",
+                    help="끝나는 날 열 (할부 마지막 달)")
+    bg.add_argument("--income", metavar="금액",
+                    help="한 달 수입 - 주면 남는 돈까지 센다 (예: 280만)")
+    bg.add_argument("--on", metavar="날짜", help="기준 달 (기본 오늘)")
+    bg.add_argument("--months", type=int, default=12, metavar="달",
+                    help="몇 달 안에 끝나는 것을 알릴지 (기본 12)")
+    bg.add_argument("-o", "--out", metavar="파일")
+    bg.add_argument("--overwrite", action="store_true",
+                    help="이미 있는 파일을 덮어쓴다")
+    bg.add_argument("--limit", type=int, default=5, metavar="개")
+    bg.add_argument("--rows", type=int, default=30, metavar="개")
+    bg.add_argument("--width", type=int, default=16, metavar="칸")
+    bg.set_defaults(func=cmd_sheet_budget)
 
     lv = sheet_out(common(sh.add_parser(
         "leave", help="입사일 열에서 연차 일수 세기 (연차 대장·퇴직 정산)")))
