@@ -42,8 +42,9 @@ class FilesTest(unittest.TestCase):
         sw = (여기 / "sw.js").read_text(encoding="utf-8")
         적힌 = set(re.findall(r'"\./([\w.-]+)"', sw))
         # sw.js 자신은 브라우저가 따로 받는다. 캐시에 넣으면 새 판이 안 깔린다.
+        # .bat 은 폰이 받는 것이 아니라 PC 에서 서버를 띄우는 도구다.
         있는 = {p.name for p in 여기.iterdir()
-                if p.is_file() and p.suffix != ".md" and p.name != "sw.js"}
+                if p.is_file() and p.suffix not in (".md", ".bat") and p.name != "sw.js"}
         self.assertEqual(있는 - 적힌, set())
 
     def test_icons_are_real_png(self):

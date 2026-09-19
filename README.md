@@ -2237,11 +2237,18 @@ CLI 와 같은 규칙을 지킨다. **미리보기를 먼저 보여주고**, 「
 담았다 — 명령 231개와 레시피 74가지를 폰에서 찾아보고 PC 에서 친다
 (`at find`·`at how` 와 같은 것이다).
 
-깔려면 http 로 받아야 한다 — 같은 와이파이에서 PC 가 띄워 주면 된다.
+**까는 법.** PWA 는 https(또는 localhost)로 받아야 설치된다. `file://` 로 열면
+화면은 돌지만 «앱 설치» 가 뜨지 않는다. 가장 쉬운 길은 **깃허브 페이지**다 —
+저장소 `Settings` → `Pages` 에서 Source 를 `Deploy from a branch`, 폴더를
+`/ (root)` 로 켜 두면 `https://<아이디>.github.io/automation/mobile/` 이 생기고,
+그 뒤로는 PC 없이 폰에서 열어 «앱 설치» 하면 된다. 한 번 열면 서비스 워커가
+캐시에 담아 비행기 모드에서도 돈다.
+
+켤 것이 없으면 PC 로 잠깐 띄워도 된다. 윈도우는 `mobile/폰에서열기.bat` 을
+더블클릭하면 폰에서 열 주소를 알려 준다.
 
 ```bash
-cd mobile
-python3 -m http.server 8000 --bind 0.0.0.0
+cd mobile && python3 -m http.server 8000 --bind 0.0.0.0   # 맥·리눅스
 # 폰 브라우저에서 http://<PC 내부 IP>:8000 -> 메뉴의 «앱 설치»
 ```
 
